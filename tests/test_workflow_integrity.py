@@ -471,7 +471,7 @@ def test_automatic_empty_surface_uses_only_short_consumer_copy(monkeypatch):
         str(value) for _kind, value in recording_st.messages
     )
     assert infos == [
-        "Für diesen Spieltag liegt aktuell keine Modellprognose vor."
+        "Für diesen Spieltag gibt es aktuell keine passende Auswahl."
     ]
     assert warnings == []
     html = "\n".join(
@@ -613,7 +613,8 @@ def test_large_automatic_inventory_keeps_all_cards_without_diagnostic_banner(mon
     assert vars(status) == before  # Operational reporting keeps its real state.
 
 
-def test_manual_surface_keeps_primary_order_and_all_forecasts(monkeypatch):
+@pytest.mark.parametrize('at_floor', [False, True])
+def test_manual_surface_filters_known_short_odds_but_keeps_exact_floor_and_order(monkeypatch, at_floor):
     now = datetime.now(timezone.utc)
     extreme = _manual_forecast("sporting-alverca-away-under-1-5", 1)
     primary = [
@@ -622,6 +623,10 @@ def test_manual_surface_keeps_primary_order_and_all_forecasts(monkeypatch):
         _manual_forecast("primary-c", 4),
     ]
     forecasts = [extreme, *primary]
+    quote = _extreme_short_quote(extreme.candidate_id, now)
+    if at_floor:
+        quote = replace(quote, consensus_odds=1.2, conservative_odds=1.2, lowest_odds=1.2, best_odds=1.2,
+                        points=tuple(replace(p, odds=1.2) for p in quote.points))
     search_date = now.date()
     available_leagues = list(ALTERNATIVE_MARKET_LEAGUES)
     scope = _market_scope_signature(
@@ -641,7 +646,7 @@ def test_manual_surface_keeps_primary_order_and_all_forecasts(monkeypatch):
         "shortlist": [],
         "model_shortlist": forecasts,
         "reference_quotes": serialize_consensus_map(
-            {extreme.candidate_id: _extreme_short_quote(extreme.candidate_id, now)}
+            {extreme.candidate_id: quote}
         ),
         "price_checked_at": now.isoformat(),
         "price_checked_count": 1,
@@ -695,8 +700,11 @@ def test_manual_surface_keeps_primary_order_and_all_forecasts(monkeypatch):
         "primary-a",
         "primary-b",
         "primary-c",
-        "sporting-alverca-away-under-1-5",
-    ]
+    ] + ([extreme.candidate_id] if at_floor else [])
+    assert snapshot['model_shortlist'] == forecasts  # Stored analyses are untouched.
+    if not at_floor:
+        assert not any(label.startswith('Sehr kurze Quoten') for label, _ in recording_st.expanders)
+        return
     short_group = next(
         (label, expanded)
         for label, expanded in recording_st.expanders
@@ -1128,7 +1136,7 @@ def test_automatic_surface_offers_all_configured_sports_and_short_empty_state(
     public_text = " ".join(str(value) for _kind, value in recording_st.messages)
     assert sport_control[1] == tuple(app.FINDER_SPORT_OPTIONS)
     assert [value for kind, value in recording_st.messages if kind == "info"] == [
-        "Für Cricket liegt aktuell keine Modellprognose vor."
+        "Für Cricket gibt es aktuell keine passende Auswahl."
     ]
     assert "Preisprüfung" not in public_text
     assert "Quote fehl" not in public_text

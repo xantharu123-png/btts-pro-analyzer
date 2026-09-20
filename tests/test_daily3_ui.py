@@ -118,7 +118,7 @@ def test_real_user_flow_start_reserve_place_settle_is_flat_and_persistent(tmp_pa
     assert _field(app, 'text_input', 'stake:').value == ''
     assert _field(app, 'text_input', 'odds:').value == ''
     _field(app, 'text_input', 'stake:').set_value('20,00')
-    _field(app, 'text_input', 'odds:').set_value('1,12')
+    _field(app, 'text_input', 'odds:').set_value('1,20')
     _field(app, 'checkbox', 'exact:').check()
     _button(app, 'Einsatz vormerken').click().run()
     assert not app.exception and not app.error
@@ -127,33 +127,38 @@ def test_real_user_flow_start_reserve_place_settle_is_flat_and_persistent(tmp_pa
     _field(app, 'checkbox', 'placed:').check()
     _button(app, 'Als platziert bestätigen').click().run()
     assert not app.exception and not app.error
-    _field(app, 'text_input', 'returned:').set_value('22,40')
+    _field(app, 'text_input', 'returned:').set_value('24,00')
     _field(app, 'text_input', 'settled-ref:').set_value('Abrechnung nach Gebühren')
     _field(app, 'checkbox', 'settled-confirm:').check()
     _button(app, 'Abrechnung bestätigen').click().run()
     assert not app.exception and not app.error
-    assert any(m.label == 'Verfügbar' and m.value == 'CHF 52.40' for m in app.metric)
+    assert any(m.label == 'Verfügbar' and m.value == 'CHF 54.00' for m in app.metric)
     app.run()
-    assert any(m.label == 'Netto abgerechnet' and m.value == 'CHF 2.40' for m in app.metric)
+    assert any(m.label == 'Netto abgerechnet' and m.value == 'CHF 4.00' for m in app.metric)
 
 
-def test_too_low_current_quote_warns_without_hiding_selection_or_money_flow(tmp_path):
+def test_current_quote_below_floor_has_no_suggestion_or_reservation_form(tmp_path):
     app = AppTest.from_function(
         _render, args=(str(tmp_path/'daily3.db'), False, 'too_low')
     ).run(timeout=30)
     assert not app.exception
     assert app.session_state['fixture_price_code'] == 'TOO_LOW'
-    assert any(
-        'Quote' in warning.value
-        and ('unter' in warning.value.lower() or 'niedrig' in warning.value.lower())
-        for warning in app.warning
-    )
-    assert any('Heimteam 1' in item.value for item in app.subheader)
-    assert any('Kaderstand nicht belegt' in item.value for item in app.markdown)
-    assert not any('Modell-Auswahl bleibt unverändert' in item.value for item in app.markdown)
+    assert not any('Heimteam 1' in item.value for item in app.subheader)
     _button(app, 'CHF 50 Tagesbudget bestätigen').click().run()
     assert not app.exception
-    assert any(button.label == 'Einsatz vormerken' for button in app.button)
+    assert not any(button.label == 'Einsatz vormerken' for button in app.button)
+
+
+def test_manually_entered_quote_below_floor_is_rejected_without_budget_debit(tmp_path):
+    app = AppTest.from_function(_render, args=(str(tmp_path/'daily3.db'),)).run(timeout=30)
+    _button(app, 'CHF 50 Tagesbudget bestätigen').click().run()
+    _field(app, 'text_input', 'stake:').set_value('20')
+    _field(app, 'text_input', 'odds:').set_value('1,12')
+    _field(app, 'checkbox', 'exact:').check()
+    _button(app, 'Einsatz vormerken').click().run()
+    assert not app.exception
+    assert any('unter 1,20' in error.value for error in app.error)
+    assert any(m.label == 'Verfügbar' and m.value == 'CHF 50.00' for m in app.metric)
 
 
 def test_missing_or_stale_quote_status_does_not_change_model_selection(tmp_path):

@@ -32,6 +32,7 @@ from market_consensus import (
     exact_market_target,
     fetch_football_consensus,
     quote_matches_candidate,
+    quote_below_publication_floor,
     serialize_consensus_map,
     wettfinder_consensus,
     wettfinder_reference_price_status,
@@ -895,6 +896,11 @@ def create_alternative_markets_tab_extended(
             displayed_by_id.get(candidate_id),
         )
     }
+    price_now = datetime.now(timezone.utc)
+    had_model_rows = bool(displayed_rows)
+    displayed_rows = [candidate for candidate in displayed_rows
+                      if not quote_below_publication_floor(reference_quotes.get(candidate.candidate_id),
+                                                           candidate=candidate, now=price_now)]
     primary_rows, extreme_short_rows = partition_consumer_forecasts(
         displayed_rows,
         quote_for=lambda candidate: reference_quotes.get(candidate.candidate_id),
@@ -910,10 +916,10 @@ def create_alternative_markets_tab_extended(
     )
 
     if not displayed_rows:
-        _render_consumer_no_tip(
-            snapshot,
-            day_label=result_day,
-        )
+        if had_model_rows:
+            st.info('Aktuell keine passende Auswahl ab Quote 1,20.')
+        else:
+            _render_consumer_no_tip(snapshot, day_label=result_day)
     else:
         if not featured_rows:
             st.info(
@@ -938,8 +944,8 @@ def create_alternative_markets_tab_extended(
             st.info(f"{found_label} – aktuell noch kein spielbarer Tipp.")
         st.caption(
             "Die Quote bewertet den Wettpreis, nicht den möglichen "
-            "Spielausgang. Fehlt eine belastbare Vergleichsquote oder ist "
-            "sie zu niedrig, bleibt die Modell-Auswahl sichtbar."
+            "Spielausgang. Bekannte Quoten unter 1,20 werden ausgefiltert; "
+            "fehlende Quoten bleiben offen."
         )
         def render_rows(rows, *, start_index: int) -> None:
             candidates = [_strict_market_candidate(candidate) for candidate in rows]

@@ -2,8 +2,8 @@
 
 This module deliberately owns no Streamlit state and does not evaluate a bet.
 It turns loader-approved model rows and an already exact-bound consensus quote
-into safe consumer-facing data, without letting price change model order or
-probability.
+into safe consumer-facing data. The user floor excludes known offers below
+1.20 after coherence; price never changes model probability or ranks survivors.
 """
 
 from __future__ import annotations
@@ -32,6 +32,7 @@ from market_consensus import (
     MarketConsensus,
     ReferencePriceStatus,
     quote_matches_candidate,
+    quote_below_publication_floor,
     wettfinder_consensus,
     wettfinder_reference_price_status,
 )
@@ -100,6 +101,7 @@ class WettfinderCard:
     # Separate from evidence qualification: coherence must still choose the
     # model's modal direction before any presentation-interest comparison.
     highlight_comparison: Optional[Comparison] = None
+    quote_floor_excluded: bool = False
 
 
 @dataclass(frozen=True)
@@ -496,6 +498,8 @@ def build_wettfinder_card(
         compact_analysis=build_compact_analysis(signal, analysis, now=now),
         highlight_comparison=(football_form_comparison(signal, now=now)
                               if not highlight_reason else None),
+        quote_floor_excluded=quote_below_publication_floor(
+            normalized_quote, candidate=wettfinder_quote_binding_candidate(signal), now=now),
     )
 
 
@@ -522,7 +526,7 @@ def _round_robin_by_sport(cards: Iterable[WettfinderCard]) -> list[WettfinderCar
 
 
 def _can_feature(card: WettfinderCard) -> bool:
-    if not card.highlight_eligible:
+    if not card.highlight_eligible or card.quote_floor_excluded:
         return False
     if _token(card.sport) in {"fussball", "football"}:
         return card.highlight_comparison is not None
@@ -598,7 +602,9 @@ def compose_wettfinder_catalog(
         or max_featured < 1
     ):
         raise ValueError("max_featured must be a positive integer")
-    original = select_consumer_forecasts(cards)
+    # Price may only remove a coherent proposal, never select its opposite.
+    # Keep every input model unchanged, including the hidden low-price rows.
+    original = [card for card in select_consumer_forecasts(cards) if not card.quote_floor_excluded]
     requested = _token(sport_filter)
     if requested in _ALL_SPORT_FILTERS:
         ordered = _round_robin_by_sport(original)

@@ -8,6 +8,7 @@ head is not detectable without an external checkpoint.
 from contextlib import contextmanager
 from copy import deepcopy
 from datetime import date, datetime, timezone
+from decimal import Decimal
 import hashlib
 import hmac
 import json
@@ -19,6 +20,7 @@ from zoneinfo import ZoneInfo
 from daily3_math import (Daily3Bet, Daily3Error, balance, cents, decimal_odds,
                          has_unfinished_bets, reserve_allowed)
 from daily3_identity import events_overlap, validate_guard
+from betting_math import MINIMUM_RECOMMENDED_DECIMAL_ODDS
 
 _ID = re.compile(r'[a-f0-9]{32}\Z', re.ASCII)
 _ZERO = '0'*64
@@ -274,6 +276,11 @@ class Daily3Store:
                     con.execute('COMMIT')
                     return deepcopy(days)
                 _require(previous_at is None or now >= previous_at, 'Die Serverzeit liegt vor der letzten Buchung.')
+                # New reservation policy only. Never apply it in historical
+                # replay, external records or retries of existing contracts.
+                if kind == 'reserve':
+                    _require(Decimal(decimal_odds(args.get('odds'))) >= Decimal(str(MINIMUM_RECOMMENDED_DECIMAL_ODDS)),
+                             'Quoten unter 1,20 sind für neue Vormerkungen gesperrt.')
                 _apply(days, payload)
                 raw = _canonical(payload)
                 _require(len(raw) <= 16384, 'Die Buchung ist zu groß.')

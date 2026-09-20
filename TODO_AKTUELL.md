@@ -1,5 +1,30 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## Neue Nutzerregel 20.09.2026 – bekannte Quoten unter 1,20 aussortieren
+
+- Diese ausdrückliche Nutzerentscheidung ersetzt die bisherige ausnahmslos
+  quotenunabhängige Sichtbarkeit: automatischer Wettfinder, eigene Fußballsuche
+  und Daily3 entfernen Vorschläge, deren beste exakt passende aktuelle
+  Anbieterquote unter 1,20 liegt. Genau 1,20 ist erlaubt. Fehlende/veraltete/
+  fremde Quoten bleiben unbekannt; weder Modellchance noch Rechenpreis werden
+  als angebotene Quote ausgegeben. Keine neuen kostenpflichtigen API-Abfragen.
+- Reihenfolge: erst widerspruchsfreie Modellrichtung, danach Preisfilter,
+  danach Platzvergabe. Der Filter darf nicht auf die Gegenseite umschalten.
+  Alle gespeicherten Prognosen und Wahrscheinlichkeiten bleiben unverändert.
+- Daily3 lehnt neue Vormerkungen mit manuell eingegebener Quote unter 1,20
+  transaktional ab. Historische Buchungen, deren Wiederholungsbestätigung,
+  Platzierung/Abrechnung und Nachträge tatsächlich externer Wetten bleiben
+  lesbar und gültig. Keine Schemaänderung oder Umschreibung der Historie.
+- 811 Tests plus 26 Untertests bestanden. Grenzwert ohne Aufrundungsloch,
+  einzelne Anbieter, veraltete Hochquoten, falsche Zuordnungen, Tennis,
+  echte UI-Eingabe und vorhandene Altverträge separat abgesichert.
+- Rein lesende VPS-Probe 11:15 CEST: 619 Eingangssignale, 336 kohärente
+  Auswahlen unverändert; in diesem Bestand keine aktuelle exakt passende
+  Quote unter 1,20. Daher nicht behaupten, jetzt seien dort massenhaft
+  Auswahlen entfernt worden. Ohne Quote lässt sich dieser Filter nicht prüfen.
+- Nur Produkt-/Preisfilter, kein Nachweis besserer Wettqualität. Unveränderte
+  Restarbeiten an Tennis-Laufzeit sowie Verletzungs-/Müdigkeits-/Wetterwirkung.
+
 ## Hervorhebungen 20.09.2026 – spielbezogener Vergleich auch im Wettfinder
 
 - Fehler am echten Bestand reproduziert: Corinthians–Fluminense, Auswärtsteam

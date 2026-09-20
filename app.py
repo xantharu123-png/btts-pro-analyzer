@@ -4795,9 +4795,9 @@ def _render_automated_daily_selection() -> None:
     )
     if not catalog.featured and not catalog.additional:
         if sport_filter == "Alle":
-            message = "Für diesen Spieltag liegt aktuell keine Modellprognose vor."
+            message = "Für diesen Spieltag gibt es aktuell keine passende Auswahl."
         else:
-            message = f"Für {sport_filter} liegt aktuell keine Modellprognose vor."
+            message = f"Für {sport_filter} gibt es aktuell keine passende Auswahl."
         st.info(message)
         return
 

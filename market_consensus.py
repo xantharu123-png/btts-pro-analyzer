@@ -479,6 +479,25 @@ def wettfinder_consensus(
     )
 
 
+def quote_below_publication_floor(quote: object, *, candidate: object, now: Optional[datetime] = None) -> bool:
+    """Exclude only an exact, fresh observed best offer below the user floor.
+
+    This is a downstream display rule, not a probability/value calculation.
+    Missing, stale, foreign or malformed evidence never implies short odds.
+    One identified current offer suffices to observe a price, even when it
+    cannot supply the three-book confirmation required for an executable tip.
+    """
+    try:
+        quote = MarketConsensus.from_dict(quote.to_dict() if isinstance(quote, MarketConsensus) else quote)
+    except (TypeError, ValueError, AttributeError):
+        return False
+    if quote is None or not quote_matches_candidate(quote, candidate) or not _wettfinder_fetch_is_fresh(quote, now):
+        return False
+    current = wettfinder_consensus(quote, now=now)
+    # Compare unrounded native offers, not the six-decimal display aggregate.
+    return current is not None and max(p.odds for p in current.points) < MINIMUM_RECOMMENDED_DECIMAL_ODDS
+
+
 def _wettfinder_quote_has_execution_proof(
     quote: MarketConsensus,
 ) -> bool:
@@ -1767,6 +1786,7 @@ __all__ = [
     "parse_h2h_event_consensus",
     "parse_fixture_consensus",
     "quote_matches_candidate",
+    "quote_below_publication_floor",
     "reference_price_status",
     "serialize_consensus_map",
     "wettfinder_consensus",

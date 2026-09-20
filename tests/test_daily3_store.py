@@ -36,7 +36,7 @@ def command(store, kind, day=DAY, scope=SCOPE, action_id=None, **args):
 
 def reserve(store, amount=2000, event='football:fixture:1', **kwargs):
     bet_id = ident()
-    command(store, 'reserve', bet_id=bet_id, stake_cents=amount, odds='1.12', snapshot=snapshot(event), **kwargs)
+    command(store, 'reserve', bet_id=bet_id, stake_cents=amount, odds='1.2', snapshot=snapshot(event), **kwargs)
     return bet_id
 
 
@@ -166,12 +166,12 @@ def test_immutable_forecast_and_odds_are_not_overwritten_by_caller_or_refresh(st
     command(store, 'start')
     snap = snapshot()
     bet = ident()
-    command(store, 'reserve', bet_id=bet, stake_cents=1000, odds='1.12', snapshot=snap)
+    command(store, 'reserve', bet_id=bet, stake_cents=1000, odds='1.2', snapshot=snap)
     snap['model_probability'] = .99
     history = store.history(SCOPE)
     history[DAY]['bets'][bet]['odds'] = '9'
     assert store.history(SCOPE)[DAY]['bets'][bet]['snapshot']['model_probability'] == .6
-    assert store.history(SCOPE)[DAY]['bets'][bet]['odds'] == '1.12'
+    assert store.history(SCOPE)[DAY]['bets'][bet]['odds'] == '1.2'
 
 
 @pytest.mark.parametrize('attack', ['payload', 'truncate', 'half_sequence', 'drop_head', 'swap_scope'])
@@ -238,9 +238,9 @@ def test_native_event_upgrade_cannot_bypass_transactional_slot_guard(store, monk
     weak = replace(native, fixture_source=None, provider_event_id=None, competitor_a_id=None, competitor_b_id=None)
     first = daily3_choices([weak], now=NOW)[0].snapshot()
     upgraded = daily3_choices([native], now=NOW)[0].snapshot()
-    command(store, 'reserve', bet_id=ident(), stake_cents=1000, odds='1.12', snapshot=first)
+    command(store, 'reserve', bet_id=ident(), stake_cents=1000, odds='1.2', snapshot=first)
     with pytest.raises(Daily3Error, match='Spielzuordnung'):
-        command(store, 'reserve', bet_id=ident(), stake_cents=1000, odds='1.12', snapshot=upgraded)
+        command(store, 'reserve', bet_id=ident(), stake_cents=1000, odds='1.2', snapshot=upgraded)
     assert day_balance(store.history(SCOPE)[DAY]).used_slots == 1
 
 
@@ -254,7 +254,7 @@ def test_late_external_prior_day_liability_blocks_an_already_started_new_day(sto
     bet = ident()
     command(store, 'external', bet_id=bet, stake_cents=1000, odds='1.12', snapshot=external,
             reference='Alter tatsächlich platzierter Beleg', reason='Verspäteter Nachtrag')
-    today_bet = dict(bet_id=ident(), stake_cents=1000, odds='1.12', snapshot=snapshot('new-event', now=tomorrow))
+    today_bet = dict(bet_id=ident(), stake_cents=1000, odds='1.2', snapshot=snapshot('new-event', now=tomorrow))
     with pytest.raises(Daily3Error, match='Vortags'):
         command(store, 'reserve', day='2026-09-14', **today_bet)
     command(store, 'settle', bet_id=bet, revision=1, returned_cents=0, reference='Tatsächlich abgerechnet')
