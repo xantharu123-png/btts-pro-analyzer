@@ -228,10 +228,30 @@ def _completed_atp_rows(frame: pd.DataFrame) -> pd.DataFrame:
     return frame[complete].copy()
 
 
+def _market_result_rows(frame: pd.DataFrame) -> pd.DataFrame:
+    """A wholly empty result slot is schedule metadata, not a played match.
+
+    Keep any partial result for the ordinary validator to reject. In particular
+    a terminal Comment or even a zero set/score is not an empty placeholder.
+    Price fields never decide whether a sporting result exists.
+    """
+    if not {"Winner", "Loser"}.issubset(frame.columns):
+        return frame
+    fields = ("Winner", "Loser", "Comment", "Wsets", "Lsets") + tuple(
+        f"{side}{number}" for number in range(1, 6) for side in ("W", "L"))
+    empty = pd.Series(True, index=frame.index)
+    for field in fields:
+        if field in frame:
+            empty &= frame[field].isna() | frame[field].astype(str).str.strip().eq("")
+    return frame.loc[~empty].copy()
+
+
 def _validate_market_results(payload: bytes) -> pd.DataFrame:
     # WTA ratings consume these result fields, never bookmaker prices.
     required = ("Date", "Winner", "Loser", "Surface")
-    frame = _training_table(payload, required, excel=True)
+    frame = _market_result_rows(_training_table(payload, required, excel=True))
+    if frame.empty:
+        raise ValueError("training source contains no result rows")
     _require_values(frame, required)
     if pd.to_datetime(frame["Date"], errors="coerce").isna().any():
         raise ValueError("training source has invalid result dates")
@@ -571,7 +591,7 @@ def load_market_odds(
             if refresh_year:
                 raise
             continue
-        frame = pd.read_excel(path)
+        frame = _market_result_rows(pd.read_excel(path))
         frame_dates = pd.to_datetime(frame["Date"], errors="coerce", utc=True)
         frame = frame[frame_dates.dt.year.eq(year)].copy()
         keep = [c for c in _ODDS_COLUMNS if c in frame.columns]

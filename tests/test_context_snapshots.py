@@ -528,7 +528,8 @@ def test_shared_connection_uses_a1_foreign_keys_busy_timeout_and_trust_checks(tm
         return connection
     monkeypatch.setattr(context_snapshots, "_artifact_connect", checked)
     compute_once(tmp_path / "models.db", "a" * 64, lambda: {"x": 1})
-    assert visited == [(1, 5000)]
+    from model_artifacts import SQLITE_BUSY_TIMEOUT_SECONDS
+    assert visited == [(1, SQLITE_BUSY_TIMEOUT_SECONDS * 1000)]
 
 
 @pytest.mark.parametrize("value", ["e" * 64, b"e" * 64, "A" * 64, "123", 7])

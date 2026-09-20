@@ -40,6 +40,56 @@ def response(payload):
     return SimpleNamespace(content=payload, raise_for_status=lambda: None)
 
 
+def result_file_with_empty_final(**changes):
+    final = {"Date": "2026-09-20", "Tournament": "SP Open", "Round": "The Final",
+             "Surface": "Hard", "Winner": None, "Loser": None, "Comment": None,
+             "Wsets": None, "Lsets": None, "W1": None, "L1": None, **changes}
+    complete = {"Date": "2026-09-19", "Winner": "Actual Winner", "Loser": "Actual Loser",
+                "Surface": "Hard", "Comment": "Completed", "Wsets": 2, "Lsets": 0}
+    output = BytesIO()
+    pd.DataFrame([complete, final]).to_excel(output, index=False)
+    return output.getvalue()
+
+
+@pytest.mark.parametrize("refresh", [False, True])
+def test_empty_scheduled_final_does_not_block_results_or_enter_training(tmp_path, monkeypatch, refresh):
+    payload = result_file_with_empty_final()
+    path = tmp_path / "wta_odds_2026.xlsx"
+    path.write_bytes(payload)
+    monkeypatch.setattr(data_loader.requests, "get", lambda *a, **k: response(payload))
+    rows = data_loader.load_market_odds((2026,), "wta", tmp_path,
+        refresh_current=refresh, current_year=2026)
+    assert rows["Winner"].tolist() == ["Actual Winner"]
+    assert path.read_bytes() == payload  # The actual provider file is retained.
+    assert data_loader._market_result_coverage(payload, year=2026,
+        as_of=pd.Timestamp("2026-09-20T12:00Z")) == (1, pd.Timestamp("2026-09-19T00:00Z"))
+
+
+@pytest.mark.parametrize("changes", [
+    {"Loser": "Known Player"}, {"Winner": "Known Player"}, {"Comment": "Completed"},
+    {"Comment": "Retired"}, {"Comment": "Walkover"}, {"Wsets": 0}, {"L1": 1},
+])
+def test_partial_result_is_not_discarded_as_an_empty_schedule(tmp_path, monkeypatch, changes):
+    path = tmp_path / "wta_odds_2026.xlsx"
+    previous = xlsx("Previous Winner", "2026-09-18")
+    path.write_bytes(previous)
+    payload = result_file_with_empty_final(**changes)
+    monkeypatch.setattr(data_loader.requests, "get", lambda *a, **k: response(payload))
+    with pytest.raises(ValueError, match="missing (Winner|Loser)"):
+        data_loader.load_market_odds((2026,), "wta", tmp_path,
+            refresh_current=True, current_year=2026)
+    assert path.read_bytes() == previous
+
+
+def test_empty_schedule_alone_is_not_completed_training_coverage():
+    frame = pd.read_excel(BytesIO(result_file_with_empty_final())).tail(1)
+    output = BytesIO()
+    frame.to_excel(output, index=False)
+    with pytest.raises(ValueError):
+        data_loader._market_result_coverage(output.getvalue(), year=2026,
+            as_of=pd.Timestamp("2026-09-20T12:00Z"))
+
+
 @pytest.fixture(autouse=True)
 def forbid_real_network(monkeypatch):
     monkeypatch.setattr(data_loader.requests, "get", lambda *a, **k: pytest.fail("unexpected external request"))

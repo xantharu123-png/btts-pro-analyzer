@@ -45,6 +45,11 @@ WATCH_JSON = TENNIS_CALIBRATION_WATCH_PATH
 
 MAX_STATE_AGE_DAYS = 7
 WATCH_WEEKDAY = 0  # Montag: nach den Wochenend-Matches
+# Production measurement (2026-09-20): 593k immutable references and 74
+# originals used 7.7 min for the full physical check alone. The daily scan
+# also prepares and publishes every original; 15 min cannot cover that work.
+# Keep a bounded budget: all Monday steps total 175 min, below systemd's 3h.
+DAILY_SCAN_TIMEOUT_SECONDS = 35 * 60
 
 CREATE_NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
 
@@ -135,7 +140,8 @@ def main() -> int:
     # 2) Tages-Scan
     scan_ok = True
     if not args.skip_scan:
-        scan_ok = run_step(log, "Tages-Scan", "tennis_daily.py", [], timeout=900) is not None
+        scan_ok = run_step(log, "Tages-Scan", "tennis_daily.py", [],
+                           timeout=DAILY_SCAN_TIMEOUT_SECONDS) is not None
         pipeline_ok = pipeline_ok and scan_ok
 
     monday = date.today().weekday() == WATCH_WEEKDAY or args.force_monday

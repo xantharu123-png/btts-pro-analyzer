@@ -51,6 +51,14 @@ _REVIEWED_RECONCILED_DURATION_MANIFEST = {
        if name != "tennis/data_loader.py"},
     "tennis/data_loader.py": frozenset({"6f7d30e03204b6202e1e0572d71f10268fffaac7106efae87f133566ee6c1433", "2fc405c199b5ce7f0bd8d0e3aae4524234cdc07671e754584ba06eaeb4d6649d"}),
 }
+_REVIEWED_RESULTS_PLACEHOLDER_MANIFEST = {
+    # Result-only ingestion change after eea0703b5dd96b51f458b38c61d82e85ae6d19ea.
+    # The player resolver and all five prediction owners are unchanged. Replay
+    # uses the saved predecision state, never a new download or training run.
+    **{name: hashes for name, hashes in _REVIEWED_RECONCILED_DURATION_MANIFEST.items()
+       if name != "tennis/data_loader.py"},
+    "tennis/data_loader.py": frozenset({"88fb701b7462d08391a2f4bcd4e8e32525f9fa4afa6aa94af0e949eeeb986c93", "bf2abc8cdade308363f477b37fb15a6d16554fcf12d4b218bd0f033116ca32c4"}),
+}
 
 
 def _same(actual, expected, label):
@@ -78,18 +86,22 @@ def _code_manifest_supported(recorded, running):
         return False
     if all(recorded[name] in running[name] for name in CODE_PATHS):
         return True
-    # Closed compatibility for the reviewed locator and duration transitions.
-    # The complete executing manifest must be the reconciled-duration build,
-    # and the recorded manifest must be one exact predecessor. Mixed, arbitrary
-    # data-loader or future source recipes receive no historical allowance.
-    return (
-        all(_REVIEWED_RECONCILED_DURATION_MANIFEST[name] <= running[name]
-            for name in CODE_PATHS)
-        and any(all(recorded[name] in manifest[name] for name in CODE_PATHS)
-                for manifest in (_REVIEWED_LOCATOR_OLD_MANIFEST,
-                                 _REVIEWED_PRE_DURATION_MANIFEST,
-                                 _REVIEWED_DURATION_MANIFEST))
+    # Closed, directional compatibility for exact reviewed transitions. A new
+    # loader may replay the old saved states; older code does not thereby gain
+    # permission to replay future originals. Unknown/mixed owners still fail.
+    duration_predecessors = (_REVIEWED_LOCATOR_OLD_MANIFEST,
+                             _REVIEWED_PRE_DURATION_MANIFEST,
+                             _REVIEWED_DURATION_MANIFEST)
+    transitions = (
+        (_REVIEWED_RECONCILED_DURATION_MANIFEST, duration_predecessors),
+        (_REVIEWED_RESULTS_PLACEHOLDER_MANIFEST,
+         (*duration_predecessors, _REVIEWED_RECONCILED_DURATION_MANIFEST)),
     )
+    return any(
+        all(executor[name] <= running[name] for name in CODE_PATHS)
+        and any(all(recorded[name] in manifest[name] for name in CODE_PATHS)
+                for manifest in predecessors)
+        for executor, predecessors in transitions)
 
 
 def _native_event(row):

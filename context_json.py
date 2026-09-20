@@ -16,6 +16,18 @@ def _encoded_references(values: tuple[str, ...]) -> bytes:
     return _canonical_bytes(values)
 
 
+@lru_cache(maxsize=128)
+def _encoded_reference_chunk(values: tuple[str, ...]) -> bytes:
+    return _canonical_bytes(values)
+
+
+def _large_reference_bytes(refs):
+    # No all-history cache cliff: keep bounded chunks instead of admitting an
+    # unbounded single cache entry. Every actual value remains in the key/JSON.
+    return b'[' + b','.join(_encoded_reference_chunk(tuple(refs[start:start + 8192]))[1:-1]
+        for start in range(0, len(refs), 8192)) + b']'
+
+
 def canonical_context_bytes(value: object) -> bytes:
     if type(value) is not dict or any(type(key) is not str for key in value):
         return _canonical_bytes(value)
@@ -24,9 +36,10 @@ def canonical_context_bytes(value: object) -> bytes:
         refs = value.get(name)
         # Bound both entry count and individual bytes. Arbitrary strings or
         # non-reference JSON always use the original encoder unchanged.
-        if (type(refs) is list and 128 <= len(refs) <= 500_000
+        if (type(refs) is list and 128 <= len(refs)
                 and all(type(ref) is str and len(ref) == 64 and ref.isascii() for ref in refs)):
-            cached[name] = _encoded_references(tuple(refs))
+            cached[name] = (_encoded_references(tuple(refs)) if len(refs) <= 500_000
+                            else _large_reference_bytes(refs))
     if not cached:
         if set(value) == {"key", "payload"} and type(value["payload"]) is dict:
             return (b'{"key":' + _canonical_bytes(value["key"]) + b',"payload":'

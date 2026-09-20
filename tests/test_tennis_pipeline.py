@@ -33,6 +33,19 @@ def test_python_executable_falls_back_to_current_interpreter(
     assert run_daily_pipeline.python_executable() == current
 
 
+def test_complete_scan_has_bounded_production_capacity_within_service_budget(monkeypatch, tmp_path):
+    monkeypatch.setattr(run_daily_pipeline, "LOG_DIR", tmp_path / "logs")
+    monkeypatch.setattr(sys, "argv", ["pipeline", "--skip-watch", "--skip-report"])
+    calls = []
+    def run(log, name, script, args, timeout):
+        calls.append((script, timeout))
+        return "complete"
+    monkeypatch.setattr(run_daily_pipeline, "run_step", run)
+    assert run_daily_pipeline.main() == 0
+    assert calls == [("rebuild_state.py", 900), ("tennis_daily.py", 2100)]
+    assert 900 + run_daily_pipeline.DAILY_SCAN_TIMEOUT_SECONDS + 7200 + 300 < 3 * 3600
+
+
 def test_requested_rebuild_failure_sets_nonzero_exit(monkeypatch) -> None:
     with tempfile.TemporaryDirectory(dir=".") as tmp:
         monkeypatch.setattr(run_daily_pipeline, "LOG_DIR", Path(tmp) / "logs")

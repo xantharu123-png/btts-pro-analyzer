@@ -66,6 +66,41 @@ def test_random_reference_unions_preserve_old_snapshot_identity():
         assert _merged_refs(left, right, descriptor) == tuple(sorted(set(left + right + [descriptor])))
 
 
+def test_large_reference_history_reuses_bounded_chunks_without_changing_bytes():
+    from context_json import _encoded_reference_chunk
+    _encoded_reference_chunk.cache_clear()
+    payload = {"observation_refs": refs(500_001), "a": "tennis", "z": -0.0}
+    before = canonical_context_bytes(payload)
+    assert before == canonical_bytes(payload)
+    cold = _encoded_reference_chunk.cache_info()
+    assert canonical_context_bytes(deepcopy(payload)) == before
+    warm = _encoded_reference_chunk.cache_info()
+    assert warm.misses == cold.misses and warm.hits > cold.hits
+    payload["observation_refs"][-1] = "f" * 64
+    assert canonical_context_bytes(payload) == canonical_bytes(payload) != before
+    assert _encoded_reference_chunk.cache_info().currsize <= 128
+
+
+def test_large_reference_validation_reuses_values_but_rejects_all_mutations():
+    import context_reference_sets as sets
+    from context_models.contracts import ContextContractError
+    values = refs(500_001)
+    sets._validated_reference_chunk.cache_clear()
+    assert sets.sorted_reference_set(values, "observed") == frozenset(values)
+    cold = sets._validated_reference_chunk.cache_info()
+    assert sets.unique_reference_tuple(tuple(values)) == tuple(values)
+    warm = sets._validated_reference_chunk.cache_info()
+    assert warm.misses == cold.misses and warm.hits > cold.hits
+    for changed in (values[:-1] + [values[-2]], list(reversed(values)),
+                    values[:-1] + ["Z" * 64], values[:-1] + [True]):
+        with pytest.raises(ContextContractError):
+            sets.sorted_reference_set(changed, "observed")
+    assert sets.unique_reference_tuple(tuple(reversed(values))) == tuple(values)
+    with pytest.raises(ContextContractError):
+        sets.unique_reference_tuple(tuple(values[:-1] + [values[-2]]))
+    assert sets._validated_reference_chunk.cache_info().currsize <= 256
+
+
 @pytest.mark.parametrize("change", ["duplicate", "reverse", "bad_digest", "foreign_type"])
 def test_reused_serialization_never_skips_reference_validation(change):
     import context_transport as transport

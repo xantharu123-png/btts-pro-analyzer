@@ -63,9 +63,19 @@ _REVIEWED_DURATION_SOURCE_MANIFEST = {
         "CRLF": "6feb45af9d6a9b6398682665f1ec8c6041dc8e4da9c3b2c65caa083f2c9663ab",
     },
 }
+_REVIEWED_RECONCILED_SOURCE_MANIFEST = {
+    **{name: variants for name, variants in _REVIEWED_OLD_SOURCE_MANIFEST.items()
+       if name != "tennis/data_loader.py"},
+    "tennis/data_loader.py": {
+        "LF": "6f7d30e03204b6202e1e0572d71f10268fffaac7106efae87f133566ee6c1433",
+        "CRLF": "2fc405c199b5ce7f0bd8d0e3aae4524234cdc07671e754584ba06eaeb4d6649d",
+    },
+}
 _REVIEWED_PRIOR_SOURCE_MANIFESTS = (
     _REVIEWED_OLD_SOURCE_MANIFEST,
     _REVIEWED_PRE_DURATION_SOURCE_MANIFEST,
+    _REVIEWED_DURATION_SOURCE_MANIFEST,
+    _REVIEWED_RECONCILED_SOURCE_MANIFEST,
 )
 
 # Canonical ORIGINALs emitted by the unmodified predecessor commits in an
@@ -294,11 +304,28 @@ def test_prior_reviewed_duration_manifest_remains_runtime_compatible(monkeypatch
     assert "unrecognized-artifact-schema" not in verify_context_database(db)["limitations"]
 
 
+def test_results_loader_transition_is_exact_and_not_reverse_compatible():
+    from context_runtime_tennis import (
+        _code_manifest_supported, _code_variants,
+        _REVIEWED_RECONCILED_DURATION_MANIFEST,
+        _REVIEWED_RESULTS_PLACEHOLDER_MANIFEST,
+    )
+    running = _code_variants()
+    assert all(hashes <= running[name]
+               for name, hashes in _REVIEWED_RESULTS_PLACEHOLDER_MANIFEST.items())
+    previous = {name: variants["LF"]
+                for name, variants in _REVIEWED_RECONCILED_SOURCE_MANIFEST.items()}
+    current = {name: sorted(hashes)[0]
+               for name, hashes in _REVIEWED_RESULTS_PLACEHOLDER_MANIFEST.items()}
+    assert _code_manifest_supported(previous, running)
+    assert not _code_manifest_supported(current, _REVIEWED_RECONCILED_DURATION_MANIFEST)
+
+
 @pytest.mark.parametrize("tour", ["ATP", "WTA"])
 @pytest.mark.parametrize("newline", ["LF", "CRLF"])
 @pytest.mark.parametrize("keep_snapshot", [False, True])
 @pytest.mark.parametrize("source_manifest", _REVIEWED_PRIOR_SOURCE_MANIFESTS,
-                         ids=("locator", "pre-duration"))
+                         ids=("locator", "pre-duration", "duration", "reconciled"))
 def test_reviewed_additive_loader_transition_preserves_exact_historical_original(
         monkeypatch, tmp_path, tour, newline, keep_snapshot, source_manifest):
     db, _ = _stored(monkeypatch, tmp_path, tours=(tour,))
@@ -328,7 +355,7 @@ def test_reviewed_additive_loader_transition_preserves_exact_historical_original
 
 
 @pytest.mark.parametrize("source_manifest", _REVIEWED_PRIOR_SOURCE_MANIFESTS,
-                         ids=("locator", "pre-duration"))
+                         ids=("locator", "pre-duration", "duration", "reconciled"))
 @pytest.mark.parametrize("source_name", sorted(_REVIEWED_OLD_SOURCE_MANIFEST))
 def test_reviewed_historical_manifest_rejects_unknown_source_digest_read_only(
         monkeypatch, tmp_path, source_name, source_manifest):
@@ -347,7 +374,7 @@ def test_reviewed_historical_manifest_rejects_unknown_source_digest_read_only(
 
 
 @pytest.mark.parametrize("source_manifest", _REVIEWED_PRIOR_SOURCE_MANIFESTS,
-                         ids=("locator", "pre-duration"))
+                         ids=("locator", "pre-duration", "duration", "reconciled"))
 @pytest.mark.parametrize("drift_name", sorted(_REVIEWED_OLD_SOURCE_MANIFEST))
 def test_unreviewed_running_source_cannot_borrow_historical_transition(
         monkeypatch, tmp_path, drift_name, source_manifest):
