@@ -6,10 +6,12 @@ to either participant are kept, including corrections removing that participant.
 No caller-owned mutable row, validation flag or cross-worker cache is retained.
 """
 import json
+from contextlib import contextmanager
 from types import MappingProxyType
 
 from context_models.contracts import ContextContractError
-from context_sources.tennis_status import STATUS_SCHEMA, validate_selected_tennis_receipt
+from context_sources.tennis_status import (STATUS_SCHEMA, validate_selected_tennis_receipt,
+    _feature_receipt_scope, _FeatureReceiptScope)
 from model_artifacts import canonical_bytes
 
 
@@ -93,13 +95,37 @@ class PreparedTennisHistory:
     def observation_refs(self):
         return list(self._refs)
 
-    def for_event(self, event):
+    def _event_ordinals(self, event):
         keys = {event["event_key"]}
         for player in (event["home_id"], event["away_id"]):
             keys.update(self._players.get(player, ()))
         ordinals = sorted({ordinal for key in keys for ordinal in self._events.get(key, ())},
                           key=None if self._rank is None else self._rank.__getitem__)
-        return tuple(json.loads(self._rows[index]) for index in ordinals)
+        return ordinals
+
+    def for_event(self, event):
+        return tuple(json.loads(self._rows[index]) for index in self._event_ordinals(event))
+
+    @contextmanager
+    def feature_scope(self, event):
+        """Reuse completed validation only while actual row bytes still match.
+
+        Neither dict identity nor a caller-supplied digest grants acceptance.
+        Mutations, aliases, detached copies and uses after exit go cold again.
+        This does not prune any event revision or the complete reference list.
+        """
+        if type(self) is not PreparedTennisHistory or self._rows is not self._validated_rows:
+            yield self.for_event(event)
+            return
+        encoded = tuple(self._rows[index] for index in self._event_ordinals(event))
+        rows = tuple(json.loads(raw) for raw in encoded)
+        scope = _FeatureReceiptScope(rows, encoded)
+        token = _feature_receipt_scope.set(scope)
+        try:
+            yield rows
+        finally:
+            scope.rows.clear()
+            _feature_receipt_scope.reset(token)
 
 
 class _IndexBuilder:
@@ -122,6 +148,7 @@ class _IndexBuilder:
 
     def finish(self, result):
         result._rows = tuple(self.encoded)
+        result._validated_rows = result._rows
         result._events = MappingProxyType({key: tuple(value) for key, value in self.events.items()})
         result._players = MappingProxyType({key: frozenset(value) for key, value in self.players.items()})
         result._refs = tuple(sorted(self.refs))

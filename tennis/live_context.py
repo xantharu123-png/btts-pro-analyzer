@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
+from time import monotonic
 from zoneinfo import ZoneInfo
 
 from context_models.activation import verify_approval
@@ -144,10 +145,11 @@ class LiveWorker:
         self.finished = False
         self.reasons = []
         self._progress = progress
+        self._started = monotonic()
 
     def _report(self, phase, **details):
         if self._progress is not None:
-            self._progress({"phase": phase, **details})
+            self._progress({"phase": phase, "elapsed_seconds": round(monotonic()-self._started, 3), **details})
 
     def attach_capture(self, capture):
         if self.capture is not None or self.finished:
@@ -333,19 +335,25 @@ class LiveWorker:
                 inventory = _Inventory(connection)
             state_refs = self._verify_states(qualified)
             self._report("prepare", total=len(qualified))
-            for item in qualified:
+            for ordinal, item in enumerate(qualified, 1):
                 history = histories[item["fixture"]["tour"], canonical_timestamp(item["decision"])]
-                observations = history.for_event(_event(item["binding"]["row"]))
-                origin, event, base, features = self._original(item, state_refs[id(item)], observations, code_hashes)
+                feature_start = monotonic()
+                with history.feature_scope(_event(item["binding"]["row"])) as observations:
+                    origin, event, base, features = self._original(item, state_refs[id(item)], observations, code_hashes)
+                feature_seconds = monotonic()-feature_start
                 effect, effect_hash, approval, reason = inventory.select(event, base, features)
                 inputs = {"event": event, "base": base, "features": features,
                     "observation_refs": history.observation_refs, "preprocessing_refs": [],
                     "effect_artifact": effect, "effect_hash": effect_hash, "approval": approval}
                 descriptor = {"schema": 1, "kind": KIND, **inputs,
                     "approval_hash": approval["digest"] if approval is not None else None}
+                key_start = monotonic()
                 key = context_payload_key(descriptor)
                 prepared[id(item)] = (origin, inputs, key)
                 self.reasons.append(reason)
+                if ordinal == 1 or ordinal % 10 == 0 or ordinal == len(qualified):
+                    self._report("prepare_progress", processed=ordinal, total=len(qualified),
+                        feature_seconds=round(feature_seconds, 3), key_seconds=round(monotonic()-key_start, 3))
             self._report("prepared", total=len(prepared))
         # B1/A1/D2 resolution is complete before any CPU-only compute callback.
         # Cross-database publication is intentionally not claimed atomic: an

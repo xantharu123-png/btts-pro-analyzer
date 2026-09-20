@@ -115,3 +115,119 @@ def test_feature_bytes_equal_full_history_including_retractions(correction):
     assert len(projected) < len(history)
     assert canonical_bytes(tennis_features_v3(ev, projected, base(ev), cutoff=NOW)) == canonical_bytes(
         tennis_features_v3(ev, history, base(ev), cutoff=NOW))
+    with PreparedTennisHistory(history).feature_scope(ev) as scoped:
+        assert canonical_bytes(tennis_features_v3(ev, scoped, base(ev), cutoff=NOW)) == canonical_bytes(
+            tennis_features_v3(ev, history, base(ev), cutoff=NOW))
+
+
+def test_owned_feature_scope_reuses_only_exact_validated_bytes(monkeypatch):
+    from context_sources import tennis_status as source
+    from tennis.history_projection import PreparedTennisHistory
+    rows = selected(competition())
+    owner = PreparedTennisHistory(rows)
+    target = event(key=rows[0]["event_key"])
+    cold = source._validate_selected_tennis_receipt_cold
+    calls = []
+    def counted(row):
+        calls.append(row["digest"])
+        return cold(row)
+    monkeypatch.setattr(source, "_validate_selected_tennis_receipt_cold", counted)
+    with owner.feature_scope(target) as scoped:
+        assert scoped == owner.for_event(target)
+        for row in scoped:
+            source.validate_selected_tennis_receipt(row)
+        assert not calls
+        # Even identical caller-created dictionaries are not scope-owned.
+        source.validate_selected_tennis_receipt(deepcopy(scoped[0]))
+        assert len(calls) == 1
+    source.validate_selected_tennis_receipt(scoped[0])
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize("change", ["payload", "digest", "alias", "nonfinite"])
+def test_owned_scope_cannot_hide_changed_receipts(monkeypatch, change):
+    from context_sources import tennis_status as source
+    from tennis.history_projection import PreparedTennisHistory
+    rows = selected(competition())
+    owner = PreparedTennisHistory(rows)
+    cold = source._validate_selected_tennis_receipt_cold
+    calls = []
+    def checked(row):
+        calls.append(1)
+        return cold(row)
+    monkeypatch.setattr(source, "_validate_selected_tennis_receipt_cold", checked)
+    with owner.feature_scope(event(key=rows[0]["event_key"])) as scoped:
+        row = status(scoped)
+        if change == "payload": row["payload"]["participant_ids"][0] = "changed"
+        elif change == "digest": row["digest"] = "a" * 64
+        elif change == "nonfinite": row["payload"]["status"] = float("nan")
+        else:
+            class Alias(str): pass
+            row["digest"] = Alias(row["digest"])
+        if change == "alias":
+            # Preserve cold semantics: this str alias is accepted only after
+            # the original validator, never through byte-reuse authorization.
+            source.validate_selected_tennis_receipt(row)
+        else:
+            with pytest.raises(ContextContractError):
+                source.validate_selected_tennis_receipt(row)
+        assert calls == [1]
+    assert owner.for_event(event(key=rows[0]["event_key"])) == rows
+
+
+def test_owned_scope_closes_on_exception_and_does_not_authorize_later_use(monkeypatch):
+    from context_sources import tennis_status as source
+    from tennis.history_projection import PreparedTennisHistory
+    owner = PreparedTennisHistory(selected(competition()))
+    with pytest.raises(RuntimeError):
+        with owner.feature_scope(event(home="espn:tennis:ATP:player:1")) as scoped:
+            assert scoped
+            raise RuntimeError("interrupted computation")
+    def cold(row): raise RuntimeError("cold validation required")
+    monkeypatch.setattr(source, "_validate_selected_tennis_receipt_cold", cold)
+    with pytest.raises(RuntimeError, match="cold validation required"):
+        source.validate_selected_tennis_receipt(scoped[0])
+
+
+def test_replaced_private_row_storage_does_not_grant_reuse():
+    import json
+    from context_sources.tennis_status import validate_selected_tennis_receipt
+    from model_artifacts import canonical_bytes
+    from tennis.history_projection import PreparedTennisHistory
+    rows = selected(competition())
+    owner = PreparedTennisHistory(rows)
+    changed = json.loads(owner._rows[0])
+    changed["digest"] = "a" * 64
+    owner._rows = (canonical_bytes(changed),) + owner._rows[1:]
+    with owner.feature_scope(event(key=rows[0]["event_key"])) as scoped:
+        with pytest.raises(ContextContractError):
+            validate_selected_tennis_receipt(scoped[0])
+
+
+def test_nested_scope_restores_outer_exact_owner(monkeypatch):
+    from context_sources import tennis_status as source
+    from tennis.history_projection import PreparedTennisHistory
+    rows = selected(competition())
+    owner = PreparedTennisHistory(rows)
+    target = event(key=rows[0]["event_key"])
+    def cold(row): raise RuntimeError("not owned by current scope")
+    monkeypatch.setattr(source, "_validate_selected_tennis_receipt_cold", cold)
+    with owner.feature_scope(target) as outer:
+        with owner.feature_scope(target) as inner:
+            source.validate_selected_tennis_receipt(inner[0])
+            with pytest.raises(RuntimeError): source.validate_selected_tennis_receipt(outer[0])
+        source.validate_selected_tennis_receipt(outer[0])
+        with pytest.raises(RuntimeError): source.validate_selected_tennis_receipt(inner[0])
+
+
+def test_cold_receipt_validation_does_not_require_live_worker_module(monkeypatch):
+    import builtins
+    from context_sources.tennis_status import validate_selected_tennis_receipt
+    row = deepcopy(selected(competition())[0])
+    original = builtins.__import__
+    def isolated(name, *args, **kwargs):
+        if name == "tennis.history_projection":
+            raise ImportError("live worker is not part of the cold replay package")
+        return original(name, *args, **kwargs)
+    monkeypatch.setattr(builtins, "__import__", isolated)
+    assert validate_selected_tennis_receipt(row) == row

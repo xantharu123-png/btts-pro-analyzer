@@ -5,6 +5,7 @@ infer player identities, diagnose availability, or infer real match clocks.
 Workload-v1 remains unchanged; status-v1 binds its two actual receipt hashes.
 """
 from contextlib import closing, contextmanager
+from contextvars import ContextVar
 from datetime import datetime
 import hashlib
 from pathlib import Path
@@ -235,7 +236,32 @@ def validate_tennis_status_record(row: dict) -> dict:
     return payload
 
 
+_feature_receipt_scope = ContextVar("tennis_prepared_feature_receipts", default=None)
+
+
+class _FeatureReceiptScope:
+    """Exact immutable row bytes from one completed physical/selected owner.
+
+    Kept with the validator so the ordinary frozen replay package acquires no
+    import of the live producer. Only its owning worker opens this short scope.
+    """
+    def __init__(self, rows, encoded):
+        self.rows = {id(row): (row, raw) for row, raw in zip(rows, encoded)}
+
+    def matches(self, row):
+        from context_runtime_history_cache import _plain_json
+        owned = self.rows.get(id(row))
+        try:
+            return (owned is not None and owned[0] is row and _plain_json(row)
+                    and canonical_bytes(row) == owned[1])
+        except (TypeError, ValueError, OverflowError, RecursionError):
+            return False  # The unchanged cold owner decides every cache miss.
+
+
 def validate_selected_tennis_receipt(row: dict) -> dict:
+    prepared = _feature_receipt_scope.get()
+    if type(prepared) is _FeatureReceiptScope and prepared.matches(row):
+        return row
     from context_runtime_history_cache import _SelectedReceiptScope, _selected_receipt_witness
     witness = _selected_receipt_witness.get()
     if type(witness) is _SelectedReceiptScope and witness._matches(row):

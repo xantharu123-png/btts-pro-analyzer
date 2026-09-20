@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable
+import hashlib
 import sqlite3
 
 from model_artifacts import _connect as _artifact_connect, _decode_object, canonical_bytes
@@ -87,7 +88,10 @@ def _decode_receipt(stored: tuple) -> dict:
             raise ContextIntegrityError("stored receipt clock is not canonical UTC")
         content = _decode_object(payload, label="context content")
         normalized = normalize_observation(content, observed_at=datetime.fromisoformat(observed_at))
-        if canonical_bytes(content) != canonical_bytes(normalized) or digest(content) != content_hash:
+        # _decode_object already proved that this BLOB is exactly the canonical
+        # encoding of content. Reuse it for comparison/hash, not two more dumps
+        # per receipt in a million-row inventory. No check or input is omitted.
+        if payload != canonical_bytes(normalized) or hashlib.sha256(payload).hexdigest() != content_hash:
             raise ContextIntegrityError("context content identity mismatch")
         if digest({"content_digest": content_hash, "observed_at": observed_at}) != receipt_hash:
             raise ContextIntegrityError("context receipt identity mismatch")

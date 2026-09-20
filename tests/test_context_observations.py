@@ -24,6 +24,28 @@ def normalized_record(**changes):
     }
 
 
+def test_physical_receipt_reuses_already_verified_canonical_blob(tmp_path, monkeypatch):
+    import model_artifacts
+    import context_models.contracts as contracts
+    path = tmp_path / "context.db"
+    append_observation(path, normalized_record(), observed_at=NOW)
+    with sqlite3.connect(path) as con:
+        raw = con.execute(observations._SELECT).fetchone()
+    expected = observations._decode_receipt(raw)
+    encode = model_artifacts.canonical_bytes
+    calls = []
+    def counted(value):
+        if type(value) is dict and set(value) == contracts.OBSERVATION_FIELDS:
+            calls.append(1)
+        return encode(value)
+    for module in (model_artifacts, contracts, observations):
+        monkeypatch.setattr(module, "canonical_bytes", counted)
+    assert observations._decode_receipt(raw) == expected
+    # One canonical BLOB check and one normalized-shape comparison; hashing
+    # must reuse those exact verified bytes, not encode this content twice more.
+    assert len(calls) == 2
+
+
 def selected(path, *, cutoff=NOW, schedule="s1", mode="prospective", proof_resolver=None):
     return observations_as_of(path, "api-football:football:1", cutoff=cutoff,
                               schedule_revision=schedule, mode=mode, proof_resolver=proof_resolver)

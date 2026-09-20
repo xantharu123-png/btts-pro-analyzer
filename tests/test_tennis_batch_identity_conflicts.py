@@ -68,7 +68,10 @@ def test_daily_main_keeps_nonzero_partial_result_after_finishing_other_predictio
     progress = [json.loads(line.split(": ", 1)[1]) for line in output.splitlines()
                 if line.startswith("Tennis-Abschluss: ")]
     assert [row["phase"] for row in progress] == [
-        "history", "history_ready", "prepare", "prepared", "published", "published", "complete"]
+        "history", "history_ready", "prepare", "prepare_progress", "prepare_progress",
+        "prepared", "published", "published", "complete"]
+    assert all(row["elapsed_seconds"] >= 0 for row in progress)
+    assert [row["processed"] for row in progress if row["phase"] == "prepare_progress"] == [1, 2]
     assert progress[0]["total"] == progress[-1]["total"] == 2
     assert progress[-2]["processed"] == 2
     assert "Nach Datenempfang gespeichert: 1" in output
