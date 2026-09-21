@@ -737,7 +737,7 @@ def refresh_pending_predictions(
     rows = shadow.latest_predictions(db_path, as_of=checked_at)
     result = {
         "status": "unchanged", "checked": len(rows), "due": 0,
-        "refreshed": 0, "skipped": 0, "errors": [],
+        "refreshed": 0, "skipped": 0, "errors": [], "native_unavailable": [],
         "checked_at": checked_at.isoformat(), "completed_at": checked_at.isoformat(),
         "fixture_source": "stored_pending_fixtures", "provider_checked": False,
         "models": {},
@@ -780,7 +780,7 @@ def refresh_pending_predictions(
     # One actual decision boundary governs all tour artifacts selected for this
     # worker run. A later manifest is ineligible even if its state was built early.
     modeled_at = _refresh_now() if as_of is None else checked_at
-    from tennis.live_context import LiveWorker, has_stored_context
+    from tennis.live_context import LiveWorker, NativeFixtureUnavailable, has_stored_context
     live_batch = None
     if any(has_stored_context(row) for row in by_event.values()):
         from runtime_paths import CONTEXT_MODEL_DB_PATH
@@ -876,6 +876,9 @@ def refresh_pending_predictions(
                 continue
             shadow.store_prediction(row["match_date"], row["tour"], row.get("tournament"), prediction, **store_options)
             result["refreshed"] += 1
+        except NativeFixtureUnavailable as exc:
+            result["skipped"] += 1
+            result["native_unavailable"].append({"prediction_id": row.get("id"), **exc.detail})
         except shadow.FixtureNotRefreshable:
             result["skipped"] += 1
         except Exception as exc:
@@ -883,7 +886,8 @@ def refresh_pending_predictions(
     if live_batch is not None:
         live_batch.finish()
     result["completed_at"] = (_refresh_now() if as_of is None else checked_at).isoformat()
-    result["status"] = _reader_status(states, result["errors"], success="complete")
+    result["status"] = _reader_status(states, result["errors"],
+        success="partial" if result["native_unavailable"] else "complete")
     return result
 
 

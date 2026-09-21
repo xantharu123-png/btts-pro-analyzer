@@ -313,7 +313,13 @@ def test_pending_refresh_cannot_reuse_retracted_native_fixture(monkeypatch, tmp_
     monkeypatch.setattr(live_context, "_now", lambda: NOW+timedelta(hours=2, seconds=1))
     result = daily.refresh_pending_predictions(db_path=predictions, as_of=NOW+timedelta(hours=2),
         append_observed_at=NOW+timedelta(hours=2, seconds=2))
-    assert result["refreshed"] == 0 and result["errors"]
+    assert result["refreshed"] == 0
+    if correction == "unsupported":
+        assert result["errors"] and not result["native_unavailable"]
+    else:
+        assert not result["errors"] and result["status"] == "partial"
+        assert len(result["native_unavailable"]) == 1
+        assert result["native_unavailable"][0]["prediction_id"] == old[0]["id"]
     after = shadow.latest_predictions(predictions, as_of=NOW+timedelta(hours=2, seconds=3))[0]
     assert after["model_revision_id"] == old[0]["model_revision_id"]
     assert len(context_rows(db)) == 1

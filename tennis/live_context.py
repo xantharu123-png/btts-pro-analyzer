@@ -36,6 +36,19 @@ from context_json import canonical_context_bytes as canonical_bytes
 _CURRENT = ContextVar("tennis_live_original_worker", default=None)
 
 
+class NativeFixtureUnavailable(ContextContractError):
+    """Verified later sport data no longer support this pending pairing.
+
+    This is neither corrupted storage nor permission to reuse the old pair.
+    Unknown formats/statuses and conflicting physical receipts still fail.
+    """
+    def __init__(self, reason, observation):
+        self.detail = {"reason": reason, "event_key": observation["event_key"],
+                       "observed_at": observation["observed_at"],
+                       "receipt": observation["digest"]}
+        super().__init__(reason)
+
+
 def _now():
     return datetime.now(timezone.utc)
 
@@ -225,13 +238,39 @@ class LiveWorker:
                 or round(origin["values"]["p_a_cal"], 4) != row["p_cal"]):
             raise ContextIntegrityError("pending original/forecast/context bytes differ")
         history = _pending_event_observations(self.path, event, decision_at)
+        originals = [record for record in history if record["digest"] == origin["native_receipt"]]
+        if (len(originals) != 1 or originals[0]["source_schema"] != STATUS_SCHEMA
+                or originals[0]["observed_at"] != origin["native_observed_at"]
+                or originals[0]["payload"]["issues"]
+                or originals[0]["payload"]["status"] != "scheduled"
+                or originals[0]["payload"]["competition_revision"] != origin["competition_revision"]
+                or not _equal(_event(originals[0]), event)):
+            raise ContextIntegrityError("pending original native receipt is absent or differs")
         newest = max((record["observed_at"] for record in history), default=None)
         latest = [record for record in history if record["observed_at"] == newest]
+        if len(latest) == 1 and latest[0]["source_schema"] == STATUS_SCHEMA:
+            actual = latest[0]
+            data = actual["payload"]
+            # Only known native changes after verifying the immutable original
+            # and physical source bytes are ordinary data unavailability.
+            same_scope = (actual["competition"] == event["competition"]
+                          and actual["format"] == event["format"])
+            if same_scope and data["issues"] == ["invalid-participants"]:
+                raise NativeFixtureUnavailable("participants_unconfirmed", actual)
+            if (same_scope and set(data["issues"]) <= {"terminal-workload-unavailable"}
+                    and data["status"] in {"started", "completed", "cancelled"}):
+                raise NativeFixtureUnavailable("fixture_no_longer_prematch", actual)
         if (len(latest) != 1 or latest[0]["source_schema"] != STATUS_SCHEMA
                 or latest[0]["payload"]["issues"] or latest[0]["payload"]["status"] != "scheduled"):
             raise ContextIntegrityError("pending native fixture has been withdrawn, changed or is unverified")
         actual = latest[0]
         current_event = _event(actual)
+        identity_without_players = {"home_id", "away_id", "scheduled_start", "schedule_revision"}
+        if (not _equal([event["home_id"], event["away_id"]],
+                       [current_event["home_id"], current_event["away_id"]])
+                and _equal({k: v for k, v in event.items() if k not in identity_without_players},
+                           {k: v for k, v in current_event.items() if k not in identity_without_players})):
+            raise NativeFixtureUnavailable("participants_changed", actual)
         schedule_fields = {"scheduled_start", "schedule_revision"}
         if not _equal({k: v for k, v in event.items() if k not in schedule_fields},
                       {k: v for k, v in current_event.items() if k not in schedule_fields}):
