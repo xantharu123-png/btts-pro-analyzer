@@ -16,6 +16,7 @@ from context_observations import _SELECT, _decode_receipt
 from context_sources.outcomes import normalize_tennis_revised_outcome
 from context_sources.tennis_status import STATUS_SCHEMA, validate_selected_tennis_receipt
 from model_artifacts import _load_artifact
+from tennis.forecast_retirements import original_is_retired
 
 
 def source_for_normal_winner(status, competition):
@@ -74,7 +75,7 @@ def _native_binding(connection, origin):
         raise ContextIntegrityError("original Tennis identity differs from its actual native receipt")
 
 
-def _originals(path, wanted):
+def _originals(path, wanted, *, retired_events=None):
     """Read the small typed original catalog, not the historical receipt pool.
 
     Artifact bodies are verified BEFORE their event field is used for pruning;
@@ -113,11 +114,17 @@ def _originals(path, wanted):
                 _native_binding(connection, origin)
             except ContextContractError as exc:
                 raise ContextIntegrityError("invalid stored Tennis original binding") from exc
+            # Retire only the explicitly approved immutable publication, after
+            # all its integrity checks. New originals of this event stay active.
+            if original_is_retired(ref, key):
+                if retired_events is not None:
+                    retired_events.add(key)
+                continue
             result.setdefault(key, []).append((created, origin["event"]))
     return result
 
 
-def collect_outcomes(path, pending, sources):
+def collect_outcomes(path, pending, sources, *, retired_events=None):
     """Return additions by batch position, preserving all actual receive clocks.
 
     Repeated persistence is B1-idempotent. Multiple forecasts of the exact same
@@ -125,7 +132,7 @@ def collect_outcomes(path, pending, sources):
     simultaneous source revisions cannot be resolved by choosing a winner.
     """
     wanted = {pending[index][1][0]["event_key"] for index in sources}
-    originals = _originals(path, wanted)
+    originals = _originals(path, wanted, retired_events=retired_events)
     groups = {}
     for index, (clock, rows) in enumerate(pending):
         if rows[0]["event_key"] in wanted:

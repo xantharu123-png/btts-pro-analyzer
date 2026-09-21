@@ -1027,6 +1027,7 @@ def main() -> int:
     print("Kontext-Aufnahme: " + json.dumps({
         "issues": report["issues"],
         "excluded_competitions": report.get("excluded_competitions", {}),
+        "retired_outcome_events": report.get("retired_outcome_events", []),
     }, ensure_ascii=True, sort_keys=True))
     final_errors = []
     if batch.pending:

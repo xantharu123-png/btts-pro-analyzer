@@ -1203,12 +1203,13 @@ def workload_history(db_path: str | Path | None = None) -> List[Dict]:
 
 
 def pending_predictions() -> List[Dict]:
+    from tennis.forecast_retirements import prediction_is_retired
     with _connect() as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT * FROM predictions WHERE settled=0 ORDER BY match_date"
         ).fetchall()
-    return [dict(r) for r in rows]
+    return [row for r in rows if not prediction_is_retired(row := dict(r))]
 
 
 def _result_observation_iso(value: datetime | str | None) -> str:

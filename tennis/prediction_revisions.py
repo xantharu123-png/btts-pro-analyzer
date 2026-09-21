@@ -14,6 +14,8 @@ from contextlib import closing
 from datetime import date, datetime, timezone
 from pathlib import Path
 
+from tennis.forecast_retirements import prediction_is_retired
+
 
 REVISION_SCHEMA = """
 CREATE TABLE IF NOT EXISTS prediction_revisions (
@@ -253,5 +255,9 @@ def read_latest_predictions(
                 if row.get(time_field) is not None and utc_epoch(row[time_field]) > cutoff:
                     for field in price_fields:
                         row[field] = None
+            # Keep full audit reads and pre-removal history unchanged. Removal
+            # affects active queues only, after revision integrity validation.
+            if pending_only and prediction_is_retired(row, as_of=cutoff):
+                continue
             results.append(row)
     return sorted(results, key=lambda row: (str(row.get("scheduled_start_utc") or row.get("match_date") or ""), row["id"]))
