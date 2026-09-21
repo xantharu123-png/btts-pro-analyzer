@@ -42,6 +42,17 @@ ESPORTS_RELEASE_MIN_SETTLED = 300
 ESPORTS_RELEASE_MAX_CALIBRATION_GAP = 0.08
 ESPORTS_RELEASE_MAX_BRIER = 0.25
 
+# Historical rows without frozen participant IDs cannot be made causal by
+# copying today's provider participants into them. Keep them untouched, but
+# do not spend the bounded result budget on an unresolvable identity.
+_SETTLEMENT_IDENTITY_SQL = """
+    typeof(team1_id) = 'integer' AND team1_id > 0
+    AND typeof(team2_id) = 'integer' AND team2_id > 0
+    AND team1_id != team2_id
+    AND typeof(selected_team_id) = 'integer'
+    AND selected_team_id IN (team1_id, team2_id)
+"""
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS esports_shadow_predictions (
     match_id INTEGER PRIMARY KEY,
@@ -236,14 +247,18 @@ class EsportsShadowLog:
         now = now.astimezone(timezone.utc)
         self.settlement_diagnostics = {"checked": 0, "fetch_errors": 0, "pending": 0}
         with closing(self._connect()) as connection:
+            self.settlement_diagnostics['identity_unverifiable'] = connection.execute(
+                f'SELECT COUNT(*) FROM esports_shadow_predictions WHERE settled=0 AND NOT ({_SETTLEMENT_IDENTITY_SQL})'
+            ).fetchone()[0]
             rows = connection.execute(
-                """
+                f"""
                 SELECT match_id, selected_team_id, series_type, score1, score2,
                        team1_id, team2_id, logged_at, last_checked_at,
                        check_attempts
                 FROM esports_shadow_predictions
                 WHERE settled = 0
                     AND julianday(scheduled_at) <= julianday(?)
+                    AND ({_SETTLEMENT_IDENTITY_SQL})
                 ORDER BY
                     julianday(COALESCE(last_checked_at, logged_at)) ASC,
                     match_id ASC

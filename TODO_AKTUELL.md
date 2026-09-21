@@ -7,11 +7,17 @@
 - F03/F06: faire E-Sport-Ergebnisqueue, begrenzter Halb-Stunden-Ergebnislauf,
   echte Providerfehler getrennt, keine Schreibsperre beim Netzaufruf;
   verifizierte Fußball-Terminänderungen mit FT-Endergebnis auflösbar.
+- Native Zusatzursache: 305 alte E-Sport-Zeilen ohne gespeicherte Team-IDs
+  dürfen kein Abrufbudget blockieren. Sie bleiben unverändert erhalten;
+  separater gezielt getesteter Queue-Nachtrag gerade in Veröffentlichung.
 - F05/F08: Defensive Daily3-Priorität korrigiert, 15K-Spielgruppen,
   kompaktere RisikoBet-Details und revisionssichere Modellgrundlagen.
-- Abschließende betroffene Regression: 1.621 Tests und 32 Untertests grün;
-  lokale Desktop-/320-Pixel-Browserprobe grün. Gesamtsuite/Veröffentlichung
-  laufen. Maßgeblicher aktueller Reparaturbericht:
+- Abschließende betroffene Regression: 1.676 Tests und 32 Untertests grün;
+  lokale Desktop-/320-Pixel-Browserprobe grün. Hauptreparatur d6fff68 bereits
+  auf main/GitHub/VPS. Gesamtsuite 10.811 bestanden/96 Skips/111 Untertests;
+  sieben alte Text-/Reihenfolge-Erwartungen im Nachlauf exakt angepasst und
+  grün. Keine einzelne komplett grüne finale Vollsuite behaupten.
+  Maßgeblicher aktueller Reparaturbericht:
   [Produktreparaturen](docs/audits/2026-09-21-produkt-reparaturen.md).
 - Weiter offen: qualifizierte numerische Verletzungs-/Müdigkeitswirkung,
   echte empirische Verbesserung und Daily3-Vergleiche außerhalb Fußball.

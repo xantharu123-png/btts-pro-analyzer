@@ -155,15 +155,16 @@ def _legacy_functions(module, name):
 
 @pytest.mark.parametrize("probability", [.35, .5, .8])
 @pytest.mark.parametrize("quote", [None, 1.01, 999.])
-def test_no_link_keeps_exact_legacy_normal_and_risk_bytes_ids_and_set_markets(monkeypatch, tmp_path, probability, quote):
+def test_no_link_keeps_legacy_models_with_only_versioned_risk_explanation_changes(monkeypatch, tmp_path, probability, quote):
     import ev_signal_sources as normal
     import riskobet_candidates as risk
-    from dataclasses import asdict
+    from dataclasses import asdict, replace
     db, predictions, rows = stored(monkeypatch, tmp_path)
     row = deepcopy(rows[0])
     context = json.loads(row["context_json"])
     context.pop("context_model")
     row.update(context_json=json.dumps(context), p_cal=probability, odds_a=quote, odds_b=quote,
+        surface="Hard",
         gates_json=json.dumps({"model-gate": {"passed": True}, "Quote/Risiko-EV": {"passed": False}}),
         markets_json='{"over_2_5_sets":0.45,"set_handicap_a_minus_1_5":0.12,"set_handicap_b_minus_1_5":0.35}',
         verdict="WETTE", recommended_side="A")
@@ -171,6 +172,13 @@ def test_no_link_keeps_exact_legacy_normal_and_risk_bytes_ids_and_set_markets(mo
     monkeypatch.setattr("tennis.shadow.latest_predictions", lambda *a, **k: [deepcopy(row)])
     old_normal = _legacy_functions(normal, "tennis_normal_consumers_5d5bab6.py")
     old_risk = _legacy_functions(risk, "tennis_risk_consumer_5d5bab6.py")
+    # Keep the frozen oracle unchanged. The only approved input difference is
+    # an explicit explanation revision; this independently predicts its hash
+    # and derived IDs rather than deleting those fields from the comparison.
+    def expected_revision_hash(payload):
+        assert 'adapter_revision' not in payload
+        return risk.canonical_input_hash({**payload, 'adapter_revision': 'tennis-observed-context-copy-v2'})
+    old_risk['canonical_input_hash'] = expected_revision_hash
     monkeypatch.setattr("context_consumers._reader", lambda *a, **k: pytest.fail("legacy read context"))
     current = NOW+timedelta(seconds=3)
     before = db.read_bytes(), predictions.read_bytes()
@@ -180,8 +188,22 @@ def test_no_link_keeps_exact_legacy_normal_and_risk_bytes_ids_and_set_markets(mo
         assert [asdict(item) for item in actual] == [asdict(item) for item in old]
     actual = risk.adapt_tennis_shadow(predictions, as_of=current)
     old = old_risk["adapt_tennis_shadow"](predictions, as_of=current)
+    def expected_snapshot(snapshot):
+        factors = []
+        names = {'tennis_workload_a_0': 'Alpha A', 'tennis_workload_b_0': 'Beta B'}
+        for factor in snapshot.factors:
+            if factor.factor_key in names:
+                name = names[factor.factor_key]
+                summary = f'{name}: keine zeitlich belegte vorherige Matchbelastung verfügbar.'
+                assert factor.summary == f'{name}: {summary}'
+                factor = replace(factor, summary=summary)
+            factors.append(factor)
+        return replace(snapshot, factors=tuple(factors)).to_dict()
     assert [(x.snapshot.to_dict(), [c.to_dict() for c in x.candidates]) for x in actual] == [
-        (x.snapshot.to_dict(), [c.to_dict() for c in x.candidates]) for x in old]
+        (expected_snapshot(x.snapshot), [
+            (replace(c, pros=('Grundmodell: Spielstärke auf Hartplatz.',))
+             if c.market_key == 'match_winner' else c).to_dict()
+            for c in x.candidates]) for x in old]
     assert (db.read_bytes(), predictions.read_bytes()) == before
 
 

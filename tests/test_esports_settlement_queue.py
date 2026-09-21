@@ -35,6 +35,30 @@ def test_future_and_unknown_kickoffs_never_consume_result_budget(tmp_path):
     assert called == [99]
 
 
+@pytest.mark.parametrize('team1,team2,selected', [
+    (None, None, 7), (0, 8, 7), (7, 7, 7), ('invalid', 8, 7), (7.5, 8, 7), (7, 8, 99),
+])
+def test_unverifiable_legacy_identity_does_not_consume_result_budget(tmp_path, team1, team2, selected):
+    log = EsportsShadowLog(tmp_path/'esports.db')
+    overdue(log, 1)
+    overdue(log, 99)
+    with closing(log._connect()) as con:
+        con.execute('UPDATE esports_shadow_predictions SET team1_id=?,team2_id=?,selected_team_id=? WHERE match_id=1',
+                    (team1, team2, selected))
+        con.commit()
+        before = tuple(con.execute('SELECT * FROM esports_shadow_predictions WHERE match_id=1').fetchone())
+    called = []
+    def fetch(mid):
+        called.append(mid)
+        return RESULT
+    assert log.settle_open(fetch, now=NOW, max_calls=1) == 1
+    assert called == [99]
+    assert log.settlement_diagnostics['identity_unverifiable'] == 1
+    with closing(log._connect()) as con:
+        after = tuple(con.execute('SELECT * FROM esports_shadow_predictions WHERE match_id=1').fetchone())
+    assert after == before
+
+
 def test_fresh_due_arrivals_cannot_starve_an_older_retry(tmp_path):
     log = EsportsShadowLog(tmp_path/'esports.db')
     overdue(log, 99, checked=NOW-timedelta(days=1))
@@ -85,7 +109,7 @@ def test_result_only_pass_does_not_discover_or_query_prices(tmp_path):
     scanner = SimpleNamespace(api_key='test', errors={}, get_match_result=fetch)
     result = settle_due_predictions(path, scanner=scanner, now=NOW)
     assert result == dict(status='completed', settled=15, checked=15,
-                         fetch_errors=0, pending=0, provider_error_count=0)
+                         fetch_errors=0, pending=0, provider_error_count=0, identity_unverifiable=0)
     assert len(calls) == 15
     assert log.summary()['open'] == 5
 

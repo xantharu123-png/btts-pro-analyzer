@@ -11,7 +11,7 @@ pauschal verbieten oder unqualifizierte Kontexteffekte aktivieren.
 |---|---|---|
 | F01 | Gemeinsamer Kohärenzfilter jetzt auch vor allen 15K-Anzeige-/Preissplits; Ticketpool an sichtbare kohärente Menge gebunden | Gegensätze Ergebnis Heim/Gast, Über/Unter sowie Heimsieg/X2 reproduziert und abgesichert. Vollständiger interner Modellkatalog unverändert. |
 | F04 | Gemeinsame typisierte Ausfallanzeige; unbekannt, nicht abgedeckt, veraltet und bestätigte Null getrennt | Auch alte Analyseumschläge verlieren die negative Abdeckungsinformation nicht mehr. Keine erfundenen 0/0 oder Spielernamen. |
-| F03 | Nur bereits begonnene E-Sport-Spiele fällig; faire Wiederprüfung nach letzter Prüfung beziehungsweise Erfassung; zusätzlicher Ergebnislauf im bestehenden 30-Minuten-Worker | Maximal 15 Ergebnisabrufe pro regulärem Lauf, keine neue Discovery oder Quotenabfrage. HTTP-/Payloadfehler separat. Keine DB-Schreibsperre während des nächsten Netzaufrufs. Reale Rückstandsabnahme nach Deployment gesondert prüfen. |
+| F03 | Nur bereits begonnene, anhand eingefrorener Team-IDs zuordenbare E-Sport-Spiele fällig; faire Wiederprüfung nach letzter Prüfung beziehungsweise Erfassung; zusätzlicher Ergebnislauf im bestehenden 30-Minuten-Worker | Maximal 15 Ergebnisabrufe pro regulärem Lauf, keine neue Discovery oder Quotenabfrage. HTTP-/Payloadfehler separat. Keine DB-Schreibsperre während des nächsten Netzaufrufs. Alte fehlende Identitäten unverändert erhalten, nicht nachträglich erfinden. |
 | F06 | Offizielles FT-Ergebnis derselben Fixture-/Teilnehmeridentität kann Terminänderungen auflösen | Originalprognosen unverändert. Tatsächlicher Start im Ergebnisbeleg. Später entstandene Prognosen/Quoten werden nicht als Prematch-Nachweis gezählt. Teilnehmerkonflikte bleiben abgelehnt. |
 | F05 | Defensive Auswahl priorisiert unter geeigneten Kandidaten die niedrigste Wahrscheinlichkeit der drei Modellvarianten vor Formabstand/Vielfalt | CHF50, drei Slots und Preisuntergrenze unverändert. Nur Fußball hat einen qualifizierten Vergleichsadapter; andere Sportarten nicht künstlich freischalten. |
 | F08 | 15K nach Spiel auf-/zuklappbar, irreführende Gesamtfreigabe entfernt; RisikoBet-Kontext in Analyse-Details | Modellgrundlage statt behauptetem Pro-Vorteil; Torvergleich, Belag oder Elo statt bloßer Wiederholung derselben Chance. Tennis-Namensdopplung entfernt. Neue Policy-/Adapterrevision verhindert Kollisionen mit eingefrorenen Alttexten. |
@@ -63,16 +63,38 @@ keine synthetischen Testdaten als reale Sportdaten. Keine Gesamtfertigmeldung.
   Der vorherige Lauf hatte genau eine veraltete Erwartung (Formvorteil vor
   defensiver Priorität); sie wurde der ausdrücklich freigegebenen Priorität
   entsprechend geändert, nicht durch Absenken der Aufnahmebedingungen.
-  Gesamtsuite läuft seit vor den letzten Nachbesserungen; sie ist ergänzende
-  Regression, kein Einzelbeleg für einen unverändert getesteten finalen Stand.
+  Gesamtsuite: **10.811 bestanden, 96 Skips, 111 Untertests, sieben Fehler**,
+  2.328,47 s. Der Lauf startete vor den letzten Nachbesserungen. Die sieben
+  Fehler waren die alte Daily3-Reihenfolge und sechs historische Tennis-
+  Erklärungserwartungen. Der eingefrorene Tennis-Oracle bleibt unverändert;
+  ausschließlich neue Adapterrevision, neuer Grundlagentext und entfernte
+  doppelte Spielernamen werden exakt erwartet. Alle Modellwerte, Märkte,
+  übrigen Felder und unveränderte Quelldaten werden weiter voll verglichen.
+  Beide betroffenen Dateien plus neue Queuefälle: **74 Tests bestanden**.
+  Queue-/Worker-/Upgrade-Gegenprüfung: **189 Tests bestanden**. Runden
+  überlappen, nicht addieren. Abschließende verbreiterte Regression des finalen
+  Codestands: **1.676 Tests und 32 Untertests bestanden**, Exit 0, 128,25 s;
+  `output/playwright/product-repairs-20260921-final-focused-v3.xml`.
 - Lokale Browserprüfung mit ausdrücklich künstlichen Beispielen: 15K behält
   kompatible Auswahlen, gesamter Spielblock schließbar; RisikoBet-Beobachtungen
   nur im Detailbereich. RisikoBet und 15K bei 320 Pixeln ohne horizontalen
   Überlauf, Screenshots tatsächlich angesehen, keine Console-Errors.
-  Produktionsprüfung folgt nach Deployment.
+  Auf der echten Website nach Deployment: 15K-Spielblock schließbar,
+  "nicht abgedeckt" statt 0/0, 320 Pixel Seitenbreite ohne Überlauf;
+  kein Browserfehler. Neun Framework-/Iframe-Warnungen bleiben getrennt
+  dokumentiert, nicht als "keine Warnungen" melden.
 - Keine Root-Werkzeuge, systemd-Units, Dependencies, Schemata, Einsätze oder
   vorhandenen Backups geändert. Tages-/Updatearchive bleiben aus. Der alte
   Root-Updater würde Backups neu erzeugen; deshalb nur der bereits genehmigte,
   exakt commit-/dateibegrenzte Code-only-Ablauf unter dem bestehenden Lock.
-- Commit, Push, VPS-Hash und native Ergebnisabnahme werden nach Ausführung
-  ergänzt. Vorhandene fremde Audit-/Browser-/QA-Dateien bleiben unberührt.
+- Hauptreparatur `d6fff683a57f6f5e510f8119eabf714888e445a1` auf lokalem main,
+  GitHub und VPS ausgeliefert. App nach Code-only-Update gesund, sechs
+  Rechentimer wieder aktiv; Retention unverändert, Tagesbackup disabled.
+- Die erste native Ergebnisprobe überprüfte 15 Zeilen, alle blieben offen.
+  Drei zusätzliche reine Diagnoseabrufe bestätigten echte Endresultate,
+  aber fehlende eingefrorene Team-IDs. Bestandsprüfung: **305 solcher Altzeilen,
+  208 offene Zeilen mit beiden IDs**. Kein Löschen, keine nachträgliche
+  Identitätserfindung, kein Umschreiben alter Wahrscheinlichkeiten. Der
+  Nachtrag nimmt diese unmöglich zuordenbaren Fälle aus dem Abrufbudget und
+  zählt sie separat. Nachtrag-Deployment und Rückstandsabnahme noch ergänzen.
+- Vorhandene fremde Audit-/Browser-/QA-Dateien bleiben unberührt.
