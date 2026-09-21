@@ -1,7 +1,7 @@
 """Defensive, price-blind comparison shortlist, not a certified safety ranking.
 
-v7 retains exact-bound model variants and at least 70% in all three. Compare
-recent form against the same match's season-strength reference; a minimum
+v8 retains exact-bound model variants and at least 70% in all three. Compare
+form (football) or surface (ATP) against the same match's general strength; a minimum
 two-percentage-point change is a presentation rule, not an empirical guarantee.
 Haircut, odds, RELEASED flags, target profit and account money are not ranking
 inputs. Last observed exact offers below the user floor are excluded after coherence;
@@ -20,7 +20,7 @@ from forecast_selection import select_consumer_forecasts
 from market_consensus import quote_below_publication_floor
 from selection_coherence import consumer_event_identity
 
-POLICY_VERSION = 'daily3-defensive-match-comparison-observed-odds-v7'
+POLICY_VERSION = 'daily3-defensive-match-comparison-observed-odds-v8'
 # Deliberate shortlist threshold, not a learned/calibrated safety boundary.
 MIN_MODEL_PROBABILITY = 0.70
 _TZ = ZoneInfo('Europe/Zurich')

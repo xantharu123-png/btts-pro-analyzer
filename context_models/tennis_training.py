@@ -154,7 +154,8 @@ def validate_live_training_case(resolved, *, config, payload):
         as_of=datetime.fromisoformat(decision), workload_history=(), original_capture=captures.append)
     _same(captures, [{"inputs": origin["inputs"], "values": origin["values"]}],
         "stored original does not reproduce from the actual tour model")
-    rebuilt = tennis_features_v3(event, tuple(history), base, cutoff=datetime.fromisoformat(decision))
+    from context_models.tennis_v4 import live_tennis_features
+    rebuilt = live_tennis_features(config["feature_version"], event, tuple(history), base, cutoff=datetime.fromisoformat(decision))
     _same(rebuilt, features, "live feature vector differs from causal source receipts")
     if features["coverage"] != config["coverage"]:
         raise ReplayUnavailable("feature_coverage_outside_frozen_cohort")
@@ -181,7 +182,8 @@ def build_live_training_case(path, *, original_ref, outcome_ref, identity_ref, c
         origin = original["payload"]["origin"]
         base, event = original_base(origin), origin["event"]
         history = relevant_receipts(connection, event, base["cutoff"])
-        features = tennis_features_v3(event, history, base, cutoff=datetime.fromisoformat(base["cutoff"]))
+        from context_models.tennis_v4 import live_tennis_features
+        features = live_tennis_features(config["feature_version"], event, history, base, cutoff=datetime.fromisoformat(base["cutoff"]))
         payload = {"schema": 1, "event": event, "base": base, "features": features, "replay_ref": original_ref,
             "outcome_ref": outcome_ref, "event_identity_hash": identity_ref, "family_config_hash": digest(config),
             "preprocessing_refs": []}

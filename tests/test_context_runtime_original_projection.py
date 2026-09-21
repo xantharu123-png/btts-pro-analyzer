@@ -32,12 +32,12 @@ def test_originals_decode_only_candidates_but_snapshots_keep_full_tuples(five_gr
     checked = replay.verify_live_originals(artifacts, created, receipts, set())
     assert len(checked) == 10
     assert len(decoded) == 20  # Ten independent seal rows + ten fresh candidates.
-    owner, calls = replay.tennis_features_v3, []
-    def features(event, history, base, **kwargs):
+    owner, calls = replay.live_tennis_features, []
+    def features(version, event, history, base, **kwargs):
         assert type(history) is tuple and len(history) == 10
         calls.append(event["event_key"])
-        return owner(event, history, base, **kwargs)
-    monkeypatch.setattr(replay, "tennis_features_v3", features)
+        return owner(version, event, history, base, **kwargs)
+    monkeypatch.setattr(replay, "live_tennis_features", features)
     for key, payload in context_rows(db):
         assert replay.verify_live_snapshot(payload, key, checked, effect=None, approval=None, limitations=set())
     assert sorted(calls) == sorted(event for _, event in order)
@@ -412,17 +412,17 @@ def test_canonical_report_parity_with_all_original_and_snapshot_calls(five_group
             prepare(self, *args)
             while self._entries: self._evict()
         monkeypatch.setattr(cache_module.EncodedHistoryCache, "_prepare_originals", evicted)
-    predict, features = tennis.predict.predict_match, replay.tennis_features_v3
+    predict, features = tennis.predict.predict_match, replay.live_tennis_features
     calls, histories = [], []
     def predicted(*args, **kwargs):
         calls.append(1)
         return predict(*args, **kwargs)
-    def featured(event, history, *args, **kwargs):
+    def featured(version, event, history, *args, **kwargs):
         assert type(history) is tuple and len(history) == 10
         histories.append(1)
-        return features(event, history, *args, **kwargs)
+        return features(version, event, history, *args, **kwargs)
     monkeypatch.setattr(tennis.predict, "predict_match", predicted)
-    monkeypatch.setattr(replay, "tennis_features_v3", featured)
+    monkeypatch.setattr(replay, "live_tennis_features", featured)
     assert canonical_bytes(context_runtime.verify_context_database(db)) == canonical_bytes(expected)
     assert len(calls) == len(histories) == 10
 

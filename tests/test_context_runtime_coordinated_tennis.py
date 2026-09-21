@@ -60,12 +60,12 @@ def test_full_verification_decodes_physical_once_and_keeps_independent_seal(five
     spy(status, "normalize_observation", "selected_generic")
     spy(tennis.predict, "predict_match", "predictor")
     spy(context_transport, "replay_context_payload", "transport")
-    owner, histories = replay.tennis_features_v3, []
-    def features(event, history, base, **kwargs):
+    owner, histories = replay.live_tennis_features, []
+    def features(version, event, history, base, **kwargs):
         assert type(history) is tuple and len(history) == 10
         histories.append(tuple(row["digest"] for row in history))
-        return owner(event, history, base, **kwargs)
-    monkeypatch.setattr(replay, "tennis_features_v3", features)
+        return owner(version, event, history, base, **kwargs)
+    monkeypatch.setattr(replay, "live_tennis_features", features)
     report = context_runtime.verify_context_database(db)
     assert report["counts"]["observations"] == len(order) == 10
     assert calls["physical"] == 10

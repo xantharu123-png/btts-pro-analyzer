@@ -30,6 +30,10 @@ from context_models.tennis_v3 import (
     FEATURE_VERSION as STATUS_FEATURE_VERSION, COVERAGE_VERSION as STATUS_COVERAGE_VERSION,
     tennis_reference_hash_v3,
 )
+from context_models.tennis_v4 import (
+    FEATURE_VERSION as BOUNDED_FEATURE_VERSION, COVERAGE_VERSION as BOUNDED_COVERAGE_VERSION,
+    TRAINING_VARIANT as BOUNDED_TRAINING_VARIANT, tennis_reference_hash_v4,
+)
 from context_snapshots import select_context_result
 from model_artifacts import canonical_bytes
 from tennis.simulator import simulate_match
@@ -47,8 +51,10 @@ SINGLES_FORMATS = {"singles_best_of_3": 3, "singles_best_of_5": 5}
 # sports effects; missing availability/travel/return has no v1 fitted input.
 _ROOTS = {
     **{f"observed_{metric}_{days}d": "workload" for metric in METRICS for days in WINDOWS},
+    **{f"bounded_{metric}_{days}d": "workload" for metric in METRICS for days in WINDOWS},
     "observed_recovery_minimum_hours": "recovery",
     "observed_recovery_exact_hours": "recovery",
+    "bounded_recovery_minimum_hours": "recovery",
 }
 _FEATURES = {f"{root}_{side}": (root, side, group)
              for root, group in _ROOTS.items() for side in ("a", "b", "delta")}
@@ -124,9 +130,9 @@ def _feature_input(features: dict, names: list[str], *, family: str) -> np.ndarr
             # a fully measured observed subset. Never treat missing minutes in
             # another known match as zero through that partial sum. This still
             # does NOT certify complete player-history/schedule collection.
-            _, metric, period = root.split("_")
+            prefix, metric, period = root.split("_")
             for participant in (("a", "b") if side == "delta" else (side,)):
-                complete = f"observed_{metric}_complete_{period}_{participant}"
+                complete = f"{prefix}_{metric}_complete_{period}_{participant}"
                 if (features["states"].get(complete) != "available" or features["values"].get(complete) != 1
                         or not features["refs"].get(complete)):
                     raise ContextModelError("consumed tennis feature has incomplete observed-subset coverage")
@@ -181,7 +187,7 @@ def _prepare(base: dict, features: dict, artifact: dict, event: dict):
     live = original["version"] == LIVE_BASE
     if live:
         validate_live_winner_origin(base, event)
-        if features["version"] != STATUS_FEATURE_VERSION:
+        if features["version"] not in {STATUS_FEATURE_VERSION, BOUNDED_FEATURE_VERSION}:
             raise ContextModelError("live original requires its explicit status-aware training law")
     if family not in {"tennis:winner", "tennis:serve"} or artifact["family"] != family:
         raise ContextModelError("tennis effect and original family differ")
@@ -190,6 +196,8 @@ def _prepare(base: dict, features: dict, artifact: dict, event: dict):
     if (original["event_key"] != event["event_key"] or features["event_key"] != event["event_key"]
             or original["cutoff"] != features["cutoff"]):
         raise ContextIntegrityError("tennis input event or cutoff identities differ")
+    if features["version"] != BOUNDED_FEATURE_VERSION and any(name.startswith("bounded_") for name in artifact["feature_names"]):
+        raise ContextModelError("bounded workload needs its explicit v4 replay law")
     if features["version"] == FEATURE_VERSION:
         reference_hash = tennis_reference_hash(original, event)
         expected_variant = WINNER_VARIANT if family == "tennis:winner" else SERVE_VARIANT
@@ -198,6 +206,12 @@ def _prepare(base: dict, features: dict, artifact: dict, event: dict):
         reference_hash = tennis_reference_hash_v3(original, event)
         expected_variant = TRAINING_VARIANT if live else STATUS_WINNER_VARIANT if family == "tennis:winner" else STATUS_SERVE_VARIANT
         coverage_version = STATUS_COVERAGE_VERSION
+        coverage_cases = {mode + "." + case for mode in
+            ("status-paired", "legacy-only", "mixed-status-legacy") for case in _COVERAGE_CASES}
+    elif features["version"] == BOUNDED_FEATURE_VERSION and live and family == "tennis:winner":
+        reference_hash = tennis_reference_hash_v4(original, event)
+        expected_variant = BOUNDED_TRAINING_VARIANT
+        coverage_version = BOUNDED_COVERAGE_VERSION
         coverage_cases = {mode + "." + case for mode in
             ("status-paired", "legacy-only", "mixed-status-legacy") for case in _COVERAGE_CASES}
     else:

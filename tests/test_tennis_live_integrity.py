@@ -153,9 +153,12 @@ def test_persisted_foreign_tour_revision_blocks_even_when_parent_tour_matches(mo
         assert conn.execute("SELECT * FROM prediction_revisions").fetchall() == before
 
 
-def fitted_catalog(db, monkeypatch, *, count=1, extra_slots=None, wrong_surface=False):
-    from context_models.tennis_v3 import FEATURE_VERSION
-    from context_models.tennis_live import TRAINING_VARIANT
+def fitted_catalog(db, monkeypatch, *, count=1, extra_slots=None, wrong_surface=False, feature_version="tennis-performed-load-v4"):
+    if feature_version == "tennis-performed-load-v3":
+        from context_models.tennis_v3 import FEATURE_VERSION, COVERAGE_VERSION
+        from context_models.tennis_live import TRAINING_VARIANT
+    else:
+        from context_models.tennis_v4 import FEATURE_VERSION, COVERAGE_VERSION, TRAINING_VARIANT
     from model_artifacts import load_manifest, publish_slots, put_artifact
     from test_tennis_context_model import artifact, features
     from tennis.live_context import _event
@@ -165,7 +168,7 @@ def fitted_catalog(db, monkeypatch, *, count=1, extra_slots=None, wrong_surface=
     ev = _event(native)
     original = base()
     fake_features = features()
-    fake_features["coverage"] = {"version": "tennis-performed-load-coverage-v2", "case":
+    fake_features["coverage"] = {"version": COVERAGE_VERSION, "case":
         "no-history.observed-only.missing-rest.no-history"}
     fitted = artifact(original, fake_features, ev)
     fitted.update(feature_version=FEATURE_VERSION, model_variant=TRAINING_VARIANT)

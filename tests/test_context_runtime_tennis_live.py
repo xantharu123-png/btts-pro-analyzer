@@ -12,6 +12,7 @@ import pytest
 from context_models.contracts import canonical_timestamp, digest
 from context_models.tennis_live import ORIGINAL_ARTIFACT_KIND, original_base
 from context_models.tennis_v3 import tennis_reference_hash_v3
+from context_models.tennis_v4 import tennis_reference_hash_v4
 from context_observations import append_observation
 from context_runtime import verify_context_database
 from context_snapshots import _payload_digest
@@ -132,7 +133,9 @@ def _replace_origin(db, change, *, keep_snapshot=True):
         payload["event"] = origin["event"]
         payload["features"]["event_key"] = origin["event"]["event_key"]
         payload["features"]["cutoff"] = origin["cutoff"]
-        payload["features"]["reference_hash"] = tennis_reference_hash_v3(payload["base"], payload["event"])
+        reference_hash = (tennis_reference_hash_v4 if payload["features"]["version"] == "tennis-performed-load-v4"
+                          else tennis_reference_hash_v3)
+        payload["features"]["reference_hash"] = reference_hash(payload["base"], payload["event"])
         args = {name: payload[name] for name in (
             "event", "base", "features", "observation_refs", "preprocessing_refs",
             "effect_artifact", "effect_hash", "approval")}
@@ -153,6 +156,59 @@ def test_actual_tour_origins_are_known_but_native_history_is_not_certified(monke
     assert report["verification_level"] == "transport_only"
     assert report["counts"]["snapshots"] == len(tours) == len(rows)
     assert db.read_bytes() == before
+
+
+@pytest.mark.parametrize('version', ['v3', 'v4'])
+def test_old_complete_tour_and_new_complete_player_references_replay(monkeypatch, tmp_path, version):
+    from context_sources.tennis_status import tennis_observations_as_of
+    from context_models.tennis_v3 import tennis_features_v3
+    from test_context_tennis_capture import competition as completed, records, persist
+    db, predictions, _, _ = configure(monkeypatch, tmp_path)
+    other = completed(id='888')
+    other['competitors'][0]['id'], other['competitors'][1]['id'] = '88', '89'
+    at = NOW-timedelta(hours=2)
+    persist(db, records(other, clock=at), clock=at)
+    run_batch(db, predictions)
+    key, payload = context_rows(db)[0]
+    full = tennis_observations_as_of(db, cutoff=NOW, tour='ATP')
+    assert len(full) == 4 and len(payload['observation_refs']) == 1
+    if version == 'v3':
+        # Explicit old snapshot schema, independent of the new producer.
+        payload['features'] = tennis_features_v3(payload['event'], full, payload['base'], cutoff=NOW)
+        payload['observation_refs'] = sorted(row['digest'] for row in full)
+        args = {name: payload[name] for name in (
+            'event', 'base', 'features', 'observation_refs', 'preprocessing_refs',
+            'effect_artifact', 'effect_hash', 'approval')}
+        _replace_snapshot(db, key, calculate_context_payload(**args))
+    before = db.read_bytes()
+    assert verify_context_database(db)['counts']['snapshots'] == 1
+    assert db.read_bytes() == before
+
+
+def test_v4_scope_keeps_retracted_participant_event_and_rejects_omission(monkeypatch, tmp_path):
+    from test_context_tennis_capture import competition as completed, records, persist
+    db, predictions, _, _ = configure(monkeypatch, tmp_path)
+    before = completed(id='101')
+    before['competitors'][0]['id'], before['competitors'][1]['id'] = '1', '88'
+    at = NOW-timedelta(hours=3)
+    persist(db, records(before, clock=at), clock=at)
+    after = deepcopy(before)
+    after['competitors'][0]['id'] = '77'
+    at = NOW-timedelta(hours=2)
+    persist(db, records(after, clock=at), clock=at)
+    run_batch(db, predictions)
+    key, payload = context_rows(db)[0]
+    assert len(payload['observation_refs']) == 7
+    verify_context_database(db)
+    # The retracted event has no numerical contribution, but remains necessary
+    # negative evidence. Rehashing a producer's claim cannot omit it.
+    payload['observation_refs'] = [payload['base']['reference_weights']['native_receipt']]
+    args = {name: payload[name] for name in (
+        'event', 'base', 'features', 'observation_refs', 'preprocessing_refs',
+        'effect_artifact', 'effect_hash', 'approval')}
+    _replace_snapshot(db, key, calculate_context_payload(**args))
+    with pytest.raises(ArtifactIntegrityError):
+        verify_context_database(db)
 
 
 @pytest.mark.parametrize("change", ["probability", "raw_probability", "state_key", "state_missing",
@@ -242,7 +298,7 @@ def test_read_only_projection_also_binds_exact_original_without_refitting(monkey
         payload["base"]["reference_weights"]["values"].update(p_a_cal=.8, p_b_cal=1-.8)
     payload["result"]["base_hash"] = digest(payload["base"])
     # Preserve the old reference as the original and rehash every public layer.
-    payload["features"]["reference_hash"] = digest({"version": "tennis-context-reference-v3",
+    payload["features"]["reference_hash"] = digest({"version": "tennis-context-reference-v4",
         "base_hash": digest(payload["base"]), "event_hash": digest(payload["event"])})
     key = _input_key(payload, payload["event"], payload["base"], payload["features"])
     reference = {"schema": 1, "kind": "context-consumer-reference-v1", "key": key,

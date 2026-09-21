@@ -101,16 +101,16 @@ def test_shared_basis_preserves_all_ten_owner_calls_and_exact_report(five_groups
     import tennis.predict
     db, _, artifacts, created, receipts, order = five_groups
     originals, snapshots = [], []
-    owner_original, owner_features = tennis.predict.predict_match, tennis_runtime.tennis_features_v3
+    owner_original, owner_features = tennis.predict.predict_match, tennis_runtime.live_tennis_features
     def original(*args, **kwargs):
         originals.append(canonical_timestamp(kwargs["as_of"]))
         return owner_original(*args, **kwargs)
-    def features(event, history, base, **kwargs):
+    def features(version, event, history, base, **kwargs):
         snapshots.append((base["cutoff"], event["event_key"]))
         assert type(history) is tuple
-        return owner_features(event, history, base, **kwargs)
+        return owner_features(version, event, history, base, **kwargs)
     monkeypatch.setattr(tennis.predict, "predict_match", original)
-    monkeypatch.setattr(tennis_runtime, "tennis_features_v3", features)
+    monkeypatch.setattr(tennis_runtime, "live_tennis_features", features)
     checked = tennis_runtime.verify_live_originals(artifacts, created, receipts, set())
     for key, payload in context_rows(db):
         assert tennis_runtime.verify_live_snapshot(payload, key, checked, effect=None, approval=None, limitations=set())

@@ -122,7 +122,9 @@ class _Capture:
         """Retain received revisions in the explicit pool, never match scores."""
         from challenge_engine import football_base_history_record
         from context_models.contracts import digest
+        from context_models.football_original_storage import StorageBudgetExceeded
         from context_observations import append_bounded_observation_batch
+        from context_sources.football_retention import RetainedFinals, fixture_bundle
         if type(selected_input_scope) is not tuple:
             raise ContextContractError("baseline input scope must be an explicit tuple")
         if type(max_new_payload_bytes) is not int or max_new_payload_bytes < 0:
@@ -139,7 +141,12 @@ class _Capture:
         self.baseline_scope_records = records
         wanted = {row["fixture_id"] for row in records.values()
                   if row["source_marker"] in {"unresolved", "api-football", "api-football-ft-tail"}}
+        retained = RetainedFinals(self.path, tuple((raw, receipt["observed_at"])
+            for receipt in self.receipts if receipt["endpoint"] == "fixtures"
+            for raw in receipt["rows"] if raw["fixture"]["id"] in wanted))
         remaining = max_new_payload_bytes
+        exhausted = False
+        incomplete_ids = set()
         for index, receipt in enumerate(self.receipts):
             if receipt["endpoint"] != "fixtures":
                 continue
@@ -149,30 +156,39 @@ class _Capture:
                     continue
                 observed = datetime.fromisoformat(receipt["observed_at"])
                 try:
-                    event = _detail_event(raw)
-                    additions = [row for row in normalize_football_context(event, injuries=[],
-                        lineups=[raw] if "lineups" in raw and event["status"] == "scheduled" else [],
-                        appearances=[raw] if "players" in raw and event["status"] == "completed" else [],
-                        observed_at=observed) if row["kind"] != "availability"]
-                    additions.append(normalize_football_base_input(raw, observed_at=observed))
-                    base_index = len(additions) - 1
-                    outcome = normalize_football_outcome(event, raw, observed_at=observed)
-                    if outcome is not None:
-                        additions.append(outcome)
+                    additions, base_index = fixture_bundle(raw, observed)
                     if len(additions) > 512:
                         raise ContextContractError("native fixture projection exceeds bounded batch")
                 except ContextIntegrityError:
                     raise
                 except (ContextContractError, KeyError, TypeError, ValueError, OverflowError):
                     self.errors.append("Kontext-Capture: native-projection-unavailable")
+                    incomplete_ids.add(raw["fixture"]["id"])
+                    self.baseline_refs.pop(raw["fixture"]["id"], None)
                     continue
-                refs, inserted = append_bounded_observation_batch(self.path,
-                    tuple((record, observed) for record in additions), max_new_payload_bytes=remaining)
+                reuse = retained.reuse(raw, observed=observed)
+                if reuse is not None:
+                    refs, base_index = reuse
+                    inserted = 0
+                else:
+                    try:
+                        refs, inserted = append_bounded_observation_batch(self.path,
+                            tuple((record, observed) for record in additions), max_new_payload_bytes=remaining)
+                    except StorageBudgetExceeded:
+                        # A too-large new bundle must not hide later zero-cost
+                        # complete bundles. The caller still reports partial.
+                        exhausted = True
+                        incomplete_ids.add(raw["fixture"]["id"])
+                        self.baseline_refs.pop(raw["fixture"]["id"], None)
+                        continue
                 remaining -= inserted
                 self.source_inserted_bytes += inserted
                 self.refs.update(refs)
-                self.baseline_refs.setdefault(raw["fixture"]["id"], set()).add(refs[base_index])
+                if raw["fixture"]["id"] not in incomplete_ids:
+                    self.baseline_refs.setdefault(raw["fixture"]["id"], set()).add(refs[base_index])
                 self.baseline_processed.add(key)
+        if exhausted:
+            raise StorageBudgetExceeded("source retention payload budget exhausted")
         return {ref: tuple(sorted(self.baseline_refs.get(row["fixture_id"], ())))
                 if row["source_marker"] in {"unresolved", "api-football", "api-football-ft-tail"} else ()
                 for ref, row in records.items()}

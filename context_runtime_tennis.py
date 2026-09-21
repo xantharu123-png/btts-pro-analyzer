@@ -17,6 +17,7 @@ from context_models.tennis_live import (
     original_base, validate_live_winner_origin, validate_original_publication,
 )
 from context_models.tennis_v3 import FEATURE_VERSION, tennis_features_v3
+from context_models.tennis_v4 import live_tennis_features
 from context_sources.tennis_status import STATUS_SCHEMA, select_tennis_observations
 from model_artifacts import ArtifactIntegrityError, canonical_bytes
 from runtime_paths import RuntimeArtifactTrustError
@@ -289,16 +290,29 @@ def verify_live_snapshot(payload, key, originals, *, effect, approval, limitatio
         tour=original["reference_weights"]["event"]["tour"], max_bytes=descriptor.history_max_bytes,
         cache=descriptor.history_cache)
     _same(base, original, "live worker substituted its published original")
-    if payload["features"]["version"] != FEATURE_VERSION:
+    if payload["features"]["version"] not in {FEATURE_VERSION, "tennis-performed-load-v4"}:
         raise ArtifactIntegrityError("live winner v1 has no owning feature version of this kind")
-    _same(payload["observation_refs"], sorted(row["digest"] for row in history),
+    reference_history = history
+    if payload["features"]["version"] == "tennis-performed-load-v4":
+        # Completeness comes from the independently verified full inventory,
+        # never from the producer's claimed list or only its positive features.
+        event = payload["event"]
+        players = {event["home_id"], event["away_id"]}
+        keys = {event["event_key"]}
+        for row in history:
+            p = row["payload"]
+            participants = p["participant_ids"] if row["source_schema"] == STATUS_SCHEMA else (p["player_id"], p["opponent_id"])
+            if players.intersection(participants):
+                keys.add(row["event_key"])
+        reference_history = tuple(row for row in history if row["event_key"] in keys)
+    _same(payload["observation_refs"], sorted(row["digest"] for row in reference_history),
           "live worker omitted or added causal tour observations")
     decision = datetime.fromisoformat(original["cutoff"])
     scope = (descriptor.history_cache._selected_receipt_scope(descriptor.receipts,
         cutoff=decision, tour=original["reference_weights"]["event"]["tour"])
         if descriptor.history_cache is not None else nullcontext())
     with scope:
-        features = tennis_features_v3(payload["event"], history, original, cutoff=decision)
+        features = live_tennis_features(payload["features"]["version"], payload["event"], history, original, cutoff=decision)
     _same(payload["features"], features, "live worker features differ from actual source replay")
     replay_context_payload(payload, key=key, effect_artifact=effect, approval=approval)
     # Actual native source completeness and historical state joins remain

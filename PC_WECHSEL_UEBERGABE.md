@@ -1,5 +1,17 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg — Kontext-/Daily3-Fortsetzung 21.09.2026
+
+Zuerst den obersten Block in [TODO_AKTUELL.md](TODO_AKTUELL.md) und den
+[Kontext-/Daily3-Bericht](docs/audits/2026-09-21-kontext-daily3-fortsetzung.md) lesen.
+RisikoBet-Textveröffentlichung aus dem vorherigen Lauf jetzt bestätigt.
+ATP-Daily3, Tennis-v4 und begrenzte Fußball-Quellwiederverwendung lokal umgesetzt;
+2.585 plus 115 Tests grün. Deployment-/Gesamtlaufabnahme noch
+offen. Keine numerische Effektfreigabe: nur 125 passende native Endresultate
+vor Aufteilung, mindestens 200 unberührte Testevents erforderlich. Fußball-
+Live-Jointmodell-Anbindung und weitere Daily3-Sportadapter bleiben offen.
+Keine neuen Backups, Bereinigungen oder Finanzänderungen. Untere Stände Historie.
+
 ## Aktueller Einstieg – Produktreparatur 21.09.2026
 
 Zuerst [TODO_AKTUELL.md](TODO_AKTUELL.md) und den

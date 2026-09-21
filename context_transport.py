@@ -67,6 +67,11 @@ def _feature_binding(ev, original, feats, preprocessing_refs):
             raise ContextContractError("tennis status v3 has no named preprocessing contract")
         expected = digest({"version": "tennis-context-reference-v3", "base_hash": digest(original),
             "event_hash": digest(ev)})
+    elif pair == ("tennis:winner", "tennis-performed-load-v4"):
+        if preprocessing_refs or original["version"] != "tennis-live-calibrated-winner-v1":
+            raise ContextContractError("tennis v4 requires its live original and no preprocessing")
+        expected = digest({"version": "tennis-context-reference-v4", "base_hash": digest(original),
+            "event_hash": digest(ev)})
     elif pair == ("basketball:margin:including_ot", "basketball-rotation-observed-load-v1"):
         _original_event(ev, original, "basketball-margin-ridge-v1")
         if preprocessing_refs:

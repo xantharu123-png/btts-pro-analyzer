@@ -82,11 +82,11 @@ def test_whole_history_decode_does_not_hold_a_database_transaction(monkeypatch, 
 def test_per_card_feature_calculation_does_not_hold_a_database_transaction(monkeypatch, tmp_path):
     from tennis import live_context
     db, predictions, _, _ = configure(monkeypatch, tmp_path)
-    original = live_context.tennis_features_v3
+    original = live_context.tennis_features_v4
     def checked(*args, **kwargs):
         writer_probe(db)
         return original(*args, **kwargs)
-    monkeypatch.setattr(live_context, "tennis_features_v3", checked)
+    monkeypatch.setattr(live_context, "tennis_features_v4", checked)
     result, rows = run_batch(db, predictions)
     assert result["stored"] == len(rows) == 1
 

@@ -1,5 +1,29 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## Kontext-/Daily3-Fortsetzung 21.09.2026 — lokale Abnahme
+
+- Maßgeblich: [Kontext-/Daily3-Bericht](docs/audits/2026-09-21-kontext-daily3-fortsetzung.md).
+- Der unten noch offene 11:37-Lauf ist erfolgreich beendet. Neue RisikoBet-
+  Begründungen sind veröffentlicht, keine technische Störung dieses Laufs.
+- ATP-Daily3-Vergleich aus dem tatsächlichen Modellstand implementiert;
+  vollständiger Speicher-/Signalanschluss getestet, keine Preissteuerung.
+- Tennis-v4: korrekt begrenzte Belastungsfenster, stabile Erholungs-Untergrenzen,
+  kompakte vollständig revisionsgebundene Spielersnapshots. Kein Effekt
+  automatisch aktiviert; alte v3-Snapshots bleiben unverändert reproduzierbar.
+- Native Messung: 205 rechtzeitige unabhängige erste Originalevents, 125
+  passende Endresultate vor jeglicher Train-/Tune-/Testtrennung. Null
+  qualifizierte Effektartefakte. Sechs zeitlich verteilte Fälle weiterhin
+  ohne vollständige Belastungsfenster; Mindestpausen messbar, nicht exakt.
+- Abschlussregression: 2.585 bestanden, 15 erwartete Skips, 26 Untertests;
+  zusätzlich 115 Fußballtests grün. Keine finale Vollsuite daraus behaupten.
+- Fußball-Speicherbudget: vollständige unveränderte historische FT-Bündel
+  werden mit alten Uhren wiederverwendet. Korrekturen bleiben eigene Belege;
+  Folgeläufe können fehlende Quellen ergänzen, ohne Limits zu erhöhen.
+- Commit/Push/Deployment und echten Tennis-Gesamtlauf noch abschließen.
+- Weiter offen: echte empirische Wirkung, Fußball-Live-Jointmodell-Anbindung,
+  WTA-/Basketball-/Eishockey-/E-Sport-Daily3-Vergleiche. Cricket ausgenommen.
+  Fehlende Daten nicht durch erfundene Werte oder rückdatierte Belege ersetzen.
+
 ## Produkt-Auditreparatur 21.09.2026 — 8543fcc live
 
 - F01/F04: 15K-Kohärenz und typisierte Ausfallanzeigen repariert; keine

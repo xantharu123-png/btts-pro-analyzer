@@ -15,6 +15,7 @@ from context_consumers import load_context_market
 from context_models.contracts import ContextContractError
 from context_models.tennis_live import ORIGINAL_ARTIFACT_KIND, original_base
 from context_models.tennis_v3 import tennis_reference_hash_v3
+from context_models.tennis_v4 import tennis_reference_hash_v4
 from context_snapshots import _payload_digest, compute_once
 from context_transport import calculate_context_payload, context_consumer_reference, context_payload_key
 from model_artifacts import canonical_bytes, put_artifact
@@ -35,7 +36,8 @@ def repoint_state(db, row, state_hash):
         payload={"schema": 1, "origin": origin}, created_at=NOW+timedelta(seconds=1))
     base = original_base(origin)
     features = deepcopy(packet["features"])
-    features["reference_hash"] = tennis_reference_hash_v3(base, packet["event"])
+    reference_hash = tennis_reference_hash_v4 if features['version'] == 'tennis-performed-load-v4' else tennis_reference_hash_v3
+    features["reference_hash"] = reference_hash(base, packet["event"])
     rebuilt = calculate_context_payload(event=packet["event"], base=base, features=features,
         observation_refs=packet["observation_refs"], preprocessing_refs=[],
         effect_artifact=None, effect_hash=None, approval=None)

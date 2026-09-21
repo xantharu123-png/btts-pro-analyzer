@@ -96,9 +96,11 @@ def _groups(features):
     # Explicit owning feature names: unknown/new names are not guessed into a
     # medical or numerical explanation. Exact recovery is not a lower bound.
     names = set(features)
-    workload = [f"observed_{metric}_{days}d_{side}"
-        for metric in ("sets", "games", "minutes") for days in (1, 3, 7) for side in ("a", "b")]
+    workload = [f"{prefix}_{metric}_{days}d_{side}"
+        for prefix in ("observed", "bounded") for metric in ("sets", "games", "minutes")
+        for days in (1, 3, 7) for side in ("a", "b")]
     recovery = [f"observed_recovery_{kind}_hours_{side}" for kind in ("exact", "minimum") for side in ("a", "b")]
+    recovery += [f"bounded_recovery_minimum_hours_{side}" for side in ("a", "b")]
     return {key: [name for name in values if name in names] for key, values in
             (("workload", workload), ("recovery", recovery)) if any(name in names for name in values)}
 

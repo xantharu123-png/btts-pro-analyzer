@@ -150,13 +150,14 @@ class Comparison:
     samples: int
     match_reference_probability: float | None = None
     active_probability: float | None = None
+    signal_label: str = 'Formsignal'
 
     @property
     def summary(self):
         if self.match_reference_probability is not None:
             baseline = f'{self.match_reference_probability:.1%}'.replace('.', ',')
             change = f'{100 * (self.active_probability - self.match_reference_probability):.1f}'.replace('.', ',')
-            return f'Formsignal: +{change} Prozentpunkte zum Grundmodell ({baseline}).'
+            return f'{self.signal_label}: +{change} Prozentpunkte zum Grundmodell ({baseline}).'
         model = f'{self.lowest_model_probability:.1%}'.replace('.', ',')
         baseline = f'{self.baseline_probability:.1%}'.replace('.', ',')
         return f'Saison/Form mindestens {model}; Ligavergleich {baseline} aus {self.samples} Spielen.'
@@ -193,4 +194,7 @@ def football_form_comparison(signal, *, now, minimum_probability=0.0):
 
 
 def daily3_comparison(signal, *, now, minimum_probability):
+    if str(signal.sport or '').casefold() == 'tennis':
+        from daily3_tennis_comparison import tennis_surface_comparison
+        return tennis_surface_comparison(signal, now=now, minimum_probability=minimum_probability)
     return football_form_comparison(signal, now=now, minimum_probability=minimum_probability)

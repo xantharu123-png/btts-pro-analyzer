@@ -123,6 +123,9 @@ def validate_family_config(config: dict) -> dict:
         from context_models.tennis_v3 import FEATURE_VERSION as LIVE_FEATURE, COVERAGE_VERSION as LIVE_COVERAGE
         serve = family == "tennis:serve"
         live = not serve and row["base_versions"] == [LIVE_BASE]
+        bounded = live and row["feature_version"] == "tennis-performed-load-v4"
+        if bounded:
+            from context_models.tennis_v4 import FEATURE_VERSION as LIVE_FEATURE, COVERAGE_VERSION as LIVE_COVERAGE, TRAINING_VARIANT
         population = row["population"]
         allowed_formats = {"singles"} if live else {"singles_best_of_3", "singles_best_of_5"} | (set() if serve else {"singles"})
         coverage_cases = {mode+"."+case for mode in ("status-paired", "legacy-only", "mixed-status-legacy")
@@ -131,7 +134,7 @@ def validate_family_config(config: dict) -> dict:
             len(population["surfaces"]) == 1 and population["surfaces"][0] in {"Hard", "Clay", "Grass", "Carpet"}
             and len(population["indoor"]) == 1 and type(population["indoor"][0]) is bool)
         if (row["feature_version"] != (LIVE_FEATURE if live else "tennis-performed-load-v2")
-                or row["reference_version"] != ("tennis-context-reference-v3" if live else "tennis-context-reference-v2")
+                or row["reference_version"] != ("tennis-context-reference-v4" if bounded else "tennis-context-reference-v3" if live else "tennis-context-reference-v2")
                 or row["model_variant"] != (TRAINING_VARIANT if live else SERVE_VARIANT if serve else WINNER_VARIANT)
                 or row["base_versions"] != [LIVE_BASE if live else SERVE_BASE_VERSION if serve else TENNIS_WINNER_BASE]
                 or row["head_links"] != ({"hold_a": "logit", "hold_b": "logit"} if serve else {"winner": "logit"})
@@ -144,6 +147,8 @@ def validate_family_config(config: dict) -> dict:
             raise ContextContractError("unreviewed or mixed tennis fitting/replay law")
         if any(name not in _FEATURES or (not serve and _FEATURES[name][1] != "delta") for name in row["feature_names"]):
             raise ContextContractError("tennis feature vocabulary violates the owning mirrored law")
+        if not bounded and any(name.startswith("bounded_") for name in row["feature_names"]):
+            raise ContextContractError("bounded load cannot enter a legacy feature contract")
         expected_groups = {}
         for name in row["feature_names"]:
             root, side, group = _FEATURES[name]

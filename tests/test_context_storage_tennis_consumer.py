@@ -42,10 +42,13 @@ def actual_case(tmp_path, monkeypatch, *, tour="ATP", catalog=None,
             initial.execute("CREATE TABLE artifacts(digest TEXT PRIMARY KEY,kind TEXT NOT NULL,payload BLOB NOT NULL,created_at TEXT NOT NULL)")
     db, predictions, _states, _calls = configure(monkeypatch, tmp_path, tours=(tour,))
     if catalog is not None:
-        fitted_catalog(db, monkeypatch, count=catalog[0], wrong_surface=catalog[1])
+        fitted_catalog(db, monkeypatch, count=catalog[0], wrong_surface=catalog[1],
+            feature_version="tennis-performed-load-v3")
     if on_configured is not None:
         on_configured(db)
-    result, rows = run_batch(db, predictions)
+    # This disk-stream adapter intentionally implements the frozen v3 format.
+    # Compare with an explicit real v3 publication, not the new default v4.
+    result, rows = run_batch(db, predictions, feature_version="tennis-performed-load-v3")
     assert result["stored"] == 1 and not result["errors"]
     key, packet = context_rows(db)[0]
     sidecar = json.loads(rows[0]["context_json"])["context_model"]
@@ -688,7 +691,7 @@ def test_consumer_does_not_enter_provider_daily_shadow_or_any_legacy_path_writer
             (tour_state, ("load_tour_state",)), (model_artifacts, ("load_artifact", "load_manifest", "put_artifact", "_connect")),
             (context_snapshots, ("compute_once", "_connect")),
             (tennis_status, ("tennis_observations_as_of",)),
-            (live_context, ("tennis_observations_as_of", "tennis_features_v3", "calculate_context_payload", "_reader")),
+            (live_context, ("tennis_observations_as_of", "tennis_features_v4", "calculate_context_payload", "_reader")),
         ):
             for name in names:
                 monkeypatch.setattr(module, name, outside)

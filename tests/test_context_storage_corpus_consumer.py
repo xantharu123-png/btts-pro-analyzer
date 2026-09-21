@@ -103,7 +103,7 @@ def _make_baseline(setup_root, monkeypatch):
     database, predictions, _states, _calls = configure(
         monkeypatch, setup_root, tours=("ATP", "WTA")
     )
-    result, rows = run_batch(database, predictions)
+    result, rows = run_batch(database, predictions, feature_version="tennis-performed-load-v3")
     assert result["stored"] == 2 and not result["errors"] and len(rows) == 2
     packets = dict(context_rows(database))
     with sqlite3.connect(database) as connection:
@@ -202,7 +202,7 @@ def _run_oracle(setup_root, monkeypatch, oracle, values):
         return Reply(payload)
 
     monkeypatch.setattr(daily.requests, "get", get)
-    with live_worker(path=oracle) as batch:
+    with live_worker(path=oracle, feature_version="tennis-performed-load-v3") as batch:
         with capture_tennis_worker(path=oracle) as capture:
             batch.attach_capture(capture)
             fixtures = daily.fetch_fixtures_espn("2026-09-09")

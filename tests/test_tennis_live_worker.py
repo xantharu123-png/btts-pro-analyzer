@@ -79,10 +79,10 @@ def configure(monkeypatch, tmp_path, *, comp=None, tours=("ATP",), same_id=False
     return db, predictions, refs, calls
 
 
-def run_batch(db, predictions, *, decision=NOW, before_finish=None):
+def run_batch(db, predictions, *, decision=NOW, before_finish=None, feature_version="tennis-performed-load-v4"):
     from context_sources.tennis_capture import capture_tennis_worker
     from tennis.live_context import live_worker
-    with live_worker(path=db) as batch:
+    with live_worker(path=db, feature_version=feature_version) as batch:
         with capture_tennis_worker(path=db) as capture:
             batch.attach_capture(capture)
             fixtures = daily.fetch_fixtures_espn("2026-09-09")

@@ -36,9 +36,15 @@ def _players(row):
 def _history(observations, *, cutoff, tour, target, participants):
     if type(observations) is not tuple:
         raise ContextContractError("status-aware tennis requires the complete owning B1 tuple")
-    by_event = {}
     for row in observations:
         validate_selected_tennis_receipt(row)
+    return _resolved_history(observations, cutoff=cutoff, tour=tour, target=target, participants=participants)
+
+
+def _resolved_history(observations, *, cutoff, tour, target, participants):
+    """Internal arithmetic on rows already validated in this same call."""
+    by_event = {}
+    for row in observations:
         if row["observed_at"] <= cutoff and row["payload"]["tour"] == tour and row["event_key"] != target:
             by_event.setdefault(row["event_key"], {})[row["digest"]] = row
     selected, associations, conflicting, unavailable = [], {}, set(), set()
@@ -143,6 +149,13 @@ def tennis_features_v3(event: dict, observations: tuple[dict, ...], base: dict, 
     decision = canonical_timestamp(cutoff)
     selected, associations, conflicts, unknown, mode = _history(observations, cutoff=decision,
         tour=event.get("tour"), target=event["event_key"], participants={event["home_id"], event["away_id"]})
+    return _features_from_history(event, observations, base, cutoff=cutoff,
+        resolved=(selected, associations, conflicts, unknown, mode))
+
+
+def _features_from_history(event, observations, base, *, cutoff, resolved):
+    decision = canonical_timestamp(cutoff)
+    selected, associations, conflicts, unknown, mode = resolved
     target_state, target_refs = _target_status(observations, event, decision)
     result = deepcopy(tennis_features(event, selected, base, cutoff=cutoff))
     for name, refs in result["refs"].items():

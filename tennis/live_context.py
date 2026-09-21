@@ -22,6 +22,7 @@ from context_models.experiments import _artifact_created_at
 from context_models.tennis_live import (CODE_PATHS, MARKETS, ORIGIN_KIND,
     ORIGINAL_ARTIFACT_KIND, SIDECAR_KIND, live_event, original_base,
     validate_context_model, validate_original_publication)
+from context_models.tennis_v4 import tennis_features_v4
 from context_models.tennis_v3 import tennis_features_v3
 from context_sources.tennis_status import (STATUS_SCHEMA, normalize_tennis_status,
     tennis_observations_as_of, tennis_histories_as_of)
@@ -107,6 +108,8 @@ class _Inventory:
     def select(self, event, base, features):
         from context_models.tennis_effect import _prepare
         from context_models.tennis_live import TRAINING_VARIANT
+        if features["version"] == "tennis-performed-load-v4":
+            from context_models.tennis_v4 import TRAINING_VARIANT
         cutoff = base["cutoff"]
         if self.publication is None or self.publication > cutoff:
             return None, None, None, "no-predecision-effect-manifest"
@@ -138,7 +141,10 @@ class _Inventory:
 
 
 class LiveWorker:
-    def __init__(self, path, *, progress=None):
+    def __init__(self, path, *, progress=None, feature_version="tennis-performed-load-v4"):
+        if type(feature_version) is not str or feature_version not in {"tennis-performed-load-v3", "tennis-performed-load-v4"}:
+            raise ContextContractError("unsupported live tennis feature version")
+        self.feature_version = feature_version
         self.path = Path(path)
         self.capture = None
         self.bindings, self.pending = {}, []
@@ -298,7 +304,8 @@ class LiveWorker:
             "competition_revision": actual["payload"]["competition_revision"], "native_state_identity": "unresolved",
             "code_hashes": code_hashes, **item["original"]}
         base = original_base(origin)
-        features = tennis_features_v3(event, observations, base, cutoff=item["decision"])
+        feature_builder = tennis_features_v4 if self.feature_version == "tennis-performed-load-v4" else tennis_features_v3
+        features = feature_builder(event, observations, base, cutoff=item["decision"])
         return origin, event, base, features
 
     def finish(self):
@@ -340,10 +347,17 @@ class LiveWorker:
                 feature_start = monotonic()
                 with history.feature_scope(_event(item["binding"]["row"])) as observations:
                     origin, event, base, features = self._original(item, state_refs[id(item)], observations, code_hashes)
+                    # v4 binds ALL revisions of every event ever associated
+                    # with these participants, not the entire tour per card.
+                    # The full physical inventory was verified above; D4
+                    # independently reconstructs this exact scoped set.
+                    observation_refs = sorted({row["digest"] for row in observations})
+                    if self.feature_version == "tennis-performed-load-v3":
+                        observation_refs = history.observation_refs
                 feature_seconds = monotonic()-feature_start
                 effect, effect_hash, approval, reason = inventory.select(event, base, features)
                 inputs = {"event": event, "base": base, "features": features,
-                    "observation_refs": history.observation_refs, "preprocessing_refs": [],
+                    "observation_refs": observation_refs, "preprocessing_refs": [],
                     "effect_artifact": effect, "effect_hash": effect_hash, "approval": approval}
                 descriptor = {"schema": 1, "kind": KIND, **inputs,
                     "approval_hash": approval["digest"] if approval is not None else None}
@@ -385,6 +399,10 @@ class LiveWorker:
                     "reference": reference, "event": inputs["event"], "cutoff": origin["cutoff"],
                     "markets": MARKETS, "original_artifact_hash": original_hash}), "context_original": origin,
                     "context_original_published_at": original_published_at}
+                from daily3_tennis_comparison import build_tennis_comparison
+                comparison = build_tennis_comparison(item["state"], origin, item["prediction"])
+                if comparison is not None:
+                    item["prediction"].context_evidence["daily3_comparison"] = comparison
             try:
                 fx = item["fixture"]
                 row_id = shadow.store_prediction(fx["match_date"], fx["tour"], fx["tournament"], item["prediction"], **kwargs)
@@ -411,13 +429,13 @@ class LiveWorker:
 
 
 @contextmanager
-def live_worker(*, path=None, progress=None):
+def live_worker(*, path=None, progress=None, feature_version="tennis-performed-load-v4"):
     if _CURRENT.get() is not None:
         raise ContextContractError("live tennis worker is already owned")
     if path is None:
         from runtime_paths import CONTEXT_MODEL_DB_PATH
         path = CONTEXT_MODEL_DB_PATH
-    batch = LiveWorker(path, progress=progress)
+    batch = LiveWorker(path, progress=progress, feature_version=feature_version)
     token = _CURRENT.set(batch)
     try:
         yield batch
