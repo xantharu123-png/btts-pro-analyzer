@@ -10,7 +10,7 @@ from tennis import shadow
 from test_tennis_live_worker import NOW, competition, configure, response, run_batch
 
 
-def changed_response(monkeypatch):
+def changed_response(monkeypatch, *, clock=NOW+timedelta(seconds=9)):
     replaced = competition()
     replaced["competitors"][1] = {"id": "3", "athlete": {"displayName": "Gamma C"}}
     independent = competition(id="203")
@@ -29,29 +29,43 @@ def changed_response(monkeypatch):
     monkeypatch.setattr(daily.requests, "get", lambda url, **kwargs:
         Reply(document if "/atp/" in url else {"events": []}))
     from context_sources import tennis_capture
-    monkeypatch.setattr(tennis_capture, "_receipt_now", lambda: NOW-timedelta(seconds=5))
+    monkeypatch.setattr(tennis_capture, "_receipt_now", lambda: clock)
 
 
-def test_changed_pair_is_reported_without_mutating_history_or_aborting_next_fixture(monkeypatch, tmp_path):
+def later_clocks(monkeypatch):
+    from tennis import live_context
+    decision = NOW+timedelta(seconds=10)
+    moment = decision+timedelta(seconds=2)
+    monkeypatch.setattr(daily, "_refresh_now", lambda: decision)
+    monkeypatch.setattr(live_context, "_now", lambda: decision+timedelta(seconds=1))
+    monkeypatch.setattr(shadow, "_prediction_append_time", lambda value: (moment.timestamp(), moment.isoformat()))
+    return decision, moment
+
+
+def test_verified_changed_pair_gets_own_lineage_without_mutating_history(monkeypatch, tmp_path):
     db, predictions, _, _ = configure(monkeypatch, tmp_path)
     _, original = run_batch(db, predictions)
     with sqlite3.connect(predictions) as conn:
         before = conn.execute("SELECT * FROM prediction_revisions WHERE prediction_id=?", (original[0]["id"],)).fetchall()
     changed_response(monkeypatch)
+    decision, moment = later_clocks(monkeypatch)
 
-    result, rows = run_batch(db, predictions)
+    result, _ = run_batch(db, predictions, decision=decision)
+    rows = shadow.latest_predictions(predictions, as_of=moment+timedelta(seconds=1))
 
-    assert result["status"] == "partial"
-    assert result["stored"] == 1 and result["skipped"] == 1
-    assert result["errors"] == [{"tour": "ATP", "provider_event_id": "201",
-        "reason": "fixture_identity_conflict", "error_type": "FixtureIdentityConflict"}]
+    assert result["status"] != "partial"
+    assert result["stored"] == 2 and result["skipped"] == 0 and not result["errors"]
     assert {r["provider_event_id"] for r in rows} == {"201", "203"}
-    assert next(r for r in rows if r["provider_event_id"] == "201")["player_b"] == "Beta B"
+    current = next(r for r in rows if r["provider_event_id"] == "201")
+    assert current["player_b"] == "Gamma C" and current["id"] != original[0]["id"]
+    assert current["odds_a"] is None and current["odds_b"] is None
+    assert len(shadow.latest_predictions(predictions, pending_only=False, as_of=moment+timedelta(seconds=1))) == 3
+    assert shadow.latest_predictions(predictions, as_of=NOW+timedelta(seconds=3))[0]["player_b"] == "Beta B"
     with sqlite3.connect(predictions) as conn:
         assert conn.execute("SELECT * FROM prediction_revisions WHERE prediction_id=?", (original[0]["id"],)).fetchall() == before
 
 
-def test_daily_main_keeps_nonzero_partial_result_after_finishing_other_predictions(monkeypatch, tmp_path, capsys):
+def test_daily_main_completes_verified_successor_and_independent_fixture(monkeypatch, tmp_path, capsys):
     db, predictions, _, _ = configure(monkeypatch, tmp_path)
     run_batch(db, predictions)
     changed_response(monkeypatch)
@@ -59,10 +73,9 @@ def test_daily_main_keeps_nonzero_partial_result_after_finishing_other_predictio
     monkeypatch.setattr(daily, "tournament_surface_map", lambda *a: {})
     monkeypatch.setattr(daily, "fetch_fixtures", daily.fetch_fixtures_espn)
     monkeypatch.setattr(daily.sys, "argv", ["tennis_daily.py", "2026-09-09"])
-    moment = NOW+timedelta(seconds=2)
-    monkeypatch.setattr(shadow, "_prediction_append_time", lambda value: (moment.timestamp(), moment.isoformat()))
+    _, moment = later_clocks(monkeypatch)
 
-    assert daily.main() == 1
+    assert daily.main() == 0
     output = capsys.readouterr().out
     import json
     progress = [json.loads(line.split(": ", 1)[1]) for line in output.splitlines()
@@ -74,8 +87,8 @@ def test_daily_main_keeps_nonzero_partial_result_after_finishing_other_predictio
     assert [row["processed"] for row in progress if row["phase"] == "prepare_progress"] == [1, 2]
     assert progress[0]["total"] == progress[-1]["total"] == 2
     assert progress[-2]["processed"] == 2
-    assert "Nach Datenempfang gespeichert: 1" in output
-    assert "fixture_identity_conflict" in output
+    assert "Nach Datenempfang gespeichert: 2" in output
+    assert "fixture_identity_conflict" not in output
     assert len(shadow.latest_predictions(predictions, as_of=moment+timedelta(seconds=1))) == 2
 
 

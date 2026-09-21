@@ -176,4 +176,7 @@ def test_unlisted_new_original_of_same_event_is_not_suppressed(monkeypatch, tmp_
     assert retired == {origin["event"]["event_key"]}
     monkeypatch.setattr(retirements, "RETIREMENTS", ())
     additions, issues = collect_outcomes(db, observer.pending, observer._outcome_sources)
-    assert additions == {} and issues == {"native-outcome-conflicting"}
+    # The unrelated old pair no longer needs a manual exception to avoid
+    # blocking this exact new native pairing. It never receives its result.
+    assert not issues and len(additions[0]) == 1
+    assert additions[0][0]["payload"]["away_id"] == "espn:tennis:ATP:player:3"

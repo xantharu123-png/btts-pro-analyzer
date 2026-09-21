@@ -128,8 +128,8 @@ def collect_outcomes(path, pending, sources, *, retired_events=None):
     """Return additions by batch position, preserving all actual receive clocks.
 
     Repeated persistence is B1-idempotent. Multiple forecasts of the exact same
-    native event do not multiply outcomes. Different original identities or
-    simultaneous source revisions cannot be resolved by choosing a winner.
+    native event do not multiply outcomes. Replaced participants never inherit
+    the replacement's result. Scope selection uses native IDs, never a winner.
     """
     wanted = {pending[index][1][0]["event_key"] for index in sources}
     originals = _originals(path, wanted, retired_events=retired_events)
@@ -149,10 +149,32 @@ def collect_outcomes(path, pending, sources, *, retired_events=None):
                     events[ref] = (created, event)
         if not events:
             continue
-        identities = {digest({k: v for k, v in event.items()
-            if k not in {"scheduled_start", "schedule_revision"}}) for _, event in events.values()}
-        if len(identities) != 1:
+        # A provider may reuse its match ID after replacing an opponent. Bind
+        # only originals for the actual received native pair/tournament. Keep
+        # all old originals untouched and unscored; do not choose by outcome.
+        from context_sources.tennis import _espn
+        scopes, missing = set(), False
+        for index in indices:
+            try:
+                native = _espn(sources[index])
+                prefix = f"espn:tennis:{native['tour']}:player:"
+                scopes.add((native["tour"], f"espn:{native['tour']}:tournament:{native['tournament_id']}",
+                    f"espn:tennis:{native['tour']}:match:{native['event_id']}",
+                    frozenset((prefix+native["player_a_id"], prefix+native["player_b_id"]))))
+            except (ContextContractError, TypeError, ValueError, KeyError):
+                missing = True
+        if len(scopes) > 1 or missing and len(indices) > 1:
             issues.add("native-outcome-conflicting")
+            continue
+        if missing or not scopes:
+            issues.add("native-outcome-unavailable")
+            continue
+        scope = next(iter(scopes))
+        events = {ref: (created, event) for ref, (created, event) in events.items()
+            if (event["tour"], event["competition"], event["event_key"],
+                frozenset((event["home_id"], event["away_id"]))) == scope}
+        if not events:
+            issues.add("native-outcome-unavailable")
             continue
         bound = []
         for created, event in events.values():

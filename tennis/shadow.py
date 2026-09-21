@@ -1014,6 +1014,7 @@ def store_prediction(
                 WHERE provider_event_id=?
                   AND (fixture_source=? OR fixture_source IS NULL)
                   AND model_version=? AND policy_version=?
+                ORDER BY created_utc DESC,id DESC
                 """,
                 (
                     provider_event_id,
@@ -1069,8 +1070,25 @@ def store_prediction(
                 """,
                 (existing[0],),
             ).fetchone()
-            if tuple(stored[:2]) != (prediction.player_a, prediction.player_b):
+            replaced = False
+            if context_model is not None:
+                from .fixture_successions import has_replaced_native_players, replacement_marker
+                replaced = has_replaced_native_players(conn, int(existing[0]), revision)
+            if replaced:
+                _guard_expected_fixture_snapshot(
+                    conn, int(existing[0]), stored_match_date=stored[6],
+                    stored_scheduled_start_utc=stored[5],
+                    expected_model_revision_id=expected_model_revision_id,
+                    expected_match_date=expected_match_date,
+                    expected_scheduled_start_utc=expected_scheduled_start_utc,
+                )
+                # A changed native pair starts its own price/result identity.
+                # A -> B -> A also appends a third parent, never revives A.
+                revision["fixture_successor"] = replacement_marker(conn, int(existing[0]), revision)
+                existing = None
+            elif tuple(stored[:2]) != (prediction.player_a, prediction.player_b):
                 raise FixtureIdentityConflict("tennis revision cannot change player identity or orientation")
+        if existing:
             _guard_expected_fixture_snapshot(
                 conn,
                 int(existing[0]),
@@ -1204,12 +1222,14 @@ def workload_history(db_path: str | Path | None = None) -> List[Dict]:
 
 def pending_predictions() -> List[Dict]:
     from tennis.forecast_retirements import prediction_is_retired
+    from tennis.fixture_successions import superseded_prediction_ids
     with _connect() as conn:
         conn.row_factory = sqlite3.Row
+        superseded = superseded_prediction_ids(conn, as_of=time.time())
         rows = conn.execute(
             "SELECT * FROM predictions WHERE settled=0 ORDER BY match_date"
         ).fetchall()
-    return [row for r in rows if not prediction_is_retired(row := dict(r))]
+    return [row for r in rows if not prediction_is_retired(row := dict(r)) and row["id"] not in superseded]
 
 
 def _result_observation_iso(value: datetime | str | None) -> str:

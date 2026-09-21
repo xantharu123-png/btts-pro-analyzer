@@ -207,6 +207,8 @@ def read_latest_predictions(
             return []
         sql = "SELECT * FROM predictions" + (" WHERE settled=0" if pending_only else "")
         originals = [dict(row) for row in conn.execute(sql)]
+        from tennis.fixture_successions import superseded_prediction_ids
+        superseded = superseded_prediction_ids(conn, as_of=cutoff) if pending_only else set()
         results = []
         for original in originals:
             if utc_epoch(original["created_utc"]) > cutoff:
@@ -234,6 +236,8 @@ def read_latest_predictions(
                 expected = _revision_digest(original["id"], serialized)
                 if expected != latest["revision_id"] or utc_epoch(payload["created_utc"]) != latest["modeled_utc"]:
                     raise ValueError("tennis model revision content mismatch")
+                if payload.get("fixture_successor") is not None and utc_epoch(payload["append_observed_at"]) > cutoff:
+                    continue
                 if len(revisions) > 1 and revisions[1]["modeled_utc"] == latest["modeled_utc"]:
                     raise ValueError("ambiguous equal-time tennis model revisions")
                 for field in ("player_a", "player_b", "model_version", "policy_version"):
@@ -257,7 +261,7 @@ def read_latest_predictions(
                         row[field] = None
             # Keep full audit reads and pre-removal history unchanged. Removal
             # affects active queues only, after revision integrity validation.
-            if pending_only and prediction_is_retired(row, as_of=cutoff):
+            if pending_only and (row["id"] in superseded or prediction_is_retired(row, as_of=cutoff)):
                 continue
             results.append(row)
     return sorted(results, key=lambda row: (str(row.get("scheduled_start_utc") or row.get("match_date") or ""), row["id"]))

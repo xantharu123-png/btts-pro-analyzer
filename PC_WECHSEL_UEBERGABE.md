@@ -5,9 +5,14 @@
 Zuerst den obersten Block in [TODO_AKTUELL.md](TODO_AKTUELL.md) und den
 [Kontext-/Daily3-Bericht](docs/audits/2026-09-21-kontext-daily3-fortsetzung.md) lesen.
 RisikoBet-Textveröffentlichung aus dem vorherigen Lauf jetzt bestätigt.
-ATP-Daily3, Tennis-v4 und begrenzte Fußball-Quellwiederverwendung lokal umgesetzt;
-2.585 plus 115 Tests grün. Deployment-/Gesamtlaufabnahme noch
-offen. Keine numerische Effektfreigabe: nur 125 passende native Endresultate
+ATP-Daily3, Tennis-v4 und begrenzte Fußball-Quellwiederverwendung als c936310
+auf main/GitHub/VPS; 2.585 plus 115 Tests grün. Echter Scan 951 Sekunden,
+82 gespeicherte v4-Revisionen, 16 ATP-Vergleiche. Ein tatsächlicher WTA-
+Gegnerwechsel verhindert noch Exit 0; Nachfolgelinien-Patch lokal fertig,
+1.461 Tests grün / drei Skips, 92 überlappende UI-/Fixturetests grün.
+Regulärer 14:07-Lauf degraded wegen drei Tennis-Refreshfehlern, zwei davon
+belegte offene native Teilnehmerplätze. Keine numerische Effektfreigabe:
+nur 125 passende native Endresultate
 vor Aufteilung, mindestens 200 unberührte Testevents erforderlich. Fußball-
 Live-Jointmodell-Anbindung und weitere Daily3-Sportadapter bleiben offen.
 Keine neuen Backups, Bereinigungen oder Finanzänderungen. Untere Stände Historie.

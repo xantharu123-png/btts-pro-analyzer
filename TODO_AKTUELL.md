@@ -1,6 +1,6 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
-## Kontext-/Daily3-Fortsetzung 21.09.2026 — lokale Abnahme
+## Kontext-/Daily3-Fortsetzung 21.09.2026 — c936310 live, Nachfolgeprüfung
 
 - Maßgeblich: [Kontext-/Daily3-Bericht](docs/audits/2026-09-21-kontext-daily3-fortsetzung.md).
 - Der unten noch offene 11:37-Lauf ist erfolgreich beendet. Neue RisikoBet-
@@ -19,7 +19,18 @@
 - Fußball-Speicherbudget: vollständige unveränderte historische FT-Bündel
   werden mit alten Uhren wiederverwendet. Korrekturen bleiben eigene Belege;
   Folgeläufe können fehlende Quellen ergänzen, ohne Limits zu erhöhen.
-- Commit/Push/Deployment und echten Tennis-Gesamtlauf noch abschließen.
+- `c9363109c44d3560717353c624130574fc592d43` ist auf Worktree, main,
+  GitHub und VPS. Keine neue Sicherung, Bereinigung oder Datenmigration.
+- Echte Tennisprüfung 13:51–14:08 CEST: Scan 951 Sekunden statt altem
+  2100-Sekunden-Timeout; 82 gespeicherte v4-Revisionen, 16 ATP-Vergleiche.
+  Exit dennoch 1: ESPN ersetzte bei WTA 183996 Julia Avdeeva durch Ayla Aksu.
+  Alte Prognose nicht überschrieben. Generische unveränderliche Nachfolgelinie
+  mit exakter Ergebnisbindung lokal fertig: 1.461 Tests bestanden, drei Skips;
+  danach 92 überlappende UI-/Fixturetests grün. Live-Abnahme noch offen.
+- Regulärer Lauf 14:07–14:26 CEST: Fußball abgeschlossen, insgesamt degraded.
+  Drei Tennis-Refreshfehler; zwei nativ belegte offene Teilnehmerplätze
+  (IDs 1588/1573), 1562 beim späteren lesenden Bindungstest wieder gültig.
+  Kein erfolgreicher Gesamtlauf oder erfundener Teilnehmer behaupten.
 - Weiter offen: echte empirische Wirkung, Fußball-Live-Jointmodell-Anbindung,
   WTA-/Basketball-/Eishockey-/E-Sport-Daily3-Vergleiche. Cricket ausgenommen.
   Fehlende Daten nicht durch erfundene Werte oder rückdatierte Belege ersetzen.

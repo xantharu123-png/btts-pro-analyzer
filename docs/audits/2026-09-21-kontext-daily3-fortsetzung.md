@@ -113,6 +113,49 @@ Das behebt eine technische Sammellücke, ist aber noch keine Modellqualifikation
 
 ## Nicht als erledigt melden
 
+### Produktionsabnahme c936310 und native Nachfolgereparatur
+
+`c9363109c44d3560717353c624130574fc592d43` ist committed, auf main gepusht
+und auf dem VPS eingesetzt. App/Caddy und lokale/öffentliche IPv4-Healthchecks
+sind gesund, Compute-Timer wieder aktiv. Keine Backups, Datenmigration oder
+Bereinigung. Der Gesamtlauf muss trotzdem getrennt bewertet werden:
+
+- Tennisstart 13:51:03 CEST; Zustandsaufbau erfolgreich, Scan 13:52:42–14:08:33
+  (951 Sekunden), Gesamtschluss 14:08:50. Kein 2100-Sekunden-Timeout.
+- 85 vorbereitete Karten, 82 gespeicherte v4-Revisionen, 38 neue Elternzeilen;
+  16 enthalten den echten ATP-Modellvergleich. Keine Aussage über 16 Tipps.
+- Tatsächliche Referenzmengen 1–11.219 statt bis zu 680.802 pro Karte.
+  Physische Snapshot-Payloads 29.644–333.913 Bytes, separat geteilte
+  Referenzblöcke ausdrücklich nicht darin enthalten.
+- Exit 1 wegen WTA 183996: alter Gegner Julia Avdeeva, aktuell nativ Ayla
+  Aksu gegen Yuki Naito, dazu neuer Spielbeginn. Kein Überschreiben oder
+  Abrechnen der alten Avdeeva-Prognose. Ein neuer Original-/Kontextnachweis
+  liegt bereits vor, war aber noch nicht als eigene Shadow-Linie angebunden.
+- Regulärer Wettfinder 14:07:00–14:26:13: Fußballaktualisierung abgeschlossen,
+  insgesamt degraded (23 Modellkarten, null bestätigte Tipps). Drei gemeldete
+  Tennis-Refreshfehler, IDs 1588/1562/1573. Lesende Einzelfallreproduktion:
+  1588 und 1573 haben neu einen offenen Teilnehmer statt früher benannter
+  Spielerin; 1562 lässt sich danach wieder binden. Keine pauschale Reparatur
+  der Anbieterdaten oder erfolgreicher Gesamtlauf behauptet.
+
+Lokaler Nachtrag in Abschlussprüfung: echte spätere native Gegnerwechsel
+werden als neue Prognose-Elternzeile angehängt. Die erste unveränderliche
+Revision verweist auf die vorherige Revision. Neue Namen allein erlauben
+keinen Wechsel; erforderlich sind andere native Spieler-IDs im gleichen
+Wettbewerb/Event/Tour, frühere Originalveröffentlichung und aktueller
+Worker-Nachweis. A→B→A erzeugt drei Linien. Aktive Leser unterdrücken alte
+Linien erst ab der tatsächlichen Nachfolgeveröffentlichung, auch nach
+Abrechnung des Nachfolgers; volle Auditansichten behalten sie. Alte Preise,
+Ergebnisse und Originalzeilen bleiben unverändert. Ergebnisbindung erfolgt
+nur zur tatsächlich empfangenen Paarung, niemals nach dem Gewinner.
+
+Abschlussprüfung: 1.461 bestanden, drei erwartete Skips in 42 betroffenen
+Tennismodulen. Nachtrag für die ältere Tennisansicht: 92 überlappende
+Fixture-/Refresh-/UI-Tests bestanden; diese Zahl nicht zur Suite addieren.
+Aktive Abrechnungseingänge behalten die ursprünglichen Modell-/Preiswerte,
+Auditansichten alle Altzeilen. Kein vollständiger neuer App-Gesamttest daraus
+abgeleitet. Commit/Push und Live-Abnahme dieses Nachtrags folgen separat.
+
 1. Keine empirisch qualifizierte Verletzungs-/Müdigkeitswirkung aktiv. Die
    festgelegten mindestens 200 unberührten Testevents über drei Zeitblöcke,
    Train-/Tune-Trennung, Brier-Verbesserung, Kalibrierung und Mehrfachtestprüfung

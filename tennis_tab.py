@@ -86,7 +86,11 @@ def _load_predictions(
     query += " ORDER BY match_date, tour, tournament, id"
     with sqlite3.connect(DB_PATH) as conn:
         conn.row_factory = sqlite3.Row
-        return [dict(r) for r in conn.execute(query, tuple(params)).fetchall()]
+        from tennis.fixture_successions import superseded_prediction_ids
+        superseded = (superseded_prediction_ids(conn, as_of=datetime.now(timezone.utc))
+                      if unsettled_only else set())
+        return [dict(r) for r in conn.execute(query, tuple(params)).fetchall()
+                if r["id"] not in superseded]
 
 
 def _parse_start_utc(value: str | None) -> datetime | None:

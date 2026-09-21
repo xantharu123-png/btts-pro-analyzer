@@ -158,7 +158,7 @@ def test_later_unambiguous_winner_correction_is_a_separate_receipt(monkeypatch, 
         origin["event"]["home_id"], origin["event"]["away_id"]]
 
 
-@pytest.mark.parametrize("conflict", ["winner", "cancelled", "missing_winner"])
+@pytest.mark.parametrize("conflict", ["winner", "cancelled", "missing_winner", "participant"])
 def test_simultaneous_conflicting_replies_do_not_manufacture_a_target(monkeypatch, tmp_path, conflict):
     db, _, _, _ = original_store(monkeypatch, tmp_path)
     second = completed(winner=1)
@@ -166,6 +166,8 @@ def test_simultaneous_conflicting_replies_do_not_manufacture_a_target(monkeypatc
         second["status"]["type"]["name"] = "STATUS_CANCELED"
     elif conflict == "missing_winner":
         second["competitors"][0].pop("winner")
+    elif conflict == "participant":
+        second["competitors"][1]["id"] = "3"
     with capture.capture_tennis_worker(path=db) as observer:
         record(observer, completed())
         record(observer, second)
@@ -227,7 +229,8 @@ def test_result_received_before_original_publication_cannot_be_upgraded_later(mo
     assert outcomes(db) == ()
 
 
-def test_distinct_native_original_revisions_are_not_silently_joined(monkeypatch, tmp_path):
+@pytest.mark.parametrize("final_player", ["2", "3"])
+def test_distinct_native_original_revisions_bind_only_the_actual_pair(monkeypatch, tmp_path, final_player):
     db, _, _, origin = original_store(monkeypatch, tmp_path)
     revised = competition()
     revised["competitors"][1]["id"] = "3"
@@ -243,9 +246,12 @@ def test_distinct_native_original_revisions_are_not_silently_joined(monkeypatch,
     put_artifact(db, kind=ORIGINAL_ARTIFACT_KIND, payload={"schema": 1, "origin": conflicting},
         created_at=clock + timedelta(seconds=2))
     with capture.capture_tennis_worker(path=db) as observer:
-        record(observer)
-    assert outcomes(db) == ()
-    assert "native-outcome-conflicting" in observer.report()["issues"]
+        final = completed()
+        final["competitors"][1]["id"] = final_player
+        record(observer, final)
+    result, = outcomes(db)
+    assert result["payload"]["away_id"] == f"espn:tennis:ATP:player:{final_player}"
+    assert not observer.report()["issues"]
 
 
 def test_outcome_stays_with_its_status_and_workload_in_bounded_batches(monkeypatch, tmp_path):
