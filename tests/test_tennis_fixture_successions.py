@@ -118,9 +118,15 @@ def test_corrupt_first_revision_cannot_hide_the_original(monkeypatch, tmp_path):
 
 def test_legacy_tennis_view_excludes_superseded_pair_but_preserves_audit(monkeypatch, tmp_path):
     import tennis_tab
+    from datetime import datetime
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return (NOW+timedelta(minutes=1)).astimezone(tz)
+    monkeypatch.setattr(tennis_tab, "datetime", Clock)
     db, predictions, _, _ = configure(monkeypatch, tmp_path)
     monkeypatch.setattr(tennis_tab, "DB_PATH", predictions)
     run_batch(db, predictions)
     _, current = next_pair(monkeypatch, db, predictions)
-    assert [row["id"] for row in tennis_tab._load_predictions(unsettled_only=True)] == [current[0]["id"]]
+    assert [row["id"] for row in tennis_tab._load_predictions(unsettled_only=True, native_current_only=True)] == [current[0]["id"]]
     assert len(tennis_tab._load_predictions(current_only=False)) == 2

@@ -154,7 +154,42 @@ Tennismodulen. Nachtrag für die ältere Tennisansicht: 92 überlappende
 Fixture-/Refresh-/UI-Tests bestanden; diese Zahl nicht zur Suite addieren.
 Aktive Abrechnungseingänge behalten die ursprünglichen Modell-/Preiswerte,
 Auditansichten alle Altzeilen. Kein vollständiger neuer App-Gesamttest daraus
-abgeleitet. Commit/Push und Live-Abnahme dieses Nachtrags folgen separat.
+abgeleitet. Dieser Nachtrag ist als
+`30f31ed1944c6c7e879fc30224377b9548a527ab` auf main/GitHub/VPS.
+
+### Tatsächlich abgeschlossene native Abnahme und letzter Leserschutz
+
+- Echter Tageslauf 14:50:33–15:05:20 CEST: Exit 0, **Scan OK, Gesamt OK**.
+  86 Prognosen fertig verarbeitet, zwei neue Elternzeilen. Hauptscan endet
+  15:05:05, Modell-/History-Veröffentlichung dauert 771 Sekunden. Gesamtpeak
+  3,0 GiB, kein OOM oder 2100-Sekunden-Timeout. Das ist noch kein beliebig
+  kleiner Speicherverbrauch; keine neue Bereinigung vorgenommen.
+- WTA 183996: alte Zeile 1585 (Julia Avdeeva/Yuki Naito, sieben unveränderte
+  Revisionen) bleibt erhalten. Neue Zeile 1637 (Ayla Aksu/Yuki Naito) referenziert
+  deren vorherige Revision; nur 1637 im aktiven Leser. Beide unabgerechnet;
+  keine erfundene Auszahlung, Stornierung oder alte Quote übernommen.
+- Vorab rein lesender Native-Probetest validierte das echte Original, seine
+  Snapshot-Referenz und die alte Revision. Eine zunächst falsche Diagnosequery
+  behandelte geteilte Snapshot-Bytes als JSON; nach Verwendung des owning
+  Decoders grün. Das war kein Datenbankdefekt und erzeugte keine Schreibzugriffe.
+- Zusätzliche echte Leserlücke: eine native zurückgezogene/offene Paarung
+  durfte nicht nur beim Refresh scheitern und trotzdem als aktuelle Karte
+  stehen bleiben. `current_native_forecasts` prüft vorhandene native Fakten
+  einmal je Event im Lesebatch, ohne Netzaufruf, Training oder Publikation.
+  Nur weiterhin exakt passende zukünftige Paarung/Termin bleibt aktuell;
+  alte Auditansichten und manuelle Abrechnung werden nicht zur Prematch-Ansicht
+  umgedeutet. Legacy-Daten erhalten keine erfundene native Bestätigung.
+- Letzte Regression dieses Leserschutzes: 55 Module, **1.897 bestanden,
+  drei erwartete Skips, 26 Untertests**, 221,82 Sekunden. JUnit liegt unter
+  `output/playwright/tennis-availability-final-20260921.xml`; kein Addieren
+  überlappender vorheriger Läufe, keine behauptete gesamte App-Vollsuite.
+- Erneute reine Zählung 15:13:02 CEST: **244** unabhängige rechtzeitige
+  Originalevents, **144** passend zugeordnete normale Endresultate vor jeglicher
+  Train-/Tune-/Testtrennung. Null Effekt-/Freigabeartefakte. Die Probe stoppt
+  nach der Inventarphase; keine wiederholte Merkmalsauswertung, kein Training.
+
+Commit/Push/VPS-Übernahme des letzten Leserschutzes stehen zum Zeitpunkt dieser
+Notiz separat an. Die folgenden fachlichen Punkte bleiben ausdrücklich offen:
 
 1. Keine empirisch qualifizierte Verletzungs-/Müdigkeitswirkung aktiv. Die
    festgelegten mindestens 200 unberührten Testevents über drei Zeitblöcke,
@@ -165,8 +200,9 @@ abgeleitet. Commit/Push und Live-Abnahme dieses Nachtrags folgen separat.
    Freigabe des vorhandenen älteren Raw-Poisson-Trainingspfades.
 3. Daily3 außerhalb Fußball: ATP implementiert; WTA, Basketball, Eishockey und
    E-Sport besitzen weiterhin keinen belegten defensiven Vergleichsadapter.
-4. Ein vollständiger erfolgreicher Tennis-Produktionslauf nach diesem Patch
-   darf erst nach tatsächlichem Ende bestätigt werden.
+4. Weitere reguläre Wettfinderläufe separat bewerten: offene native Teilnehmer
+   sind kein erfundener technischer Erfolg. Der Tennis-Gesamtlauf selbst ist
+   jetzt wie oben nachgewiesen erfolgreich abgeschlossen.
 
 Es gibt keine künstlichen drei Tipps, erfundenen Verletzungsabschläge oder
 abgesenkte Qualitätskriterien. Fehlende Ausgangsdaten bleiben offen sichtbar

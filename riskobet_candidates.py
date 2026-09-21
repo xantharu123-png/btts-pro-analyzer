@@ -1087,6 +1087,8 @@ def adapt_tennis_shadow(
         return ()
     from tennis.shadow import latest_predictions
     rows = latest_predictions(path, pending_only=True, as_of=now)
+    from tennis.fixture_availability import current_native_forecasts
+    rows = current_native_forecasts(rows, as_of=now)
     outputs: list[RiskAdapterResult] = []
     for row in rows:
         prediction_id = row["id"]

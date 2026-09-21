@@ -61,6 +61,7 @@ def _load_predictions(
     date_to: str | None = None,
     unsettled_only: bool = False,
     current_only: bool = True,
+    native_current_only: bool = False,
 ) -> list[dict]:
     if not DB_PATH.exists():
         return []
@@ -89,8 +90,17 @@ def _load_predictions(
         from tennis.fixture_successions import superseded_prediction_ids
         superseded = (superseded_prediction_ids(conn, as_of=datetime.now(timezone.utc))
                       if unsettled_only else set())
-        return [dict(r) for r in conn.execute(query, tuple(params)).fetchall()
+        rows = [dict(r) for r in conn.execute(query, tuple(params)).fetchall()
                 if r["id"] not in superseded]
+    if native_current_only:
+        from tennis.fixture_availability import current_native_forecasts
+        current = datetime.now(timezone.utc)
+        # Check the latest native identity while retaining this view's original
+        # entry probability and price. Never combine a new model with old odds.
+        latest = shadow.latest_predictions(DB_PATH, as_of=current)
+        active_ids = {row["id"] for row in current_native_forecasts(latest, as_of=current)}
+        rows = [row for row in rows if row["id"] in active_ids]
+    return rows
 
 
 def _parse_start_utc(value: str | None) -> datetime | None:
@@ -968,6 +978,7 @@ def render_tennis_finder(
         date_from=selected_date or today,
         date_to=selected_end_date,
         unsettled_only=True,
+        native_current_only=True,
     )
     rows, hidden_rows = _split_prematch_rows(raw_rows)
     if hidden_rows:

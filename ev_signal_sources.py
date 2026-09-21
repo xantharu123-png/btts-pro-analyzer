@@ -313,11 +313,13 @@ def _latest_tennis_rows(db_path, today, current):
         rows = latest_predictions(db_path, pending_only=True, as_of=current)
     except (OSError, sqlite3.Error, ValueError):
         return []
-    return [row for row in rows if (
+    eligible = [row for row in rows if (
         row.get("match_date") == today
         and row.get("model_version") == TENNIS_MODEL_VERSION
         and row.get("policy_version") == TENNIS_POLICY_VERSION
     )]
+    from tennis.fixture_availability import current_native_forecasts
+    return current_native_forecasts(eligible, as_of=current)
 
 
 def _tennis_context_summary(row):

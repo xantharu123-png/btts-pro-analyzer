@@ -1,6 +1,6 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
-## Kontext-/Daily3-Fortsetzung 21.09.2026 — c936310 live, Nachfolgeprüfung
+## Kontext-/Daily3-Fortsetzung 21.09.2026 — echter Tennis-Gesamtlauf grün
 
 - Maßgeblich: [Kontext-/Daily3-Bericht](docs/audits/2026-09-21-kontext-daily3-fortsetzung.md).
 - Der unten noch offene 11:37-Lauf ist erfolgreich beendet. Neue RisikoBet-
@@ -31,6 +31,18 @@
   Drei Tennis-Refreshfehler; zwei nativ belegte offene Teilnehmerplätze
   (IDs 1588/1573), 1562 beim späteren lesenden Bindungstest wieder gültig.
   Kein erfolgreicher Gesamtlauf oder erfundener Teilnehmer behaupten.
+- Nachtrag `30f31ed1944c6c7e879fc30224377b9548a527ab` auf main/GitHub/VPS.
+  Echter Tennislauf 14:50:33–15:05:20 CEST: Exit 0, Scan OK, Gesamt OK;
+  86 fertig verarbeitete Prognosen. Neue WTA-Linie 1637 korrekt mit 1585
+  verknüpft; ausschließlich Ayla Aksu/Yuki Naito aktiv. Altdaten unverändert.
+- Zusätzlicher Anzeigeschutz: bekannte Rücknahmen, offene Teilnehmerplätze,
+  Starts und geänderte Termine werden in Wettfinder/RisikoBet/Tennis gemeinsam
+  geprüft. Historie und manuelle Abrechnung bleiben getrennt zugänglich.
+  Finale 55 betroffene Module: 1.897 bestanden, drei Skips, 26 Untertests.
+  Dieser Anzeigeschutz wird als separater Nachtrag veröffentlicht.
+- Lesende Zählung 15:13 CEST: 244 rechtzeitige unabhängige Originalevents,
+  144 passende normale Endresultate insgesamt vor Train-/Tune-/Testteilung;
+  weiterhin null Effekt- und Freigabeartefakte. Die frühere 125er-Zahl ist Historie.
 - Weiter offen: echte empirische Wirkung, Fußball-Live-Jointmodell-Anbindung,
   WTA-/Basketball-/Eishockey-/E-Sport-Daily3-Vergleiche. Cricket ausgenommen.
   Fehlende Daten nicht durch erfundene Werte oder rückdatierte Belege ersetzen.

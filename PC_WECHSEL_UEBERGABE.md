@@ -8,11 +8,13 @@ RisikoBet-Textveröffentlichung aus dem vorherigen Lauf jetzt bestätigt.
 ATP-Daily3, Tennis-v4 und begrenzte Fußball-Quellwiederverwendung als c936310
 auf main/GitHub/VPS; 2.585 plus 115 Tests grün. Echter Scan 951 Sekunden,
 82 gespeicherte v4-Revisionen, 16 ATP-Vergleiche. Ein tatsächlicher WTA-
-Gegnerwechsel verhindert noch Exit 0; Nachfolgelinien-Patch lokal fertig,
-1.461 Tests grün / drei Skips, 92 überlappende UI-/Fixturetests grün.
-Regulärer 14:07-Lauf degraded wegen drei Tennis-Refreshfehlern, zwei davon
-belegte offene native Teilnehmerplätze. Keine numerische Effektfreigabe:
-nur 125 passende native Endresultate
+Gegnerwechsel mit 30f31ed live behoben: echter Gesamtlauf 15:05:20 Exit 0,
+86 Prognosen fertig, neue WTA-Linie 1637 aktiv statt 1585. Anzeigeschutz für
+bekannte native Rücknahmen zusätzlich getestet: 1.897 Tests, drei Skips,
+26 Untertests; eigener Nachtrag folgt. Regulärer 14:07-Lauf war degraded
+wegen drei Tennis-Refreshfehlern, zwei davon offene native Teilnehmerplätze.
+Keine numerische Effektfreigabe: aktualisierte Zählung 15:13 CEST ergibt
+144 passende native Endresultate insgesamt
 vor Aufteilung, mindestens 200 unberührte Testevents erforderlich. Fußball-
 Live-Jointmodell-Anbindung und weitere Daily3-Sportadapter bleiben offen.
 Keine neuen Backups, Bereinigungen oder Finanzänderungen. Untere Stände Historie.
