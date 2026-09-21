@@ -45,7 +45,7 @@ from riskobet_domain import (
 )
 
 
-RISKOBET_POLICY_VERSION = "riskobet-evidence-order-v2"
+RISKOBET_POLICY_VERSION = "riskobet-grounded-basis-v3"
 FOOTBALL_MODEL_VERSION = "shared-football-market-model-v1"
 RESEARCH_MODEL_VERSION = "beta-log5-prematch-v1"
 TENNIS_FALLBACK_MODEL_VERSION = "tennis-shadow-model-v1"
@@ -262,6 +262,15 @@ def _football_goal_factor(candidate: object, side: str) -> Optional[str]:
     return None
 
 
+def _football_score_basis(candidate: object) -> str:
+    home = _number(_get(candidate, "expected_home_goals"))
+    away = _number(_get(candidate, "expected_away_goals"))
+    if home is None or away is None:
+        return "Torvergleich nicht verfügbar; kein zusätzlicher Vorteil belegt."
+    return (f"Torprognose: {_clean_text(_get(candidate, 'home_team'))} {home:.2f}, "
+            f"{_clean_text(_get(candidate, 'away_team'))} {away:.2f}.")
+
+
 def _football_scenarios(pool: Sequence[object]) -> list[_Scenario]:
     by_market = {
         _clean_text(_get(candidate, "market_key")): candidate
@@ -303,7 +312,7 @@ def _football_scenarios(pool: Sequence[object]) -> list[_Scenario]:
                 f"riskobet-settlement-v1:football:result_90_minutes:{settlement_side}"
             ),
             score=result_probability * 1.20,
-            pro=f"Das gemeinsame Ergebnismodell gibt {team_label} {result_probability:.1%} Siegchance.",
+            pro=_football_score_basis(result),
             con="Außenseitersiege liegen im dünnen Wahrscheinlichkeitsrand und streuen stark.",
         ))
 
@@ -325,7 +334,7 @@ def _football_scenarios(pool: Sequence[object]) -> list[_Scenario]:
                 cautious_probability=_candidate_cautious(draw, draw_probability),
                 settlement_contract="riskobet-settlement-v1:football:draw_90_minutes:draw",
                 score=draw_probability,
-                pro=f"Das Remismodell weist {draw_probability:.1%} aus.",
+                pro=_football_score_basis(draw),
                 con="Ein einzelnes spätes Tor kann das Remisszenario vollständig kippen.",
             )
         )
@@ -356,7 +365,7 @@ def _football_scenarios(pool: Sequence[object]) -> list[_Scenario]:
                     f"{dc_selection}"
                 ),
                 score=dc_probability * 0.45,
-                pro=f"Sieg oder Remis zusammen ergeben im Modell {dc_probability:.1%}.",
+                pro=_football_score_basis(double_chance),
                 con="Der breitere Ausgang ist weniger überraschend und häufig preislich knapp.",
             )
         )
@@ -685,7 +694,7 @@ def _football_scenario_from_selected(
                 f"riskobet-settlement-v1:football:result_90_minutes:{underdog_side}"
             ),
             score=probability,
-            pro=f"Das gemeinsame Ergebnismodell gibt {team} {probability:.1%} Siegchance.",
+            pro=_football_score_basis(candidate),
             con="Außenseitersiege liegen im dünnen Wahrscheinlichkeitsrand und streuen stark.",
         )
     if raw_key == "RESULT_DRAW":
@@ -699,7 +708,7 @@ def _football_scenario_from_selected(
             cautious_probability=_candidate_cautious(candidate, probability),
             settlement_contract="riskobet-settlement-v1:football:draw_90_minutes:draw",
             score=probability * 0.75,
-            pro=f"Das Remismodell weist {probability:.1%} aus.",
+            pro=_football_score_basis(candidate),
             con="Ein einzelnes spätes Tor kann das Remisszenario vollständig kippen.",
         )
     if raw_key == dc_key:
@@ -717,7 +726,7 @@ def _football_scenario_from_selected(
                 f"{dc_selection}"
             ),
             score=probability * 0.45,
-            pro=f"Sieg oder Remis zusammen ergeben im Modell {probability:.1%}.",
+            pro=_football_score_basis(candidate),
             con="Der breitere Ausgang ist weniger überraschend und häufig preislich knapp.",
         )
     if raw_key == f"{goal_prefix}_OVER_1_5":
@@ -1137,6 +1146,7 @@ def adapt_tennis_shadow(
         ) or TENNIS_FALLBACK_MODEL_VERSION
         event_key = stable_event_key("tennis", provider, provider_id)
         input_payload = {
+            "adapter_revision": "tennis-observed-context-copy-v2",
             "prediction_id": prediction_id,
             "provider_event_id": provider_id,
             "created_utc": observed_at.isoformat(),
@@ -1194,7 +1204,8 @@ def adapt_tennis_shadow(
                         continue
                     workload_factors.append(FactorEvidence(
                         factor_key=f"tennis_workload_{side}_{index}",
-                        summary=f"{player_name}: {fact}"[:600],
+                        summary=(fact.strip() if fact.strip().casefold().startswith(player_name.casefold() + ":")
+                                 else f"{player_name}: {fact.strip()}")[:600],
                         source="tennis-shadow-observed-results",
                         observed_at=observed_at, imported_at=observed_at,
                         fresh_until=starts_at, role=FactorRole.DISPLAY_ONLY,
@@ -1265,7 +1276,10 @@ def adapt_tennis_shadow(
                 "Außenseitersieg",
                 winner_probability,
                 0.15,
-                f"Das kalibrierte Matchmodell gibt {winner_underdog} {winner_probability:.1%} Siegchance.",
+                (f"Grundmodell: Spielstärke auf "
+                 f"{ {'Hard': 'Hartplatz', 'Clay': 'Sand', 'Grass': 'Rasen', 'Carpet': 'Teppich'}[input_payload['surface']]}."
+                 if input_payload['surface'] in ("Hard", "Clay", "Grass", "Carpet") else
+                 "Grundmodell: Spielstärke; aktueller Belag nicht eindeutig zugeordnet."),
                 (shared["summaries"]["A" if winner_side == "home" else "B"] if shared is not None else
                  "Belag ist modelliert. Akute Fitness, Verletzungen und Belastung sind noch nicht als numerischer Effekt validiert."),
             ))
@@ -1520,7 +1534,7 @@ def adapt_esports_shadow(
                 "series_winner",
                 "Außenseitersieg in der Serie",
                 p_underdog,
-                f"Die Gegenwahrscheinlichkeit des eingefrorenen Serienmodells beträgt {p_underdog:.1%}.",
+                f"Spielstärke-Abstand: {abs(elo1 - elo2):.0f} Elo-Punkte; Best-of-{series_type}.",
                 "Rosterwechsel und Map-Vetos sind im öffentlichen Feed nicht vollständig identifiziert.",
             ))
         # At least one map is a simple scenario and therefore needs a concrete

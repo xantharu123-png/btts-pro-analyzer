@@ -26,15 +26,18 @@ def test_no_reverse_form_no_noise_and_no_riskier_fillers():
         assert daily3_choices([item], now=NOW) == ()
 
 
-def test_match_signal_not_largest_probability_or_team_name_or_price():
+def test_qualified_match_signals_rank_defensively_independent_of_price():
     favourite = football(1, 'HOME_OVER_0_5', .94, variants=(.94, .915, .985))
     alternative = football(2, 'AWAY_OVER_0_5', .80, variants=(.8, .72, .94))
     before = daily3_choices([favourite, alternative], now=NOW)
-    assert before[0].signal is alternative
+    # Both have a genuine saved same-match form signal. Relevance admits both;
+    # the approved defensive priority then prefers lower modeled loss risk.
+    # A favourite WITHOUT such a signal remains excluded by the test above.
+    assert before[0].signal is favourite
     changed = [replace(s, minimum_odds=999, probability_haircut=.001) for s in (alternative, favourite)]
     assert [c.signal.key for c in daily3_choices(changed, now=NOW)] == [c.signal.key for c in before]
     assert 'Formsignal' in before[0].comparison.summary
-    assert before[0].comparison.match_reference_probability == .72
+    assert before[0].comparison.match_reference_probability == .915
 
 
 def test_caption_reports_actual_change_not_the_smaller_ranking_contrast():

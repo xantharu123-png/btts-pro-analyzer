@@ -414,6 +414,8 @@ class EsportsScanner:
             or match_id <= 0
         ):
             return None
+        error_key = f"result:{match_id}"
+        self.errors.pop(error_key, None)
         try:
             response = requests.get(
                 f"{self.pandascore_base}/matches/{match_id}",
@@ -421,14 +423,18 @@ class EsportsScanner:
                 timeout=10,
             )
         except (requests.RequestException, ValueError):
+            self.errors[error_key] = "result_transport_failed"
             return None
         if response.status_code != 200:
+            self.errors[error_key] = f"result_http_{response.status_code}"
             return None
         try:
             match = response.json()
         except ValueError:
+            self.errors[error_key] = "result_json_invalid"
             return None
         if not isinstance(match, dict):
+            self.errors[error_key] = "result_payload_invalid"
             return None
         provider_match_id = match.get("id")
         if (
@@ -436,8 +442,14 @@ class EsportsScanner:
             or isinstance(provider_match_id, bool)
             or provider_match_id != match_id
         ):
+            self.errors[error_key] = "result_identity_mismatch"
             return None
         status = str(match.get("status") or "").lower()
+        if status not in {"finished", "canceled"}:
+            return None
+        # A terminal but unusable payload is a provider/data problem, not an
+        # ordinary still-running game. Clear only after every result check.
+        self.errors[error_key] = "result_terminal_invalid"
         opponents = match.get("opponents")
         if not isinstance(opponents, list) or len(opponents) != 2:
             return None
@@ -460,6 +472,7 @@ class EsportsScanner:
             if match.get("forfeit") is True:
                 if winner_id not in opponent_ids:
                     return None
+                self.errors.pop(error_key, None)
                 return {
                     "void": True,
                     "status": status,
@@ -469,6 +482,7 @@ class EsportsScanner:
                     "team2_id": opponent_ids[1],
                 }
             if match.get("forfeit") is False and winner_id is None:
+                self.errors.pop(error_key, None)
                 return {
                     "void": True,
                     "status": status,
@@ -505,6 +519,7 @@ class EsportsScanner:
             return None
         if scores[winner_id] <= scores[next(team for team in opponent_ids if team != winner_id)]:
             return None
+        self.errors.pop(error_key, None)
         return {
             "winner_team_id": winner_id,
             "team1_id": opponent_ids[0],

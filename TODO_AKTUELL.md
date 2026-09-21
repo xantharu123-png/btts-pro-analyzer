@@ -1,5 +1,22 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## Produkt-Auditreparatur 21.09.2026 — in Abnahme
+
+- F01/F04: 15K-Kohärenz und typisierte Ausfallanzeigen repariert; keine
+  Gegensätze als gemeinsame Vorschläge, keine unbekannten Daten als 0/0.
+- F03/F06: faire E-Sport-Ergebnisqueue, begrenzter Halb-Stunden-Ergebnislauf,
+  echte Providerfehler getrennt, keine Schreibsperre beim Netzaufruf;
+  verifizierte Fußball-Terminänderungen mit FT-Endergebnis auflösbar.
+- F05/F08: Defensive Daily3-Priorität korrigiert, 15K-Spielgruppen,
+  kompaktere RisikoBet-Details und revisionssichere Modellgrundlagen.
+- Abschließende betroffene Regression: 1.621 Tests und 32 Untertests grün;
+  lokale Desktop-/320-Pixel-Browserprobe grün. Gesamtsuite/Veröffentlichung
+  laufen. Maßgeblicher aktueller Reparaturbericht:
+  [Produktreparaturen](docs/audits/2026-09-21-produkt-reparaturen.md).
+- Weiter offen: qualifizierte numerische Verletzungs-/Müdigkeitswirkung,
+  echte empirische Verbesserung und Daily3-Vergleiche außerhalb Fußball.
+  Keine Aktivierung ohne Datenbeleg. Cricket unverändert ausgenommen.
+
 ## Aktueller Stand – Fußball/Tennis, 21.09.2026
 
 - **Nachtrag 08:24 CEST:** Die vier vom Nutzer freigegebenen historischen

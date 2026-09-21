@@ -3002,6 +3002,7 @@ def run_wettfinder(
     force_football: bool = False,
     evidence_db_path: Optional[str | Path] = None,
     evidence_settlement_runner: Optional[Callable[..., dict]] = None,
+    esports_settlement_runner: Optional[Callable[..., dict]] = None,
     clock: Optional[Callable[[], datetime]] = None,
 ) -> dict[str, Any]:
     """Run daily discovery if due, then refresh only near candidate fixtures."""
@@ -4025,6 +4026,18 @@ def run_wettfinder(
             }
     # This evidence store is separate from user money/ticket databases. Tests
     # opt in explicitly; only the canonical server worker records by default.
+    if production_state or esports_settlement_runner is not None:
+        from esports_shadow import settle_due_predictions
+        try:
+            document['esports_settlement'] = (esports_settlement_runner or settle_due_predictions)(
+                ESPORTS_DB, now=current if fixed_now else None)
+            if document['esports_settlement']['status'] == 'partial':
+                document['run_status'] = 'degraded'
+                document['operational_error_count'] += 1
+        except Exception as exc:
+            document['esports_settlement'] = {'status': 'failed', 'failure_type': type(exc).__name__}
+            document['run_status'] = 'degraded'
+            document['operational_error_count'] += 1
     if production_state or evidence_db_path is not None:
         from forecast_evidence import record_forecast_run
         evidence_path = evidence_db_path or ROOT / "runtime_state" / "forecast_evidence.db"

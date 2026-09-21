@@ -9,7 +9,7 @@ from html import escape
 
 from challenge_engine import MARKET_BY_KEY
 from forecast_analysis import (
-    _clock, _contract, _decimal, _mapping, _percent, _tennis_inputs,
+    _clock, _contract, _context_projection, _decimal, _mapping, _percent, _tennis_inputs,
     forecast_highlight_reason, format_model_clock, read_football_analysis,
 )
 
@@ -63,6 +63,23 @@ def _injury_details(injuries, home, away):
     return tuple(lines)
 
 
+def football_injury_fact(context, home, away, *, now):
+    """One typed injury display contract for all football consumer surfaces."""
+    context = _mapping(context)
+    raw = _mapping(context.get('injuries'))
+    if raw.get('availability') == 'not_covered' or raw.get('coverage_available') is False:
+        return Fact('Ausfälle', 'nicht abgedeckt',
+                    ('Für dieses Spiel liegen keine abgedeckten Verletzungsdaten vor.',), True)
+    injuries = _mapping(_context_projection(context).get('injuries'))
+    clock = _clock(injuries.get('checked_at'))
+    if injuries and (context.get('stale') is True or clock is not None and now-clock > timedelta(minutes=75)):
+        return Fact('Ausfälle', 'veraltet', ('Kein aktueller, verifizierter Kaderstand verfügbar.',), True)
+    if not injuries or clock is None or not timedelta(0) <= now-clock <= timedelta(minutes=75):
+        return Fact('Ausfälle', 'offen', ('Kein aktueller, verifizierter Kaderstand verfügbar.',), True)
+    return Fact('Ausfälle', f'{injuries["home_missing"]} Heim · {injuries["away_missing"]} Gast',
+                _injury_details(injuries, home, away))
+
+
 def build_compact_analysis(signal, analysis, *, now):
     sport = str(signal.sport or '').strip().casefold().replace('ß', 'ss')
     facts, warnings = [], []
@@ -99,17 +116,14 @@ def build_compact_analysis(signal, analysis, *, now):
             clock = _clock(axis.get('checked_at'))
             return clock is not None and context.get('stale') is not True and timedelta(0) <= now - clock <= timedelta(minutes=75)
         injuries = _mapping(context.get('injuries'))
-        if fresh(injuries):
-            facts.append(Fact('Ausfälle', f'{injuries["home_missing"]} Heim · {injuries["away_missing"]} Gast',
-                              _injury_details(injuries, home, away)))
+        injury_fact = football_injury_fact(context, home, away, now=now)
+        facts.append(injury_fact)
+        if not injury_fact.warning:
             applied = _mapping(context.get('probability_integration')).get('applied')
             if applied is False:
                 warnings.append('Ausfallwirkung nicht eingerechnet')
             elif applied is not True or injuries.get('impact_assessment_complete') is False:
                 warnings.append('Ausfallwirkung nicht vollständig belegt')
-        else:
-            label = 'veraltet' if injuries else 'offen'
-            facts.append(Fact('Ausfälle', label, ('Kein aktueller, verifizierter Kaderstand verfügbar.',), True))
         lineups = _mapping(context.get('lineups'))
         status = lineups.get('status') if fresh(lineups) else None
         lineup_label = {'passed': 'bestätigt', 'pending': 'offen', 'confirmation_due': 'offen',

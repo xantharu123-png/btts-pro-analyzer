@@ -358,6 +358,14 @@ def append_result(event_key: str, market_key: str, selection: str, outcome: str 
         raise ValueError("result requires a recognized provider and canonical record hash")
     if any(token in proof["settlement_rule"].casefold() for token in ("manual", "synthetic", "guess")):
         raise ValueError("manual or inferred results are not evidence")
+    actual_start = None
+    if 'actual_starts_at' in provenance:
+        if proof['provider'].casefold() != 'api-football':
+            raise ValueError('rescheduled kickoff requires its owning football adapter')
+        actual_start = _utc(provenance['actual_starts_at'])
+        if actual_start > observed:
+            raise ValueError('actual kickoff follows the result observation')
+        proof['actual_starts_at'] = actual_start.isoformat()
     payload = {"event_key": identity[0], "market_key": identity[1], "selection": identity[2], "outcome": outcome, "observed_at": observed.isoformat(), "provenance": proof}
     result_id = _hash(payload)
     with closing(_connect(db_path)) as conn, conn:
@@ -365,7 +373,7 @@ def append_result(event_key: str, market_key: str, selection: str, outcome: str 
         forecasts = conn.execute("SELECT starts_at,payload_json FROM forecast_rows WHERE event_key=? AND market_key=? AND selection=?", identity).fetchall()
         if not forecasts:
             raise ValueError("result has no matching prospective forecast")
-        if outcome != "VOID" and any(observed < _utc(row[0]) for row in forecasts):
+        if outcome != "VOID" and actual_start is None and any(observed < _utc(row[0]) for row in forecasts):
             raise ValueError("played result must be observed after event start")
         for _, raw in forecasts:
             quoted_identity = json.loads(raw)["quote_identity"]
@@ -426,6 +434,8 @@ def build_quality_report(db_path: str | Path, *, as_of: datetime | str | None = 
     path = Path(db_path)
     cutoff = _utc(as_of or datetime.now(timezone.utc))
     report = {"as_of": cutoff.isoformat(), "database_present": path.is_file(), "groups": [], "scoring_policy": "First causal decision per event/selection/model/policy; returns use first executable causal decision independently.", "limitations": ["Different selections from the same event remain correlated; unique event counts are shown.", "Observed quote returns are hypothetical equal-unit returns, not actual wagers or profit proof.", "CLV is the raw same-book odds ratio; no no-vig market probability is inferred.", "Missing input clocks are excluded from strict prequential scoring."]}
+    report['sport_coverage'] = []
+    report['limitations'].append('Verified actual kickoff overrides the planned start for causal scoring and prices; frozen forecasts stay unchanged.')
     if not path.is_file():
         return report
     with closing(sqlite3.connect(path.resolve().as_uri()+"?mode=ro", uri=True)) as conn:
@@ -443,8 +453,19 @@ def build_quality_report(db_path: str | Path, *, as_of: datetime | str | None = 
         for row in conn.execute("SELECT * FROM forecast_quotes WHERE fetched_at<=? ORDER BY observed_at,quote_id", (cutoff.isoformat(),)):
             quotes[row["forecast_id"]].append(dict(row))
     groups = defaultdict(list)
+    sport_rows = defaultdict(list)
     for row in forecasts:
         groups[(row["sport"],row["market_key"],row["model_version"],row["policy_version"])].append(row)
+        sport_rows[row['sport']].append(row)
+    # Do not sum per-market counts into a misleading sample size. All markets,
+    # repeated runs and policy revisions of the same fixture remain one event.
+    for sport, rows in sorted(sport_rows.items()):
+        event_ids = {row['event_key'] for row in rows}
+        resolved = {row['event_key'] for row in rows
+                    if (row['event_key'], row['market_key'], row['selection']) in results}
+        report['sport_coverage'].append(dict(sport=sport, forecast_revisions=len(rows),
+            unique_events=len(event_ids), events_with_any_result=len(resolved),
+            events_without_results=len(event_ids-resolved)))
     for key, group in sorted(groups.items()):
         summary = dict(zip(("sport","market","model_version","policy_version"),key))
         summary.update({"decision_revisions":len(group), "unique_events":len({r["event_key"] for r in group}), "causal_forecasts":0, "unknown_input_clocks":0, "wins":0, "losses":0, "voids":0, "unresolved":0, "scored":0, "entry_quote_coverage":0, "executable_entry_coverage":0})
@@ -453,15 +474,22 @@ def build_quality_report(db_path: str | Path, *, as_of: datetime | str | None = 
         bins = [{"lower":i/10,"upper":(i+1)/10,"n":0,"sum_p":0.0,"wins":0} for i in range(10)]
         for record in group:
             forecast = json.loads(record["payload_json"])
+            identity = (record["event_key"],record["market_key"],record["selection"])
+            result = results.get(identity)
+            proof = json.loads(result['payload_json']).get('provenance', {}) if result else {}
+            effective_start = _utc(proof.get('actual_starts_at', record['starts_at']))
             causal = forecast["causal_provenance_complete"]
+            # A moved-earlier fixture cannot turn a post-start decision or price
+            # into historical prematch evidence. Later rescheduling likewise
+            # never rewrites the original forecast, only the terminal proof.
+            causal = causal and _utc(record['decision_at']) < effective_start and _utc(forecast['recorded_at']) < effective_start
             summary["causal_forecasts" if causal else "unknown_input_clocks"] += 1
             observed_quotes = quotes[record["forecast_id"]]
-            entries = [q for q in observed_quotes if q["kind"] == "entry"]
+            entries = [q for q in observed_quotes if q["kind"] == "entry"
+                       and _utc(q['observed_at']) < effective_start and _utc(q['fetched_at']) < effective_start]
             executable = [q for q in entries if q["executable"]]
             summary["entry_quote_coverage"] += bool(entries)
             summary["executable_entry_coverage"] += bool(executable)
-            identity = (record["event_key"],record["market_key"],record["selection"])
-            result = results.get(identity)
             outcome = result["outcome"] if result else None
             if identity not in outcome_identities:
                 summary[{"WIN":"wins","LOSS":"losses","VOID":"voids"}.get(outcome,"unresolved")] += 1
@@ -469,7 +497,8 @@ def build_quality_report(db_path: str | Path, *, as_of: datetime | str | None = 
             entry = max(executable,key=lambda q:(q["observed_at"],q["quote_id"])) if causal and executable and identity not in executable_identities else None
             if entry:
                 executable_identities.add(identity)
-                closings = [q for q in observed_quotes if q["kind"]=="closing" and q["bookmaker_id"]==entry["bookmaker_id"]]
+                closings = [q for q in observed_quotes if q["kind"]=="closing" and q["bookmaker_id"]==entry["bookmaker_id"]
+                            and _utc(q['observed_at']) <= effective_start and _utc(q['fetched_at']) <= effective_start]
                 if closings:
                     close = max(closings,key=lambda q:(q["observed_at"],q["quote_id"]))
                     clvs.append(entry["odds"]/close["odds"]-1)

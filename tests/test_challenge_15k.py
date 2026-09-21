@@ -1125,7 +1125,7 @@ class ChallengeProbabilityTests(unittest.TestCase):
         self.assertEqual(rendered[1][1], basis_quote)
         self.assertTrue(
             any(
-                str(call.args[0]) == "Weitere 3 Modellprognosen"
+                "Auswahlen" in str(call.args[0]) and " vs " in str(call.args[0])
                 for call in fake_streamlit.expander.call_args_list
                 if call.args
             )

@@ -19,10 +19,13 @@ import scan_jobs
 
 from account_identity import storage_scope
 from bet_finder_ui import (
+    coherent_consumer_forecasts,
+    group_consumer_markets_by_fixture,
     merge_consumer_forecast_catalog,
     partition_consumer_featured_forecasts,
     partition_consumer_forecasts,
 )
+from forecast_compact import football_injury_fact
 from api_budget import (
     APIBudgetError,
     APIBudgetExceeded,
@@ -4317,7 +4320,8 @@ def render_football_scan_diagnostics(
 def _render_candidate_context(candidate: ChallengeCandidate) -> None:
     context = candidate.context
     h2h = context.get("h2h", {})
-    injuries = context.get("injuries", {})
+    injury_fact = football_injury_fact(context, candidate.home_team, candidate.away_team,
+                                      now=datetime.now(timezone.utc))
     weather = context.get("weather", {})
     checks = st.columns(3)
     h2h_hits = h2h.get("hits")
@@ -4334,8 +4338,9 @@ def _render_candidate_context(candidate: ChallengeCandidate) -> None:
         help=h2h.get("reason"),
     )
     checks[1].metric(
-        "Ausfälle H/A",
-        f"{injuries.get('home_missing', 0)}/{injuries.get('away_missing', 0)}",
+        injury_fact.label,
+        injury_fact.value,
+        help="\n".join(injury_fact.details),
     )
     checks[2].metric(
         "Wetter",
@@ -4537,10 +4542,10 @@ def _render_price_check(
     settings: dict[str, Any],
 ) -> None:
     shortlist: list[ChallengeCandidate] = snapshot["shortlist"]
-    displayed_candidates: list[ChallengeCandidate] = merge_consumer_forecast_catalog(
+    displayed_candidates: list[ChallengeCandidate] = coherent_consumer_forecasts(merge_consumer_forecast_catalog(
         snapshot.get("forecast_shortlist") or shortlist,
         snapshot.get("basis_forecasts"),
-    )
+    ))
     if not displayed_candidates:
         st.info("Für diesen Spieltag gibt es aktuell keinen 15K-Tipp.")
         st.caption(
@@ -4616,8 +4621,8 @@ def _render_price_check(
     st.subheader("Auswahlen und Quoten")
     if primary_candidates:
         st.caption(
-            "Diese Auswahlen sind noch keine Tipps. Erst eine passende aktuelle "
-            "Quote kann daraus einen 15K-Tagestipp machen."
+            "Modell-Auswahlen. Ein 15K-Ticket benötigt zusätzlich bestätigte "
+            "Modell-, Kontext- und Preisprüfungen."
         )
     else:
         st.info(
@@ -4653,21 +4658,18 @@ def _render_price_check(
             if offset < len(rows) - 1:
                 st.divider()
 
-    render_rows(featured_candidates, start_index=1)
-    if additional_candidates:
-        with st.expander(
-            f"Weitere {len(additional_candidates)} Modellprognosen",
-            expanded=False,
-        ):
-            st.caption(
-                "Der Modellkatalog bleibt vollständig. Wiederholte "
-                "Marktentscheidungen oder weitere Auswahlen desselben Spiels "
-                "stehen gesammelt hier."
-            )
-            render_rows(
-                additional_candidates,
-                start_index=len(featured_candidates) + 1,
-            )
+    featured_ids = {row.candidate_id for row in featured_candidates}
+    index = 1
+    for label, rows in group_consumer_markets_by_fixture(featured_candidates + additional_candidates):
+        # One closable block per game, including its highlighted selection.
+        # Team labels are plain text, not externally supplied Markdown links.
+        label = label.replace("\\", "\\\\")
+        for char in "[]()*_`":
+            label = label.replace(char, "\\" + char)
+        with st.expander(f"{label} · {len(rows)} Auswahlen",
+                         expanded=any(row.candidate_id in featured_ids for row in rows)):
+            render_rows(rows, start_index=index)
+        index += len(rows)
 
     if extreme_short_candidates:
         with st.expander(
@@ -4907,7 +4909,7 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
     st.caption(
         "BetBoy prüft jede Auswahl und die dazugehörige Quote automatisch."
     )
-    st.markdown("**Sport:** Fußball · vollständig 15K-validiert")
+    st.markdown("**Sport:** Fußball · separate 15K-Ticketprüfung")
     st.caption(
         "Weitere Sportarten erscheinen hier erst, wenn Modell, ausführbare "
         "Anbieterquote und Abrechnung denselben geprüften Vertrag erfüllen."

@@ -711,7 +711,7 @@ def render_riskobet_card_html(card: RiskBetCard) -> str:
         '<p class="rb-uncertainty-note">Heuristischer Abschlag, keine '
         'statistisch bestätigte Mindestchance.</p>'
         '<div class="rb-reasons">'
-        f"{_reason_block('pro', 'Spricht dafür', card.pros)}"
+        f"{_reason_block('pro', 'Modellgrundlage', card.pros)}"
         f"{_reason_block('contra', 'Spricht dagegen', card.cons)}"
         "</div>"
         f"{missing}"
@@ -755,7 +755,7 @@ def render_riskobet_compact_row_html(card: RiskBetCard) -> str:
         '<span>Sicherheitswert <strong>'
         f"{escape(cautious)}</strong></span></div>"
         '<div class="rb-row-reasons">'
-        '<span class="rb-row-pro"><b>Pro:</b> '
+        '<span class="rb-row-pro"><b>Grundlage:</b> '
         f"{escape(card.pros[0])}</span>"
         '<span class="rb-row-contra"><b>Contra:</b> '
         f"{escape(card.cons[0])}</span>{missing}</div>"

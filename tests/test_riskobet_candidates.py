@@ -496,6 +496,9 @@ def test_tennis_adapter_is_price_neutral_bounded_and_guards_extreme_winner(tmp_p
     assert 1 <= len(output[0].candidates) <= 2
     assert output[1].candidates == ()
     assert all(candidate.stage is EvidenceStage.SHADOW for candidate in output[0].candidates)
+    winner = next(c for c in output[0].candidates if c.market_key == 'match_winner')
+    assert winner.pros == ('Grundmodell: Spielstärke auf Hartplatz.',)
+    assert '%' not in winner.pros[0]
     first_snapshot = output[0].snapshot.snapshot_id
     with sqlite3.connect(path) as connection:
         connection.execute("UPDATE predictions SET odds_a=99, odds_b=101 WHERE id=1")

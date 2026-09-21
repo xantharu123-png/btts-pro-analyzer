@@ -217,13 +217,24 @@ class EsportsShadowLog:
         *,
         max_calls: int = MAX_SETTLE_CALLS_PER_RUN,
         stale_after_days: int = STALE_AFTER_DAYS,
+        now: datetime | None = None,
     ) -> int:
         """Settle open predictions against finished match results.
 
+        Only started events are due. Retry age, not NULL priority, determines
+        order: newly discovered games cannot starve previously checked games.
         Missing results stay open and rotate to the back of the queue. A row
         is voided only when the provider explicitly reports a canceled match;
         time or a transient API failure is not settlement evidence.
         """
+        if type(max_calls) is not int or not 0 <= max_calls <= 500:
+            raise ValueError("settlement budget must be an integer from 0 to 500")
+        fixed_clock = now is not None
+        now = now or datetime.now(timezone.utc)
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("settlement clock must be timezone-aware")
+        now = now.astimezone(timezone.utc)
+        self.settlement_diagnostics = {"checked": 0, "fetch_errors": 0, "pending": 0}
         with closing(self._connect()) as connection:
             rows = connection.execute(
                 """
@@ -232,24 +243,25 @@ class EsportsShadowLog:
                        check_attempts
                 FROM esports_shadow_predictions
                 WHERE settled = 0
+                    AND julianday(scheduled_at) <= julianday(?)
                 ORDER BY
-                    CASE WHEN last_checked_at IS NULL THEN 0 ELSE 1 END,
-                    last_checked_at ASC,
-                    logged_at ASC,
+                    julianday(COALESCE(last_checked_at, logged_at)) ASC,
                     match_id ASC
                 LIMIT ?
                 """,
-                (max_calls,),
+                (now.isoformat(), max_calls),
             ).fetchall()
         settled = 0
-        now = datetime.now(timezone.utc)
         del stale_after_days
         with closing(self._connect()) as connection:
             for row in rows:
+                self.settlement_diagnostics["checked"] += 1
                 try:
                     result = result_fetcher(int(row["match_id"]))
                 except Exception:
+                    self.settlement_diagnostics["fetch_errors"] += 1
                     result = None
+                observed_at = now if fixed_clock else datetime.now(timezone.utc)
                 if not isinstance(result, dict):
                     result = {}
                 winner_id = result.get("winner_team_id")
@@ -292,12 +304,13 @@ class EsportsShadowLog:
                             """,
                             (
                                 winner_id if termination == "forfeit" else None,
-                                now.isoformat(),
+                                observed_at.isoformat(),
                                 termination,
                                 int(row["match_id"]),
                             ),
                         )
                         settled += cursor.rowcount
+                        connection.commit()
                         continue
                 score1 = result.get("score1")
                 score2 = result.get("score2")
@@ -343,6 +356,7 @@ class EsportsShadowLog:
                         )
                     )
                 if not valid_scores:
+                    self.settlement_diagnostics["pending"] += 1
                     connection.execute(
                         """
                         UPDATE esports_shadow_predictions
@@ -350,8 +364,9 @@ class EsportsShadowLog:
                             check_attempts = check_attempts + 1
                         WHERE match_id = ? AND settled = 0
                         """,
-                        (now.isoformat(), int(row["match_id"])),
+                        (observed_at.isoformat(), int(row["match_id"])),
                     )
+                    connection.commit()
                     continue
                 hit = 1 if winner_id == int(row["selected_team_id"]) else 0
                 cursor = connection.execute(
@@ -364,14 +379,15 @@ class EsportsShadowLog:
                     (
                         winner_id,
                         hit,
-                        now.isoformat(),
+                        observed_at.isoformat(),
                         frozen_score1,
                         frozen_score2,
                         int(row["match_id"]),
                     ),
                 )
                 settled += cursor.rowcount
-            connection.commit()
+                # End this row's atomic write before the next network request.
+                connection.commit()
         return settled
 
     def summary(self, model_version: str = ESPORTS_MODEL_VERSION) -> Dict[str, Any]:
@@ -520,7 +536,27 @@ def run_shadow_scan(
             "scanned_matches": len(matches),
             "logged_new": logged,
             "settled_new": settled,
+            "settlement": dict(log.settlement_diagnostics),
             "errors": dict(scanner.errors),
         }
     )
     return summary
+
+
+def settle_due_predictions(db_path=DEFAULT_DB_PATH, *, scanner=None, now=None):
+    """Bounded result-only pass for the existing half-hourly worker.
+
+    No discovery, model recalculation or bookmaker-price requests. Keeping
+    results independent of discovery prevents a daily backlog from growing.
+    """
+    if not Path(db_path).is_file():
+        return {"status": "no_database", "checked": 0, "settled": 0}
+    scanner = scanner or EsportsScanner()
+    if not scanner.api_key:
+        return {"status": "missing_api_key", "checked": 0, "settled": 0}
+    log = EsportsShadowLog(db_path)
+    settled = log.settle_open(_pandascore_result_fetcher(scanner), now=now)
+    diagnostics = dict(log.settlement_diagnostics)
+    provider_errors = bool(scanner.errors) or diagnostics['fetch_errors'] > 0
+    return {"status": "partial" if provider_errors else "completed", "settled": settled,
+            **diagnostics, "provider_error_count": len(scanner.errors)}

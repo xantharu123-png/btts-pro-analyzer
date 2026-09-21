@@ -273,3 +273,14 @@ def test_automatic_closing_capture_never_backfills_or_crosses_native_identity(db
     saved = evidence.record_forecast_run(document([latest],current), db, "model-v1")
     assert saved["closing_quotes_recorded"] == 0
     assert evidence.build_quality_report(db, as_of=current)["groups"][0]["same_book_raw_clv_samples"] == 0
+
+
+def test_sport_coverage_counts_events_not_revisions_or_policy_groups(db, monkeypatch):
+    evidence.record_forecast_run(document([candidate(1), candidate(2)]), db, 'model-v1')
+    evidence.record_forecast_run(document([candidate(1, .7)]), db, 'model-v2')
+    observed = START+timedelta(hours=2)
+    monkeypatch.setattr(evidence, '_now', lambda: observed)
+    result(db, fixture=1, observed=observed)
+    report = evidence.build_quality_report(db, as_of=observed)
+    assert report['sport_coverage'] == [dict(sport='football', forecast_revisions=3,
+        unique_events=2, events_with_any_result=1, events_without_results=1)]

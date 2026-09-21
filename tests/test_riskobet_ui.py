@@ -488,6 +488,21 @@ def test_featured_grid_flat_rows_and_exact_stable_keys(monkeypatch):
     assert "## Weitere Szenarien" in _all_text(first)
 
 
+def test_observed_context_is_available_only_inside_analysis(monkeypatch):
+    snapshot, candidate = _bundle("compact-context", sport="tennis")
+    observation = replace(snapshot.factors[0], factor_key="tennis_workload_a_0",
+                          role=FactorRole.DISPLAY_ONLY, summary="Spieler A: zuletzt drei Sätze beobachtet.")
+    snapshot = replace(snapshot, factors=(*snapshot.factors, observation))
+    candidate = replace(candidate, snapshot_id=snapshot.snapshot_id)
+    fake = RecordingStreamlit()
+    monkeypatch.setattr(ui, "st", fake)
+    ui._render_detail(candidate, snapshot)
+    context_rows = [row for row in fake.messages if "beobachtet" in str(row[1])]
+    assert context_rows
+    assert all(any(kind == "expander" for kind, _ in row[2]) for row in context_rows)
+    assert all(not expanded for _, expanded, _ in fake.expanders)
+
+
 def test_public_factor_details_hide_frozen_source_identities(monkeypatch):
     base, _candidate_value = _bundle("identity", sport="esports")
     identity_factors = tuple(

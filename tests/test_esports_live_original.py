@@ -267,6 +267,14 @@ def test_actual_parent_sql_row_first_observation_and_settlement_are_identical(ol
             changed = deepcopy(match)
             changed["team1_history"][0]["won"] = not changed["team1_history"][0]["won"]
             assert log.log_predictions([changed]) == 0
+        # Settlement belongs after kickoff; the original model/SQL row remains
+        # byte-identical. The previous test settled while the game was future.
+        class ResultClock(FrozenClock):
+            @classmethod
+            def now(cls, tz=None):
+                result_time = NOW + timedelta(days=1)
+                return result_time.astimezone(tz) if tz is not None else result_time.replace(tzinfo=None)
+        with patch.object(module, 'datetime', ResultClock):
             assert log.settle_open(lambda identity: {"winner_team_id": 7, "team1_id": 7, "team2_id": 8,
                 "score1": 2, "score2": 0, "termination": "normal"}) == 1
             assert log.settle_open(lambda identity: None) == 0
@@ -308,7 +316,10 @@ def test_unchanged_elo_candidate_math_and_sql_ast(old_modules):
     assert numerical_body(old) == numerical_body(new)
     old_shadow = ast.parse(_parent_source("esports_shadow.py"))
     new_shadow = ast.parse((root / "esports_shadow.py").read_text(encoding="utf-8"))
-    for name in ("__init__", "_connect", "settle_open", "summary", "release_status", "run_shadow_scan"):
+    # Settlement scheduling and its diagnostics deliberately changed. Their
+    # results remain covered by the byte-identical terminal-row comparison
+    # above and the due-queue regressions; model/evidence math stays frozen.
+    for name in ("__init__", "_connect", "summary", "release_status"):
         nodes = [next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == name)
                  for tree in (old_shadow, new_shadow)]
         assert ast.dump(nodes[0]) == ast.dump(nodes[1])

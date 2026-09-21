@@ -2,9 +2,12 @@ import tempfile
 import unittest
 from contextlib import closing
 from pathlib import Path
+from datetime import datetime, timezone
 import sqlite3
 
 from esports_shadow import ESPORTS_MODEL_VERSION, EsportsShadowLog
+
+SETTLED_AT = datetime(2099, 8, 2, tzinfo=timezone.utc)
 
 
 def _history(team_id, opponent_id, wins, losses, start_id):
@@ -131,7 +134,7 @@ class EsportsShadowLogTests(unittest.TestCase):
                     "termination": "normal",
                 },
             }
-            settled = log.settle_open(results.get, max_calls=10)
+            settled = log.settle_open(results.get, max_calls=10, now=SETTLED_AT)
             self.assertEqual(settled, 2)
 
             summary = log.summary()
@@ -147,7 +150,7 @@ class EsportsShadowLogTests(unittest.TestCase):
             log = EsportsShadowLog(Path(tmp) / "shadow.db")
             log.log_predictions([_match()])
 
-            settled = log.settle_open(lambda _mid: None, max_calls=10)
+            settled = log.settle_open(lambda _mid: None, max_calls=10, now=SETTLED_AT)
             self.assertEqual(settled, 0)
             self.assertEqual(log.summary()["open"], 1)
 
@@ -248,7 +251,7 @@ class EsportsShadowLogTests(unittest.TestCase):
                 )
                 con.commit()
 
-            self.assertEqual(log.settle_open(lambda _mid: None, max_calls=10), 0)
+            self.assertEqual(log.settle_open(lambda _mid: None, max_calls=10, now=SETTLED_AT), 0)
             summary = log.summary()
             self.assertEqual(summary["open"], 1)
             self.assertEqual(summary["settled"], 0)
@@ -270,6 +273,7 @@ class EsportsShadowLogTests(unittest.TestCase):
                         "team2_id": 8,
                     },
                     max_calls=10,
+                    now=SETTLED_AT,
                 ),
                 1,
             )
@@ -350,10 +354,10 @@ class EsportsShadowLogTests(unittest.TestCase):
             }
 
             def racing_fetcher(_match_id):
-                self.assertEqual(second.settle_open(lambda _mid: alpha_win), 1)
+                self.assertEqual(second.settle_open(lambda _mid: alpha_win, now=SETTLED_AT), 1)
                 return beta_win
 
-            self.assertEqual(first.settle_open(racing_fetcher), 0)
+            self.assertEqual(first.settle_open(racing_fetcher, now=SETTLED_AT), 0)
             with closing(sqlite3.connect(db)) as connection:
                 terminal = connection.execute(
                     "SELECT winner_team_id, final_score1, final_score2, termination "
@@ -371,8 +375,8 @@ class EsportsShadowLogTests(unittest.TestCase):
                 checked.append(match_id)
                 return None
 
-            log.settle_open(missing, max_calls=1)
-            log.settle_open(missing, max_calls=1)
+            log.settle_open(missing, max_calls=1, now=SETTLED_AT)
+            log.settle_open(missing, max_calls=1, now=SETTLED_AT)
             self.assertEqual(checked, [55, 56])
 
     def test_young_shadow_sample_is_not_released(self):

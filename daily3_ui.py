@@ -165,6 +165,7 @@ def render_daily3(st, *, snapshot_loader=None, store_factory=None, now=None):
     with st.popover('Auswahl & Regeln'):
         st.write(f'Mindestens {MIN_MODEL_PROBABILITY:.0%} in allen drei Varianten desselben Modells. Die zusätzliche Formgewichtung muss gegenüber der Heim-/Auswärtsbasis derselben Begegnung mindestens 2 Prozentpunkte beitragen. Eine Auswahl pro Spiel; keine pauschalen Wettartenverbote.')
         st.write('Die 2-Prozentpunkte-Regel dient der Auswahl, sie beweist weder Sicherheit noch einen Wettvorteil. Favoritenstärke allein genügt nicht. Weitere Auswahlen stehen unter Automatisch.')
+        st.write('Geeignete Auswahlen werden zuerst nach dem geringeren modellierten Verlustrisiko geordnet. Bei gleichem Risiko folgen Vielfalt und Formsignal.')
         st.write('Dieser Vergleich ist derzeit nur für Fußball angebunden. Für die anderen Sportarten fehlen die passenden Vergleichsdaten; ihre normalen Prognosen bleiben sichtbar.')
         st.write('Diese Auswahl nutzt den Prognosepool des Wettfinders, aber eine eigene Auswahlregel. Sie ist keine unabhängige Zweitbestätigung und keine nachgewiesene Sicherheitsrangliste. Fehlende Kontextdaten bleiben am Spiel sichtbar.')
         st.write('Bekannte Quoten unter 1,20 werden ausgefiltert; fehlende Quoten bleiben offen. Neue Einsätze erst ab Quote 1,20. Das CHF-150-Ziel verändert die Auswahl nicht; drei passende Auswahlen sind nicht täglich verfügbar.')

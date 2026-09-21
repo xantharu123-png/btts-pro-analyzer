@@ -435,12 +435,14 @@ def _render_detail(
             if factor.role is FactorRole.DISPLAY_ONLY
             and factor.factor_key.startswith(("tennis_workload_", "football_context_"))
         )
-        if visible_context:
-            st.caption("Beobachteter Kontext – kein berechneter Zu-/Abschlag: " + " · ".join(visible_context[:4]))
         with st.expander(
             "Analyse anzeigen", expanded=False, key=detail_key
         ):
             _render_factor_details(snapshot)
+            if visible_context:
+                st.caption("Beobachtet, noch nicht als Zu-/Abschlag eingerechnet:")
+                for detail in visible_context:
+                    st.write(detail)
         with st.container(key=f"riskobet_price_action_{suffix}"):
             with st.popover("Eigene Quote prüfen"):
                 _render_quote_comparison(candidate)

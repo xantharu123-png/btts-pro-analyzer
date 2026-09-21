@@ -132,7 +132,6 @@ def test_mismatched_native_football_identity_or_invalid_score_fails_closed(tmp_p
     ("PST", NOW + timedelta(days=1)),
     ("TBD", NOW + timedelta(days=1)),
     ("1H", START + timedelta(hours=1)),
-    ("FT", START + timedelta(hours=1)),
 ])
 def test_rescheduled_fixture_stays_unresolved_without_failing_unrelated_checks(
     tmp_path, monkeypatch, status, new_start,
@@ -199,21 +198,24 @@ def test_rescheduled_event_does_not_prevent_exact_unrelated_football_result(tmp_
     assert provider.calls == [("details", (1, 2))]
 
 
-def test_multiple_recorded_start_times_are_unresolved_schedule_not_identity_failure(tmp_path, monkeypatch):
+def test_multiple_recorded_start_times_reconcile_without_rewriting_forecasts(tmp_path, monkeypatch):
     db = tmp_path / "evidence.db"
     second = football_row(market="CORNERS_OVER_7_5")
     second["scheduled_start"] = (START + timedelta(hours=1)).isoformat()
     record(db, monkeypatch, [football_row(), second])
-    before = db.read_bytes()
+    with sqlite3.connect(db) as connection:
+        before = connection.execute('SELECT * FROM forecast_rows').fetchall()
     provider = FootballProvider()
-    for _ in range(2):
+    for expected_new in (2, 0):
         summary = run(db, football_provider=provider)
-        assert summary["errors"] == ["football:schedule_revision_unresolved"]
+        assert summary["errors"] == []
         assert summary["operational_error_count"] == 0
-        assert summary["terminal_results"] == 0
-        assert summary["unresolved_forecasts"] == 2
-        assert db.read_bytes() == before
-    assert provider.calls == []
+        assert summary["terminal_results"] == expected_new
+        assert summary["unresolved_forecasts"] == 0
+    with sqlite3.connect(db) as connection:
+        assert connection.execute('SELECT * FROM forecast_rows').fetchall() == before
+    assert provider.calls == [('details', (1,)), ('statistics', 1)]
+    assert all(r['provenance']['actual_starts_at'] == START.isoformat() for r in results(db))
 
 
 def test_multiple_recorded_start_times_do_not_block_an_unrelated_exact_result(tmp_path, monkeypatch):
@@ -223,12 +225,32 @@ def test_multiple_recorded_start_times_do_not_block_an_unrelated_exact_result(tm
     record(db, monkeypatch, [football_row(), second, football_row(2)])
     provider = FootballProvider()
     summary = run(db, football_provider=provider)
-    assert summary["errors"] == ["football:schedule_revision_unresolved"]
+    assert summary["errors"] == []
     assert summary["operational_error_count"] == 0
-    assert summary["terminal_results"] == 1
-    assert summary["unresolved_forecasts"] == 2
-    assert results(db)[0]["provenance"]["provider_event_id"] == "2"
-    assert provider.calls == [("details", (2,))]
+    assert summary["terminal_results"] == 3
+    assert summary["unresolved_forecasts"] == 0
+    assert {r['provenance']['provider_event_id'] for r in results(db)} == {'1', '2'}
+    assert provider.calls == [("details", (1, 2)), ('statistics', 1)]
+
+
+@pytest.mark.parametrize('new_start, expected_scored', [
+    (START+timedelta(hours=1), 1), (START-timedelta(hours=1), 1),
+    (DECISION-timedelta(minutes=1), 0),
+])
+def test_terminal_rescheduling_keeps_causal_decision_and_result_proof(tmp_path, monkeypatch, new_start, expected_scored):
+    db = tmp_path/'evidence.db'
+    record(db, monkeypatch, [football_row()])
+    provider = FootballProvider()
+    original = provider.details_by_fixture
+    def changed(ids):
+        data = original(ids)
+        data[1]['fixture']['date'] = new_start.isoformat()
+        return data
+    provider.details_by_fixture = changed
+    assert run(db, football_provider=provider)['terminal_results'] == 1
+    assert results(db)[0]['provenance']['actual_starts_at'] == new_start.isoformat()
+    assert evidence.build_quality_report(db, as_of=NOW)['groups'][0]['scored'] == expected_scored
+    assert run(db, football_provider=provider)['terminal_results'] == 0
 
 
 @pytest.mark.parametrize("mutation", ["home", "away", "provider_id", "orientation"])

@@ -139,6 +139,9 @@ def _context_projection(raw: Mapping, *, include_names: bool = True) -> dict:
     """Keep typed observation facts and optional names, never provider prose."""
     result = {}
     injuries = _mapping(raw.get("injuries"))
+    if injuries.get("availability") == "not_covered" or injuries.get("coverage_available") is False:
+        result["injuries"] = {"availability": "not_covered", "coverage_available": False,
+                              "status": "unavailable"}
     if (
         injuries.get("status") in ("observed", "passed", "blocked")
         and injuries.get("availability") == "available"
@@ -216,6 +219,11 @@ def read_football_analysis(row: Mapping, *, now: datetime | None = None) -> dict
     # fetch current data or combine another timestamp/team count with this card.
     raw_injuries = _mapping(_context_projection(_mapping(row.get("context"))).get("injuries"))
     recorded_injuries = _mapping(context.get("injuries"))
+    # Legacy analysis envelopes omitted unavailable coverage entirely. Only
+    # recover this negative fact from the same immutable candidate artifact;
+    # never import a fresh list or manufacture zero counts.
+    if not recorded_injuries and raw_injuries.get("availability") == "not_covered":
+        context["injuries"] = raw_injuries
     binding = ("status", "availability", "coverage_available", "checked_at", "home_missing", "away_missing")
     if (recorded_injuries and all(raw_injuries.get(k) == recorded_injuries.get(k) for k in binding)
             and all(k not in recorded_injuries or raw_injuries.get(k) == recorded_injuries[k]
@@ -331,7 +339,9 @@ def _context_caution(context: Mapping, now: datetime) -> str:
 
     injuries = _mapping(context.get("injuries"))
     lineups = _mapping(context.get("lineups"))
-    if fresh(injuries):
+    if injuries.get("availability") == "not_covered":
+        text = "Verletzungsdaten für dieses Spiel nicht abgedeckt"
+    elif fresh(injuries):
         clock = _clock(injuries["checked_at"]).astimezone(_ZURICH)
         text = f"Kaderstand {clock.strftime('%d.%m. %H:%M')}: {injuries['home_missing']}/{injuries['away_missing']} Ausfälle gemeldet (Heim/Auswärts)"
         if fresh(lineups) and lineups.get("status") in {"pending", "confirmation_due"}:

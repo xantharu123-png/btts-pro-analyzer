@@ -371,7 +371,7 @@ def coherent_consumer_forecasts(
     Use the existing usefulness/context preferences for each game's anchor,
     never its quote, price-release status or probability. The shared selector
     preserves original objects and model order; stored catalogs stay intact.
-    This opt-in wrapper deliberately leaves the legacy 15K partition unchanged.
+    Every consumer, including 15K, must apply this before display/price splits.
     """
 
     original = list(rows)

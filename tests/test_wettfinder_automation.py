@@ -4146,3 +4146,36 @@ def test_riskobet_failure_summary_never_leaks_exception_details(tmp_path):
     assert document["riskobet"]["status"] == "failed"
     assert document["riskobet"]["failure_type"] == "RuntimeError"
     assert secret not in json.dumps(document)
+
+
+def test_half_hour_worker_runs_bounded_result_pass_without_new_discovery(tmp_path):
+    now = datetime(2030, 1, 1, 10, tzinfo=UTC)
+    calls = []
+    def settle(path, **kwargs):
+        calls.append((path, kwargs))
+        return dict(status='completed', checked=15, settled=12)
+    document = run_wettfinder(
+        now=now, state_path=tmp_path/'wettfinder.json', config=AppConfig(api_football_key='test'),
+        football_scanner=lambda _day: _football_snapshot(now),
+        tennis_loader=lambda **_kwargs: [], esports_loader=lambda **_kwargs: [],
+        riskobet_enabled=False, esports_settlement_runner=settle,
+    )
+    assert calls == [(wettfinder_automation.ESPORTS_DB, {'now': now})]
+    assert document['esports_settlement'] == dict(status='completed', checked=15, settled=12)
+    assert load_state(tmp_path/'wettfinder.json')['esports_settlement'] == document['esports_settlement']
+
+
+def test_result_worker_failure_is_not_a_green_run_or_a_secret_leak(tmp_path):
+    now = datetime(2030, 1, 1, 10, tzinfo=UTC)
+    def settle(*_args, **_kwargs):
+        raise RuntimeError('private-provider-token')
+    document = run_wettfinder(
+        now=now, state_path=tmp_path/'wettfinder.json', config=AppConfig(api_football_key='test'),
+        football_scanner=lambda _day: _football_snapshot(now),
+        tennis_loader=lambda **_kwargs: [], esports_loader=lambda **_kwargs: [],
+        riskobet_enabled=False, esports_settlement_runner=settle,
+    )
+    assert document['run_status'] == 'degraded'
+    assert document['esports_settlement'] == dict(status='failed', failure_type='RuntimeError')
+    assert document['operational_error_count'] >= 1
+    assert 'private-provider-token' not in json.dumps(document)

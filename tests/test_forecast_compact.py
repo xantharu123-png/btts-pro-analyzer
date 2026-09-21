@@ -76,6 +76,22 @@ def test_short_visible_facts_keep_material_warning_and_full_optional_details():
     assert ' onclick' not in markup and '<button' not in markup
 
 
+@pytest.mark.parametrize('legacy', [False, True])
+def test_uncovered_injuries_survive_current_and_legacy_analysis_projection(legacy):
+    row = row_with_names()
+    row['context']['injuries'] = dict(availability='not_covered', coverage_available=False,
+                                     status='unavailable', checked_at=NOW.isoformat())
+    row['analysis_evidence'] = project_football_analysis(row, model_basis=_basis(row))
+    if legacy:
+        row['analysis_evidence']['context'].pop('injuries')
+    signal = _signal(row)
+    analysis = build_forecast_analysis(signal, now=NOW)
+    result = build_compact_analysis(signal, analysis, now=NOW)
+    fact = next(f for f in result.facts if f.label == 'Ausfälle')
+    assert fact.value == 'nicht abgedeckt'
+    assert fact.warning
+
+
 def test_names_are_enriched_from_same_observation_without_persisted_duplication():
     row = row_with_names()
     row['analysis_evidence'] = project_football_analysis(row, model_basis=_basis(row))
@@ -168,7 +184,7 @@ def test_old_or_future_context_does_not_show_names_or_current_counts(age):
         row['context'][axis]['checked_at'] = (NOW - age).isoformat()
     markup = render_compact_analysis_html(compact(row))
     visible = InitialText(markup).visible
-    assert 'veraltet' in visible and 'Aufstellung' in visible
+    assert ('veraltet' if age > timedelta(0) else 'offen') in visible and 'Aufstellung' in visible
     assert '3 Heim · 7 Gast' not in markup and 'Heim A' not in markup
     assert 'bestätigt' not in visible
 

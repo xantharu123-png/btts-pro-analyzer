@@ -205,17 +205,16 @@ def run_forecast_evidence_settlements(
     for (sport, event_key), group in sorted(grouped.items()):
         identities = {identity for identity, _ in group}
         if len(identities) != 1:
-            # Different recorded kickoff revisions do not imply changed teams
-            # or a reused provider ID. Neither revision can own a result here:
-            # keep all forecasts open without treating ordinary rescheduling
-            # as a technical failure. Any other identity change remains one.
+            # Reconcile date-only revisions against the *same* official fixture
+            # below. Preserve the original decisions; never choose a convenient
+            # participant revision or overwrite a frozen forecast clock.
             schedule_only = sport == "football" and len({
                 identity[:3] + identity[4:] for identity in identities
             }) == 1
-            code = "schedule_revision_unresolved" if schedule_only else "event_identity_ambiguous"
-            errors.append(f"{sport}:{code}")
-            continue
-        identity = next(iter(identities))
+            if not schedule_only:
+                errors.append(f"{sport}:event_identity_ambiguous")
+                continue
+        identity = min(identities, key=lambda value: value[3])
         events[sport].setdefault(identity, []).extend(row for _, row in group)
     selected = {}
     for sport, native_events in events.items():
@@ -227,12 +226,13 @@ def run_forecast_evidence_settlements(
             errors.append(f"{sport}:event_budget_reached")
         selected[sport] = items
 
-    def append(row, outcome, observed, provider, provider_id, source_id, digest, rule):
+    def append(row, outcome, observed, provider, provider_id, source_id, digest, rule, actual_start=None):
         try:
             evidence.append_result(row["event_key"], row["market_key"], row["selection"], outcome,
                 observed_at=observed, db_path=db_path, provenance={"provider": provider,
                     "provider_event_id": provider_id, "source_record_id": source_id,
-                    "payload_sha256": digest, "settlement_rule": rule})
+                    "payload_sha256": digest, "settlement_rule": rule,
+                    **({'actual_starts_at': actual_start.isoformat()} if actual_start is not None else {})})
         except (ValueError, TypeError, sqlite3.Error):
             errors.append(f"{row['sport']}:result_append_rejected")
             return
@@ -276,16 +276,13 @@ def run_forecast_evidence_settlements(
                 errors.append("football:result_payload_invalid")
                 continue
             provider_start = _parse_time(fixture["date"])
-            if provider_start != start:
-                if provider_start > details_observed and status["short"] not in {"NS", "PST", "TBD"}:
-                    errors.append("football:result_payload_invalid")
-                    continue
-                # A changed kickoff for the same native fixture and teams is
-                # normal scheduling coverage, not a broken result adapter.
-                # Still do NOT settle it against the frozen original start,
-                # even after FT, or rewrite the old causal forecast identity.
-                errors.append("football:schedule_revision_unresolved")
+            if provider_start > details_observed and status["short"] not in {"NS", "PST", "TBD"}:
+                errors.append("football:result_payload_invalid")
                 continue
+            if provider_start != start:
+                if status['short'] != 'FT':
+                    errors.append("football:schedule_revision_unresolved")
+                    continue
             if status.get("short") != "FT":
                 continue
             statistics = None
@@ -316,7 +313,8 @@ def run_forecast_evidence_settlements(
                 if outcome is not None:
                     append(row, outcome, observed, provider, provider_id,
                            f"api-football:fixture:{provider_id}:FT", digest,
-                           f"football-market-specs-v{FOOTBALL_RULE_VERSION}")
+                           f"football-market-specs-v{FOOTBALL_RULE_VERSION}",
+                           actual_start=provider_start)
 
     for sport, path in (("tennis", Path(tennis_db_path)), ("esports", Path(esports_db_path))):
         for identity, rows in selected.get(sport, []):

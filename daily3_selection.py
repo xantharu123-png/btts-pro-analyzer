@@ -1,6 +1,6 @@
 """Defensive, price-blind comparison shortlist, not a certified safety ranking.
 
-v6 retains exact-bound model variants and at least 70% in all three. Compare
+v7 retains exact-bound model variants and at least 70% in all three. Compare
 recent form against the same match's season-strength reference; a minimum
 two-percentage-point change is a presentation rule, not an empirical guarantee.
 Haircut, odds, RELEASED flags, target profit and account money are not ranking
@@ -20,7 +20,7 @@ from forecast_selection import select_consumer_forecasts
 from market_consensus import quote_below_publication_floor
 from selection_coherence import consumer_event_identity
 
-POLICY_VERSION = 'daily3-match-form-comparison-observed-odds-v6'
+POLICY_VERSION = 'daily3-defensive-match-comparison-observed-odds-v7'
 # Deliberate shortlist threshold, not a learned/calibrated safety boundary.
 MIN_MODEL_PROBABILITY = 0.70
 _TZ = ZoneInfo('Europe/Zurich')
@@ -103,9 +103,11 @@ def daily3_choices(signals, *, now, occupied_events=(), occupied_guards=(), used
     unique = prepared
     selected, sport_count, family_count = [], Counter(), Counter()
     while unique and len(selected) < max(0, 3-used_slots):
-        unique.sort(key=lambda c: (-c.comparison.margin,
+        # Relevance is an admission condition, not a reason to prefer higher
+        # modeled loss risk. Diversity/form only break equal-risk ties.
+        unique.sort(key=lambda c: (-c.comparison.lowest_model_probability,
                                    sport_count[c.sport], family_count[(c.sport, c.family)],
-                                   -c.comparison.lowest_model_probability,
+                                   -c.comparison.margin,
                                    -c.sampled_at.timestamp(), c.start, c.event_id, c.signal.key))
         # The shared complete pool is already coherent. Defensive shortlisting
         # may only remove rows; it cannot re-anchor an opposing scenario.
