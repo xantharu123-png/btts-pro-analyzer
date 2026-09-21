@@ -56,7 +56,7 @@ keine synthetischen Testdaten als reale Sportdaten. Keine Gesamtfertigmeldung.
   unbekannte Ausfälle, falsche defensive Priorität, verhungernde Ergebnisqueue,
   echte HTTP-429-Antwort, Netzaufruf unter SQLite-Schreibsperre sowie Upgrade mit
   Alt-Szenarien aus dem tatsächlichen Vorgängercommit. Danach gezielt grün.
-- Abschließende betroffene Regression: **1.621 bestanden, 32 Untertests**,
+- Zwischenabnahme der betroffenen Regression: **1.621 bestanden, 32 Untertests**,
   Exit 0 in 160,63 s. Enthält Daily3, 15K, Quoten-/Marktfilter, Kohärenz,
   RisikoBet, E-Sport, Prognose-/Ergebnisbelege und Wettfinder-Worker.
   XML: `output/playwright/product-repairs-20260921-final-focused-v2.xml`.
@@ -75,6 +75,7 @@ keine synthetischen Testdaten als reale Sportdaten. Keine Gesamtfertigmeldung.
   überlappen, nicht addieren. Abschließende verbreiterte Regression des finalen
   Codestands: **1.676 Tests und 32 Untertests bestanden**, Exit 0, 128,25 s;
   `output/playwright/product-repairs-20260921-final-focused-v3.xml`.
+  Zusätzlich nach dem Queue-Nachtrag: zwölf E-Sport-Kontexttransporttests grün.
 - Lokale Browserprüfung mit ausdrücklich künstlichen Beispielen: 15K behält
   kompatible Auswahlen, gesamter Spielblock schließbar; RisikoBet-Beobachtungen
   nur im Detailbereich. RisikoBet und 15K bei 320 Pixeln ohne horizontalen
@@ -96,5 +97,20 @@ keine synthetischen Testdaten als reale Sportdaten. Keine Gesamtfertigmeldung.
   208 offene Zeilen mit beiden IDs**. Kein Löschen, keine nachträgliche
   Identitätserfindung, kein Umschreiben alter Wahrscheinlichkeiten. Der
   Nachtrag nimmt diese unmöglich zuordenbaren Fälle aus dem Abrufbudget und
-  zählt sie separat. Nachtrag-Deployment und Rückstandsabnahme noch ergänzen.
+  zählt sie separat. Nachtrag **8543fcce91374ed15547380e36b587bd77d98cab**
+  auf lokalem main, GitHub main und VPS bestätigt. Zweite native Probe:
+  **15 geprüft, 15 echte Endresultate übernommen, null API-/Abruffehler**.
+  Offen 513 -> 498, abgeschlossen 138 -> 153. Vollständige ursprüngliche
+  Prognosefelder aller Zeilen per SHA-256 unverändert; zusätzlich sämtliche
+  Felder der 305 Altzeilen unverändert. Keine Konten/Tickets abgerechnet.
+  Beleg: `output/playwright/product-repairs-20260921-native-esports-v2.log`.
+- Regulärer Wettfinder-Folgelauf ab **11:37:04 CEST** unter dem neuen Code:
+  um **11:49:41** noch aktiv rechnend, 745,66 CPU-Sekunden. Kein Abbruch,
+  kein manueller Zweitlauf, kein als Erfolg umgedeuteter Zwischenstatus.
+  Die letzte abgeschlossene Veröffentlichung bleibt vorläufig 11:07; darin
+  stehen noch die alten RisikoBet-Begründungen. Darstellungscode ist live,
+  neue gespeicherte Erklärungsversion erst nach echter Veröffentlichung
+  abnehmen. Diesen laufenden Datenjob beim nächsten Einstieg zuerst prüfen.
+  Ein kompletter erfolgreicher Tennis-Tageslauf nach dem früheren Retirement-
+  Fix ist ebenfalls weiterhin nicht nachgewiesen; alten Exit 1 nicht löschen.
 - Vorhandene fremde Audit-/Browser-/QA-Dateien bleiben unberührt.

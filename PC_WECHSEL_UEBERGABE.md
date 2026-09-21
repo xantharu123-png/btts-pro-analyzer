@@ -1,5 +1,20 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg – Produktreparatur 21.09.2026
+
+Zuerst [TODO_AKTUELL.md](TODO_AKTUELL.md) und den
+[Reparaturbericht](docs/audits/2026-09-21-produkt-reparaturen.md) lesen.
+Funktionsstand `8543fcce91374ed15547380e36b587bd77d98cab` auf main/GitHub/VPS.
+15K-Kohärenz, unbekannte Ausfälle, Daily3-Priorität, Erklärungstexte und
+Ergebnisqueue repariert. 1.676 abschließende Tests plus 32 Untertests grün.
+Native E-Sport-Abnahme: 15 von 15 echte Ergebnisse, keine Providerfehler,
+alle Originalprognosen und 305 Altzeilen ohne Team-IDs unverändert.
+Keine Bereinigung oder neue Backups; App und beide Healthchecks gesund.
+Die Altzeilen nicht nachträglich mit heutigen Teilnehmern anreichern.
+F02/F07 und Daily3-Vergleiche außerhalb Fußball bleiben offen: keine
+qualifizierte Verletzungs-/Müdigkeitswirkung oder bessere Wettqualität behaupten.
+Cricket bleibt ausgenommen. Frühere Blöcke unten sind historische Stände.
+
 ## Aktueller Einstieg – 21.09.2026, 08:24 CEST
 
 Zuerst den obersten Block in [TODO_AKTUELL.md](TODO_AKTUELL.md) und den

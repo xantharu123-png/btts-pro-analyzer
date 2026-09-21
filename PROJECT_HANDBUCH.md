@@ -2,6 +2,15 @@
 
 ## Dokumentstatus
 
+**Neuester Funktionsstand, 21.09.2026:** `8543fcc` auf main/GitHub/VPS.
+Produktreparatur und native Ergebnisabnahme siehe
+[aktueller Reparaturbericht](docs/audits/2026-09-21-produkt-reparaturen.md)
+und oberster Block von [TODO_AKTUELL.md](TODO_AKTUELL.md).
+1.676 abschließende Regressionstests plus 32 Untertests bestanden.
+Keine umfassende Fertigmeldung: empirisch qualifizierte Verletzungs-/
+Müdigkeitswirkung, Qualitätsnachweis und weitere Daily3-Vergleichsadapter
+weiter offen. Nachfolgende Dokumentstatus-Blöcke sind historische Stände.
+
 **Aktuell, 21. September 2026, 08:24 CEST:** Funktionscommit
 `66b0a727ab0772e8137b0eb21063712c46c30192` auf Worktree/main/GitHub/VPS.
 Vier freigegebene historische Tennisfälle aus aktiver Verarbeitung entfernt,

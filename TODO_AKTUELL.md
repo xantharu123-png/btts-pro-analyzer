@@ -1,6 +1,6 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
-## Produkt-Auditreparatur 21.09.2026 — in Abnahme
+## Produkt-Auditreparatur 21.09.2026 — 8543fcc live
 
 - F01/F04: 15K-Kohärenz und typisierte Ausfallanzeigen repariert; keine
   Gegensätze als gemeinsame Vorschläge, keine unbekannten Daten als 0/0.
@@ -9,16 +9,22 @@
   verifizierte Fußball-Terminänderungen mit FT-Endergebnis auflösbar.
 - Native Zusatzursache: 305 alte E-Sport-Zeilen ohne gespeicherte Team-IDs
   dürfen kein Abrufbudget blockieren. Sie bleiben unverändert erhalten;
-  separater gezielt getesteter Queue-Nachtrag gerade in Veröffentlichung.
+  Queue-Nachtrag 8543fcc auf main/GitHub/VPS. Native zweite Probe:
+  15 von 15 Endresultaten korrekt zugeordnet, null Providerfehler, alle
+  ursprünglichen Prognosen und vollständigen Altzeilen unverändert.
 - F05/F08: Defensive Daily3-Priorität korrigiert, 15K-Spielgruppen,
   kompaktere RisikoBet-Details und revisionssichere Modellgrundlagen.
 - Abschließende betroffene Regression: 1.676 Tests und 32 Untertests grün;
-  lokale Desktop-/320-Pixel-Browserprobe grün. Hauptreparatur d6fff68 bereits
-  auf main/GitHub/VPS. Gesamtsuite 10.811 bestanden/96 Skips/111 Untertests;
+  lokale Desktop-/320-Pixel-Browserprobe grün. Hauptreparatur d6fff68 plus
+  Nachtrag 8543fcc auf main/GitHub/VPS. Gesamtsuite 10.811 bestanden/96 Skips/111 Untertests;
   sieben alte Text-/Reihenfolge-Erwartungen im Nachlauf exakt angepasst und
   grün. Keine einzelne komplett grüne finale Vollsuite behaupten.
   Maßgeblicher aktueller Reparaturbericht:
   [Produktreparaturen](docs/audits/2026-09-21-produkt-reparaturen.md).
+- Zuerst den regulären Lauf ab 11:37:04 prüfen: um 11:49:41 aktiv rechnend,
+  noch keine neue Veröffentlichung. Alte RisikoBet-Begründungen bis dahin
+  noch aus dem 11:07-Datensatz. Kein neuer erfolgreicher Tennis-Tageslauf
+  behauptet. Keine bereits erledigten Tests/Deploys/Bereinigungen wiederholen.
 - Weiter offen: qualifizierte numerische Verletzungs-/Müdigkeitswirkung,
   echte empirische Verbesserung und Daily3-Vergleiche außerhalb Fußball.
   Keine Aktivierung ohne Datenbeleg. Cricket unverändert ausgenommen.
