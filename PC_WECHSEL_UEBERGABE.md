@@ -1,6 +1,28 @@
 # BetBoy - Übergabe auf einen neuen PC
 
-## Aktueller Einstieg – 21.09.2026
+## Aktueller Einstieg – 21.09.2026, 08:24 CEST
+
+Zuerst den obersten Block in [TODO_AKTUELL.md](TODO_AKTUELL.md) und den
+[Abnahmebericht](docs/audits/2026-09-21-tennis-altfaelle.md) lesen.
+Funktionscommit **`66b0a727ab0772e8137b0eb21063712c46c30192`** ist auf
+Worktree/main/GitHub/VPS live. Vier WTA-Altfälle 183710, 183831, 183844, 183854
+nach ausdrücklicher Nutzerfreigabe aus aktiver Verarbeitung entfernt, nicht
+physisch gelöscht. 30 Originale, 22 Revisionen und vier Elternzeilen unverändert;
+keine Geldbuchungen geändert. Exakter reversibler Katalog, keine Eventsperre.
+Native 540er-Gegenprobe ohne bisherige Ergebnisfehler, 236 übrige Zuordnungen
+identisch. Betroffene Regression 1.988 bestanden/3 Skips/26 Untertests; danach
+16 gezielte Tests einschließlich zusätzlicher Fremdprognose grün (überlappend).
+
+Regulärer Wettfinder 08:07:29–08:15:29 CEST Exit 0, keine technischen oder
+Fußballfehler. Tennis 359 geprüft, 0 fällig: separate frühere parallele
+Abschlussausnahme weiterhin nicht als behoben bewiesen. Kein zusätzlicher
+Tennis-Gesamtlauf nach Entfernung; älteren Exit-1-Status nicht zurücksetzen.
+App, Caddy, sieben Timer aktiv, beide Healthchecks `ok`, Tagesbackup aus.
+Keine Bereinigung, neuen Backups, Schema- oder Geldregeländerung.
+Verletzungs-/Müdigkeitsqualifikation bleibt offen. Nicht erneut nach der
+bereits erteilten Vier-Fälle-Freigabe fragen. Ältere Abschnitte sind Historie.
+
+## Historischer Einstieg – 21.09.2026, vor der freigegebenen Entfernung
 
 Zuerst [TODO_AKTUELL.md](TODO_AKTUELL.md) und den
 [Refresh-Bericht](docs/audits/2026-09-20-football-tennis-refresh.md) lesen.

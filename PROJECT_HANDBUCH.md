@@ -2,6 +2,21 @@
 
 ## Dokumentstatus
 
+**Aktuell, 21. September 2026, 08:24 CEST:** Funktionscommit
+`66b0a727ab0772e8137b0eb21063712c46c30192` auf Worktree/main/GitHub/VPS.
+Vier freigegebene historische Tennisfälle aus aktiver Verarbeitung entfernt,
+nicht physisch gelöscht. Originalbelege, Revisionen, Elternzeilen und
+Geldbuchungen unverändert; reversibler Katalog statt pauschaler Eventsperre.
+Native 540er-Probe ohne bisherige Ergebnisfehler, 236 übrige Zuordnungen identisch.
+Regression: 1.988 bestanden, 3 Skips, 26 Untertests; gezielte 16er-Runde überlappt.
+Wettfinder 08:15:29 CEST Exit 0, keine technischen/Fußballfehler. Tennis dabei
+0 fällig: frühere parallele Abschlussausnahme nicht als behoben bewiesen.
+Kein zusätzlicher Tennis-Gesamtlauf nach Entfernung. App/Healthchecks und sieben
+Timer aktiv, Tagesbackup aus. Fachliche Verletzungs-/Müdigkeitsqualifikation offen.
+Maßgeblich: [TODO_AKTUELL.md](TODO_AKTUELL.md) und
+[Abnahmebericht](docs/audits/2026-09-21-tennis-altfaelle.md).
+Die folgenden datierten Abschnitte sind frühere Zwischenstände.
+
 **Übernahme 21. September 2026:** Verifizierter Funktionsstand `7c805ae` auf
 main/GitHub/VPS; vollständige Suite 10.773 bestanden, 96 Plattform-Skips und
 111 Untertests. Maßgeblich sind [TODO_AKTUELL.md](TODO_AKTUELL.md) und der

@@ -2,6 +2,33 @@
 
 ## Aktueller Stand – Fußball/Tennis, 21.09.2026
 
+- **Nachtrag 08:24 CEST:** Die vier vom Nutzer freigegebenen historischen
+  Tennisfälle sind aus aktiver Ergebnisaufnahme, Refresh und Abrechnung entfernt.
+  Funktionscommit **`66b0a727ab0772e8137b0eb21063712c46c30192`** auf Worktree,
+  lokalem main, GitHub main und VPS bestätigt. Vier Elternzeilen, 30 Originale
+  und 22 Revisionen unverändert; keine Geldbuchungen geändert. Keine physische
+  Löschung, Rücknahme des exakt begrenzten Katalogs stellt Verarbeitung wieder her.
+  [Abnahmebericht](docs/audits/2026-09-21-tennis-altfaelle.md).
+- Frische betroffene Regression: **1.988 bestanden, 3 Plattform-Skips,
+  26 Untertests**. Danach ergänzter Fremdprognosen-Test in gezielter 16er-Runde
+  grün (überlappende Zählung, nicht addieren). Native Vorher-/Nachherprobe mit
+  540 Wettbewerben: bisherige Zuordnungsfehler beseitigt, 236 übrige Ergebnis-
+  zuordnungen identisch. Nach Deployment Originalbelege erneut validiert,
+  Eltern-Fingerabdruck unverändert, keine DB-Schreiboperation durch die Probe.
+- Regulärer Wettfinder **08:07:29–08:15:29 CEST, Exit 0**: `completed`, keine
+  technischen oder Fußball-Aktualisierungsfehler. Fußball-Kontingentengpass damit
+  im Nachhollauf erledigt. Tennis 359 geprüft, **0 fällig**; dies bestätigt nicht
+  die Behebung der separaten parallelen Abschlussausnahme. Kein zusätzlicher
+  Tennis-Gesamtlauf nach Entfernung, alten Exit-1-Status nicht zurückgesetzt.
+- App, Caddy und sieben Timer aktiv, beide Healthchecks `ok`; Tagesbackup bleibt
+  aus. Keine Bereinigung, neuen Backups, Schema- oder Geldregeländerung.
+  Verletzungs-/Müdigkeitsqualifikation und bessere Wettqualität bleiben offen.
+
+### Historie vor der inzwischen freigegebenen Entfernung
+
+Die unten angefragte Nutzerentscheidung liegt inzwischen vor; Umsetzung und
+Abnahme siehe oben. Diese früheren Zwischenstände nicht als aktuell ausgeben.
+
 - Funktionsstand **`7c805aeae0df6b85e68178adc7f40756cf99a06f`** auf Worktree,
   lokalem main, GitHub main und seit 00:17 CEST auf VPS. Vorige Reparaturen
   `e292b10`, `eea0703`, `f6b7c66` und der E-Sport-Anschluss sind enthalten.
