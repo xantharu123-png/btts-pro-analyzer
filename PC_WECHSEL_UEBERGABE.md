@@ -10,9 +10,14 @@ auf main/GitHub/VPS; 2.585 plus 115 Tests grün. Echter Scan 951 Sekunden,
 82 gespeicherte v4-Revisionen, 16 ATP-Vergleiche. Ein tatsächlicher WTA-
 Gegnerwechsel mit 30f31ed live behoben: echter Gesamtlauf 15:05:20 Exit 0,
 86 Prognosen fertig, neue WTA-Linie 1637 aktiv statt 1585. Anzeigeschutz für
-bekannte native Rücknahmen zusätzlich getestet: 1.897 Tests, drei Skips,
-26 Untertests; eigener Nachtrag folgt. Regulärer 14:07-Lauf war degraded
-wegen drei Tennis-Refreshfehlern, zwei davon offene native Teilnehmerplätze.
+bekannte native Rücknahmen als ebfb69d live. Statusnachtrag 3201537 ebenfalls
+auf main/GitHub/VPS: bestätigte geänderte/offene Teilnehmer sind Teildaten,
+keine beschädigten Originale; echte Belegfehler werden weiterhin gemeldet.
+1.908 Tests, drei Skips, 26 Untertests. Die reale lesende Probe 15:36 bestätigt
+beide früher fehlgeschlagenen Fälle (1588 geänderte Paarung, 1573 Teilnehmer
+offen). Regulärer Lauf 15:37:05–15:43:08 CEST ebenfalls Exit 0, `completed`,
+null technische Fehler. Beide Tennisfälle bleiben explizite Teildaten; daraus
+keine erfundenen neuen Tennisprognosen oder vollständige Abdeckung ableiten.
 Keine numerische Effektfreigabe: aktualisierte Zählung 15:13 CEST ergibt
 144 passende native Endresultate insgesamt
 vor Aufteilung, mindestens 200 unberührte Testevents erforderlich. Fußball-

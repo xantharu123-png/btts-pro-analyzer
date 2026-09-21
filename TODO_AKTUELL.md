@@ -1,6 +1,6 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
-## Kontext-/Daily3-Fortsetzung 21.09.2026 — echter Tennis-Gesamtlauf grün
+## Kontext-/Daily3-Fortsetzung 21.09.2026 — 3201537 live, fachliche Abnahme offen
 
 - Maßgeblich: [Kontext-/Daily3-Bericht](docs/audits/2026-09-21-kontext-daily3-fortsetzung.md).
 - Der unten noch offene 11:37-Lauf ist erfolgreich beendet. Neue RisikoBet-
@@ -10,7 +10,7 @@
 - Tennis-v4: korrekt begrenzte Belastungsfenster, stabile Erholungs-Untergrenzen,
   kompakte vollständig revisionsgebundene Spielersnapshots. Kein Effekt
   automatisch aktiviert; alte v3-Snapshots bleiben unverändert reproduzierbar.
-- Native Messung: 205 rechtzeitige unabhängige erste Originalevents, 125
+- Erste native Messung: 205 rechtzeitige unabhängige erste Originalevents, 125
   passende Endresultate vor jeglicher Train-/Tune-/Testtrennung. Null
   qualifizierte Effektartefakte. Sechs zeitlich verteilte Fälle weiterhin
   ohne vollständige Belastungsfenster; Mindestpausen messbar, nicht exakt.
@@ -19,14 +19,16 @@
 - Fußball-Speicherbudget: vollständige unveränderte historische FT-Bündel
   werden mit alten Uhren wiederverwendet. Korrekturen bleiben eigene Belege;
   Folgeläufe können fehlende Quellen ergänzen, ohne Limits zu erhöhen.
-- `c9363109c44d3560717353c624130574fc592d43` ist auf Worktree, main,
-  GitHub und VPS. Keine neue Sicherung, Bereinigung oder Datenmigration.
+- `c9363109c44d3560717353c624130574fc592d43` wurde auf main/GitHub/VPS
+  veröffentlicht und ist im späteren Stand enthalten. Keine neue Sicherung,
+  Bereinigung oder Datenmigration.
 - Echte Tennisprüfung 13:51–14:08 CEST: Scan 951 Sekunden statt altem
   2100-Sekunden-Timeout; 82 gespeicherte v4-Revisionen, 16 ATP-Vergleiche.
   Exit dennoch 1: ESPN ersetzte bei WTA 183996 Julia Avdeeva durch Ayla Aksu.
   Alte Prognose nicht überschrieben. Generische unveränderliche Nachfolgelinie
   mit exakter Ergebnisbindung lokal fertig: 1.461 Tests bestanden, drei Skips;
-  danach 92 überlappende UI-/Fixturetests grün. Live-Abnahme noch offen.
+  danach 92 überlappende UI-/Fixturetests grün. Die spätere Live-Abnahme ist
+  unten mit dem tatsächlich erfolgreichen 15:05-Lauf dokumentiert.
 - Regulärer Lauf 14:07–14:26 CEST: Fußball abgeschlossen, insgesamt degraded.
   Drei Tennis-Refreshfehler; zwei nativ belegte offene Teilnehmerplätze
   (IDs 1588/1573), 1562 beim späteren lesenden Bindungstest wieder gültig.
@@ -39,7 +41,21 @@
   Starts und geänderte Termine werden in Wettfinder/RisikoBet/Tennis gemeinsam
   geprüft. Historie und manuelle Abrechnung bleiben getrennt zugänglich.
   Finale 55 betroffene Module: 1.897 bestanden, drei Skips, 26 Untertests.
-  Dieser Anzeigeschutz wird als separater Nachtrag veröffentlicht.
+  Dieser Anzeigeschutz ist als `ebfb69d85b2ff1aa1660c0e860a7a840d1617488`
+  auf main/GitHub/VPS. Native Leserprobe 15:22 CEST: 1585/1588/1573 nicht
+  aktuell sichtbar, korrekte neue WTA-Linie 1637 vorhanden. Historie erhalten.
+- Statusnachtrag `3201537565a50f15daa96f5a4d049b8ca708d4d3` auf main/GitHub/VPS:
+  bestätigte spätere Teilnehmer-/Statusänderungen sind getrennte Teildaten,
+  kein pauschaler Programmfehler. Fehlende Originalbelege, beschädigte Quellen,
+  fremde Wettbewerbe und gleichzeitige Widersprüche bleiben echte Fehler.
+  **1.908 Tests, drei erwartete Skips, 26 Untertests** im betroffenen Abschlusslauf;
+  keine gesamte App-Vollsuite und keine empirische Modellfreigabe behaupten.
+  Rein lesende native Probe 15:36 CEST: 1588 `participants_changed`, 1573
+  `participants_unconfirmed`; keine Neuberechnung oder Datenbankmutation.
+  Regulärer Lauf **15:37:05–15:43:08 CEST, Exit 0**, `completed`, null technische
+  Fehler. Fußball 25 Modellkarten, E-Sport sechs; Tennis null aktuelle Karten,
+  zwei ausdrücklich gemeldete nicht berechenbare Paarungen, keine Refreshfehler.
+  Keine zusätzliche Ausführung erzwungen. Vorheriger 15:07-Lauf war degraded.
 - Lesende Zählung 15:13 CEST: 244 rechtzeitige unabhängige Originalevents,
   144 passende normale Endresultate insgesamt vor Train-/Tune-/Testteilung;
   weiterhin null Effekt- und Freigabeartefakte. Die frühere 125er-Zahl ist Historie.

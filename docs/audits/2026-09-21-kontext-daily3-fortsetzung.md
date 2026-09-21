@@ -188,8 +188,55 @@ abgeleitet. Dieser Nachtrag ist als
   Train-/Tune-/Testtrennung. Null Effekt-/Freigabeartefakte. Die Probe stoppt
   nach der Inventarphase; keine wiederholte Merkmalsauswertung, kein Training.
 
-Commit/Push/VPS-Übernahme des letzten Leserschutzes stehen zum Zeitpunkt dieser
-Notiz separat an. Die folgenden fachlichen Punkte bleiben ausdrücklich offen:
+Der Leserschutz ist als `ebfb69d85b2ff1aa1660c0e860a7a840d1617488` auf
+main/GitHub/VPS. Prüfung 15:22 CEST: 394 gespeicherte offene Prognosen, 361 nach
+nativer Gültigkeitsprüfung; die Zahl beinhaltet Legacy-Daten und ist keine
+Tippanzahl. Unter den vier überprüften IDs ist nur 1637 aktuell. App/Caddy und
+beide Healthchecks gesund, sieben Timer geplant; Tagesbackup weiterhin aus.
+
+### Separater Statusnachtrag 3201537
+
+Der reguläre Lauf 15:07:02–15:12:54 CEST endete noch mit Exit 1: Fußball
+abgeschlossen (25 Modellkarten), E-Sport ohne Betriebsfehler; ausschließlich
+1588 und 1573 scheiterten beim Tennis-Refresh. Das waren native spätere
+Teilnehmeränderungen, keine beschädigten Originalprognosen. Die ursprüngliche
+Integritätsprüfung fasste diese beiden Ursachen fälschlich mit Datenfehlern
+zusammen. Der neue, eng begrenzte Statuspfad tut Folgendes:
+
+- Verifiziert weiterhin Originalpublikation, Snapshot und nun ausdrücklich den
+  originalen nativen Beleg, bevor spätere Quellen klassifiziert werden.
+- Genau ein gültiger Beleg im selben Wettbewerb/Format mit offenen Teilnehmern,
+  geändertem Teilnehmerpaar oder begonnenem/abgeschlossenem/abgesagtem Spiel
+  wird als `NativeFixtureUnavailable` mit Belegreferenz gemeldet.
+- Kein Neurechnen und kein neuer Prognose-/Preis-/Abrechnungseintrag für diese
+  Spiele. Der Refresh bleibt `partial`, `native_unavailable` listet die Lücken.
+  Ein technisch erfolgreicher Gesamtprozess behauptet keine vollständigen Daten.
+- Fehlender Originalbeleg, beschädigte Bytes, unbekannter Status, fremder
+  Wettbewerb und gleichzeitige widersprüchliche Belege bleiben Fehler.
+  Eine später wieder eindeutig bestätigte Paarung kann erneut aktualisiert werden.
+
+Tests: **1.908 bestanden, drei erwartete Skips, 26 Untertests**, 229,53 Sekunden;
+`output/playwright/tennis-native-status-final-20260921.xml`. Der erste gezielte
+neue Testlauf hatte einen falschen Tabellennamen im Negativtest; korrigiert und
+im vollständigen betroffenen Nachlauf grün. Kein Produktivdatenbankfehler.
+
+Funktionscommit `3201537565a50f15daa96f5a4d049b8ca708d4d3` exakt auf
+main/GitHub/VPS; vier freigegebene Dateipfade, keine Migration, neue Sicherung
+oder Bereinigung. Healthchecks `ok`. Rein lesende Probe mit dem Live-Code um
+15:36 CEST bestätigt 1588 `participants_changed` und 1573
+`participants_unconfirmed`; keine Worker-Abschluss-/Schreibfunktion aufgerufen.
+Der ohnehin planmäßig gestartete Lauf endet **15:43:08 CEST**, Start 15:37:05,
+mit **Exit 0 / completed / null technischen Fehlern**. Fußball: 25 Modellkarten,
+E-Sport: sechs; Tennis: null aktuelle Karten. Refresh: 394 geprüft, zwei fällig,
+null neu berechnet, keine Fehler; die beiden obigen nativen Fälle bleiben
+ausdrücklich unter `native_unavailable`, Tennis-Refreshstatus `partial`.
+Der erfolgreiche Prozess ist daher kein Nachweis vollständiger Sportdaten und
+keine Modellqualifikation. Kein Zusatzscan gestartet, kein Fehlerstatus manuell
+zurückgesetzt. Der tatsächliche reguläre Lauf hat den Betriebsfehler abgelöst.
+
+### Nicht durch Softwaretests erledigte Restarbeiten
+
+Die folgenden fachlichen Punkte bleiben ausdrücklich offen:
 
 1. Keine empirisch qualifizierte Verletzungs-/Müdigkeitswirkung aktiv. Die
    festgelegten mindestens 200 unberührten Testevents über drei Zeitblöcke,
@@ -200,9 +247,19 @@ Notiz separat an. Die folgenden fachlichen Punkte bleiben ausdrücklich offen:
    Freigabe des vorhandenen älteren Raw-Poisson-Trainingspfades.
 3. Daily3 außerhalb Fußball: ATP implementiert; WTA, Basketball, Eishockey und
    E-Sport besitzen weiterhin keinen belegten defensiven Vergleichsadapter.
-4. Weitere reguläre Wettfinderläufe separat bewerten: offene native Teilnehmer
-   sind kein erfundener technischer Erfolg. Der Tennis-Gesamtlauf selbst ist
-   jetzt wie oben nachgewiesen erfolgreich abgeschlossen.
+4. Die zuvor offene RisikoBet-Textveröffentlichung, der Tennis-Gesamtlauf und
+   der nächste reguläre Wettfinderlauf sind jetzt jeweils separat bestätigt.
+   Die laufende Datensammlung ersetzt weiterhin keine empirische Effektfreigabe.
+
+Nächster Software-Schritt bleibt der ausdrücklich eigene Fußball-Live-
+Verteilungsvertrag: exaktes Replay der gespeicherten gemeinsamen kalibrierten
+Verteilung, daran gebundene Trainings-/Verlustrechnung und Verbraucherpfad.
+Der heutige Raw-Poisson-Replay samt Poisson-Logloss darf diese Version nicht
+unbemerkt ersetzen. Das ist fehlende Software, nicht bloß Warten auf Ergebnisse.
+WTA besitzt zudem eine eigene weiterhin negative Freigabe, Basketball/Eishockey
+nur den bisherigen begrenzten Researchvergleich (maximal 24 Evaluationsevents);
+für E-Sport fehlt der defensive Variantenvergleich. Keine dieser Sportarten
+wird durch den neuen ATP-Adapter stillschweigend als fertig oder sicher erklärt.
 
 Es gibt keine künstlichen drei Tipps, erfundenen Verletzungsabschläge oder
 abgesenkte Qualitätskriterien. Fehlende Ausgangsdaten bleiben offen sichtbar
