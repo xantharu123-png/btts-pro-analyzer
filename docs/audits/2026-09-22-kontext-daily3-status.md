@@ -1,0 +1,81 @@
+# BetBoy: Kontextmodell und Daily3 – Prüfung 22.09.2026
+
+Stand der Prüfung: Der zuvor veröffentlichte Code `c784195` war auf lokalem
+`main`, GitHub und VPS identisch. App und Caddy waren aktiv, der lokale
+Healthcheck lieferte `ok`; auf dem VPS waren rund 20 GB frei. Die Timer
+berechnen, deployen aber keinen Code.
+
+## Tatsächliche Ergebnisse statt Abschlussbehauptung
+
+- Tennis-Tageslauf 07:17–07:31 CEST: 74 Prognosen verarbeitet, 13 neu
+  gespeichert, Prozess-Exit 1. Die alte Prognose einer nachträglich geänderten
+  WTA-Paarung darf das Ergebnis der Ersatzpaarung nicht erben. Die drei im
+  Capture-Bericht genannten `retired_outcome_events` sind nicht die Ursache
+  des generischen Fehlers; der aktive Konflikt liegt bei ESPN 183992. Die
+  neue Paarung wurde erst nach ihrem vorverlegten Beginn prognostiziert.
+- Wettfinder 23:07–23:12 CEST: Fußball selbst `completed`, 0 Betriebsfehler;
+  Gesamt-Exit 1 durch `tennis:event_snapshot_ambiguous` in der separaten
+  RisikoBet-Abrechnung. 227 fällige Kandidaten, 0 Abschlüsse, 227 offen.
+  Der Anbieter verwendete ESPN 183996 für Julia Avdeeva/Yuki Naito und später
+  Ayla Aksu/Yuki Naito. Der Ergebnis-Leser/Runner routet nur über die
+  gemeinsame Event-ID, nicht über eine gebundene Inkarnation. Alte Prognosen
+  und Geldbuchungen dürfen nicht automatisch gewonnen, verloren oder storniert
+  werden. 96 weitere Kandidaten haben gleichrangige Revisionsstände; das
+  40-Event-Rotationslimit ist eine separate erwartete Abdeckungsgrenze.
+- Rein lesende native Tennis-Inventur: 2.697 Originalpublikationen,
+  256 unterschiedliche rechtzeitige Originalevents, aber nur 163 eindeutig
+  passende finale Events. Das sind **nicht** 2.697 unabhängige Fälle. Schon die
+  Untergrenze von 200 unangetasteten Testevents wird vor Training und
+  Abstimmung nicht erreicht. Die Inventur ist keine Qualitätsfreigabe.
+- Im Fußball-Kontextspeicher lagen 29 ORIGINAL-v2-Bindungen. Vorhandene
+  Ausfall-/Aufstellungs-/Spielerbelege sind nicht dasselbe wie ein empirisch
+  qualifizierter Verletzungs- oder Müdigkeitseffekt.
+
+## Daily3 und Modellwirkung
+
+- ATP besitzt den gebundenen Same-Match-Belagsvergleich; WTA ist wegen des
+  negativen historischen Freigabeurteils weiterhin ausdrücklich ausgenommen.
+- Basketball und Eishockey liefern derzeit Research-Prognosen, aber keinen
+  zweiten qualifizierten Same-Market-Modellzustand. Ein anderer Markt oder eine
+  Preis-/Risiko-Korrektur wäre kein defensiver Modellvergleich.
+- E-Sport speichert ebenfalls nur eine sportliche Modellprognose; der
+  Risikoabschlag ist keine unabhängige Variante. Ein Effektartefakt und
+  ausreichende native Ergebniskohorten fehlen.
+- Keine Sportart erhält künstlich drei Daily3-Auswahlen, eine fiktive 50-%-
+  Vergleichsbasis oder eine nicht nachgewiesene Wirkung. Cricket bleibt ausgenommen.
+
+## Nächste überprüfbare Schritte
+
+1. Tennis-Capture führt nun lokal ausschließlich den nativ belegten
+   Teilnehmerwechsel als nicht auswertbare alte Paarung; beschädigte oder
+   widersprüchliche Belege bleiben Betriebsfehler. Der CLI-Test zeigt Exit 0
+   mit ausdrücklich `partial` und Event-ID. 300 gemeinsame Tennis-/Fußball-
+   Regressionen bestanden. Der vollständige App-Test und die produktive
+   Nachprüfung stehen bei diesem Nachtrag noch aus. Ein direkter Replay des
+   geänderten Codes gegen die VPS-Datenbank im QA-Prozess wurde durch die
+   Zugriffsprüfung abgelehnt und nicht umgangen; die äußeren aktuellen ESPN-
+   und Revisionsprädikate wurden mit installiertem Code read-only bestätigt.
+2. RisikoBet braucht eine versionsgebundene Tennis-Inkarnation aus Event,
+   Wettbewerb und nativen Teilnehmern. Nicht nur Request, Ergebnis, Issue und
+   Runner, sondern auch neue Kandidaten-ID, Snapshot und terminaler
+   Store-Eindeutigkeitsindex müssen diese Inkarnation binden. Vorhandene
+   V1-Kandidaten/Terminals dürfen nicht umgeschrieben werden; eine alte Zeile
+   kann nur mit reproduzierbarem Original-, Status- und Input-Hash append-only
+   zugeordnet werden. Das ESPN-Finale benötigt einen dauerhaft gespeicherten,
+   überprüfbaren nativen Beleg einschließlich Teilnehmern, Sieger-Flags,
+   Score und Empfangszeit. 1637 darf erst nach eindeutiger Bindung geprüft
+   werden; 1585 bleibt offen. Ein bloßer Statuswechsel oder Split des
+   Ergebnis-Lesers reicht wegen der bisherigen `candidate_id`-Eindeutigkeit
+   nicht aus. Keine Auszahlung oder Stornierung ohne diesen Vertrag.
+3. Der neue reine Fußball-ORIGINAL-v2-Vergleich prüft Rohzellen,
+   Marktsettlement und effektive Mittelwerte (147 angrenzende Tests grün).
+   Er prüft weder Projektionsziele noch einen manifestgebundenen Aufrufer.
+   Weiter fehlen vollständiges Replay der Produktionskalibrierung,
+   Kontextanwendung, Wirkungstraining und zeitlich getrennte Qualitätsabnahme.
+4. Weitere echte unabhängige Ergebnisfälle sammeln. Erst danach die
+   vordefinierte Train-/Tune-/Testprüfung und Marktverteilungsmetriken ausführen;
+   keine Testbeobachtungen vorzeitig zum Modell-Fit verwenden.
+
+Dieser Bericht ist eine technische Übergabe, keine Wett- oder
+Einkommenszusage. Aussagen zu Push/VPS-Freigabe des neuen Codebausteins folgen
+erst nach Abschlussreview und separater Veröffentlichung.

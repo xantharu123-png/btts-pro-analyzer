@@ -14,7 +14,8 @@ from context_models.experiments import _artifact_created_at
 from context_models.tennis_live import ORIGINAL_ARTIFACT_KIND, original_base, validate_original_publication
 from context_observations import _SELECT, _decode_receipt
 from context_sources.outcomes import normalize_tennis_revised_outcome
-from context_sources.tennis_status import STATUS_SCHEMA, validate_selected_tennis_receipt
+from context_sources.tennis_status import (STATUS_SCHEMA, _select_tennis_row,
+    validate_selected_tennis_receipt, validate_tennis_status_record)
 from model_artifacts import _load_artifact
 from tennis.forecast_retirements import original_is_retired
 
@@ -124,7 +125,80 @@ def _originals(path, wanted, *, retired_events=None):
     return result
 
 
-def collect_outcomes(path, pending, sources, *, retired_events=None):
+def _verified_replacement_without_prematch_original(path, key, entries, scope, pending, index, source):
+    """Recognize a native replacement, never manufacture its result.
+
+    A different final pair alone is not enough: require one original pair, a
+    physically verified, timely scheduled revision for the final pair, and an
+    unbroken same-event status sequence after the last old publication.
+    """
+    from context_sources.tennis import _espn
+    if type(source) is not dict or type(source.get("competition")) is not dict or not entries:
+        return False
+    old_scopes = {(event["tour"], event["competition"], event["event_key"],
+        frozenset((event["home_id"], event["away_id"]))) for _, event in entries}
+    if (len(old_scopes) != 1 or next(iter(old_scopes))[:3] != scope[:3]
+            or next(iter(old_scopes))[3] == scope[3]):
+        return False
+    clock, rows = pending[index]
+    status = {**rows[0], "observed_at": canonical_timestamp(clock)}
+    validate_tennis_status_record(status)
+    try:
+        valid, projected = source_for_normal_winner(status, source["competition"])
+    except (ContextContractError, TypeError, ValueError, KeyError):
+        return False
+    if not valid or projected != source or status["payload"]["issues"]:
+        return False
+    try:
+        native = _espn(source)
+    except (ContextContractError, TypeError, ValueError, KeyError):
+        return False
+    data = status["payload"]
+    current_scope = (data["tour"], status["competition"], status["event_key"],
+        frozenset(data["participant_ids"]))
+    if (native is None or native["status"] != "completed" or current_scope != scope
+            or data["status"] != "completed" or status["format"] != "singles"
+            or status["observed_at"] <= data["scheduled_start"]):
+        return False
+    last_old_publication = max(datetime.fromisoformat(created) for created, _ in entries)
+    with _reader(path) as connection:
+        stored = connection.execute(_SELECT + " WHERE r.event_key=? AND r.kind=? AND r.observed_at<?"
+            " ORDER BY r.observed_at,r.digest", (key, "event_status", status["observed_at"])).fetchall()
+    seen, replacement_seen = set(), False
+    for raw in stored:
+        selected = _select_tennis_row(_decode_receipt(raw), status["observed_at"], data["tour"])
+        if selected is None:
+            continue
+        observed = datetime.fromisoformat(selected["observed_at"])
+        if observed <= last_old_publication:
+            continue
+        if selected["observed_at"] in seen:
+            return False  # Two physical revisions at one receive clock.
+        seen.add(selected["observed_at"])
+        payload = selected["payload"]
+        if (selected["competition"] != status["competition"] or selected["format"] != "singles"
+                or payload["tour"] != data["tour"]):
+            return False
+        pair = frozenset(payload["participant_ids"])
+        if (pair == scope[3] and payload["status"] == "scheduled"
+                and not payload["issues"] and observed < datetime.fromisoformat(payload["scheduled_start"])):
+            replacement_seen = True
+        elif (not replacement_seen and pair == next(iter(old_scopes))[3]
+                and payload["status"] == "scheduled" and not payload["issues"]):
+            continue
+        elif (not replacement_seen and payload["status"] == "scheduled"
+                and payload["issues"] == ["invalid-participants"]
+                and None in payload["participant_ids"]):
+            continue
+        elif (replacement_seen and pair == scope[3] and payload["status"] == "completed"
+                and not payload["issues"] and observed > datetime.fromisoformat(payload["scheduled_start"])):
+            continue
+        else:
+            return False
+    return replacement_seen
+
+
+def collect_outcomes(path, pending, sources, *, retired_events=None, native_unavailable_events=None):
     """Return additions by batch position, preserving all actual receive clocks.
 
     Repeated persistence is B1-idempotent. Multiple forecasts of the exact same
@@ -170,11 +244,17 @@ def collect_outcomes(path, pending, sources, *, retired_events=None):
             issues.add("native-outcome-unavailable")
             continue
         scope = next(iter(scopes))
+        eligible = tuple(events.values())
         events = {ref: (created, event) for ref, (created, event) in events.items()
             if (event["tour"], event["competition"], event["event_key"],
                 frozenset((event["home_id"], event["away_id"]))) == scope}
         if not events:
-            issues.add("native-outcome-unavailable")
+            if (native_unavailable_events is not None and len(indices) == 1
+                    and _verified_replacement_without_prematch_original(
+                    path, key, eligible, scope, pending, indices[0], sources.get(indices[0]))):
+                native_unavailable_events.add(key)
+            else:
+                issues.add("native-outcome-unavailable")
             continue
         bound = []
         for created, event in events.values():

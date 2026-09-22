@@ -56,14 +56,17 @@ class _Capture:
         self.pending, self.issues, self.refs = [], set(), set()
         self.exclusions = Counter()
         self.retired_outcome_events = set()
+        self.native_unavailable_outcome_events = set()
         self._outcome_sources = {}
 
     def report(self):
         return {"schema": 1, "scope": "existing-espn-tennis-responses",
-            "status": "partial" if self.issues else "captured" if self.refs else "no_receipts",
+            "status": "partial" if self.issues or self.native_unavailable_outcome_events
+                else "captured" if self.refs else "no_receipts",
             "receipt_refs": sorted(self.refs), "issues": sorted(self.issues),
             "excluded_competitions": dict(sorted(self.exclusions.items())),
-            "retired_outcome_events": sorted(self.retired_outcome_events)}
+            "retired_outcome_events": sorted(self.retired_outcome_events),
+            "native_unavailable_outcome_events": sorted(self.native_unavailable_outcome_events)}
 
     def record(self, tour, payload, *, observed_at):
         if type(tour) is not str or tour not in {"atp", "wta"}:
@@ -109,7 +112,8 @@ class _Capture:
     def persist(self, path):
         from context_sources.tennis_outcome_capture import collect_outcomes
         outcomes, issues = collect_outcomes(path, self.pending, self._outcome_sources,
-            retired_events=self.retired_outcome_events)
+            retired_events=self.retired_outcome_events,
+            native_unavailable_events=self.native_unavailable_outcome_events)
         self.issues.update(issues)
         chunk = []
         for index, (observed, rows) in enumerate(self.pending):

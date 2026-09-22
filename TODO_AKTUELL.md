@@ -1,5 +1,36 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## Fortsetzung 22.09.2026 – Freigabeprüfung läuft
+
+- Maßgeblich: [Prüfbericht 22.09.](docs/audits/2026-09-22-kontext-daily3-status.md).
+  Ausgangsstand lokal/GitHub/VPS `c784195`; App, Caddy und Timer aktiv,
+  lokaler Healthcheck `ok`, rund 20 GB VPS-Speicher frei. Kein automatischer
+  Code-Pull durch die Timer. Nutzerwunsch: keine neuen Tages- oder Updatearchive.
+- Nach dem erfolgreichen Lauf vom 21.09. scheiterten am 22.09. der Tennis-
+  Tagesdienst (74 verarbeitet, 13 neu gespeichert, Exit 1) und der Wettfinder
+  (Fußball selbst fehlerfrei, Gesamt-Exit 1 wegen RisikoBet-Abrechnung).
+- Tennis-Ursache: WTA 183992 wechselte nativ die Teilnehmer; eine neue
+  Prognose erschien erst nach dem vorverlegten Beginn. Der lokale enge Fix
+  klassifiziert nur eine exakt bestätigte Ersatzpaarung als sichtbare
+  Nichtauswertbarkeit der alten Prognose. Kein fremdes Ergebnis, keine
+  Geld- oder Settlementmutation. 300 gemeinsame Tennis-/Fußball-Regressionen
+  bestanden; die vollständige Suite und produktive Nachprüfung laufen noch.
+- RisikoBet bleibt bewusst gesperrt: ESPN 183996 enthält alte und neue
+  Spielerpaarung unter einer Event-ID. Ergebnisrouter **und Kandidaten-ID-/
+  Terminal-Store-Vertrag** benötigen einen revisionsgebundenen
+  Inkarnationsschlüssel und einen dauerhaft gebundenen Provider-Finalbeleg,
+  bevor einzelne Szenarien gefahrlos abgerechnet werden.
+  227 fällige Kandidaten im beobachteten Lauf offen, null abgerechnet.
+- Neuer reiner Fußball-ORIGINAL-v2-Settlementvergleich lokal getestet;
+  weder Projektions-/Code-Replay noch empirische Wirkung freigegeben.
+  Tennis: 163 eindeutig passende Finale bei 256 rechtzeitigen Originalevents,
+  also noch nicht einmal 200 unberührte Testevents vor Train/Tune. WTA
+  historisch negativ; Basketball/Eishockey/E-Sport ohne qualifizierte
+  Same-Market-Variante für Daily3. Cricket bleibt ausgenommen.
+- **Noch nicht behaupten:** neuer Commit/Push/VPS-Deployment, erfolgreicher
+  neuer Tennis-Gesamtlauf, RisikoBet-Abrechnungsfix oder belegte bessere
+  Wettqualität. Diese Punkte erst nach gesondertem Nachweis abhaken.
+
 ## Kontext-/Daily3-Fortsetzung 21.09.2026 — 3201537 live, fachliche Abnahme offen
 
 - Maßgeblich: [Kontext-/Daily3-Bericht](docs/audits/2026-09-21-kontext-daily3-fortsetzung.md).

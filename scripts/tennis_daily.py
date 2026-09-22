@@ -1032,6 +1032,7 @@ def main() -> int:
         "issues": report["issues"],
         "excluded_competitions": report.get("excluded_competitions", {}),
         "retired_outcome_events": report.get("retired_outcome_events", []),
+        "native_unavailable_outcome_events": report.get("native_unavailable_outcome_events", []),
     }, ensure_ascii=True, sort_keys=True))
     final_errors = []
     if batch.pending:
