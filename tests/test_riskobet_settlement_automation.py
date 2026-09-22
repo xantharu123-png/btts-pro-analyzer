@@ -353,6 +353,132 @@ def test_cross_snapshot_result_lookup_refuses_conflicting_frozen_identity(tmp_pa
     assert _terminal_rows(store) == []
 
 
+def _publish_reused_tennis_event(
+    store: RiskBetStore,
+    *,
+    replacement_prediction_id: int,
+    replacement_label: str,
+) -> tuple[RiskRunSnapshot, RiskRunSnapshot]:
+    original = _published_run(
+        store,
+        sport="tennis",
+        provider="ESPN",
+        provider_id="183996",
+        source_row_id=1585,
+        markets=(("match_winner", "away"),),
+    )
+    first_snapshot = original.snapshots[0]
+    replacement_snapshot = replace(
+        first_snapshot,
+        event_label=replacement_label,
+        modeled_at=MODELED + timedelta(minutes=5),
+        input_cutoff_at=MODELED + timedelta(minutes=4),
+        input_hash=canonical_input_hash({"replacement": replacement_prediction_id}),
+        factors=(
+            replace(
+                first_snapshot.factors[0],
+                factor_key=f"tennis_prediction_id:{replacement_prediction_id}",
+            ),
+        ),
+    )
+    replacement_candidate = replace(
+        original.candidates[0],
+        snapshot_id=replacement_snapshot.snapshot_id,
+        event_label=replacement_label,
+        selection_key="home",
+        selection_label="home",
+        settlement_contract="riskobet-settlement-v1:tennis:match_winner:home",
+    )
+    replacement = RiskRunSnapshot(
+        started_at=MODELED + timedelta(minutes=6),
+        completed_at=MODELED + timedelta(minutes=7),
+        status=RunStatus.COMPLETE,
+        snapshots=(replacement_snapshot,),
+        candidates=(replacement_candidate,),
+    )
+    store.append_run(replacement)
+    store.publish_latest(replacement.run_id)
+    return original, replacement
+
+
+def test_reused_tennis_native_event_is_quarantined_without_failing_other_events(
+    tmp_path: Path,
+):
+    store = _store(tmp_path)
+    original, replacement = _publish_reused_tennis_event(
+        store,
+        replacement_prediction_id=1637,
+        replacement_label="C vs B",
+    )
+    unaffected = _published_run(
+        store,
+        sport="tennis",
+        provider="ESPN",
+        provider_id="183997",
+        source_row_id=1638,
+        markets=(("match_winner", "away"),),
+    )
+
+    def loader(requests, _now):
+        assert len(requests) == 1
+        assert requests[0].event_key == unaffected.snapshots[0].event_key
+        return (
+            ObservedResult(
+                "tennis",
+                requests[0].event_key,
+                NOW - timedelta(minutes=5),
+                TennisResult(EventStatus.FINAL, winner="away"),
+                "tennis-shadow:prediction:1638",
+            ),
+        )
+
+    summary = run_riskobet_settlements(
+        store=store,
+        now=NOW,
+        result_loaders={"tennis": loader},
+    )
+
+    assert summary.errors == ("tennis:native_event_identity_reused",)
+    assert summary.operational_error_count == 0
+    assert summary.terminal_settlements == 1
+    assert summary.unresolved_candidates == 2
+    assert {row[0] for row in _terminal_rows(store)} == {
+        unaffected.candidates[0].candidate_id
+    }
+    assert all(
+        candidate.candidate_id not in {row[0] for row in _terminal_rows(store)}
+        for candidate in (*original.candidates, *replacement.candidates)
+    )
+
+
+@pytest.mark.parametrize(
+    "prediction_id,label",
+    ((1585, "C vs B"), (1637, "A vs B")),
+)
+def test_tennis_identity_conflict_without_distinct_pair_stays_operational(
+    tmp_path: Path, prediction_id: int, label: str,
+):
+    store = _store(tmp_path)
+    _publish_reused_tennis_event(
+        store,
+        replacement_prediction_id=prediction_id,
+        replacement_label=label,
+    )
+
+    def must_not_load(_requests, _now):
+        raise AssertionError("ambiguous tennis identity must not reach result loader")
+
+    summary = run_riskobet_settlements(
+        store=store,
+        now=NOW,
+        result_loaders={"tennis": must_not_load},
+    )
+    assert summary.errors == ("tennis:event_snapshot_ambiguous",)
+    assert summary.operational_error_count == 1
+    assert summary.unresolved_candidates == 2
+    assert _terminal_rows(store) == []
+
+
 def test_ambiguous_candidate_is_unresolved_without_blocking_settlement_runner(
     tmp_path: Path,
 ):

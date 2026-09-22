@@ -15,12 +15,16 @@
   Nichtauswertbarkeit der alten Prognose. Kein fremdes Ergebnis, keine
   Geld- oder Settlementmutation. 300 gemeinsame Tennis-/Fußball-Regressionen
   bestanden; die vollständige Suite und produktive Nachprüfung laufen noch.
-- RisikoBet bleibt bewusst gesperrt: ESPN 183996 enthält alte und neue
-  Spielerpaarung unter einer Event-ID. Ergebnisrouter **und Kandidaten-ID-/
+- RisikoBet: ESPN 183996 enthält alte und neue Spielerpaarung unter einer
+  Event-ID. Der lokale Fix isoliert genau die nachweislich wiederverwendete
+  Tennis-ID ereignisbezogen; beide Paarungen bleiben unabgerechnet, andere
+  Spiele können weiterlaufen. Die Produktionsdaten bestätigen sieben alte
+  und zwei neue Snapshots. 234 RisikoBet-Tests bestanden. Für eine sichere
+  Abrechnung der neuen Paarung bleiben Ergebnisrouter **und Kandidaten-ID-/
   Terminal-Store-Vertrag** benötigen einen revisionsgebundenen
   Inkarnationsschlüssel und einen dauerhaft gebundenen Provider-Finalbeleg,
-  bevor einzelne Szenarien gefahrlos abgerechnet werden.
-  227 fällige Kandidaten im beobachteten Lauf offen, null abgerechnet.
+  bevor einzelne Szenarien dieser Event-ID gefahrlos abgerechnet werden.
+  Im beobachteten alten Lauf: 227 fällige Kandidaten offen, null abgerechnet.
 - Neuer reiner Fußball-ORIGINAL-v2-Settlementvergleich lokal getestet;
   weder Projektions-/Code-Replay noch empirische Wirkung freigegeben.
   Tennis: 163 eindeutig passende Finale bei 256 rechtzeitigen Originalevents,

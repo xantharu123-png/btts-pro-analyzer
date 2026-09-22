@@ -22,6 +22,15 @@ berechnen, deployen aber keinen Code.
   und Geldbuchungen dürfen nicht automatisch gewonnen, verloren oder storniert
   werden. 96 weitere Kandidaten haben gleichrangige Revisionsstände; das
   40-Event-Rotationslimit ist eine separate erwartete Abdeckungsgrenze.
+- Der enge lokale RisikoBet-Fix erkennt die nachweisliche Wiederverwendung
+  der nativen Tennis-ID an unterschiedlichen Prognose-IDs und Paarungen. Er
+  isoliert nur dieses Event, lädt dafür kein Ergebnis und lässt beide alten
+  und neuen Kandidaten offen; andere Events können weiter abgerechnet werden.
+  Die Diagnose ist Admin-Abdeckung statt technischer Gesamtfehler. Der
+  Produktionsdatenbestand enthält sieben Snapshots der alten Paarung mit
+  Prognose-ID 1585 und zwei der neuen mit 1637. 234 RisikoBet-Tests grün.
+  Gleiche Prognose-ID mit widersprüchlichem Namen oder umgekehrt bleibt
+  weiterhin ein technischer Fehler. Die v2-Abrechnungsbindung fehlt noch.
 - Rein lesende native Tennis-Inventur: 2.697 Originalpublikationen,
   256 unterschiedliche rechtzeitige Originalevents, aber nur 163 eindeutig
   passende finale Events. Das sind **nicht** 2.697 unabhängige Fälle. Schon die
@@ -55,7 +64,8 @@ berechnen, deployen aber keinen Code.
    geänderten Codes gegen die VPS-Datenbank im QA-Prozess wurde durch die
    Zugriffsprüfung abgelehnt und nicht umgangen; die äußeren aktuellen ESPN-
    und Revisionsprädikate wurden mit installiertem Code read-only bestätigt.
-2. RisikoBet braucht eine versionsgebundene Tennis-Inkarnation aus Event,
+2. Für die spätere Abrechnung der isolierten RisikoBet-Paarungen braucht es
+   eine versionsgebundene Tennis-Inkarnation aus Event,
    Wettbewerb und nativen Teilnehmern. Nicht nur Request, Ergebnis, Issue und
    Runner, sondern auch neue Kandidaten-ID, Snapshot und terminaler
    Store-Eindeutigkeitsindex müssen diese Inkarnation binden. Vorhandene

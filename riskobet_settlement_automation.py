@@ -73,6 +73,10 @@ _COVERAGE_DIAGNOSTICS = frozenset({
     "termination_unproven", "regulation_score_unproven", "source_identity_unproven",
     "fixture_identity_unproven", "native_identity_unproven", "native_result_unavailable",
     "unsupported_selection", "ambiguous_settlement_revisions", "schedule_revision_unresolved",
+    # A provider can reuse one tennis event ID for a replacement pairing.
+    # Both frozen candidate identities remain open; the incident is reported
+    # to administrators without making unrelated settlement checks fail.
+    "native_event_identity_reused",
 })
 
 
@@ -323,7 +327,12 @@ def _requests_by_sport(
         # limit. Different runs may select different contracts for one event.
         snapshot_ids = {str(item.payload["snapshot_id"]) for item in items}
         if len(snapshot_ids) != 1 and not _compatible_result_snapshots(sport, items):
-            errors.append(_safe_issue(sport, "event_snapshot_ambiguous"))
+            code = (
+                "native_event_identity_reused"
+                if sport == "tennis" and _tennis_native_event_identity_reused(items)
+                else "event_snapshot_ambiguous"
+            )
+            errors.append(_safe_issue(sport, code))
             continue
         eligible_by_sport.setdefault(sport, []).append((event_key, items))
 
@@ -408,6 +417,34 @@ def _compatible_result_snapshots(sport: str, items: Sequence[_DueCandidate]) -> 
             None if sport == "tennis" else item.starts_at,
         ))
     return len(set(identities)) == 1
+
+
+def _tennis_native_event_identity_reused(items: Sequence[_DueCandidate]) -> bool:
+    """Recognise only a frozen one-to-one replacement of native tennis pairs.
+
+    This deliberately does *not* make either incarnation settleable. It only
+    distinguishes provider-ID reuse from malformed/contradictory snapshots so
+    other events in the batch may finish normally.
+    """
+    identities: set[tuple[int, str]] = set()
+    for item in items:
+        factors = item.snapshot.get("factors") or ()
+        if not isinstance(factors, (list, tuple)) or any(
+            not isinstance(factor, Mapping) for factor in factors
+        ):
+            return False
+        matches = [
+            _TENNIS_PREDICTION_FACTOR_RE.fullmatch(str(factor.get("factor_key", "")))
+            for factor in factors
+        ]
+        native_ids = [int(match.group(1)) for match in matches if match is not None]
+        label = item.snapshot.get("event_label")
+        if len(native_ids) != 1 or not isinstance(label, str) or not label.strip():
+            return False
+        identities.add((native_ids[0], label.strip()))
+    native_ids = {native_id for native_id, _ in identities}
+    labels = {label for _, label in identities}
+    return len(native_ids) >= 2 and len(native_ids) == len(labels) == len(identities)
 
 
 def _normalize_batch(
