@@ -52,7 +52,29 @@ class EsportsShadowLogTests(unittest.TestCase):
 
             self.assertEqual(log.log_predictions([_match()]), 1)
             # First observation counts: a second scan must not overwrite.
-            self.assertEqual(log.log_predictions([_match()]), 0)
+            with closing(sqlite3.connect(Path(tmp) / "shadow.db")) as connection:
+                original_form = connection.execute(
+                    "SELECT logged_at, source_input_hash, team1_last5_wins, team2_last5_wins "
+                    "FROM esports_shadow_form WHERE match_id = 55"
+                ).fetchone()
+            self.assertIsNotNone(original_form)
+            self.assertEqual(len(original_form[1]), 64)
+            from riskobet_candidates import adapt_esports_shadow
+            adapted = adapt_esports_shadow(Path(tmp) / "shadow.db", as_of=datetime.now(timezone.utc))
+            self.assertEqual(len(adapted), 1)
+            self.assertIn(
+                "esports_recent_form",
+                {factor.factor_key for factor in adapted[0].snapshot.factors},
+            )
+            self.assertEqual(log.log_predictions([_match(team1_wins=6, team2_wins=14)]), 0)
+            with closing(sqlite3.connect(Path(tmp) / "shadow.db")) as connection:
+                self.assertEqual(
+                    connection.execute(
+                        "SELECT logged_at, source_input_hash, team1_last5_wins, team2_last5_wins "
+                        "FROM esports_shadow_form WHERE match_id = 55"
+                    ).fetchone(),
+                    original_form,
+                )
 
             summary = log.summary()
             self.assertEqual(summary["predictions"], 1)
@@ -93,6 +115,18 @@ class EsportsShadowLogTests(unittest.TestCase):
             self.assertEqual(originals[0]["outputs"]["elo2"].hex(), ratings[1].hex())
             self.assertEqual(originals[0]["consumed"]["history_indices"],
                              {"team1": list(range(24, 4, -1)), "team2": list(range(24, 4, -1))})
+            positions = originals[0]["consumed"]["history_indices"]
+            with closing(sqlite3.connect(Path(tmp) / "shadow.db")) as connection:
+                stored = connection.execute(
+                    "SELECT source_input_hash, team1_last5_wins, team2_last5_wins "
+                    "FROM esports_shadow_form WHERE match_id = 55"
+                ).fetchone()
+            self.assertEqual(stored[0], originals[0]["inputs_hash"])
+            for side, value in (("team1", stored[1]), ("team2", stored[2])):
+                self.assertEqual(
+                    value,
+                    sum(match[f"{side}_history"][index]["won"] for index in positions[side][:5]),
+                )
             self.assertEqual(
                 [row["match_id"] for row in history1],
                 list(range(3024, 3004, -1)),

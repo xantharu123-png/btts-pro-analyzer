@@ -1,5 +1,14 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## Form-Audit 23.09.2026
+
+- Fußball, Tennis und E-Sport verwenden jüngste bekannte Ergebnisse bereits numerisch; keine zweite willkürliche Formkorrektur aufschlagen.
+- Basketball: im produktiven Ergebnisspeicher aktuell keine verwertbaren Zeilen. Form erst mit kausaler Historie und unabhängigem Test.
+- NHL: 1.535 gespeicherte Ergebnisse, davon nur 7 Spielstarts in den letzten 30 Tagen. Alte Saisonwerte nicht als aktuelle Form ausgeben; Forschungsversion erst bei ausreichender aktueller Stichprobe prüfen.
+- Cricket: kein gespeicherter Ergebnisbestand; letzter Quellenversuch fehlgeschlagen. Keine Form erfinden.
+- E-Sport: Die fünf zuletzt im Elo verwendeten Serien werden ab neuen Shadow-Einträgen zeitlich gebunden mitgespeichert und im RisikoBet offen angezeigt. Alte Einträge bleiben ohne nachträglich erfundene Form.
+- Details: docs/audits/2026-09-23-sportarten-form.md. Betroffene Modell-/UI-Gruppen: 236 Tests bestanden; die lang laufende Vollsuite wurde nicht abgeschlossen. Kein Nachweis besserer Wettqualität.
+
 ## Fortsetzung 23.09.2026 – Code live, fachliche Abnahme offen
 
 - GitHub `main` und VPS stehen auf `f5c0971c0bc3a09017b70b259f6b875efeeb149a`.

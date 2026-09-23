@@ -377,6 +377,7 @@ def _render_factor_details(snapshot: EventModelSnapshot) -> None:
         factor
         for factor in snapshot.factors
         if factor.role is not FactorRole.DISPLAY_ONLY
+        and factor.factor_key != "esports_recent_form"
     )
     if not visible_factors:
         st.caption("Keine zusätzlichen Kontextfaktoren hinterlegt.")
@@ -429,6 +430,17 @@ def _render_detail(
     detail_key = f"riskobet-detail-{suffix}"
     with st.container(key=f"riskobet_actions_{suffix}"):
         st.caption("Modellstand: " + snapshot.modeled_at.astimezone(timezone.utc).strftime("%d.%m. %H:%M UTC"))
+        recent_form = next(
+            (
+                format_riskobet_public_detail(factor.summary)
+                for factor in snapshot.factors
+                if factor.factor_key == "esports_recent_form"
+                and factor.role is FactorRole.MODEL
+            ),
+            None,
+        )
+        if recent_form:
+            st.caption(recent_form)
         visible_context = tuple(
             format_riskobet_public_detail(factor.summary)
             for factor in snapshot.factors

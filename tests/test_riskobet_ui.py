@@ -545,6 +545,26 @@ def test_public_factor_details_hide_frozen_source_identities(monkeypatch):
     assert "Match-ID" not in text
 
 
+def test_esports_form_is_visible_without_opening_analysis_and_not_duplicated(monkeypatch):
+    snapshot, candidate = _bundle("recent-esports", sport="esports")
+    form = replace(
+        snapshot.factors[0],
+        factor_key="esports_recent_form",
+        summary="Letzte 5 Serien: Team A 2/5 Siege · Team B 4/5 Siege. Im Elo berücksichtigt.",
+    )
+    snapshot = replace(snapshot, factors=(form,))
+    candidate = replace(candidate, snapshot_id=snapshot.snapshot_id)
+    fake = RecordingStreamlit()
+    monkeypatch.setattr(ui, "st", fake)
+
+    ui._render_detail(candidate, snapshot)
+
+    mentions = [item for item in fake.messages if "Letzte 5 Serien:" in str(item[1])]
+    assert len(mentions) == 1
+    assert mentions[0][0] == "caption"
+    assert not any(kind == "expander" for kind, _ in mentions[0][2])
+
+
 def test_production_like_payload_hides_internal_stage_and_factor_status(
     monkeypatch,
 ):

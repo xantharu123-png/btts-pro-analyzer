@@ -1393,6 +1393,18 @@ def adapt_esports_shadow(
             ORDER BY scheduled_at, match_id
             """
         ).fetchall()
+        form_rows = {}
+        if connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='esports_shadow_form'"
+        ).fetchone():
+            form_rows = {
+                item["match_id"]: item
+                for item in connection.execute(
+                    "SELECT f.* FROM esports_shadow_form AS f "
+                    "JOIN esports_shadow_predictions AS p ON p.match_id = f.match_id "
+                    "WHERE p.settled = 0 AND p.status = 'upcoming'"
+                )
+            }
     outputs: list[RiskAdapterResult] = []
     for row in rows:
         match_id = row["match_id"]
@@ -1477,6 +1489,43 @@ def adapt_esports_shadow(
             imported_at=observed_at,
             starts_at=starts_at,
         )
+        form_row = form_rows.get(match_id)
+        form_payload = None
+        if form_row is not None:
+            first, second = form_row["team1_last5_wins"], form_row["team2_last5_wins"]
+            source_hash = form_row["source_input_hash"]
+            if (
+                form_row["logged_at"] == row["logged_at"]
+                and type(first) is int
+                and 0 <= first <= 5
+                and type(second) is int
+                and 0 <= second <= 5
+                and isinstance(source_hash, str)
+                and len(source_hash) == 64
+                and all(character in "0123456789abcdef" for character in source_hash)
+            ):
+                form_payload = {
+                    "team1_last5_wins": first,
+                    "team2_last5_wins": second,
+                    "source_input_hash": source_hash,
+                }
+        form_factor = (
+            FactorEvidence(
+                factor_key="esports_recent_form",
+                summary=(
+                    f"Letzte 5 Serien: {team1} {form_payload['team1_last5_wins']}/5 Siege · "
+                    f"{team2} {form_payload['team2_last5_wins']}/5 Siege. Im Elo berücksichtigt."
+                ),
+                source="esports_shadow_form",
+                observed_at=observed_at,
+                imported_at=observed_at,
+                fresh_until=starts_at,
+                sample_size=10,
+                role=FactorRole.MODEL,
+            )
+            if form_payload is not None
+            else None
+        )
         match_identity = _shadow_identity_factor(
             key=f"esports_match_id:{match_id}",
             summary=f"Eingefrorene PandaScore-Match-ID: {match_id}.",
@@ -1526,9 +1575,16 @@ def adapt_esports_shadow(
                     "elo2": elo2,
                     "favorite_probability": favorite_probability,
                     "favorite_cautious_probability": favorite_cautious,
+                    **({"recent_form": form_payload} if form_payload is not None else {}),
                 }
             ),
-            factors=(factor, match_identity, team1_identity, team2_identity),
+            factors=(
+                factor,
+                *((form_factor,) if form_factor is not None else ()),
+                match_identity,
+                team1_identity,
+                team2_identity,
+            ),
         )
         specs: list[tuple[str, str, float, str, str]] = []
         if p_underdog >= ESPORTS_WIN_MIN_PROBABILITY:

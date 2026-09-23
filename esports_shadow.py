@@ -87,6 +87,43 @@ CREATE TABLE IF NOT EXISTS esports_shadow_predictions (
 )
 """
 
+_FORM_SCHEMA = """
+CREATE TABLE IF NOT EXISTS esports_shadow_form (
+    match_id INTEGER PRIMARY KEY,
+    logged_at TEXT NOT NULL,
+    source_input_hash TEXT NOT NULL,
+    team1_last5_wins INTEGER NOT NULL CHECK (team1_last5_wins BETWEEN 0 AND 5),
+    team2_last5_wins INTEGER NOT NULL CHECK (team2_last5_wins BETWEEN 0 AND 5)
+)
+"""
+
+
+def _last_five_from_original(match: Dict[str, Any], original: dict) -> Optional[tuple[int, int, str]]:
+    """Use the exact raw history positions consumed by this same model call."""
+    consumed = original.get("consumed")
+    if not isinstance(consumed, dict):
+        return None
+    positions = consumed.get("history_indices")
+    source_hash = original.get("inputs_hash")
+    if not isinstance(positions, dict) or not isinstance(source_hash, str) or len(source_hash) != 64:
+        return None
+    wins = []
+    for side in ("team1", "team2"):
+        history = match.get(f"{side}_history")
+        selected = positions.get(side)
+        if not isinstance(history, list) or not isinstance(selected, list) or len(selected) < 5:
+            return None
+        values = []
+        for index in selected[:5]:
+            if type(index) is not int or not 0 <= index < len(history):
+                return None
+            row = history[index]
+            if not isinstance(row, dict) or type(row.get("won")) is not bool:
+                return None
+            values.append(row["won"])
+        wins.append(sum(values))
+    return wins[0], wins[1], source_hash
+
 
 class EsportsShadowLog:
     def __init__(self, db_path: Any = DEFAULT_DB_PATH):
@@ -135,6 +172,7 @@ class EsportsShadowLog:
         now = observed_at.isoformat()
         logged = 0
         with closing(self._connect()) as connection:
+            connection.execute(_FORM_SCHEMA)
             for match in matches or []:
                 if not isinstance(match, dict):
                     continue
@@ -182,8 +220,10 @@ class EsportsShadowLog:
                     continue
                 if not isinstance(selected_team_id, int) or selected_team_id <= 0:
                     continue
-                original_values = captured["original"].to_dict()["outputs"]
+                original = captured["original"].to_dict()
+                original_values = original["outputs"]
                 elo1, elo2 = original_values["elo1"], original_values["elo2"]
+                last_five = _last_five_from_original(match, original)
                 cursor = connection.execute(
                     """
                     INSERT OR IGNORE INTO esports_shadow_predictions (
@@ -218,6 +258,11 @@ class EsportsShadowLog:
                         ESPORTS_MODEL_VERSION,
                     ),
                 )
+                if cursor.rowcount == 1 and last_five is not None:
+                    connection.execute(
+                        "INSERT INTO esports_shadow_form VALUES (?, ?, ?, ?, ?)",
+                        (match_id, now, last_five[2], last_five[0], last_five[1]),
+                    )
                 logged += cursor.rowcount
             connection.commit()
         return logged

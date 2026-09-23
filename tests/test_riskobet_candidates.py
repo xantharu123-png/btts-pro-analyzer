@@ -592,6 +592,38 @@ def test_esports_adapter_uses_complement_map_math_and_extreme_guard(tmp_path: Pa
     assert later[0].snapshot.to_dict() == repeated[0].snapshot.to_dict()
 
 
+def test_esports_form_is_time_bound_model_evidence_without_price_or_probability_change(tmp_path: Path):
+    path = tmp_path / "esports-form.db"
+    create_esports_db(path)
+    insert_esports(path, 1, 70.0, 120.0)
+    baseline = adapt_esports_shadow(path, as_of=MODELED_AT)[0]
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "CREATE TABLE esports_shadow_form (match_id INTEGER PRIMARY KEY, logged_at TEXT, "
+            "source_input_hash TEXT, team1_last5_wins INTEGER, team2_last5_wins INTEGER)"
+        )
+        connection.execute(
+            "INSERT INTO esports_shadow_form VALUES (?, ?, ?, ?, ?)",
+            (1, (MODELED_AT - timedelta(minutes=5)).isoformat(), "a" * 64, 2, 4),
+        )
+    result = adapt_esports_shadow(path, as_of=MODELED_AT)[0]
+    factors = {factor.factor_key: factor for factor in result.snapshot.factors}
+    assert "esports_recent_form" in factors
+    assert "Team A 2/5 Siege" in factors["esports_recent_form"].summary
+    assert "Team B 4/5 Siege" in factors["esports_recent_form"].summary
+    assert result.snapshot.snapshot_id != baseline.snapshot.snapshot_id
+    assert [candidate.model_probability for candidate in result.candidates] == [
+        candidate.model_probability for candidate in baseline.candidates
+    ]
+
+    with sqlite3.connect(path) as connection:
+        connection.execute("UPDATE esports_shadow_form SET logged_at=? WHERE match_id=1",
+                           ((MODELED_AT - timedelta(minutes=4)).isoformat(),))
+    mismatched = adapt_esports_shadow(path, as_of=MODELED_AT)[0]
+    assert "esports_recent_form" not in {factor.factor_key for factor in mismatched.snapshot.factors}
+    assert mismatched.snapshot.snapshot_id == baseline.snapshot.snapshot_id
+
+
 def scanner_event(sport: str) -> dict:
     if sport == "basketball":
         return {
