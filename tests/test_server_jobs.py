@@ -73,7 +73,7 @@ def test_wettfinder_timer_is_installed_and_enabled_by_deploy_scripts():
     )
 
     assert "wettfinder_automation.py" in service
-    assert "OnCalendar=*-*-* *:07,37:00" in timer
+    assert "OnCalendar=*-*-* 09:37:00" in timer
     for expected in EXPECTED_TIMERS:
         assert update.count(f"    {expected}\n") == 1
         assert bootstrap.count(f"    {expected}\n") == 1
@@ -86,19 +86,24 @@ def test_wettfinder_timer_is_installed_and_enabled_by_deploy_scripts():
         assert 'systemctl enable --now "${BETBOY_TIMERS[@]}"' not in source
 
 
-def test_polling_timers_keep_a_persistent_calendar_trigger():
+def test_automatic_sport_timers_run_once_daily_without_catchup():
     root = Path(__file__).resolve().parents[1]
     systemd = root / "deploy" / "systemd"
     schedules = {
-        "betboy-football-shadow.timer": "*-*-* *:02,12,22,32,42,52:00",
-        "betboy-redcard-settlement.timer": "*-*-* *:05,35:00",
+        "betboy-wettfinder.timer": "*-*-* 09:37:00",
+        "betboy-football-shadow.timer": "*-*-* 17:02:00",
+        "betboy-tennis.timer": "*-*-* 07:17:00",
+        "betboy-esports.timer": "*-*-* 08:23:00",
+        "betboy-redcard-history.timer": "*-*-* 05:41:00",
+        "betboy-redcard-settlement.timer": "*-*-* 06:05:00",
     }
 
     for timer_name, schedule in schedules.items():
         timer = (systemd / timer_name).read_text(encoding="utf-8")
         assert timer.count("OnCalendar=") == 1
         assert f"OnCalendar={schedule}" in timer
-        assert timer.count("Persistent=true") == 1
+        assert timer.count("Persistent=false") == 1
+        assert "Persistent=true" not in timer
         for unsupported in (
             "OnActiveSec=",
             "OnBootSec=",

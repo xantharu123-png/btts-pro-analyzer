@@ -9,6 +9,7 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -60,6 +61,31 @@ class ApiFootballHealthTest(unittest.TestCase):
         self.assertEqual(health["state"], "active")
         self.assertEqual(health["label"], "Live-API aktiv (Pro)")
         self.assertEqual(health["detail"], "")
+
+    def test_status_page_does_not_query_provider_without_button_click(self):
+        fake_ui = Mock()
+        fake_ui.button.return_value = False
+        with (
+            patch.object(app, "st", fake_ui),
+            patch.object(app, "load_app_config", return_value=SimpleNamespace(api_football_key="test-key")),
+            patch.object(app, "_stats_freshness", return_value=None),
+            patch.object(app, "_api_football_health") as health,
+        ):
+            app._render_system_status(None)
+        health.assert_not_called()
+        fake_ui.button.assert_called_once()
+
+    def test_status_button_queries_provider_only_on_request(self):
+        fake_ui = Mock()
+        fake_ui.button.return_value = True
+        with (
+            patch.object(app, "st", fake_ui),
+            patch.object(app, "load_app_config", return_value=SimpleNamespace(api_football_key="test-key")),
+            patch.object(app, "_stats_freshness", return_value=None),
+            patch.object(app, "_api_football_health", return_value={"label": "Live-API aktiv", "state": "active", "detail": ""}) as health,
+        ):
+            app._render_system_status(None)
+        health.assert_called_once_with("test-key")
 
 
 if __name__ == "__main__":

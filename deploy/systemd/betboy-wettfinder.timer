@@ -1,10 +1,10 @@
 [Unit]
-Description=Refresh due BetBoy candidate context every 30 minutes
+Description=Run BetBoy Wettfinder once daily
 
 [Timer]
-OnCalendar=*-*-* *:07,37:00
+OnCalendar=*-*-* 09:37:00
 AccuracySec=1min
-Persistent=true
+Persistent=false
 
 [Install]
 WantedBy=timers.target

@@ -4,7 +4,7 @@ Description=Run BetBoy E-Sport daily discovery
 [Timer]
 OnCalendar=*-*-* 08:23:00
 AccuracySec=1min
-Persistent=true
+Persistent=false
 
 [Install]
 WantedBy=timers.target

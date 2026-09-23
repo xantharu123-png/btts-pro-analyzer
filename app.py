@@ -4938,11 +4938,9 @@ def _render_system_status(analyzer) -> None:
 
     config = load_app_config(st)
     if config.api_football_key:
-        api_health = _api_football_health(config.api_football_key)
-        api_class = "bb-dot" if api_health["state"] == "active" else "bb-dot error"
-        api_state = api_health["label"]
+        api_class = "bb-dot warn"
+        api_state = "API konfiguriert · Status nicht live geprüft"
     else:
-        api_health = {"state": "missing", "detail": ""}
         api_class = "bb-dot warn"
         api_state = "Live-API fehlt"
     st.markdown(
@@ -4952,8 +4950,13 @@ def _render_system_status(analyzer) -> None:
     stats_stand = _stats_freshness()
     if stats_stand is not None:
         st.caption(f"Datenstand: {_format_stand(stats_stand)}")
-    if api_health.get("detail") and api_health["state"] in {"suspended", "error"}:
-        st.caption(api_health["detail"])
+    if config.api_football_key and st.button(
+        "API-Status prüfen", help="Manuelle Abfrage; verbraucht API-Kontingent."
+    ):
+        api_health = _api_football_health(config.api_football_key)
+        st.caption(api_health["label"])
+        if api_health.get("detail") and api_health["state"] in {"suspended", "error"}:
+            st.caption(api_health["detail"])
 
 
 def render_settings(analyzer) -> None:
