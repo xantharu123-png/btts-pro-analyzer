@@ -565,6 +565,28 @@ def test_esports_form_is_visible_without_opening_analysis_and_not_duplicated(mon
     assert not any(kind == "expander" for kind, _ in mentions[0][2])
 
 
+def test_tennis_surface_evidence_is_visible_without_opening_analysis(monkeypatch):
+    snapshot, candidate = _bundle("surface-tennis", sport="tennis")
+    evidence = replace(
+        snapshot.factors[0],
+        factor_key="tennis_surface_evidence",
+        role=FactorRole.DISPLAY_ONLY,
+        summary="Hartplatz: A 1.611 Elo (25 Spiele) · B 1.489 Elo (21 Spiele) · Belag-Elo berücksichtigt",
+    )
+    snapshot = replace(snapshot, factors=(evidence,))
+    candidate = replace(candidate, snapshot_id=snapshot.snapshot_id)
+    fake = RecordingStreamlit()
+    monkeypatch.setattr(ui, "st", fake)
+    ui._render_detail(candidate, snapshot)
+    mentions = [
+        item for item in fake.messages
+        if "Belag-Elo berücksichtigt" in str(item[1])
+    ]
+    assert len(mentions) == 1, fake.messages
+    assert mentions[0][0] == "caption"
+    assert not any(kind == "expander" for kind, _ in mentions[0][2])
+
+
 def test_production_like_payload_hides_internal_stage_and_factor_status(
     monkeypatch,
 ):

@@ -46,6 +46,7 @@ from tennis.predict import (
     WINNER_PROBABILITY_HAIRCUT,
 )
 from tennis.shadow import SIDE_MARKETS
+from tennis.surface_evidence import format_surface_evidence
 
 DB_PATH = shadow.DB_PATH
 DAILY_SCRIPT = Path(__file__).resolve().parent / "scripts" / "tennis_daily.py"
@@ -647,6 +648,16 @@ def _render_match_card(row: dict) -> None:
             f"{_format_start_local(row.get('scheduled_start_utc'))} · "
             f"{row.get('fixture_source') or 'Quelle unbekannt'}"
         )
+        try:
+            context = json.loads(row.get("context_json") or "{}")
+        except (TypeError, ValueError):
+            context = {}
+        if isinstance(context, dict):
+            surface_text = format_surface_evidence(
+                context.get("surface_evidence"), row["player_a"], row["player_b"]
+            )
+            if surface_text:
+                st.caption(surface_text)
 
         if not model_gates_ok:
             st.warning("AKTUELL KEINE BELASTBARE TENNIS-AUSWAHL.")

@@ -855,6 +855,9 @@ def refresh_pending_predictions(
                 as_of=modeled_at, workload_history=workload,
                 **capture_options,
             )
+            from tennis.surface_evidence import build_surface_evidence
+            if (surface_evidence := build_surface_evidence(state, prediction)) is not None:
+                prediction.context_evidence["surface_evidence"] = surface_evidence
             # Do not append a pre-start prediction after the event has started
             # while a slow computation was running.
             finished_at = _refresh_now() if as_of is None else checked_at
@@ -980,6 +983,9 @@ def scan_fixtures(
                 workload_history=workload_history,
                 **capture_options,
             )
+            from tennis.surface_evidence import build_surface_evidence
+            if (surface_evidence := build_surface_evidence(state, pred)) is not None:
+                pred.context_evidence["surface_evidence"] = surface_evidence
             store_options = dict(provider_event_id=fx.get("provider_event_id") or None,
                 scheduled_start_utc=fx.get("scheduled_start_utc"), fixture_source=fx.get("fixture_source"),
                 modeled_at=decision_at, append_observed_at=append_observed_at, db_path=db_path)

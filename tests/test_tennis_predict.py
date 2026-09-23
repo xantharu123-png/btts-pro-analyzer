@@ -9,6 +9,7 @@ import pytest
 from tennis.elo import SurfaceElo
 from tennis.model_state import ModelState
 from tennis.predict import predict_match
+from tennis.surface_evidence import build_surface_evidence
 from tennis.serve_model import ServeReturnModel
 
 
@@ -53,12 +54,21 @@ class TestPredictGates:
         assert pred.gates[0].passed  # surface
         assert pred.gates[1].passed  # experience
         assert pred.p_a_cal > 0.7    # hero clearly favoured
+        surface = build_surface_evidence(state, pred)
+        assert surface["surface"] == "Hard"
+        assert surface["players"]["a"]["matches"] == 25
+        assert surface["players"]["b"]["matches"] == 25
+        assert surface["players"]["a"]["elo"] > surface["players"]["b"]["elo"]
+        assert surface["surface_elo_applied"] is True
 
     def test_clay_is_blocked(self):
         state = _synthetic_state()
         pred = predict_match(state, "Hero H.", "Grinder G.", "Clay", 3)
         assert not pred.gates[0].passed
         assert pred.verdict == "KEINE WETTE"
+        surface = build_surface_evidence(state, pred)
+        assert surface["surface_elo_applied"] is False
+        assert surface["players"]["a"]["elo"] is None
 
     def test_unknown_players_blocked(self):
         state = _synthetic_state()
@@ -66,6 +76,7 @@ class TestPredictGates:
         assert not pred.gates[1].passed  # experience gate
         assert not pred.gates[3].passed  # player identity gate
         assert pred.verdict == "KEINE WETTE"
+        assert build_surface_evidence(state, pred) is None
 
     def test_surname_first_provider_name_reuses_known_player_history(self):
         state = _synthetic_state()

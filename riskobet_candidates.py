@@ -32,6 +32,7 @@ import sqlite3
 from typing import Any, Iterable, Mapping, Optional, Sequence
 
 from tennis.context_consumer import load_tennis_winner_context
+from tennis.surface_evidence import format_surface_evidence
 
 from riskobet_domain import (
     ContextState,
@@ -1194,6 +1195,19 @@ def adapt_tennis_shadow(
             starts_at=starts_at,
         )
         workload = _load_json_object(row.get("context_json"))
+        surface_text = format_surface_evidence(
+            workload.get("surface_evidence"), player_a, player_b
+        )
+        surface_factors = (
+            (FactorEvidence(
+                factor_key="tennis_surface_evidence",
+                summary=surface_text,
+                source="tennis-shadow-surface-elo",
+                observed_at=observed_at, imported_at=observed_at,
+                fresh_until=starts_at, role=FactorRole.DISPLAY_ONLY,
+            ),)
+            if surface_text else ()
+        )
         workload_players = workload.get("players", {})
         workload_factors = []
         if isinstance(workload_players, Mapping):
@@ -1222,7 +1236,7 @@ def adapt_tennis_shadow(
             input_cutoff_at=observed_at,
             model_version=model_version,
             input_hash=canonical_input_hash(input_payload),
-            factors=(factor, identity_factor, *workload_factors),
+            factors=(factor, identity_factor, *surface_factors, *workload_factors),
             context_ref=shared["context_ref"] if shared is not None else None,
         )
         options: list[tuple[float, str, str, float, float, str, str]] = []

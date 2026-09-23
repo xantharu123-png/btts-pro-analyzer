@@ -142,7 +142,7 @@ _UNSAFE_TECHNICAL_DETAIL_RE = re.compile(
     r"|(?:^|[^A-Za-z0-9])(?:[A-Za-z0-9]+_)*factor_key(?:$|[^A-Za-z0-9])"
     r"|\b(?:walk[- ]?forward|gate|api-[a-z0-9_-]+)\b"
     r"|\b(?:source|provider)_(?:failed|partial|unavailable)\b"
-    r"|\b(?:HTTP\s*)?[45]\d{2}\b",
+    r"|(?<![\d.,])\b(?:HTTP\s*)?[45]\d{2}\b",
     flags=re.IGNORECASE,
 )
 _TECHNICAL_DETAIL_FALLBACK = (

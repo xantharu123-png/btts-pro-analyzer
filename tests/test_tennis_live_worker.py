@@ -115,7 +115,13 @@ def test_real_producer_preserves_full_original_and_links_only_after_capture_comm
     monkeypatch.setattr(live_context, "tennis_observations_as_of", checked_read)
     result, rows = run_batch(db, predictions)
     assert result["stored"] == 1 and not result["errors"] and len(rows) == 1
-    sidecar = json.loads(rows[0]["context_json"])["context_model"]
+    stored_context = json.loads(rows[0]["context_json"])
+    surface = stored_context["surface_evidence"]
+    assert surface["surface"] == "Hard"
+    assert surface["players"]["a"]["matches"] == 5
+    assert surface["players"]["b"]["matches"] == 5
+    assert surface["surface_elo_applied"] is False
+    sidecar = stored_context["context_model"]
     key, packet = context_rows(db)[0]
     assert sidecar["reference"]["key"] == key
     assert sidecar["cutoff"] == packet["base"]["cutoff"] == canonical_timestamp(NOW)

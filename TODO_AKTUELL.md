@@ -1,5 +1,32 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 24.09.2026 – Wetter, Form, Ausfälle und Tennis-Belag
+
+- Tennis: Das bestehende Elo nutzt bei mindestens acht Belagspielen **je Spieler**
+  den Belaganteil (65 %) plus Gesamt-Elo (35 %). Der Tageslauf speichert jetzt
+  beide tatsächlichen Belag-Elo-Werte, Stichproben und den Datenstand neben
+  der unveränderten Prognose. Wettfinder/Daily3, Tennis und RisikoBet zeigen
+  den Beleg kompakt; bei zu kleiner Stichprobe steht ausdrücklich
+  „Gesamt-Elo verwendet“. Alte Prognosen erhalten keine nacherfundenen Werte.
+  Historische Replay-Quellen tennis/predict.py und tennis/elo.py bleiben
+  unverändert; 680 betroffene Integrations-/Replaytests bestanden, danach
+  113 Speicher-/Anzeige-/Adaptertests nach der letzten Eingabegrenze.
+- Fußball-Form wirkt schon als 25-%-Anteil der erwarteten Tore; Tennis
+  verarbeitet jüngste Ergebnisse chronologisch im Elo, E-Sport jüngste
+  Serien im Elo. Keine zusätzliche willkürliche Formkorrektur.
+- Ausfälle/Wetter: Der Fußball-Kontext zeigt verifizierte Daten und kann
+  extreme Gegenindikatoren prüfen, ändert aber die Modellchance **nicht**
+  numerisch. Auch Tennis-Belastung/Verletzung ist kein freigegebener
+  Wahrscheinlichkeitszu-/abschlag. Das ist in der UI als Grenze kenntlich.
+- Produktionsinventur (rein lesend): 0 B1-Wetterbelege und 0 veröffentlichte
+  Effektfreigaben. Vor numerischer Aktivierung fehlen echte, rechtzeitig
+  erfasste Wetter-/Kaderbelege und eine unabhängige, zeitlich getrennte
+  Qualitätsprüfung. Keine Wetterwirkung oder Gewinnverbesserung behaupten.
+  Clay/Grass und WTA-Tipps bleiben von ihrer separaten Modellvalidierung
+  abhängig; die Belag-Anzeige ist keine Freigabe.
+- Keine neuen API-Läufe, Sicherungen, Datenbankmigrationen oder
+  Quoten-/Wahrscheinlichkeitsänderungen für diesen Schritt.
+
 ## Form-Audit 23.09.2026
 
 - Fußball, Tennis und E-Sport verwenden jüngste bekannte Ergebnisse bereits numerisch; keine zweite willkürliche Formkorrektur aufschlagen.

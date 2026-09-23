@@ -224,6 +224,62 @@ def test_tennis_retains_actual_data_age_in_details_and_limitations_in_view():
     assert analysis.data_age in ' '.join(result.explanation)
 
 
+def test_tennis_belag_sample_is_a_compact_optional_fact_not_a_new_probability():
+    from test_daily3_selection import tennis
+    original = tennis()
+    context = deepcopy(original.context_evidence)
+    context['surface_evidence'] = {
+        'surface': 'Clay',
+        'players': {
+            'a': {'matches': 18, 'elo': 1598.0},
+            'b': {'matches': 12, 'elo': 1474.0},
+        },
+        'surface_elo_applied': True,
+        'stats_through': NOW.date().isoformat(),
+    }
+    signal = replace(original, context_evidence=context)
+    analysis = build_forecast_analysis(signal, now=NOW)
+    result = build_compact_analysis(signal, analysis, now=NOW)
+    fact = next(f for f in result.facts if f.label == 'Belagspiele')
+    assert fact.value == '18 / 12'
+    assert 'Belag-Elo berücksichtigt' in fact.details[0]
+    visible = InitialText(render_compact_analysis_html(result)).visible
+    assert 'Belagspiele' in visible and '18 / 12' in visible
+    assert '1.598 Elo' not in visible
+    assert signal.probability == original.probability
+    assert 'Belag-Elo auf Sand wurde berücksichtigt' in analysis.basis
+
+
+def test_tennis_small_surface_sample_never_claims_surface_elo_use():
+    from test_daily3_selection import tennis
+    original = tennis()
+    context = deepcopy(original.context_evidence)
+    context['surface_evidence'] = {
+        'surface': 'Clay',
+        'players': {
+            'a': {'matches': 7, 'elo': 1598.0},
+            'b': {'matches': 0, 'elo': None},
+        },
+        'surface_elo_applied': False,
+    }
+    signal = replace(original, context_evidence=context)
+    analysis = build_forecast_analysis(signal, now=NOW)
+    result = build_compact_analysis(signal, analysis, now=NOW)
+    fact = next(f for f in result.facts if f.label == 'Belagspiele')
+    assert fact.value == '7 / 0' and fact.warning
+    assert 'Gesamt-Elo verwendet' in fact.details[0]
+    assert 'Elo verwendet die Gesamtstärke' in analysis.basis
+
+
+def test_legacy_tennis_prediction_does_not_invent_surface_sample():
+    from test_daily3_selection import tennis
+    signal = tennis()
+    analysis = build_forecast_analysis(signal, now=NOW)
+    result = build_compact_analysis(signal, analysis, now=NOW)
+    assert all(f.label != 'Belagspiele' for f in result.facts)
+    assert 'Belag-Elo-Stichprobe ist nicht belegt' in analysis.basis
+
+
 def test_absence_metadata_deduplicates_players_without_changing_model_decisions():
     def player(pid, name, kind='Missing Fixture', team=10):
         return {'team': {'id': team}, 'player': {'id': pid, 'name': name, 'type': kind}}

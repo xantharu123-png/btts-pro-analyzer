@@ -25,7 +25,7 @@ from riskobet_candidates import (
     football_risk_source_pool,
     select_football_risk_sources,
 )
-from riskobet_domain import ContextState, EvidenceStage
+from riskobet_domain import ContextState, EvidenceStage, FactorRole
 from riskobet_store import RiskBetStore
 
 
@@ -423,6 +423,7 @@ def create_tennis_db(path: Path) -> None:
                 p_cal REAL,
                 markets_json TEXT,
                 gates_json TEXT,
+                context_json TEXT,
                 odds_a REAL,
                 odds_b REAL,
                 settled INTEGER,
@@ -438,13 +439,14 @@ def insert_tennis(
     row_id: int,
     p_a: float,
     markets: str,
+    context: str | None = None,
     odds_a: float = 2.0,
     odds_b: float = 2.0,
 ) -> None:
     with sqlite3.connect(path) as connection:
         connection.execute(
             """
-            INSERT INTO predictions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO predictions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 row_id,
@@ -461,6 +463,7 @@ def insert_tennis(
                 p_a,
                 markets,
                 "{}",
+                context,
                 odds_a,
                 odds_b,
                 0,
@@ -516,6 +519,37 @@ def test_tennis_adapter_is_price_neutral_bounded_and_guards_extreme_winner(tmp_p
         )
     refetched = adapt_tennis_shadow(path, as_of=MODELED_AT + timedelta(minutes=10))
     assert refetched[0].snapshot.snapshot_id != repeated[0].snapshot.snapshot_id
+
+
+def test_tennis_surface_evidence_is_display_only_and_price_neutral(tmp_path: Path):
+    path = tmp_path / "tennis.db"
+    create_tennis_db(path)
+    insert_tennis(
+        path,
+        row_id=1,
+        p_a=0.35,
+        markets='{"over_2_5_sets":0.45,"set_handicap_a_minus_1_5":0.12}',
+        context=(
+            '{"surface_evidence":{"surface":"Hard",'
+            '"players":{"a":{"matches":25,"elo":1611.0},'
+            '"b":{"matches":21,"elo":1489.0}},'
+            '"surface_elo_applied":true,"stats_through":"2026-09-23"}}'
+        ),
+    )
+    output = adapt_tennis_shadow(path, as_of=MODELED_AT)
+    assert len(output) == 1
+    factor = next(
+        f for f in output[0].snapshot.factors
+        if f.factor_key == "tennis_surface_evidence"
+    )
+    assert factor.role is FactorRole.DISPLAY_ONLY
+    assert "Belag-Elo berücksichtigt" in factor.summary
+    p_before = [c.model_probability for c in output[0].candidates]
+    with sqlite3.connect(path) as connection:
+        connection.execute("UPDATE predictions SET odds_a=99, odds_b=101 WHERE id=1")
+    after = adapt_tennis_shadow(path, as_of=MODELED_AT)
+    assert [c.model_probability for c in after[0].candidates] == p_before
+    assert after[0].snapshot.snapshot_id == output[0].snapshot.snapshot_id
 
 
 def create_esports_db(path: Path) -> None:

@@ -441,6 +441,17 @@ def _render_detail(
         )
         if recent_form:
             st.caption(recent_form)
+        surface_text = next(
+            (
+                format_riskobet_public_detail(factor.summary)
+                for factor in snapshot.factors
+                if factor.factor_key == "tennis_surface_evidence"
+                and factor.role is FactorRole.DISPLAY_ONLY
+            ),
+            None,
+        )
+        if surface_text:
+            st.caption(surface_text)
         visible_context = tuple(
             format_riskobet_public_detail(factor.summary)
             for factor in snapshot.factors

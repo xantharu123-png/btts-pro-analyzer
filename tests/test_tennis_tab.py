@@ -36,6 +36,7 @@ def _make_db(with_prediction: bool) -> Path:
                 p_raw REAL, p_cal REAL, markets_json TEXT, gates_json TEXT,
                 verdict TEXT, recommended_side TEXT, recommended_edge REAL,
                 odds_a REAL, odds_b REAL, settled INTEGER DEFAULT 0,
+                context_json TEXT,
                 actual_winner TEXT, ret_flag INTEGER DEFAULT 0, ret_set INTEGER,
                 closing_odds_a REAL, closing_odds_b REAL, pnl REAL,
                 model_version TEXT, policy_version TEXT
@@ -94,6 +95,35 @@ def _run_price_check() -> None:
     from tests.test_tennis_tab import _make_db
 
     tmp = _make_db(with_prediction=True)
+    shadow.DB_PATH = tmp
+    tennis_tab.DB_PATH = tmp
+    tennis_tab.render_tennis_page()
+
+
+def _run_surface_evidence() -> None:
+    import json
+    import sqlite3
+    import tennis_tab
+    from tennis import shadow
+    from tests.test_tennis_tab import _make_db
+
+    tmp = _make_db(with_prediction=True)
+    context = {
+        "surface_evidence": {
+            "surface": "Hard",
+            "players": {
+                "a": {"matches": 23, "elo": 1634.2},
+                "b": {"matches": 19, "elo": 1490.8},
+            },
+            "surface_elo_applied": True,
+            "stats_through": "2026-09-23",
+        }
+    }
+    with sqlite3.connect(tmp) as conn:
+        conn.execute(
+            "UPDATE predictions SET context_json=? WHERE id=1",
+            (json.dumps(context),),
+        )
     shadow.DB_PATH = tmp
     tennis_tab.DB_PATH = tmp
     tennis_tab.render_tennis_page()
@@ -158,6 +188,15 @@ def test_empty_db_shows_friendly_empty_state():
     at.run(timeout=60)
     assert len(at.exception) == 0
     assert any("keine Tennis-Vorhersagen" in info.value for info in at.info)
+
+
+def test_frozen_surface_evidence_is_visible_on_tennis_card():
+    at = AppTest.from_function(_run_surface_evidence)
+    at.run(timeout=60)
+    assert len(at.exception) == 0
+    captions = " ".join(item.value for item in at.caption)
+    assert "Hartplatz: Alpha A. 1.634 Elo (23 Spiele)" in captions
+    assert "Belag-Elo berücksichtigt" in captions
 
 
 def test_price_check_edge_paths():

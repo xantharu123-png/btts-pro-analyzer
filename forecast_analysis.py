@@ -411,9 +411,22 @@ def _sport_analysis(signal, sport, now):
         surfaces = {'hard': 'Hartplatz', 'clay': 'Sand', 'grass': 'Rasen', 'carpet': 'Teppich'}
         surface = surfaces.get(str(inputs.get('surface', '')).casefold())
         if inputs.get('surface_in_model') is True and surface:
+            from tennis.surface_evidence import format_surface_evidence
+            surface_evidence = _mapping(_mapping(signal.context_evidence).get('surface_evidence'))
+            surface_text = format_surface_evidence(
+                surface_evidence, signal.competitor_a, signal.competitor_b
+            )
+            if surface_text and surface_evidence.get('surface') == inputs.get('surface'):
+                elo_basis = (
+                    f'Das Belag-Elo auf {surface} wurde berücksichtigt.'
+                    if surface_evidence['surface_elo_applied']
+                    else f'Für {surface} reichen die Belagspiele noch nicht; das Elo verwendet die Gesamtstärke.'
+                )
+            else:
+                elo_basis = f'Der Belag ist {surface}; die tatsächlich verwendete Belag-Elo-Stichprobe ist nicht belegt.'
             serve = ' und Aufschlagdaten' if inputs.get('serve_in_model') is True else ''
             return ForecastAnalysis(
-                f'Das Modell berücksichtigt die Spielstärke auf {surface}{serve}. Daraus ergibt sich die Auswahl {signal.selection}.',
+                f'{elo_basis} Das Modell verwendet Elo{serve} für die Auswahl {signal.selection}.',
                 'Eine Modellschätzung, keine sichere Wette. Verletzungen und Müdigkeit sind in diesem Beleg nicht als numerischer Vorteil nachgewiesen.',
                 supported=True, data_age=age, data_current=current)
     if sport in {'e-sport', 'esports'}:

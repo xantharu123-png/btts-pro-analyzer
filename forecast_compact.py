@@ -12,6 +12,7 @@ from forecast_analysis import (
     _clock, _contract, _context_projection, _decimal, _mapping, _percent, _tennis_inputs,
     forecast_highlight_reason, format_model_clock, read_football_analysis,
 )
+from tennis.surface_evidence import format_surface_evidence
 
 
 @dataclass(frozen=True)
@@ -139,6 +140,17 @@ def build_compact_analysis(signal, analysis, *, now):
         summary = f'Belag: {surface}' if surface else 'Belagspezifisches Modell'
         if inputs.get('serve_in_model') is True:
             summary += ' · Aufschlagdaten berücksichtigt'
+        surface_evidence = _mapping(_mapping(signal.context_evidence).get('surface_evidence'))
+        surface_text = format_surface_evidence(
+            surface_evidence, signal.competitor_a, signal.competitor_b
+        )
+        if surface_text and surface_evidence.get('surface') == inputs.get('surface'):
+            players = surface_evidence['players']
+            a, b = players['a']['matches'], players['b']['matches']
+            facts.append(Fact(
+                'Belagspiele', f'{a} / {b}', (surface_text,),
+                warning=surface_evidence['surface_elo_applied'] is False,
+            ))
         warnings.append('Verletzungs-/Müdigkeitseffekte nicht belegt')
     elif sport in {'e-sport', 'esports'} and analysis.supported:
         warnings.append('Kader-/Belastungseffekte nicht belegt')
