@@ -89,3 +89,50 @@ berechnen, deployen aber keinen Code.
 Dieser Bericht ist eine technische Übergabe, keine Wett- oder
 Einkommenszusage. Aussagen zu Push/VPS-Freigabe des neuen Codebausteins folgen
 erst nach Abschlussreview und separater Veröffentlichung.
+
+## Nachtrag 23.09.2026: technische Veröffentlichung
+
+- Unabhängiges Patchreview ohne neue Befunde. 300 gemeinsame Tennis-/Fußball-
+  Regressionen sowie 234 RisikoBet-Tests bestanden.
+- `f5c0971c0bc3a09017b70b259f6b875efeeb149a` ist auf GitHub `main` und
+  dem VPS identisch. Code-Fast-Forward ohne Datenmigration und ohne neues
+  Backup-Archiv; App und Caddy aktiv, Healthcheck `ok`, sieben Rechentimer
+  aktiv, täglicher Backup-Timer weiter deaktiviert.
+- Die breite Suite lief bis 6.999 bestandenen Tests und traf dann auf einen
+  E-Sport-Test, der `EsportsScanner.__new__` ohne die im echten Konstruktor
+  angelegte Fehlerliste verwendet. Nach Ergänzung dieser Testinitialisierung
+  bestanden das gesamte betroffene Modul und alle noch nicht abgeschlossenen
+  Testmodule mit weiteren 4.061 Tests. Damit wurden alle 275 Testmodule in
+  zwei Stufen abgedeckt; dies ist kein einzelner ununterbrochener Vollsuite-Lauf.
+- Automatischer Wettfinderlauf ab 01:37 CEST auf `f5c0971`: Exit 0,
+  `completed`, null technische Fehler. Die wiederverwendete Tennis-Event-ID
+  ist nun `native_event_identity_reused` mit operativem Fehlerzähler 0.
+  229 fällige RisikoBet-Kandidaten blieben offen, null wurden terminal
+  abgerechnet; insbesondere wurde die alte Paarung nicht als Gewinner oder
+  Verlierer umgedeutet.
+- Der reguläre Tennis-Tagesdienst wurde auf dem neuen Commit einmalig zur
+  Abnahme gestartet: 01:44–02:01 CEST, Exit 0, Scan und Gesamtpipeline OK,
+  41 neue Prognosen. Capture `partial`, aber `issues=[]`; die alte WTA-
+  Paarung ESPN 183992 erscheint ausdrücklich unter
+  `native_unavailable_outcome_events`. Kein fremder Sieger übertragen.
+- Der Nullwert der RisikoBet-Abrechnung um 01:37 ist kein Beweis eines
+  dauerhaften Loaderfehlers: Der Tennis-Scan begann erst 01:44 und lieferte
+  danach viele neue Endresultate. Bei 14 heute passenden Belegen liegt der
+  Ergebnis-Zeitstempel nach dem Wettfinderlauf; für vier weitere fehlt ein
+  separates Schreibdatum. Der Runner hat am 22.09. bereits 54 Tennis-
+  Kandidaten abgerechnet. Die automatische Gegenprobe nach dem Scan folgt
+  um 02:07 CEST; vor deren Ergebnis keine Schlussfolgerung erzwingen.
+- Rein lesende Neuaufnahme um 02:09 CEST nach dem Tennis-Scan:
+  2.784 Originalpublikationen, 296 eindeutige rechtzeitige Originalevents,
+  davon 222 mit exakt passendem regulärem Finale (+59 gegenüber den zuvor
+  gemessenen 163). Die 200er-Untergrenze ist nur für den Gesamtbestand
+  erreicht; 200 unangetastete Testevents zusätzlich zu Training/Tuning,
+  drei Zeitblöcke und die vorab verlangten Brier-/Logloss-/Kalibrierungs-
+  prüfungen fehlen. Kein Effektfit und keine Qualitätsfreigabe.
+- Automatischer Wettfinder-Gegenlauf 02:07–02:13 CEST nach dem Tennis-Scan:
+  Exit 0, `completed`, null technische Fehler. RisikoBet prüfte wieder 47
+  Events und schloss nun 29 andere Kandidaten terminal ab; 200 blieben offen.
+  Die neun gespeicherten Snapshots für die wiederverwendete WTA-Event-ID
+  (Prognosen 1585/1637) haben weiterhin **null** terminale Einträge. Die
+  Abrechnung anderer Events funktioniert, ohne die alte/neue Paarung zu
+  vermischen. Dies ist keine Freigabe der v2-Inkarnationsmigration.

@@ -1,6 +1,36 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
-## Fortsetzung 22.09.2026 – Freigabeprüfung läuft
+## Fortsetzung 23.09.2026 – Code live, fachliche Abnahme offen
+
+- GitHub `main` und VPS stehen auf `f5c0971c0bc3a09017b70b259f6b875efeeb149a`.
+  Der VPS wurde ohne Datenmigration und ohne neues Backup-Archiv per
+  Code-Fast-Forward aktualisiert. App/Caddy-Healthcheck `ok`, sieben
+  Rechentimer aktiv, täglicher Backup-Timer weiter deaktiviert.
+- Regression: vor einem fehlerhaften E-Sport-Test-Doppelgänger 6.999 Tests
+  bestanden; nach Korrektur ausschließlich dieser Testdatei alle restlichen
+  Module mit 4.061 bestandenen Tests abgeschlossen. Der echte E-Sport-
+  Konstruktor war korrekt; zwei `__new__`-Tests brauchten `errors = {}`.
+  Der reine Test-Fix gehört zu diesem Abschlussnachtrag.
+- Automatischer Wettfinderlauf 01:37–01:44 CEST auf dem neuen Commit:
+  `completed`, null technische Fehler. Die RisikoBet-ID-Wiederverwendung
+  ist als Abdeckungsdiagnose sichtbar, 229 Kandidaten blieben offen und
+  keine Wette wurde irrtümlich abgerechnet.
+- Einmaliger regulärer Tennis-Tageslauf 01:44–02:01 CEST: Exit 0, Scan und
+  Pipeline OK, 41 neue Prognosen. ESPN-WTA 183992 steht ausdrücklich als
+  `partial`/nicht auswertbare alte Paarung, null technische Capture-Issues.
+  Der Wettfinder-Timer wurde für den speicherintensiven Scan kurz angehalten,
+  danach wieder aktiviert; die einmalige Rückfall-Sicherung ist entfernt.
+  Der nächste automatische Wettfinderlauf um 02:07 CEST prüfte die inzwischen
+  neu gespeicherten Tennis-Endergebnisse erfolgreich.
+- Automatische Gegenprobe 02:07–02:13 CEST: `completed`, null technische
+  Fehler, **29 andere RisikoBet-Kandidaten terminal abgerechnet**. Die neun
+  Snapshots der wiederverwendeten Tennis-Event-ID haben weiterhin null
+  terminale Abrechnungen. Der frühere Nullwert war vom Datenzeitpunkt
+  abhängig, keine dauerhafte Blockade aller anderen Fälle.
+- Rein lesende neue Tennis-Inventur nach dem Scan: 296 eindeutige rechtzeitige
+  ORIGINAL-Events, davon 222 mit exakt passendem normalem Finale (+59 zum
+  vorherigen Stand). Das sind 222 insgesamt, **nicht** 200 unangetastete
+  Testspiele zusätzlich zu Training/Tuning. Effektfreigabe weiter offen.
 
 - Maßgeblich: [Prüfbericht 22.09.](docs/audits/2026-09-22-kontext-daily3-status.md).
   Ausgangsstand lokal/GitHub/VPS `c784195`; App, Caddy und Timer aktiv,
@@ -10,29 +40,29 @@
   Tagesdienst (74 verarbeitet, 13 neu gespeichert, Exit 1) und der Wettfinder
   (Fußball selbst fehlerfrei, Gesamt-Exit 1 wegen RisikoBet-Abrechnung).
 - Tennis-Ursache: WTA 183992 wechselte nativ die Teilnehmer; eine neue
-  Prognose erschien erst nach dem vorverlegten Beginn. Der lokale enge Fix
+  Prognose erschien erst nach dem vorverlegten Beginn. Der veröffentlichte enge Fix
   klassifiziert nur eine exakt bestätigte Ersatzpaarung als sichtbare
   Nichtauswertbarkeit der alten Prognose. Kein fremdes Ergebnis, keine
   Geld- oder Settlementmutation. 300 gemeinsame Tennis-/Fußball-Regressionen
-  bestanden; die vollständige Suite und produktive Nachprüfung laufen noch.
+  bestanden; die produktive Nachprüfung läuft noch.
 - RisikoBet: ESPN 183996 enthält alte und neue Spielerpaarung unter einer
-  Event-ID. Der lokale Fix isoliert genau die nachweislich wiederverwendete
+  Event-ID. Der veröffentlichte Fix isoliert genau die nachweislich wiederverwendete
   Tennis-ID ereignisbezogen; beide Paarungen bleiben unabgerechnet, andere
   Spiele können weiterlaufen. Die Produktionsdaten bestätigen sieben alte
   und zwei neue Snapshots. 234 RisikoBet-Tests bestanden. Für eine sichere
-  Abrechnung der neuen Paarung bleiben Ergebnisrouter **und Kandidaten-ID-/
-  Terminal-Store-Vertrag** benötigen einen revisionsgebundenen
+  Abrechnung der neuen Paarung benötigen Ergebnisrouter **und Kandidaten-ID-/
+  Terminal-Store-Vertrag** einen revisionsgebundenen
   Inkarnationsschlüssel und einen dauerhaft gebundenen Provider-Finalbeleg,
   bevor einzelne Szenarien dieser Event-ID gefahrlos abgerechnet werden.
   Im beobachteten alten Lauf: 227 fällige Kandidaten offen, null abgerechnet.
 - Neuer reiner Fußball-ORIGINAL-v2-Settlementvergleich lokal getestet;
   weder Projektions-/Code-Replay noch empirische Wirkung freigegeben.
-  Tennis: 163 eindeutig passende Finale bei 256 rechtzeitigen Originalevents,
-  also noch nicht einmal 200 unberührte Testevents vor Train/Tune. WTA
+  Tennis vor dem neuen Scan: 163 eindeutig passende Finale bei 256
+  rechtzeitigen Originalevents; aktueller Stand oben. WTA
   historisch negativ; Basketball/Eishockey/E-Sport ohne qualifizierte
   Same-Market-Variante für Daily3. Cricket bleibt ausgenommen.
-- **Noch nicht behaupten:** neuer Commit/Push/VPS-Deployment, erfolgreicher
-  neuer Tennis-Gesamtlauf, RisikoBet-Abrechnungsfix oder belegte bessere
+- **Noch nicht behaupten:** erfolgreicher neuer Tennis-Gesamtlauf,
+  abgeschlossene RisikoBet-Inkarnationsabrechnung oder belegte bessere
   Wettqualität. Diese Punkte erst nach gesondertem Nachweis abhaken.
 
 ## Kontext-/Daily3-Fortsetzung 21.09.2026 — 3201537 live, fachliche Abnahme offen

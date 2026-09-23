@@ -2422,6 +2422,7 @@ class CrossSportMathTests(unittest.TestCase):
         scanner.api_key = "test"
         scanner.pandascore_base = "https://api.pandascore.co"
         scanner.headers = {"Authorization": "Bearer test"}
+        scanner.errors = {}
         response = Mock(status_code=200)
         response.json.return_value = {
             "id": 55,
@@ -2461,6 +2462,7 @@ class CrossSportMathTests(unittest.TestCase):
         scanner.api_key = "test"
         scanner.pandascore_base = "https://api.pandascore.co"
         scanner.headers = {"Authorization": "Bearer test"}
+        scanner.errors = {}
         opponents = [
             {"opponent": {"id": 7, "name": "Alpha"}},
             {"opponent": {"id": 8, "name": "Beta"}},
