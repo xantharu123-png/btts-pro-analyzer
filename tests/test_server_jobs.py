@@ -115,14 +115,13 @@ def test_polling_timers_keep_a_persistent_calendar_trigger():
             assert "OnUnitActiveSec=" not in timer
 
 
-def test_tennis_timer_has_only_two_local_calendar_triggers_without_catchup():
+def test_tennis_timer_has_only_one_local_calendar_trigger_without_catchup():
     root = Path(__file__).resolve().parents[1]
     timer = (root / "deploy" / "systemd" / "betboy-tennis.timer").read_text(
         encoding="utf-8"
     )
     assert timer.splitlines().count("OnCalendar=*-*-* 07:17:00") == 1
-    assert timer.splitlines().count("OnCalendar=*-*-* 19:17:00") == 1
-    assert timer.count("OnCalendar=") == 2
+    assert timer.count("OnCalendar=") == 1
     assert "Persistent=false" in timer
     assert "Persistent=true" not in timer
     assert all(

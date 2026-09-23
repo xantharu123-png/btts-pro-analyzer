@@ -1,9 +1,8 @@
 [Unit]
-Description=Run BetBoy tennis pipeline twice daily
+Description=Run BetBoy tennis pipeline daily
 
 [Timer]
 OnCalendar=*-*-* 07:17:00
-OnCalendar=*-*-* 19:17:00
 AccuracySec=1min
 Persistent=false
 
