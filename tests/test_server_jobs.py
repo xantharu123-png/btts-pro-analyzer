@@ -115,6 +115,22 @@ def test_polling_timers_keep_a_persistent_calendar_trigger():
             assert "OnUnitActiveSec=" not in timer
 
 
+def test_tennis_timer_has_only_two_local_calendar_triggers_without_catchup():
+    root = Path(__file__).resolve().parents[1]
+    timer = (root / "deploy" / "systemd" / "betboy-tennis.timer").read_text(
+        encoding="utf-8"
+    )
+    assert timer.splitlines().count("OnCalendar=*-*-* 07:17:00") == 1
+    assert timer.splitlines().count("OnCalendar=*-*-* 19:17:00") == 1
+    assert timer.count("OnCalendar=") == 2
+    assert "Persistent=false" in timer
+    assert "Persistent=true" not in timer
+    assert all(
+        token not in timer
+        for token in ("OnActiveSec=", "OnBootSec=", "OnUnitActiveSec=", "OnUnitInactiveSec=")
+    )
+
+
 def test_update_preflights_before_downtime_and_has_recovery_path(monkeypatch):
     root = Path(__file__).resolve().parents[1]
     update = (root / "deploy" / "update_server.sh").read_text(
