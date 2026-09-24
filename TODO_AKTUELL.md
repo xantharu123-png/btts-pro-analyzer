@@ -1,5 +1,21 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 24.09.2026 – Tagesmodell versus kurzlebige Ausführungsquote
+
+- Der tägliche automatische Modell-Snapshot ist für Auswahlen bis zu 24 Stunden
+  lesbar. Für ein bevorstehendes Spiel am aktuellen Zürcher Spieltag kann die
+  Modell-Highlightprüfung denselben Tagesstand verwenden. Modellzeit und
+  fehlende kurzfristige Kader-/Aufstellungsdaten bleiben sichtbar.
+- 15K-Modellauswahlen werden ebenfalls aus dem aktuellen Tagesmodell ohne
+  Buchmacherquote angezeigt. Erst beim Erfassen einer realen Wette werden
+  Buchmacher, exakte Einzelquoten und Einsatz eingegeben; diese Angaben sind
+  als Nutzereingabe markiert und keine unabhängig bestätigte Anbieterquote.
+  Die bestehende Ticket-/Einsatzrechnung und authentisierte Buchung bleiben.
+- Tagesbestand 24.09., 17:24 CEST: 40 Nationalteam-Modellkandidaten, 15 über
+  70 Prozent, aber kein gespeicherter Same-Match-Formvergleich für Daily3.
+  Daily3 bleibt deshalb für diesen Bestand leer. Die 2-Prozentpunkte-Regel
+  nicht durch eine bloße hohe Favoritenchance ersetzen.
+
 ## 24.09.2026 – Tippfindung ohne Buchmacherpreise
 
 - Wettfinder (automatisch und eigene Suche), RisikoBet, Daily3 und aktive
@@ -10,9 +26,12 @@
 - Die feste Nutzer-Mindestquote 1,20 bleibt für eine tatsächlich erfasste
   Daily3-Wette bestehen. Historische Echtgeldquoten und Auszahlungen werden
   nicht verändert.
-- Ausnahme bis zur gesonderten Produktentscheidung: Der automatische
-  15K-Ticketpfad benötigt Ausführungsquoten für reale Einsätze und Abrechnung.
-  Seine Quote wird nicht zur Sortierung des normalen Wettfinders verwendet.
+- 15K ist ebenfalls quotenfrei in der Tippfindung. Die tatsächliche Quote wird
+  dort erst beim Speichern eines gespielten Tickets benötigt, weil Auszahlung
+  und Risiko sonst nicht berechnet werden können. Alte Ticketbelege bleiben lesbar.
+- Der produktive Tageslauf fragt dafür keine Fußball-Buchmacherquoten mehr ab.
+  Explizit injizierte Quotenloader bleiben nur für historische Replay-Tests;
+  sie ändern die Modellliste nicht.
 - Alte E-Sport-/Teamsport-Preis-Caches werden vom normalen Prognoseleser nicht
   mehr geladen; deren automatischer Quotenrefresh ist deaktiviert. Historische
   Preisadapter bleiben für bestehende Daten und separate Prüffunktionen erhalten.

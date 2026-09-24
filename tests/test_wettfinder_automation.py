@@ -792,12 +792,15 @@ def test_shared_latest_artifact_gives_daily3_fresh_models_after_overnight_discov
                   football_scanner=scan, football_context_refresher=refresh,
                   tennis_loader=lambda **_: [], esports_loader=lambda **_: [])
     run_wettfinder(now=midnight, **common)
-    # The saved model really is too old; a recent context label cannot fix it.
+    # A daily model remains visible through the same Zurich day; a newer
+    # generated_at label must not rewrite its original modeled_at timestamp.
     old = load_state(path)
     assert len(old["model_candidates"]) == 1
     old["generated_at"] = midday.isoformat()
     wettfinder_automation.write_state(old, path)
-    assert daily3_choices(automated_wettfinder_forecasts(path, now=midday), now=midday) == ()
+    old_choices = daily3_choices(automated_wettfinder_forecasts(path, now=midday), now=midday)
+    assert len(old_choices) == 1
+    assert datetime.fromisoformat(old_choices[0].signal.modeled_at) == midnight
     run_wettfinder(now=midday, **common)
     actual = automated_wettfinder_forecasts(path, now=midday)
     assert len(actual) == 1
@@ -1142,6 +1145,9 @@ def test_scheduled_15k_never_promotes_a_model_quote_without_release_execution(
     assert automatic is not None
     assert automatic["shortlist"] == []
     assert automatic["price_candidates"] == []
+    assert [item.candidate_id for item in automatic["challenge_model_candidates"]] == [
+        candidate.candidate_id
+    ]
     assert [item.candidate_id for item in automatic["forecast_shortlist"]] == [
         candidate.candidate_id
     ]
@@ -1814,6 +1820,43 @@ def test_normal_low_probability_forecast_is_not_promoted_to_strict_15k_pool(tmp_
     assert len(automated_wettfinder_forecasts(artifact, now=now)) == 1
 
 
+def test_productive_daily_football_model_skips_bookmaker_quote_api(tmp_path, monkeypatch):
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    snapshot = _football_snapshot(now)
+    item = snapshot["shortlist"][0]
+    snapshot["discovery_candidates"] = [item]
+    quote_calls = []
+
+    monkeypatch.setattr(
+        wettfinder_automation, "_default_football_scan",
+        lambda *_args, **_kwargs: snapshot,
+    )
+    monkeypatch.setattr(
+        wettfinder_automation, "_default_football_context_refresh",
+        lambda *_args, **_kwargs: {
+            "candidates": [item], "wettfinder_candidates": [item],
+            "context_fixture_statuses": {"1": "verified"},
+            "operational_errors": [], "errors": [],
+        },
+    )
+    monkeypatch.setattr(
+        wettfinder_automation, "fetch_football_consensus",
+        lambda *_args, **_kwargs: quote_calls.append(True) or ({}, []),
+    )
+
+    document = run_wettfinder(
+        now=now,
+        state_path=tmp_path / "daily-model.json",
+        config=AppConfig(api_football_key="test"),
+        tennis_loader=lambda **_kwargs: [],
+        esports_loader=lambda **_kwargs: [],
+    )
+
+    assert quote_calls == []
+    assert len(document["model_candidates"]) == 1
+    assert document["sources"]["football"]["price_checked_count"] == 0
+
+
 def test_default_football_discovery_scans_all_configured_leagues(monkeypatch):
     captured = {}
 
@@ -2097,9 +2140,8 @@ def test_runner_reuses_persisted_models_and_skips_not_due_football(tmp_path):
         "Fußball",
         "Tennis",
     }
-    assert first["sources"]["football"]["price_status_counts"] == {
-        "UNAVAILABLE": 1
-    }
+    assert first["sources"]["football"]["price_status_counts"] == {}
+    assert first["sources"]["football"]["price_checked_count"] == 0
     assert second["sources"]["football"]["due_reason"] == "daily_discovery_current"
     assert load_state(state_path)["generated_at"] == second["generated_at"]
 
@@ -2125,7 +2167,7 @@ def test_runner_never_publishes_candidate_from_degraded_football_scan(tmp_path):
     assert document["football"]["status"] == "degraded"
     assert document["football"]["operational_error_count"] == 1
     assert document["sources"]["football"]["candidate_count"] == 1
-    assert document["sources"]["football"]["price_checked_count"] == 1
+    assert document["sources"]["football"]["price_checked_count"] == 0
     assert document["candidates"] == []
     assert [row["sport"] for row in document["model_candidates"]] == ["Fußball"]
 
@@ -2767,9 +2809,7 @@ def test_runner_refreshes_only_daily_pool_fixture_without_rescanning(tmp_path):
     ]
     assert refreshed["sources"]["football"]["context_status"] == "refreshed"
     assert refreshed["candidates"] == []
-    assert refreshed["sources"]["football"]["price_status_counts"] == {
-        "UNAVAILABLE": 1
-    }
+    assert refreshed["sources"]["football"]["price_status_counts"] == {}
     assert degraded["football"]["status"] == "degraded"
     assert degraded["sources"]["football"]["status"] == "degraded"
     assert degraded["sources"]["football"]["context_status"] == "degraded"

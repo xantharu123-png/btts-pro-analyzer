@@ -12,6 +12,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch
 
+import pytest
+
 import challenge_15k
 from challenge_15k import (
     CHALLENGE_SPORT_OPTIONS,
@@ -435,6 +437,80 @@ def stress_safe_ticket_candidates():
     ]
 
 
+def test_15k_model_selection_ignores_missing_or_low_bookmaker_quotes():
+    first, second = stress_safe_ticket_candidates()
+    snapshot = {
+        "search_date": datetime.now(timezone.utc).date().isoformat(),
+        "challenge_model_candidates": [first, second],
+        "reference_quotes": {first.candidate_id: {"best_odds": 1.05}},
+    }
+    fake_streamlit = MagicMock()
+    fake_streamlit.multiselect.return_value = []
+    with (
+        patch("challenge_15k.st", fake_streamlit),
+        patch("challenge_15k._render_candidate_context"),
+        patch("challenge_15k.quote_below_publication_floor", side_effect=AssertionError("quote read")),
+    ):
+        challenge_15k._render_model_challenge(snapshot, Mock(), {})
+    visible = " ".join(str(call.args[0]) for call in fake_streamlit.markdown.call_args_list)
+    assert "Beide Teams treffen" in visible
+    fake_streamlit.multiselect.assert_called_once()
+
+
+def test_15k_records_actual_user_quote_only_at_ticket_entry():
+    now = datetime.now(timezone.utc)
+    candidates = stress_safe_ticket_candidates()
+    odds = {item.candidate_id: 1.50 for item in candidates}
+    ticket = challenge_15k._user_recorded_challenge_ticket(candidates, odds, now=now)
+    assert ticket is not None
+    evidence = challenge_15k._user_recorded_quote_evidence(
+        ticket, "Mein Buchmacher", recorded_at=now,
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = Path(tmp) / "challenge.db"
+        ledger = ChallengeLedger(db_path)
+        stake = ticket_stake(ticket, 100.0)
+        ticket_id = ledger.place_ticket(
+            now.date().isoformat(), ticket, stake, now.isoformat(),
+            played_odds=ticket.total_odds,
+            played_leg_odds=[leg.odds for leg in ticket.legs],
+            reference_quote_evidence=evidence,
+        )
+        saved = ledger.get_ticket(ticket_id)
+        assert saved["total_odds"] == 2.25
+        assert saved["entry_source"] == "MODEL"
+        assert all(row["source"] == "USER_RECORDED" for row in saved["quote_evidence"])
+        assert all(row["bookmaker"] == "Mein Buchmacher" for row in saved["quote_evidence"])
+        assert all(leg["quote_observation_id"] is None for leg in saved["legs"])
+        with closing(sqlite3.connect(db_path)) as connection:
+            assert connection.execute("SELECT COUNT(*) FROM price_observations").fetchone()[0] == 0
+        assert ledger.settings()["current_balance"] == round(100.0 - stake, 2)
+        ledger.settle_ticket(ticket_id, "WON")
+        assert ledger.settings()["current_balance"] == round(
+            100.0 - stake + stake * 2.25, 2,
+        )
+
+
+def test_15k_user_quote_evidence_cannot_silently_change_market_or_price():
+    now = datetime.now(timezone.utc)
+    candidates = stress_safe_ticket_candidates()
+    odds = {item.candidate_id: 1.50 for item in candidates}
+    ticket = challenge_15k._user_recorded_challenge_ticket(candidates, odds, now=now)
+    assert ticket is not None
+    evidence = challenge_15k._user_recorded_quote_evidence(
+        ticket, "Mein Buchmacher", recorded_at=now,
+    )
+    evidence[candidates[0].candidate_id]["odds"] = 1.75
+    with tempfile.TemporaryDirectory() as tmp:
+        ledger = ChallengeLedger(Path(tmp) / "challenge.db")
+        with pytest.raises(ValueError, match="stale or inconsistent"):
+            ledger.place_ticket(
+                now.date().isoformat(), ticket, ticket_stake(ticket, 100.0),
+                now.isoformat(), reference_quote_evidence=evidence,
+            )
+        assert ledger.pending_tickets() == []
+
+
 def credible_validation():
     return ValidationMetrics(
         300,
@@ -728,7 +804,7 @@ class ChallengeProbabilityTests(unittest.TestCase):
             ["1:BTTS"],
         )
 
-    def test_scan_worker_prices_every_market_in_the_fixture_pool(self):
+    def test_scan_worker_does_not_query_bookmaker_prices(self):
         favorite = candidate("1:RESULT_HOME", 1, 0.73)
         alternative = candidate("1:BTTS_YES", 1, 0.69)
         basis = replace(
@@ -744,13 +820,7 @@ class ChallengeProbabilityTests(unittest.TestCase):
         }
         provider = Mock(api_key="test")
 
-        with (
-            patch("challenge_15k.scan_daily_challenge", return_value=snapshot),
-            patch(
-                "challenge_15k.fetch_football_consensus",
-                return_value=({}, []),
-            ) as fetch_quotes,
-        ):
+        with patch("challenge_15k.scan_daily_challenge", return_value=snapshot):
             result = _run_challenge_scan_worker(
                 provider,
                 [39],
@@ -758,13 +828,9 @@ class ChallengeProbabilityTests(unittest.TestCase):
                 20,
             )
 
-        self.assertEqual(
-            fetch_quotes.call_args.args[1],
-            [favorite, alternative, basis],
-        )
         self.assertEqual(result["price_candidates"], [favorite, alternative])
-        self.assertEqual(result["price_checked_markets"], 3)
-        self.assertEqual(result["price_checked_fixtures"], 1)
+        self.assertNotIn("reference_quotes", result)
+        self.assertNotIn("price_checked_at", result)
 
     def test_recommendation_day_label_uses_scanned_date(self):
         today = date(2030, 1, 1)

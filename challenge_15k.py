@@ -47,8 +47,10 @@ from challenge_engine import (
     MODEL_SCOPE_SAME_COMPETITION,
     MODEL_SCOPE_SENIOR_NATIONAL,
     MIN_LEG_EXPECTED_ROI,
+    QuotedTicket,
     TARGET_ODDS_MAX,
     TARGET_ODDS_MIN,
+    USER_RECORDED_QUOTE_SOURCE,
     UNVALIDATED_TRANSFER_REASON,
     MarketSpec,
     ValidationMetrics,
@@ -66,7 +68,6 @@ from challenge_engine import (
     market_is_basic_forecast,
     market_specs,
     select_basis_forecasts,
-    select_model_ticket,
     select_forecast_shortlist,
     select_quoted_ticket,
     select_shortlist,
@@ -94,9 +95,7 @@ from market_consensus import (
     challenge_quote_matches_candidate,
     deserialize_consensus_map,
     exact_market_target,
-    fetch_football_consensus,
     reference_price_status,
-    serialize_consensus_map,
     wettfinder_consensus,
     wettfinder_reference_price_status,
 )
@@ -128,7 +127,7 @@ MAX_FEATURED_FORECASTS = 3
 MAX_SCAN_FIXTURES = 1200
 MAX_SCAN_HORIZON_DAYS = 14
 WEATHER_CONTEXT_HORIZON_DAYS = 5
-SNAPSHOT_MAX_AGE_MINUTES = 40
+CHALLENGE_MODEL_MAX_AGE_MINUTES = 24 * 60
 XG_MAX_NEW_CALLS_PER_SCAN = 12
 CONTINENTAL_LEAGUE_IDS = frozenset({2, 3, 848})
 DOMESTIC_HISTORY_LAST_FIXTURES = 60
@@ -1720,25 +1719,6 @@ def _price_candidate_pool(
     return _discovery_candidate_pool(eligible, fixture_ids)
 
 
-def _price_annotation_candidate_pool(
-    strict_candidates: list[ChallengeCandidate],
-    basis_forecasts: list[ChallengeCandidate],
-) -> list[ChallengeCandidate]:
-    """Add quote-mappable basis rows for display, never for strict selection."""
-
-    annotations = list(strict_candidates)
-    seen_ids = {candidate.candidate_id for candidate in annotations}
-    for candidate in basis_forecasts:
-        if (
-            candidate.candidate_id in seen_ids
-            or exact_market_target(candidate.market_key) is None
-        ):
-            continue
-        annotations.append(candidate)
-        seen_ids.add(candidate.candidate_id)
-    return annotations
-
-
 def _forecast_candidate_pool(
     candidates: list[ChallengeCandidate],
 ) -> list[ChallengeCandidate]:
@@ -1749,6 +1729,13 @@ def _forecast_candidate_pool(
         for candidate in candidates
         if candidate_is_forecast_credible(candidate)
     ]
+
+
+def _challenge_model_candidate_pool(
+    candidates: list[ChallengeCandidate],
+) -> list[ChallengeCandidate]:
+    """15K model candidates; quote coverage does not affect inclusion."""
+    return [candidate for candidate in candidates if candidate_is_credible(candidate)]
 
 
 def _ranked_fixture_ids(
@@ -1978,56 +1965,14 @@ def _run_challenge_scan_worker(
     max_fixtures: int,
     progress_cb=None,
 ) -> dict[str, Any]:
-    """Run the model scan, then price strict and display-only model rows."""
-    def model_progress(value: float, text: str) -> None:
-        if progress_cb:
-            progress_cb(min(0.90, max(0.0, float(value)) * 0.90), text)
-
-    snapshot = scan_daily_challenge(
+    """Run the 15K model scan without querying bookmaker prices."""
+    return scan_daily_challenge(
         provider,
         league_ids,
         search_date,
         max_fixtures,
-        progress_cb=model_progress if progress_cb else None,
+        progress_cb=progress_cb,
     )
-    if progress_cb:
-        progress_cb(0.92, "Marktquoten der Modellkandidaten werden verglichen")
-    price_candidates = (
-        snapshot.get("price_candidates")
-        or snapshot.get("shortlist")
-        or []
-    )
-    price_annotation_candidates = _price_annotation_candidate_pool(
-        list(price_candidates),
-        list(snapshot.get("basis_forecasts") or []),
-    )
-    quotes, quote_errors = fetch_football_consensus(
-        provider.api_key,
-        price_annotation_candidates,
-    )
-    price_candidate_by_id = {
-        candidate.candidate_id: candidate
-        for candidate in price_annotation_candidates
-    }
-    quotes = {
-        candidate_id: quote
-        for candidate_id, quote in quotes.items()
-        if challenge_quote_matches_candidate(
-            quote,
-            price_candidate_by_id.get(candidate_id),
-        )
-    }
-    snapshot["reference_quotes"] = serialize_consensus_map(quotes)
-    snapshot["quote_errors"] = quote_errors
-    snapshot["price_annotation_candidates"] = price_annotation_candidates
-    snapshot["price_checked_markets"] = len(price_annotation_candidates)
-    snapshot["price_checked_fixtures"] = len(
-        {candidate.fixture_id for candidate in price_annotation_candidates}
-    )
-    snapshot["price_checked_at"] = datetime.now(timezone.utc).isoformat()
-    if progress_cb:
-        progress_cb(1.0, "Modell- und Preisprüfung ist abgeschlossen")
-    return snapshot
 
 
 def _candidate_kickoff(candidate: ChallengeCandidate) -> Optional[datetime]:
@@ -2939,6 +2884,7 @@ def scan_daily_challenge(
     # featured and ticket fields below deliberately keep their prior contract.
     wettfinder_candidates = select_wettfinder_catalog(contextualized)
     price_candidates = _price_candidate_pool(contextualized)
+    challenge_model_candidates = _challenge_model_candidate_pool(contextualized)
     forecast_shortlist = select_forecast_shortlist(
         forecast_candidates,
         max_candidates=MAX_PUBLIC_FORECASTS,
@@ -2951,7 +2897,6 @@ def scan_daily_challenge(
         price_candidates,
         max_candidates=MAX_FEATURED_FORECASTS,
     )
-    model_ticket = select_model_ticket(price_candidates)
     base_shortlist = sorted(base_candidates, key=_candidate_rank, reverse=True)[:10]
     discovery_candidates = _discovery_candidate_pool(
         base_candidates,
@@ -3050,6 +2995,7 @@ def scan_daily_challenge(
         "approved_candidates": len(shortlist),
         "shortlist": shortlist,
         "price_candidates": price_candidates,
+        "challenge_model_candidates": challenge_model_candidates,
         "price_candidate_count": len(price_candidates),
         "price_fixture_count": len(
             {candidate.fixture_id for candidate in price_candidates}
@@ -3060,7 +3006,6 @@ def scan_daily_challenge(
         "riskobet_context_checked_fixture_ids": (
             riskobet_context_checked_fixture_ids
         ),
-        "model_ticket": model_ticket,
         **diagnostics,
         "coverage_notices": coverage_notices,
         "operational_errors": operational_errors,
@@ -5048,16 +4993,231 @@ def _render_price_check(
             st.warning(str(exc))
 
 
+def _user_recorded_challenge_ticket(
+    candidates: list[ChallengeCandidate],
+    odds_by_candidate: dict[str, float],
+    *,
+    now: datetime,
+) -> Optional[QuotedTicket]:
+    """Price the user's exact model selections only when recording a bet."""
+    if not candidates or len(candidates) > 3:
+        return None
+    if len({candidate.fixture_id for candidate in candidates}) != len(candidates):
+        return None
+    if set(odds_by_candidate) != {candidate.candidate_id for candidate in candidates}:
+        return None
+    captured_at = now.astimezone(timezone.utc).isoformat()
+    ticket = select_quoted_ticket(
+        candidates,
+        odds_by_candidate,
+        quote_metadata_by_candidate={
+            candidate.candidate_id: {
+                "source": USER_RECORDED_QUOTE_SOURCE,
+                "quoted_at": captured_at,
+                "fetched_at": captured_at,
+                "bookmaker_count": 1,
+                "quote_low": odds_by_candidate[candidate.candidate_id],
+                "quote_high": odds_by_candidate[candidate.candidate_id],
+            }
+            for candidate in candidates
+        },
+        now=now,
+    )
+    if ticket is None or {
+        leg.candidate.candidate_id for leg in ticket.legs
+    } != set(odds_by_candidate):
+        return None
+    return ticket
+
+
+def _user_recorded_quote_evidence(
+    ticket: QuotedTicket,
+    bookmaker: str,
+    *,
+    recorded_at: datetime,
+) -> dict[str, dict[str, Any]]:
+    """Bind confirmed user input to exact ticket legs without provider claims."""
+    bookmaker = str(bookmaker).strip()
+    if not bookmaker or len(bookmaker) > 80:
+        raise ValueError("Buchmachername mit höchstens 80 Zeichen eingeben")
+    timestamp = recorded_at.astimezone(timezone.utc).isoformat()
+    return {
+        leg.candidate.candidate_id: {
+            "candidate_id": leg.candidate.candidate_id,
+            "fixture_id": leg.candidate.fixture_id,
+            "market_key": leg.candidate.market_key,
+            "source": USER_RECORDED_QUOTE_SOURCE,
+            "bookmaker": bookmaker,
+            "odds": leg.odds,
+            "recorded_at": timestamp,
+            "confirmed_by_user": True,
+        }
+        for leg in ticket.legs
+    }
+
+
+def _challenge_display_selections(
+    pool: list[ChallengeCandidate],
+) -> list[ChallengeCandidate]:
+    """Keep a few broad options visible without letting them dominate 15K."""
+    focused = select_shortlist(pool, max_candidates=MAX_PUBLIC_FORECASTS)
+    broad = select_basis_forecasts(pool, max_candidates=3)
+    chosen = focused[: max(0, MAX_PUBLIC_FORECASTS - len(broad))]
+    seen_fixtures = {candidate.fixture_id for candidate in chosen}
+    for candidate in broad + focused[len(chosen):]:
+        if candidate.fixture_id in seen_fixtures:
+            continue
+        chosen.append(candidate)
+        seen_fixtures.add(candidate.fixture_id)
+        if len(chosen) >= MAX_PUBLIC_FORECASTS:
+            break
+    return chosen
+
+
+def _render_model_challenge(
+    snapshot: dict[str, Any],
+    ledger: ChallengeLedger,
+    settings: dict[str, Any],
+) -> None:
+    """Display 15K model selections before any bookmaker quote is entered."""
+    raw_pool = snapshot.get("challenge_model_candidates")
+    if raw_pool is None:
+        raw_pool = snapshot.get("base_shortlist") or snapshot.get("price_candidates") or []
+    pool = _challenge_model_candidate_pool(list(raw_pool))
+    selections = _challenge_display_selections(pool)
+    now = datetime.now(timezone.utc)
+    selections = [
+        candidate for candidate in selections
+        if (kickoff := _candidate_kickoff(candidate)) is not None and kickoff > now
+    ]
+    if not selections:
+        st.info("Heute keine ausreichend geprüfte 15K-Modellauswahl.")
+        return
+
+    st.subheader("15K-Modellauswahl")
+    st.caption("Ohne Quoten ausgewählt. Eine tatsächliche Quote brauchst du erst beim Erfassen einer Wette.")
+    for game_index, (label, rows) in enumerate(group_consumer_markets_by_fixture(selections)):
+        safe_label = label.replace("\\", "\\\\")
+        for char in "[]()*_`":
+            safe_label = safe_label.replace(char, "\\" + char)
+        with st.expander(
+            f"{safe_label} · {len(rows)} Auswahlen",
+            expanded=game_index < 3,
+        ):
+            for candidate in rows:
+                st.markdown(f"**{candidate.market}: {candidate.selection}**")
+                st.caption(
+                    f"Modell {candidate.probability * 100:.1f} % · "
+                    f"vorsichtige Rechnung {candidate.conservative_probability * 100:.1f} %"
+                )
+                with st.popover("Kontext"):
+                    _render_candidate_context(candidate)
+
+    by_id = {candidate.candidate_id: candidate for candidate in selections}
+    labels = {
+        candidate.candidate_id: (
+            f"{candidate.home_team} – {candidate.away_team}: "
+            f"{candidate.market} {candidate.selection}"
+        )
+        for candidate in selections
+    }
+    chosen_ids = st.multiselect(
+        "Für ein 15K-Ticket auswählen (maximal 3 Spiele)",
+        options=list(by_id),
+        format_func=lambda candidate_id: labels[candidate_id],
+        max_selections=3,
+        key="challenge_model_ticket_selections",
+    )
+    if not chosen_ids:
+        return
+    chosen = [by_id[candidate_id] for candidate_id in chosen_ids]
+    if len({candidate.fixture_id for candidate in chosen}) != len(chosen):
+        st.info("Pro Spiel kann nur eine Auswahl ins Ticket.")
+        return
+    if ledger.pending_tickets():
+        st.info("Zuerst das offene 15K-Ticket abrechnen.")
+        return
+
+    st.subheader("Tatsächliche Wette erfassen")
+    bookmaker = st.text_input("Buchmacher", key="challenge_recorded_bookmaker")
+    played_odds: dict[str, float] = {}
+    for candidate in chosen:
+        odd = st.number_input(
+            f"Tatsächliche Quote: {labels[candidate.candidate_id]}",
+            min_value=1.01,
+            max_value=100.0,
+            value=None,
+            step=0.01,
+            format="%.2f",
+            key=f"challenge_recorded_odds_{candidate.candidate_id}",
+        )
+        if odd is not None:
+            played_odds[candidate.candidate_id] = float(odd)
+    if len(played_odds) != len(chosen):
+        return
+    captured_at = datetime.now(timezone.utc)
+    ticket = _user_recorded_challenge_ticket(chosen, played_odds, now=captured_at)
+    if ticket is None:
+        st.info(
+            "Diese Istquoten ergeben kein 15K-Ticket im Zielbereich 2,00–3,00 "
+            "mit den bestehenden Risiko- und Mindestwertregeln."
+        )
+        return
+    balance = float(settings["current_balance"])
+    suggested_stake = ticket_stake(ticket, balance, settings["stake_fraction"])
+    if suggested_stake < 0.01:
+        st.info("Für dieses Ticket ergibt die Risikorechnung keinen positiven Einsatz.")
+        return
+    st.metric("Tatsächliche Gesamtquote", f"{ticket.total_odds:.2f}")
+    st.caption(f"Maximal vorsichtiger Einsatz: {_format_euro(suggested_stake)}")
+    played_stake = st.number_input(
+        "Tatsächlicher Einsatz",
+        min_value=0.01,
+        max_value=challenge_stake_cap(balance, settings["stake_fraction"]),
+        value=suggested_stake,
+        step=1.0,
+        format="%.2f",
+        key="challenge_recorded_stake",
+    )
+    quote_confirmed = st.checkbox(
+        "Auswahl, Linie, Buchmacher und Quoten selbst geprüft",
+        key="challenge_recorded_quote_confirmed",
+    )
+    if st.button(
+        "Als gespielt markieren und Einsatz abbuchen",
+        type="primary",
+        disabled=not quote_confirmed or not str(bookmaker).strip(),
+        key="challenge_recorded_place_ticket",
+    ):
+        try:
+            evidence = _user_recorded_quote_evidence(
+                ticket, bookmaker, recorded_at=captured_at,
+            )
+            ticket_id = ledger.place_ticket(
+                snapshot["search_date"],
+                ticket,
+                played_stake,
+                captured_at.isoformat(),
+                played_odds=ticket.total_odds,
+                played_leg_odds=[leg.odds for leg in ticket.legs],
+                reference_quote_evidence=evidence,
+            )
+            st.session_state["challenge_ledger_notice"] = (
+                f"Ticket #{ticket_id} als gespielt erfasst. "
+                f"{_format_euro(played_stake)} abgebucht."
+            )
+            st.rerun()
+        except ValueError as exc:
+            st.warning(str(exc))
+
+
 def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
     config = load_app_config(st)
     manual_scan_available = bool(config.api_football_key and config.weather_key)
-    st.caption(
-        "BetBoy prüft jede Auswahl und die dazugehörige Quote automatisch."
-    )
+    st.caption("Modellauswahl ohne Buchmacherquote; Istquote erst bei der Wett-Erfassung.")
     st.markdown("**Sport:** Fußball · separate 15K-Ticketprüfung")
     st.caption(
-        "Weitere Sportarten erscheinen hier erst, wenn Modell, ausführbare "
-        "Anbieterquote und Abrechnung denselben geprüften Vertrag erfüllen."
+        "Weitere Sportarten erscheinen hier erst nach Modell- und Abrechnungsprüfung."
     )
 
     sport_scope = "Fußball"
@@ -5121,8 +5281,7 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
     )
     if scheduled_scope:
         st.caption(
-            "Planmäßiger Serverlauf: heute automatisch alle 30 Minuten. "
-            "Das neueste geprüfte Ergebnis erscheint hier ohne Klick."
+            "Der aktuelle Tageslauf erscheint hier automatisch."
         )
     elif search_date == _challenge_today():
         st.caption(
@@ -5180,8 +5339,8 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
     if not isinstance(snapshot, dict):
         if scheduled_scope:
             st.info(
-                "Der planmäßige Lauf hat für heute noch kein verwendbares "
-                "15K-Ergebnis erzeugt. Der Server prüft automatisch weiter."
+                "Der Tageslauf hat für heute noch kein verwendbares "
+                "15K-Ergebnis erzeugt."
             )
             _scheduled_challenge_refresh_fragment(current_scope)
         else:
@@ -5205,12 +5364,12 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
         ).total_seconds() / 60.0
     except (KeyError, TypeError, ValueError):
         snapshot_age = float("inf")
-    if snapshot_age > SNAPSHOT_MAX_AGE_MINUTES or snapshot_age < -1:
+    if snapshot_age > CHALLENGE_MODEL_MAX_AGE_MINUTES or snapshot_age < -1:
         st.warning(
-            "Dieser Datenstand wird gerade erneuert. Die Modellprognosen bleiben "
-            "sichtbar; alte oder fehlende Quoten können keinen Einsatz freigeben."
+            "Dieser Modellstand ist nicht mehr aktuell. Bitte einen neuen Tageslauf abwarten."
         )
-    _render_price_check(snapshot, ledger, settings)
+        return
+    _render_model_challenge(snapshot, ledger, settings)
     if scheduled_scope:
         _scheduled_challenge_refresh_fragment(current_scope)
     elif (
@@ -5241,7 +5400,7 @@ def render_challenge_15k() -> None:
     st.caption(
         f"Einsatzanteil {settings['stake_fraction'] * 100:.0f} % | "
         "Tageszielquote 2,00-3,00 | maximal drei verschiedene Spiele | "
-        "automatische Prüfung von Auswahl und Quote"
+        "Modellauswahl ohne Quote"
     )
     _render_pending_ticket_actions(ledger, key_prefix="challenge_main")
     with st.expander("Challenge-Konto einstellen", expanded=False):

@@ -31,6 +31,7 @@ from challenge_engine import (
     TARGET_BALANCE,
     TARGET_ODDS_MAX,
     TARGET_ODDS_MIN,
+    USER_RECORDED_QUOTE_SOURCE,
     candidate_is_credible,
     dependence_floor_probability,
     risk_managed_ticket_stake,
@@ -3347,6 +3348,46 @@ class ChallengeLedger:
         for leg in ticket.legs:
             candidate = leg.candidate
             raw = evidence_by_candidate.get(candidate.candidate_id)
+            if leg.quote_source == USER_RECORDED_QUOTE_SOURCE:
+                if not isinstance(raw, dict):
+                    raise ValueError("User-recorded quote evidence is required")
+                bookmaker = str(raw.get("bookmaker") or "").strip()
+                if (
+                    raw.get("candidate_id") != candidate.candidate_id
+                    or raw.get("fixture_id") != candidate.fixture_id
+                    or raw.get("market_key") != candidate.market_key
+                    or raw.get("source") != USER_RECORDED_QUOTE_SOURCE
+                    or raw.get("confirmed_by_user") is not True
+                    or not bookmaker
+                    or len(bookmaker) > 80
+                ):
+                    raise ValueError("User-recorded quote does not match the ticket")
+                try:
+                    recorded_odds = validate_decimal_odds(raw.get("odds"))
+                except BettingMathError as exc:
+                    raise ValueError("User-recorded odds are invalid") from exc
+                recorded_at = _utc_datetime(raw.get("recorded_at"), "recorded_at")
+                leg_recorded_at = _utc_datetime(leg.quoted_at, "quoted_at")
+                if (
+                    not math.isclose(recorded_odds, leg.odds, abs_tol=5e-7)
+                    or recorded_at != leg_recorded_at
+                    or (now - recorded_at).total_seconds() < -60
+                    or (now - recorded_at).total_seconds() > MAX_QUOTE_AGE_SECONDS
+                ):
+                    raise ValueError("User-recorded quote is stale or inconsistent")
+                record = {
+                    "candidate_id": candidate.candidate_id,
+                    "fixture_id": candidate.fixture_id,
+                    "market_key": candidate.market_key,
+                    "source": USER_RECORDED_QUOTE_SOURCE,
+                    "bookmaker": bookmaker,
+                    "odds": recorded_odds,
+                    "recorded_at": recorded_at.isoformat(),
+                    "confirmed_by_user": True,
+                }
+                records.append(record)
+                hashes.append(_sha256_text(_canonical_json(record)))
+                continue
             if leg.quote_source == BOOKMAKER:
                 # The append-only PriceLedger provides the proof for N1 quotes;
                 # its observation is copied into the evidence snapshot later.
@@ -3582,6 +3623,22 @@ class ChallengeLedger:
         new_observation_receipts: list[dict[str, Any]] = []
         for leg in ticket.legs:
             candidate = leg.candidate
+            if leg.quote_source == USER_RECORDED_QUOTE_SOURCE:
+                if (
+                    leg.quote_observation_id is not None
+                    or leg.bookmaker_count != 1
+                    or leg.quoted_at is None
+                    or leg.fetched_at is None
+                    or leg.quote_low is None
+                    or leg.quote_high is None
+                    or not math.isclose(leg.quote_low, leg.odds, abs_tol=5e-7)
+                    or not math.isclose(leg.quote_high, leg.odds, abs_tol=5e-7)
+                    or abs((_utc_datetime(leg.quoted_at, "quoted_at") - quote_time).total_seconds()) > 1
+                    or abs((_utc_datetime(leg.fetched_at, "fetched_at") - quote_time).total_seconds()) > 1
+                ):
+                    raise ValueError("User-recorded ticket quote is invalid")
+                observation_ids.append(None)
+                continue
             if leg.quote_source != BOOKMAKER:
                 if (
                     leg.quote_source != REFERENCE_SOURCE

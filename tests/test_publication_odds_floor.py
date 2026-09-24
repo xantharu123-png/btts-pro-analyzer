@@ -1,4 +1,4 @@
-"""User policy: observed odds below 1.20 do not become new suggestions."""
+"""Model selections ignore observed odds; real Daily3 entries keep the 1.20 floor."""
 from dataclasses import replace
 from datetime import datetime, timedelta
 
@@ -26,28 +26,29 @@ def visible(signals):
     return result.featured + result.additional
 
 
-@pytest.mark.parametrize('price,allowed', [(1.01, False), (1.12, False), (1.1999, False), (1.19999999, False), (1.20, True), (1.21, True)])
-def test_floor_applies_to_wettfinder_and_daily3_without_changing_model(price, allowed):
+@pytest.mark.parametrize('price', [1.01, 1.12, 1.1999, 1.19999999, 1.20, 1.21])
+def test_observed_price_does_not_hide_wettfinder_or_daily3_model(price):
     signal = priced(football(), (price,)*3)
     before = dict(vars(signal))
-    assert bool(visible([signal])) is allowed
-    assert bool(daily3_choices([signal], now=NOW)) is allowed
+    assert visible([signal])
+    assert daily3_choices([signal], now=NOW)
     assert vars(signal) == before
-    if not allowed:
-        assert 'MODELL-AUSWAHL' not in render_top_card_html(build_wettfinder_card(signal, signal.reference_quote, now=NOW))
+    assert 'MODELL-AUSWAHL' in render_top_card_html(
+        build_wettfinder_card(signal, signal.reference_quote, now=NOW)
+    )
 
 
 def test_current_single_book_quote_also_counts_but_best_offer_at_floor_remains_allowed():
     low = priced(football(), (1.12,))
-    assert not visible([low])
-    assert not daily3_choices([low], now=NOW)
+    assert visible([low])
+    assert daily3_choices([low], now=NOW)
     higher = priced(football(), (1.10, 1.12, 1.20))
     assert visible([higher])
     assert daily3_choices([higher], now=NOW)
 
 
-@pytest.mark.parametrize('price,allowed', [(1.12, False), (1.20, True)])
-def test_same_floor_for_exact_tennis_offer(price, allowed):
+@pytest.mark.parametrize('price', [1.12, 1.20])
+def test_exact_tennis_offer_does_not_hide_model(price):
     signal = tennis()
     quote = _quote(signal, (price,)*3)
     quote = replace(quote, source=ODDS_API_REFERENCE_SOURCE, provider_event_id='tennis-price-event',
@@ -55,10 +56,10 @@ def test_same_floor_for_exact_tennis_offer(price, allowed):
         event_home=signal.competitor_a, event_away=signal.competitor_b,
         points=tuple(replace(p, bookmaker_id=f'odds-api:{i}') for i, p in enumerate(quote.points)))
     signal = replace(signal, reference_quote=quote.to_dict())
-    assert bool(visible([signal])) is allowed
+    assert visible([signal])
 
 
-def test_actual_automatic_renderer_uses_floor_with_precomputed_quote_evaluation(monkeypatch):
+def test_actual_automatic_renderer_keeps_both_models_despite_low_quote(monkeypatch):
     import app
     from test_workflow_integrity import _RecordingStreamlit, _patch_automatic_snapshot, _automatic_status
     class Clock(datetime):
@@ -73,7 +74,9 @@ def test_actual_automatic_renderer_uses_floor_with_precomputed_quote_evaluation(
     _patch_automatic_snapshot(monkeypatch, status=_automatic_status(NOW), forecasts=[low, allowed])
     monkeypatch.setattr(app, '_render_wettfinder_games', lambda result, *a, **kw: catalogs.append(result))
     app._render_automated_daily_selection()
-    assert [c.key for c in catalogs[0].featured + catalogs[0].additional] == [allowed.key]
+    assert {c.key for c in catalogs[0].featured + catalogs[0].additional} == {
+        low.key, allowed.key,
+    }
 
 
 @pytest.mark.parametrize('change', ['missing', 'stale_fetch', 'stale_offers', 'foreign_event', 'foreign_market', 'unknown_provider', 'invalid_summary'])
@@ -107,17 +110,17 @@ def test_unknown_stale_or_foreign_quote_is_not_misrepresented_as_below_floor(cha
     assert daily3_choices([signal], now=NOW)
 
 
-def test_filter_cannot_switch_to_opposing_outcome_or_limit_pool_before_replacement():
+def test_quote_cannot_switch_to_opposing_outcome_or_limit_pool():
     home = priced(football(probability=.8))
     away = priced(football(key='RESULT_AWAY', probability=.2), (6.0,)*3)
-    assert not visible([home, away])
+    assert [card.key for card in visible([home, away])] == [home.key]
     alternatives = [priced(football(i, 'DC_1X'), (1.3,)*3) for i in range(2, 5)]
     assert len(daily3_choices([home, *alternatives], now=NOW)) == 3
-    assert home.key not in {c.key for c in visible([home, *alternatives])}
+    assert home.key in {c.key for c in visible([home, *alternatives])}
 
 
 @pytest.mark.parametrize('problem', ['stale', 'unidentified'])
-def test_stale_or_unidentified_high_offer_cannot_rescue_current_low_prices(problem):
+def test_stale_or_unidentified_high_offer_cannot_change_model_visibility(problem):
     signal = priced(football(), (1.12, 1.12, 1.30))
     raw = {**signal.reference_quote, 'points': [dict(p) for p in signal.reference_quote['points']]}
     raw.pop('executable_quote', None)
@@ -126,8 +129,8 @@ def test_stale_or_unidentified_high_offer_cannot_rescue_current_low_prices(probl
     else:
         raw['points'][-1]['bookmaker_id'] = None
     signal = replace(signal, reference_quote=raw)
-    assert not visible([signal])
-    assert not daily3_choices([signal], now=NOW)
+    assert visible([signal])
+    assert daily3_choices([signal], now=NOW)
 
 
 @pytest.mark.parametrize('price', ['1.12', '1.199999999999'])

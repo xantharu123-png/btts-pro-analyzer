@@ -55,6 +55,7 @@ MAX_AUTOMATED_OTHER_CANDIDATES_PER_SPORT = 1_200
 MAX_AUTOMATED_MODEL_CANDIDATES = 112_800
 MAX_AUTOMATED_RECOMMENDATIONS = 3
 AUTOMATED_WETTFINDER_MAX_AGE = timedelta(hours=2, minutes=30)
+AUTOMATED_MODEL_MAX_AGE = timedelta(hours=24)
 AUTOMATED_VALIDATION_MARKET_HYPOTHESES = 90
 AUTOMATED_VALIDATION_FDR_ALPHA = 0.05
 
@@ -1408,7 +1409,7 @@ def automated_wettfinder_forecasts(
     path: Union[str, Path] = AUTOMATED_WETTFINDER_PATH,
     *,
     now: Optional[datetime] = None,
-    max_age: timedelta = AUTOMATED_WETTFINDER_MAX_AGE,
+    max_age: timedelta = AUTOMATED_MODEL_MAX_AGE,
     _loaded: Optional[tuple[dict, datetime, list]] = None,
 ) -> List[ModelSignal]:
     """Read the calculated model catalog independently of bookmaker price.
@@ -1794,7 +1795,7 @@ def automated_wettfinder_snapshot(
     path: Union[str, Path] = AUTOMATED_WETTFINDER_PATH,
     *,
     now: Optional[datetime] = None,
-    max_age: timedelta = AUTOMATED_WETTFINDER_MAX_AGE,
+    max_age: timedelta = AUTOMATED_MODEL_MAX_AGE,
 ) -> AutomatedWettfinderSnapshot:
     """Load and derive every automatic surface collection from one document."""
 
@@ -1824,14 +1825,16 @@ def automated_wettfinder_snapshot(
                 _loaded=loaded,
             )
         ),
-        signals=tuple(
+        # An older daily model may remain visible; the strict priced ticket
+        # artifact still has its original 150-minute limit and quote checks.
+        signals=(tuple(
             automated_wettfinder_signals(
                 path,
                 now=current,
-                max_age=max_age,
+                max_age=AUTOMATED_WETTFINDER_MAX_AGE,
                 _loaded=loaded,
             )
-        ),
+        ) if current - loaded[1] <= AUTOMATED_WETTFINDER_MAX_AGE else ()),
     )
 
 

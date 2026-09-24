@@ -23,6 +23,7 @@ _GOAL_KINDS = {"result", "double_chance", "btts", "total", "team_total", "team_r
 _COUNT_UNITS = {"corner_total": "Ecken", "team_corners": "Ecken", "yellow_total": "Gelbe Karten", "team_yellow": "Gelbe Karten"}
 # Operational presentation review windows, not empirical prediction filters.
 MODEL_HIGHLIGHT_MAX_AGE = timedelta(minutes=150)
+DAILY_MODEL_HIGHLIGHT_MAX_AGE = timedelta(hours=24)
 TENNIS_COVERAGE_REVIEW_DAYS = 14
 
 
@@ -459,7 +460,13 @@ def forecast_highlight_reason(signal, *, now, analysis=None):
     clock = _clock(signal.modeled_at)
     if clock is None:
         return 'Modellzeit unbekannt'
-    if not timedelta(0) <= now-clock <= MODEL_HIGHLIGHT_MAX_AGE:
+    max_age = MODEL_HIGHLIGHT_MAX_AGE
+    if getattr(signal, 'source', None) == 'automated_wettfinder_forecast':
+        start = _clock(getattr(signal, 'scheduled_start', None))
+        if (start is not None and start > now
+                and start.astimezone(_ZURICH).date() == now.astimezone(_ZURICH).date()):
+            max_age = DAILY_MODEL_HIGHLIGHT_MAX_AGE
+    if not timedelta(0) <= now-clock <= max_age:
         return 'Modellstand nicht aktuell belegt'
     analysis = analysis or build_forecast_analysis(signal, now=now)
     if not analysis.supported:

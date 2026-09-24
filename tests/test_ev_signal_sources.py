@@ -946,10 +946,9 @@ class ListSignalsTests(unittest.TestCase):
                 artifact,
                 now=datetime(2030, 1, 1, 10, 30, tzinfo=timezone.utc),
             )
-            # Quote evidence expires after 90 minutes, while the model
-            # artifact remains valid for 150 minutes. The stale quote may
-            # remove the strict signal, never the model forecast.
-            stale_at = datetime(2030, 1, 1, 11, 31, tzinfo=timezone.utc)
+            # The daily model remains visible four hours later. Old execution
+            # prices and the strict ticket signal still expire separately.
+            stale_at = datetime(2030, 1, 1, 14, 0, tzinfo=timezone.utc)
             stale_forecasts = automated_wettfinder_forecasts(
                 artifact,
                 now=stale_at,

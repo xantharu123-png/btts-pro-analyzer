@@ -9,7 +9,7 @@ floor is checked only when an actual bet is entered.
 """
 from collections import Counter
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from challenge_engine import MARKET_BY_KEY
@@ -79,8 +79,6 @@ def daily3_choices(signals, *, now, occupied_events=(), occupied_guards=(), used
         sport = _SPORTS.get(str(s.sport or '').strip().casefold())
         start, sampled = _clock(s.scheduled_start), _clock(s.modeled_at)
         if not sport or not start or not sampled or not now < start or start.astimezone(_TZ).date() != today:
-            continue
-        if not timedelta(0) <= now-sampled <= timedelta(hours=2, minutes=30):
             continue
         event = consumer_event_identity(s)
         if event.startswith('unresolved:') or event in occupied or not all((s.key, s.market_key, s.market, s.selection)):

@@ -13,12 +13,12 @@ NOW = datetime(2030, 1, 1, 12, tzinfo=timezone.utc)
 
 
 def football(fixture=1, key='RESULT_HOME', probability=.75, *, now=NOW,
-             baseline=.5, variants=None, comparison=True):
+             baseline=.5, variants=None, comparison=True, start_hours=3):
     spec = MARKET_BY_KEY[key]
     row = dict(candidate_id=f'{fixture}:{key}', fixture_id=fixture,
         home_id=fixture*2, away_id=fixture*2+1, home_team=f'Heimteam {fixture}', away_team=f'Auswärtsteam {fixture}',
         market_key=key, probability=probability, model_scope='same_competition',
-        scheduled_start=(now+timedelta(hours=3)).isoformat(), modeled_at=now.isoformat(),
+        scheduled_start=(now+timedelta(hours=start_hours)).isoformat(), modeled_at=now.isoformat(),
         input_cutoff_at=(now-timedelta(minutes=1)).isoformat(), context={})
     reference = dict(schema='league-market-comparison-v1', fixture_id=fixture,
         home_id=row['home_id'], away_id=row['away_id'], league_id=39, market_key=key,
@@ -93,6 +93,13 @@ def test_missing_stale_or_misbound_facts_are_not_relabelled_as_good_tips():
     changed = replace(base, probability=.9)
     for row in (replace(base, analysis_evidence=None), old, changed, replace(base, sport='Cricket')):
         assert daily3_choices([row], now=NOW) == ()
+
+
+def test_daily_automatic_model_remains_visible_after_150_minutes_but_manual_stale_does_not():
+    daily = football(now=NOW-timedelta(hours=4), start_hours=8)
+    automatic = replace(daily, source='automated_wettfinder_forecast')
+    assert daily3_choices([daily], now=NOW) == ()
+    assert [choice.signal.key for choice in daily3_choices([automatic], now=NOW)] == [automatic.key]
 
 
 def test_tennis_facts_require_both_players_and_same_model_time():

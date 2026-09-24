@@ -2184,6 +2184,10 @@ def build_scheduled_challenge_snapshot(
         "basis_forecasts": basis_forecasts,
         "shortlist": release_candidates,
         "price_candidates": release_candidates,
+        "challenge_model_candidates": [
+            candidate for candidate in forecast_candidates
+            if candidate_is_credible(candidate)
+        ],
         "base_shortlist": forecast_candidates,
         "reference_quotes": reference_quotes,
         "approved_candidates": len(release_candidates),
@@ -3477,10 +3481,9 @@ def run_wettfinder(
         and row["fixture_id"] > 0
         and str(row.get("market_key") or "").strip()
     ]
-    # Every valid model row stays visible even when its exact bookmaker market
-    # cannot be mapped. Only the separate quote pools may reach providers.
-    # The separate 15K ticket still needs exact execution quotes. Its
-    # bookmaker overlay cannot alter the consumer model catalog.
+    # Normal production runs do not query bookmaker prices for tip finding.
+    # An explicit loader remains available for historical replay/tests only;
+    # a played 15K ticket receives its actual price from the user's entry.
     football_price_rows = select_price_check_candidates(
         (
             row
@@ -3492,7 +3495,7 @@ def run_wettfinder(
         preserve_order=True,
         previous_checks=prior_price_checks,
         max_markets_per_fixture=100,
-    )
+    ) if football_quote_loader is not None else []
     quote_errors: list[str] = []
     reference_quotes: dict[str, MarketConsensus] = {}
     if football_price_rows:
@@ -3500,13 +3503,6 @@ def run_wettfinder(
             if football_quote_loader is not None:
                 reference_quotes, quote_errors = football_quote_loader(
                     football_price_rows
-                )
-            elif football_scanner is None and football_context_refresher is None:
-                app_config = config or load_app_config()
-                reference_quotes, quote_errors = fetch_football_consensus(
-                    app_config.api_football_key or "",
-                    football_price_rows,
-                    now=current,
                 )
         except Exception as exc:
             quote_errors = _safe_quote_loader_error(exc)
