@@ -1,5 +1,24 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 24.09.2026 – Tippfindung ohne Buchmacherpreise
+
+- Wettfinder (automatisch und eigene Suche), RisikoBet, Daily3 und aktive
+  Sportansichten sollen Prognosen ausschließlich nach Modell- und Datenlage
+  auswählen. Fehlende, veraltete oder niedrige Buchmacherquoten ändern weder
+  Sichtbarkeit noch Reihenfolge; Preisbestätigung und Value-Grenze verschwinden
+  aus diesen Tippkarten.
+- Die feste Nutzer-Mindestquote 1,20 bleibt für eine tatsächlich erfasste
+  Daily3-Wette bestehen. Historische Echtgeldquoten und Auszahlungen werden
+  nicht verändert.
+- Ausnahme bis zur gesonderten Produktentscheidung: Der automatische
+  15K-Ticketpfad benötigt Ausführungsquoten für reale Einsätze und Abrechnung.
+  Seine Quote wird nicht zur Sortierung des normalen Wettfinders verwendet.
+- Alte E-Sport-/Teamsport-Preis-Caches werden vom normalen Prognoseleser nicht
+  mehr geladen; deren automatischer Quotenrefresh ist deaktiviert. Historische
+  Preisadapter bleiben für bestehende Daten und separate Prüffunktionen erhalten.
+- Code-, GitHub- und VPS-Stand bei einer Übergabe getrennt anhand der Hashes
+  prüfen; ein grüner Test allein belegt kein Deployment oder bessere Treffer.
+
 ## 24.09.2026 – Wettentscheidung liegt beim Nutzer
 
 - Wettfinder, eigene Suche, Daily3 und Sportansichten bezeichnen Modell- und

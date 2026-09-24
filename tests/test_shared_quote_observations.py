@@ -107,14 +107,14 @@ def test_riskobet_shared_native_quote_and_floor_are_reused_without_model_mutatio
     overlay = overlays[candidate.candidate_id]
     assert overlay.observed_odds == 1.12 and overlay.below_floor
     card = build_riskobet_card(candidate, overlay)
-    assert not compose_riskobet_catalog([card]).cards
+    assert compose_riskobet_catalog([card]).cards == (card,)
     assert candidate.to_dict() == before
     assert not shared_price_overlays([replace(candidate, starts_at=candidate.starts_at+timedelta(days=1))], [row], now=NOW)
     assert not shared_price_overlays([candidate], [{**row,'fixture_id':888888}], now=NOW)
 
 
 @pytest.mark.parametrize('sport', ['football','tennis','basketball','ice_hockey','esports'])
-def test_riskobet_manual_floor_all_sports_keeps_correction_input(monkeypatch,sport):
+def test_riskobet_manual_quote_does_not_filter_any_sport(monkeypatch,sport):
     bundle = _bundle('manual', sport=sport)
     view = _view(bundle)
     candidate = bundle[1]
@@ -122,13 +122,12 @@ def test_riskobet_manual_floor_all_sports_keeps_correction_input(monkeypatch,spo
     fake = RecordingStreamlit(session_state={key: '1.12'})
     monkeypatch.setattr(ui,'st',fake)
     monkeypatch.setattr(ui,'load_riskobet_view',lambda *a: view)
-    monkeypatch.setattr(ui,'load_shared_price_overlays',lambda *a: {})
-    ui.render_riskobet()
-    assert not _rendered_candidate_ids(fake)
-    assert ('Eigene Dezimalquote',key) in fake.text_inputs
-    fake.session_state[key] = '1.20'
     ui.render_riskobet()
     assert _rendered_candidate_ids(fake) == [candidate.candidate_id]
+    assert ('Eigene Dezimalquote',key) not in fake.text_inputs
+    fake.session_state[key] = '1.20'
+    ui.render_riskobet()
+    assert set(_rendered_candidate_ids(fake)) == {candidate.candidate_id}
 
 
 @pytest.mark.parametrize('sport', ['Fussball','Tennis','Basketball','Eishockey','E-Sport'])

@@ -168,7 +168,7 @@ def render_daily3(st, *, snapshot_loader=None, store_factory=None, now=None):
         st.write('Geeignete Auswahlen werden zuerst nach dem geringeren modellierten Verlustrisiko geordnet. Bei gleichem Risiko folgen Vielfalt und Formsignal.')
         st.write('Fußball: Formvergleich. ATP-Tennis: belegter Belagvorteil gegenüber der allgemeinen Spielstärke, mit ausreichender Spielerhistorie. Keine unabhängigen Zweitmodelle. Für weitere Sportarten fehlen noch qualifizierte Vergleiche; ihre normalen Prognosen bleiben sichtbar.')
         st.write('Diese Auswahl nutzt den Prognosepool des Wettfinders, aber eine eigene Auswahlregel. Sie ist keine unabhängige Zweitbestätigung und keine nachgewiesene Sicherheitsrangliste. Fehlende Kontextdaten bleiben am Spiel sichtbar.')
-        st.write('Bekannte Quoten unter 1,20 werden ausgefiltert; fehlende Quoten bleiben offen. Neue Einsätze erst ab Quote 1,20. Das CHF-150-Ziel verändert die Auswahl nicht; drei passende Auswahlen sind nicht täglich verfügbar.')
+        st.write('Die Auswahlen entstehen ohne Buchmacherquote. Für tatsächlich erfasste Wetten gilt deine Mindestquote 1,20. Das CHF-150-Ziel verändert die Auswahl nicht; drei passende Auswahlen sind nicht täglich verfügbar.')
         st.write('Maximal CHF 50 eigene Mittel pro Tag, kein Nachschuss. Nur endgültig abgerechnete Rückzahlungen werden wieder verfügbar. Verfügbar ist eine Obergrenze, keine Einsatzempfehlung. Auch Gewinne können wieder verloren gehen.')
         st.write('Echte Wetten werden manuell erfasst; keine Buchmacheranbindung. Das Limit gilt nur für diesen Browserbereich, nicht für externe Wetten oder spätere Buchmacherkorrekturen. Wetten sind kein verlässliches Einkommen.')
     if snapshot_loader is None:
@@ -228,31 +228,17 @@ def render_daily3(st, *, snapshot_loader=None, store_factory=None, now=None):
     choice_panels = st.columns(len(choices)) if choices else []
     for index, choice in enumerate(choices):
         snap = choice.snapshot()
-        # A refreshed observed price invalidates only this unsubmitted form,
-        # not the selection/rank or an already stored bookmaker contract.
-        fingerprint = hashlib.sha256(json.dumps([snap, choice.signal.reference_quote], sort_keys=True).encode()).hexdigest()
+        # Only a changed model selection invalidates an unsubmitted form.
+        fingerprint = hashlib.sha256(json.dumps(snap, sort_keys=True).encode()).hexdigest()
         key = f'{scope}:{today}:{choice.signal.key}:{len(day["bets"]) if day else 0}:{fingerprint}'
         with choice_panels[index].container(border=True):
             st.subheader(snap['event_label'])
             st.write(f'{snap["market"]} · {snap["selection"]}')
             st.write(f'Modellschätzung: {format_probability(choice.signal.probability)} · Beginn {choice.start.astimezone(_TZ):%H:%M}')
             st.caption(choice.comparison.summary)
-            card = build_wettfinder_card(choice.signal, choice.signal.reference_quote, now=now)
+            card = build_wettfinder_card(choice.signal, now=now)
             st.markdown(render_compact_analysis_html(card.compact_analysis), unsafe_allow_html=True)
-            if card.observed_odds is not None:
-                from wettfinder_surface import quote_display_note
-                label = 'Letzte Quote' if card.price_code == 'STALE' else 'Vergleichsquote'
-                st.write(f'{label}: {card.observed_odds:.2f}')
-                if quote_display_note(card):
-                    st.caption(quote_display_note(card))
-            if card.price_code == 'TOO_LOW':
-                st.warning('Quote unter der berechneten Preisschwelle – Preis prüfen.')
-            elif card.price_code in {'BORDERLINE', 'THIN', 'INVALID_MINIMUM'}:
-                st.warning(f'{card.price_label} · Preis noch nicht bestätigt.')
-            elif card.price_code in {'STALE', 'UNAVAILABLE'}:
-                st.info(f'{card.price_label} · Eigene Buchmacherquote prüfen.')
-            elif card.price_code == 'PLAYABLE':
-                st.caption(f'Preis: {card.price_label}')
+            st.caption('Deine Mindestquote für eine tatsächliche Wette: 1,20')
             if can_reserve:
                 with st.form('d3-reserve:'+key):
                     _money_input(st, 'Eigener Einsatz in CHF', 'stake:'+key)
@@ -269,7 +255,7 @@ def render_daily3(st, *, snapshot_loader=None, store_factory=None, now=None):
                             occupied_guards=[b['snapshot']['event_guard'] for b in current_bets if b['status'] != 'cancelled'],
                             used_slots=day_balance(current_day).used_slots if current_day else 0)
                         matching = [c for c in current_choices if c.signal.key == signal_key]
-                        current_fingerprint = (hashlib.sha256(json.dumps([matching[0].snapshot(), matching[0].signal.reference_quote], sort_keys=True).encode()).hexdigest()
+                        current_fingerprint = (hashlib.sha256(json.dumps(matching[0].snapshot(), sort_keys=True).encode()).hexdigest()
                                                if len(matching) == 1 else None)
                         if current_fingerprint != fingerprint:
                             raise Daily3Error('Die Analyse hat sich seit der Anzeige verändert. Bitte den neuen Stand prüfen und erneut bestätigen.')

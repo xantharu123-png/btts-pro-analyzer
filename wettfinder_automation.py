@@ -6,10 +6,9 @@ persisted candidate fixtures inside the pre-match context window. Tennis and
 E-sport reuse their own daily persisted model runs as internal evidence. The
 public artifact keeps a bounded model catalog for exactly one local match day
 independently of price. The first three remain the compact featured block;
-additional model selections stay available below it. A second, strict list
-contains at most three selections whose exact multi-bookmaker price passes
-the final price gate. A price can reject playability, never erase or reorder
-the forecast catalog.
+additional model selections stay available below it. Bookmaker prices do not
+drive the consumer catalog. The separate 15K real-money ticket path retains
+its exact-price and settlement evidence until that product rule changes.
 """
 
 from __future__ import annotations
@@ -3480,6 +3479,8 @@ def run_wettfinder(
     ]
     # Every valid model row stays visible even when its exact bookmaker market
     # cannot be mapped. Only the separate quote pools may reach providers.
+    # The separate 15K ticket still needs exact execution quotes. Its
+    # bookmaker overlay cannot alter the consumer model catalog.
     football_price_rows = select_price_check_candidates(
         (
             row
@@ -3490,8 +3491,6 @@ def run_wettfinder(
         target_date=target,
         preserve_order=True,
         previous_checks=prior_price_checks,
-        # /odds already returns all markets for each requested fixture.
-        # Retain every mapped market from that response at no extra API cost.
         max_markets_per_fixture=100,
     )
     quote_errors: list[str] = []
@@ -3540,25 +3539,7 @@ def run_wettfinder(
     tennis_model_rows = [
         row for row in source_rows if row.get("source") == "tennis_shadow"
     ]
-    tennis_price_rows = select_price_check_candidates(
-        (
-            row
-            for row in tennis_model_rows
-            if row.get("market_key") == "H2H"
-            and all(
-                str(row.get(field) or "").strip()
-                for field in (
-                    "competitor_a",
-                    "competitor_b",
-                    "selected_competitor",
-                )
-            )
-        ),
-        now=current,
-        target_date=target,
-        preserve_order=True,
-        previous_checks=prior_price_checks,
-    )
+    tennis_price_rows = []
     tennis_quote_errors: list[str] = []
     tennis_reference_quotes: dict[str, MarketConsensus] = {}
     if tennis_price_rows:
@@ -3600,31 +3581,18 @@ def run_wettfinder(
             tennis_price_rows,
             tennis_reference_quotes,
             now=current,
-            previous_rows=previous.get("model_candidates") or (),
+            previous_rows=(),
         )
     )
 
     esports_model_rows = [
         row for row in source_rows if row.get("source") == "esports_shadow"
     ]
-    from esports_prices import attach_cached_esports_prices, refresh_esports_prices
-    esports_price_path = Path(state_path).parent / 'esports_quotes.json'
-    esports_price_summary = {'status': 'missing_key'}
-    esports_price_key = getattr(config or load_app_config(), 'oddspapi_key', None)
-    if production_state and esports_price_key:
-        try:
-            esports_price_summary = refresh_esports_prices(api_key=esports_price_key, path=esports_price_path)
-        except Exception as exc:
-            esports_price_summary = {'status': 'failed', 'error_type': type(exc).__name__}
-        if not fixed_now:
-            current = _utc(runtime_clock())
+    esports_price_summary = {'status': 'disabled_for_model_only_tips'}
+    esports_price_key = None
     for row in esports_model_rows:
         row.pop("reference_quote", None)
         row["reference_price_status"] = "UNAVAILABLE"
-    for row, priced in zip(esports_model_rows, attach_cached_esports_prices(
-            esports_model_rows, now=current, path=esports_price_path)):
-        if priced.get('reference_quote') is not None:
-            row.update(reference_quote=priced['reference_quote'], reference_price_status='OBSERVED')
 
     # Preserve every model result independently of bookmaker price. A missing
     # football, tennis or E-sport quote only prevents strict playability; it
@@ -3794,12 +3762,7 @@ def run_wettfinder(
         )
         source_status["football"]["quote_errors"] = quote_errors[:10]
     if isinstance(source_status.get("tennis"), dict):
-        source_status["tennis"]["price_provider_status"] = (
-            "configured"
-            if (config or load_app_config()).odds_api_key
-            or tennis_quote_loader is not None
-            else "missing_api_key"
-        )
+        source_status["tennis"]["price_provider_status"] = "disabled_for_model_only_tips"
         source_status["tennis"]["reference_quote_count"] = len(
             tennis_reference_quotes
         )
@@ -3823,9 +3786,7 @@ def run_wettfinder(
             source_status["tennis"].get("operational_error_count") or 0
         ) + tennis_quote_error_count
     if isinstance(source_status.get("esports"), dict):
-        source_status["esports"]["price_provider_status"] = (
-            "configured" if esports_price_key else "missing_api_key"
-        )
+        source_status["esports"]["price_provider_status"] = "disabled_for_model_only_tips"
         source_status["esports"]["price_refresh"] = esports_price_summary
         source_status["esports"]["reference_quote_count"] = sum(bool(r.get('reference_quote')) for r in esports_model_rows)
         source_status["esports"]["price_checked_count"] = len(esports_model_rows)
@@ -4017,15 +3978,7 @@ def run_wettfinder(
                 now=current, target_date=target)
             document['model_candidates'] = build_model_selection_ledger((), merged, now=current, target_date=target)
             document['sources'].update(team_sport_source_coverage(bridge_run, team_rows, now=current, target_date=target))
-            if production_state:
-                from team_sport_prices import refresh_team_sport_prices, snapshot_price_rows
-                try:
-                    app_config = config or load_app_config()
-                    document['team_sport_prices'] = refresh_team_sport_prices(
-                        snapshot_price_rows(bridge_run.snapshots), api_key=app_config.api_football_key or '',
-                    )
-                except Exception as exc:
-                    document['team_sport_prices'] = {'status': 'failed', 'error_type': type(exc).__name__}
+            document['team_sport_prices'] = {'status': 'disabled_for_model_only_tips'}
             if settlement_summary is not None:
                 document["riskobet"]["settlement"] = settlement_summary
         except Exception as exc:

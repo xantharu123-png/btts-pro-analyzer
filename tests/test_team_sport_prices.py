@@ -182,7 +182,7 @@ def test_request_failure_does_not_log_secret_or_repeat_each_ui_refresh(tmp_path)
     assert len(calls)==1
 
 
-def test_regression_forecast_consumer_loads_shared_price_without_network(tmp_path,monkeypatch):
+def test_forecast_consumer_ignores_cached_price_without_network(tmp_path,monkeypatch):
     import ev_signal_sources as sources
     from test_team_sport_forecasts import _signal_and_input
     _,r=_signal_and_input()
@@ -192,7 +192,7 @@ def test_regression_forecast_consumer_loads_shared_price_without_network(tmp_pat
     (tmp_path/'team_sport_quotes.json').write_text(json.dumps(doc),encoding='utf-8')
     rows=sources.automated_wettfinder_forecasts(tmp_path/'wettfinder_latest.json',now=NOW,
         _loaded=({'model_candidates':[r]},NOW,[]))
-    assert len(rows)==1 and rows[0].reference_quote['best_odds']==1.75
+    assert len(rows)==1 and rows[0].reference_quote is None
     assert rows[0].probability==r['probability']
     assert rows[0].modeled_at==r['modeled_at']
 

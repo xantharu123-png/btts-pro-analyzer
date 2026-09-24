@@ -2905,10 +2905,7 @@ def test_runner_reprices_each_supported_reused_candidate_on_every_run(tmp_path):
         ["fixture-1-btts"],
         ["fixture-1-btts"],
     ]
-    assert tennis_quote_calls == [
-        ["tennis-model-1-A"],
-        ["tennis-model-1-A"],
-    ]
+    assert tennis_quote_calls == []
     assert {row["sport"] for row in first["model_candidates"]} == {
         "Fußball",
         "Tennis",
@@ -2920,25 +2917,14 @@ def test_runner_reprices_each_supported_reused_candidate_on_every_run(tmp_path):
         "E-Sport",
     }
     priced = {row["sport"]: row for row in second["model_candidates"]}
-    assert priced["Tennis"]["reference_price_status"] == "PLAYABLE"
-    assert priced["Tennis"]["quote_provider_event_id"] == (
-        "provider-tennis-model-1"
-    )
-    assert priced["Tennis"]["reference_quote"]["executable_quote"] == {
-        "bookmaker": "Book 2",
-        "odds": 1.95,
-        "bookmaker_id": "odds-api:book-2",
-        "observed_at": (now + timedelta(minutes=10)).isoformat(),
-    }
+    assert priced["Tennis"]["reference_price_status"] == "UNAVAILABLE"
+    assert "reference_quote" not in priced["Tennis"]
     assert priced["E-Sport"]["reference_price_status"] == "UNAVAILABLE"
-    assert priced["Tennis"]["reference_quote"]["fetched_at"] == (
-        now + timedelta(minutes=10)
-    ).isoformat()
-    assert [row["sport"] for row in second["candidates"]] == ["Tennis"]
-    assert second["sources"]["tennis"]["price_checked_count"] == 1
-    assert second["sources"]["tennis"]["reference_quote_count"] == 1
+    assert second["candidates"] == []
+    assert second["sources"]["tennis"]["price_checked_count"] == 0
+    assert second["sources"]["tennis"]["reference_quote_count"] == 0
     assert second["sources"]["esports"]["price_provider_status"] == (
-            "missing_api_key"
+            "disabled_for_model_only_tips"
     )
 
 
@@ -2980,14 +2966,14 @@ def test_quote_loader_exception_details_are_never_persisted(tmp_path):
 
     expected = ["Quotenabruf fehlgeschlagen (RuntimeError)"]
     assert document["sources"]["football"]["quote_errors"] == expected
-    assert document["sources"]["tennis"]["quote_errors"] == expected
+    assert document["sources"]["tennis"]["quote_errors"] == []
     assert document["run_status"] == "degraded"
-    assert document["operational_error_count"] == 2
+    assert document["operational_error_count"] == 1
     assert load_state(state_path) == document
     assert secret not in str(document)
 
 
-def test_tennis_quote_failure_keeps_strict_football_and_drops_tennis_tip(
+def test_unused_tennis_quote_failure_cannot_degrade_football_or_tennis_models(
     tmp_path,
 ):
     now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
@@ -3088,10 +3074,10 @@ def test_tennis_quote_failure_keeps_strict_football_and_drops_tennis_tip(
         esports_loader=lambda **_kwargs: [],
     )
 
-    assert document["run_status"] == "degraded"
-    assert document["operational_error_count"] == 1
+    assert document["run_status"] == "completed"
+    assert document["operational_error_count"] == 0
     assert document["sources"]["football"]["operational_error_count"] == 0
-    assert document["sources"]["tennis"]["operational_error_count"] == 1
+    assert document["sources"]["tennis"]["operational_error_count"] == 0
     assert [row["source"] for row in document["candidates"]] == [
         "football_challenge"
     ]

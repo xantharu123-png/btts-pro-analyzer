@@ -12,7 +12,6 @@ import streamlit as st
 from context_links import ContextReference
 from team_sport_forecasts import TeamSportForecast
 from betting_math import odds_below_publication_floor
-from riskobet_prices import load_shared_price_overlays
 
 from riskobet_domain import (
     ContextState,
@@ -466,9 +465,6 @@ def _render_detail(
                 st.caption("Beobachtet, noch nicht als Zu-/Abschlag eingerechnet:")
                 for detail in visible_context:
                     st.write(detail)
-        with st.container(key=f"riskobet_price_action_{suffix}"):
-            with st.popover("Eigene Quote prüfen"):
-                _render_quote_comparison(candidate)
 
 
 def _render_featured(
@@ -492,7 +488,7 @@ def _render_featured(
                 with columns[offset]:
                     with st.container(key=f"riskobet_featured_card_{index}"):
                         st.markdown(
-                            render_riskobet_card_html(display_card),
+                            render_riskobet_card_html(display_card, show_price=False),
                             unsafe_allow_html=True,
                         )
                         _render_detail(
@@ -521,7 +517,7 @@ def _render_additional(
             display_card = base_card
             with st.container(key=f"riskobet_additional_row_{index}"):
                 st.markdown(
-                    render_riskobet_compact_row_html(display_card),
+                    render_riskobet_compact_row_html(display_card, show_price=False),
                     unsafe_allow_html=True,
                 )
                 _render_detail(candidate, snapshots[candidate.snapshot_id])
@@ -557,11 +553,8 @@ def render_riskobet(path: str | Path | None = None) -> None:
             )
         if sport_filter not in SPORT_FILTERS:
             sport_filter = "Alle"
-        overlays = load_shared_price_overlays(view.candidates, view.snapshots.values())
         cards = tuple(
-            _display_card(candidate, _stored_manual_quote(candidate))
-            if _stored_manual_quote(candidate) is not None
-            else build_riskobet_card(candidate, overlays.get(candidate.candidate_id))
+            build_riskobet_card(candidate)
             for candidate in view.candidates
         )
         catalog = compose_riskobet_catalog(
@@ -592,15 +585,6 @@ def render_riskobet(path: str | Path | None = None) -> None:
         }
         _render_featured(catalog.featured, candidate_by_id, view.snapshots)
         _render_additional(catalog.additional, candidate_by_id, view.snapshots)
-        # Keep the price field reachable after a low manual entry hid its card.
-        # This is a correction control, not another recommendation list.
-        blocked = [card for card in cards if card.quote_floor_excluded
-                   and sport_filter in ('Alle', card.sport)]
-        if blocked:
-            with st.expander('Quoten unter 1,20 prüfen', expanded=False):
-                for card in blocked:
-                    st.caption(f'{card.event_label} · {card.selection}')
-                    _render_quote_comparison(candidate_by_id[card.candidate_id])
         if not catalog.cards:
             st.info('Aktuell kein passendes Risiko-Szenario.')
 

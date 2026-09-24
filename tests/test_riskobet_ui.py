@@ -262,7 +262,6 @@ def test_team_sport_snapshot_does_not_break_entire_consumer_page(monkeypatch,spo
     assert len(view.candidates) == 1
     fake = RecordingStreamlit()
     monkeypatch.setattr(ui,'st',fake)
-    monkeypatch.setattr(ui,'load_shared_price_overlays',lambda *_: {})
     ui.render_riskobet()
     assert not any(kind == 'error' for kind,_,_ in fake.messages)
     assert _rendered_candidate_ids(fake) == [view.candidates[0].candidate_id]
@@ -447,29 +446,18 @@ def test_featured_grid_flat_rows_and_exact_stable_keys(monkeypatch):
     assert all(key for _label, _expanded, key in first.expanders)
     assert all(label == "Analyse anzeigen" for label, _expanded, _key in first.expanders)
     assert all(not expanded for _label, expanded, _key in first.expanders)
-    assert first.popovers == ["Eigene Quote prüfen"] * len(bundles)
+    assert first.popovers == []
     assert first.popovers == second.popovers
     price_containers = [
         key
         for key in first.containers
         if str(key).startswith("riskobet_price_action_")
     ]
-    assert len(price_containers) == len(bundles)
+    assert price_containers == []
     action_order = [
         kind for kind, _value in first.event_log if kind in {"expander", "popover"}
     ]
-    assert action_order == ["expander", "popover"] * len(bundles)
-    quote_captions = [
-        context
-        for kind, value, context in first.messages
-        if kind == "caption" and "eigene Quote" in str(value)
-    ]
-    assert not quote_captions  # The explanatory paragraph was deliberately removed.
-    assert all(
-        any(kind == "popover" for kind, _key in context)
-        and not any(kind == "expander" for kind, _key in context)
-        for context in quote_captions
-    )
+    assert action_order == ["expander"] * len(bundles)
 
     first_markup_position = next(
         index for index, event in enumerate(first.event_log) if event[0] == "markdown"
@@ -649,7 +637,7 @@ def test_manual_quotes_above_floor_do_not_change_visibility_or_model_order(monke
 
     assert _rendered_candidate_ids(plain) == _rendered_candidate_ids(repriced)
     assert len(_rendered_candidate_ids(repriced)) == len(bundles)
-    assert "Quote beobachtet" in _all_text(repriced)
+    assert "Quote beobachtet" not in _all_text(repriced)
 
 
 @pytest.mark.parametrize(
@@ -659,7 +647,7 @@ def test_manual_quotes_above_floor_do_not_change_visibility_or_model_order(monke
         (None, EvidenceStage.RESEARCH, "Modellchance noch offen"),
     ),
 )
-def test_manual_quote_is_only_probability_comparison(
+def test_manual_quote_state_is_ignored_by_model_only_riskobet(
     monkeypatch,
     probability,
     stage,
@@ -681,11 +669,11 @@ def test_manual_quote_is_only_probability_comparison(
     ui.render_riskobet()
 
     text = _all_text(fake)
-    assert expected in text
+    assert expected not in text
     assert "Mindestquote" not in text
     assert "gesperrt" not in text.casefold()
-    assert "Quote beobachtet" in text
-    assert "4.00" in text
+    assert "Quote beobachtet" not in text
+    assert "4.00" not in text
 
 
 def test_filter_options_are_exact_and_filtering_does_not_load_again(monkeypatch):

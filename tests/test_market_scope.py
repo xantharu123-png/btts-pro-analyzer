@@ -195,19 +195,13 @@ def test_market_worker_rejects_only_the_cheap_market_not_the_fixture(monkeypatch
         {"league_ids": [78]},
     )["challenge"]
 
-    assert checked == [favorite, alternative]
+    assert checked == []
     assert result["model_shortlist"] == [favorite, alternative]
-    assert result["shortlist"] == [alternative]
-    assert result["price_checked_count"] == 2
-    assert result["price_fixture_count"] == 1
-    assert result["price_status_counts"] == {
-        "TOO_LOW": 1,
-        "PLAYABLE": 1,
-    }
-    assert market_tab._price_check_summary(result) == (
-        "Preisprüfung: 2 Modellmärkte aus 1 Spiel geprüft · "
-        "1 unter der Value-Grenze · 1 im Value-Bereich"
-    )
+    assert result["shortlist"] == [favorite, alternative]
+    assert result["price_checked_count"] == 0
+    assert result["price_fixture_count"] == 0
+    assert result["price_status_counts"] == {}
+    assert result["reference_quotes"] == {}
 
 
 def test_market_worker_keeps_model_selection_when_no_price_is_playable(monkeypatch):
@@ -287,8 +281,8 @@ def test_market_worker_keeps_model_selection_when_no_price_is_playable(monkeypat
     )["challenge"]
 
     assert result["model_shortlist"] == [candidate]
-    assert result["shortlist"] == []
-    assert result["price_status_counts"] == {"TOO_LOW": 1}
+    assert result["shortlist"] == [candidate]
+    assert result["price_status_counts"] == {}
 
 
 def test_market_worker_allows_credible_basis_market_to_pass_price_gate(
@@ -389,11 +383,11 @@ def test_market_worker_allows_credible_basis_market_to_pass_price_gate(
     )["challenge"]
 
     assert result["model_shortlist"] == [forecast, basis]
-    assert checked == [basis]
-    assert result["price_candidates"] == [forecast, basis]
-    assert result["shortlist"] == [basis]
-    assert basis.candidate_id in result["reference_quotes"]
-    assert result["price_status_counts"] == {"PLAYABLE": 1}
+    assert checked == []
+    assert result["price_candidates"] == []
+    assert result["shortlist"] == [forecast, basis]
+    assert result["reference_quotes"] == {}
+    assert result["price_status_counts"] == {}
 
 
 def test_consumer_merge_keeps_model_order_beyond_featured_three():
@@ -836,7 +830,7 @@ def test_market_worker_keeps_fully_checked_catalog_beyond_three(monkeypatch):
     )["challenge"]
 
     assert result["model_shortlist"] == catalog
-    assert result["shortlist"] == []
+    assert result["shortlist"] == catalog
 
 
 def test_consumer_empty_state_contains_no_pipeline_diagnostics():

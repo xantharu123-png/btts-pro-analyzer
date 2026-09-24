@@ -148,6 +148,8 @@ class _Surface:
         finally:
             self.section = previous
 
+    popover = expander
+
 
 @pytest.mark.parametrize("short_key", ["RESULT_HOME", "RESULT_AWAY"])
 def test_actual_manual_surface_filters_before_every_group_and_counts_survivors(
@@ -176,7 +178,7 @@ def test_actual_manual_surface_filters_before_every_group_and_counts_survivors(
     }
     original_snapshot = deepcopy(snapshot)
     surface = _Surface(snapshot)
-    rendered, split_input = [], []
+    rendered = []
     monkeypatch.setattr(market_tab, "st", surface)
     monkeypatch.setattr(market_tab, "load_app_config", lambda _st: SimpleNamespace(
         api_football_key="test", weather_key=None,
@@ -189,28 +191,17 @@ def test_actual_manual_surface_filters_before_every_group_and_counts_survivors(
         event_key=row.candidate_id,
     ))
     monkeypatch.setattr(market_tab, "candidate_context_summary", lambda _: "Analyse")
-    monkeypatch.setattr(market_tab, "render_price_decision", lambda candidate, **kwargs: rendered.append(
-        (surface.section, candidate.event_key, kwargs["reference_binding_candidate"])
+    monkeypatch.setattr(market_tab, "render_model_selection", lambda candidate, **_kwargs: rendered.append(
+        (surface.section, candidate.event_key)
     ))
-
-    def split(rows, **_kwargs):
-        split_input.extend(rows)
-        return (
-            [row for row in rows if row.market_key != short_key],
-            [row for row in rows if row.market_key == short_key],
-        )
-
-    monkeypatch.setattr(market_tab, "partition_consumer_forecasts", split)
     market_tab.create_alternative_markets_tab_extended(
         search_date=now.date(), search_end_date=now.date(), embedded=True,
     )
 
-    assert split_input == [primary, compatible, second_game]
-    assert {key for _, key, _ in rendered} == {
+    assert {key for _, key in rendered} == {
         primary.candidate_id, compatible.candidate_id, second_game.candidate_id,
     }
-    assert all(bound is next(row for row in all_rows if row.candidate_id == key)
-               for _, key, bound in rendered)
+    assert opposing.candidate_id not in {key for _, key in rendered}
     assert snapshot == original_snapshot
     public_text = " ".join(surface.messages)
     assert "1 Modell-Auswahl mit passender Vergleichsquote" not in public_text

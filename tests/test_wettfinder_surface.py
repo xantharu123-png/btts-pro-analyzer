@@ -892,7 +892,8 @@ def test_sixteenth_different_market_survives_repeated_markets_and_90_event_catal
     assert len(catalog.featured) + len(catalog.additional) == 90
     assert {card.key for card in catalog.featured + catalog.additional} == {card.key for card in cards}
     repriced = surface.compose_wettfinder_catalog([
-        replace(card, observed_odds=1.01 if index % 2 else None)
+        replace(card, observed_odds=1.01 if index % 2 else None,
+                quote_floor_excluded=bool(index % 2))
         for index, card in enumerate(cards)
     ])
     assert [card.key for card in repriced.featured] == [card.key for card in catalog.featured]
@@ -908,10 +909,13 @@ def test_production_renderer_pages_20_complete_games_without_splitting_markets(m
         f'page-{game}-{key}', event=f'Home {game} vs Away {game}', market_key=key,
     )) for game in range(41) for key in ('DC_1X', 'TOTAL_OVER_2_5', 'HOME_OVER_1_5')]
     catalog = surface.WettfinderCatalog((), tuple(cards), ())
-    row_by_key = {card.key: (None, card, None, None, None) for card in cards}
+    row_by_key = {card.key: (None, card) for card in cards}
     seen, groups_per_page = [], []
-    monkeypatch.setattr(app, '_render_wettfinder_card_actions',
-                        lambda _signal, card, *_: seen.append(card.key))
+    original_render = app.render_compact_row_html
+    def record_render(card, **kwargs):
+        seen.append(card.key)
+        return original_render(card, **kwargs)
+    monkeypatch.setattr(app, 'render_compact_row_html', record_render)
     for page in (1, 2, 3):
         recording = _RecordingStreamlit(widget_values={'wettfinder_games_page_Alle_3': page})
         monkeypatch.setattr(app, 'st', recording)

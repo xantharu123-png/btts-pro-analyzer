@@ -531,7 +531,7 @@ def _round_robin_by_sport(cards: Iterable[WettfinderCard]) -> list[WettfinderCar
 
 
 def _can_feature(card: WettfinderCard) -> bool:
-    if not card.highlight_eligible or card.quote_floor_excluded:
+    if not card.highlight_eligible:
         return False
     if _token(card.sport) in {"fussball", "football"}:
         return card.highlight_comparison is not None
@@ -607,9 +607,7 @@ def compose_wettfinder_catalog(
         or max_featured < 1
     ):
         raise ValueError("max_featured must be a positive integer")
-    # Price may only remove a coherent proposal, never select its opposite.
-    # Keep every input model unchanged, including the hidden low-price rows.
-    original = [card for card in select_consumer_forecasts(cards) if not card.quote_floor_excluded]
+    original = list(select_consumer_forecasts(cards))
     requested = _token(sport_filter)
     if requested in _ALL_SPORT_FILTERS:
         ordered = _round_robin_by_sport(original)
@@ -652,7 +650,7 @@ _PRICE_NOTES = {
 }
 
 
-def _status_badges(card: WettfinderCard, *, featured: bool) -> str:
+def _status_badges(card: WettfinderCard, *, featured: bool, show_price: bool = True) -> str:
     badges = []
     if featured and _can_feature(card):
         badges.append(
@@ -664,11 +662,14 @@ def _status_badges(card: WettfinderCard, *, featured: bool) -> str:
             '<span class="wf-badge wf-badge-evidence '
             f'wf-evidence-{escape(card.evidence_tone, quote=True)}">'
             f"{escape(card.evidence_label)}</span>",
-            '<span class="wf-badge wf-badge-price '
-            f'wf-price-{escape(card.price_tone, quote=True)}">'
-            f"{escape(card.price_label)}</span>",
         )
     )
+    if show_price:
+        badges.append(
+            '<span class="wf-badge wf-badge-price '
+            f'wf-price-{escape(card.price_tone, quote=True)}">'
+            f"{escape(card.price_label)}</span>"
+        )
     return '<div class="wf-status-row">' + "".join(badges) + "</div>"
 
 
@@ -734,26 +735,32 @@ def quote_display_note(card: WettfinderCard) -> Optional[str]:
     return ' · '.join(parts) or None
 
 
-def _top_card_markup(card: WettfinderCard) -> str:
-    price = format_decimal_odds(card.observed_odds)
-    bookmaker_note = quote_display_note(card)
-    metrics = "".join(
-        (
-            _metric("Sicherheitswert", format_probability(card.cautious_probability)),
-            _metric("Risikopreis ab", format_decimal_odds(card.value_threshold)),
-            _metric("Letzte Quote" if card.price_code == 'STALE' else "Quote" if card.price_code == 'OBSERVED' else "Aktuell", price, note=bookmaker_note),
+def _top_card_markup(card: WettfinderCard, *, show_price: bool = True) -> str:
+    metrics = _metric("Sicherheitswert", format_probability(card.cautious_probability))
+    price_details = ''
+    if show_price:
+        price = format_decimal_odds(card.observed_odds)
+        bookmaker_note = quote_display_note(card)
+        metrics += _metric("Risikopreis ab", format_decimal_odds(card.value_threshold))
+        metrics += _metric(
+            "Letzte Quote" if card.price_code == 'STALE' else
+            "Quote" if card.price_code == 'OBSERVED' else "Aktuell",
+            price, note=bookmaker_note,
         )
-    )
-    price_code = escape(card.price_code, quote=True)
-    price_note = _PRICE_NOTES.get(
-        card.price_code,
-        "Wettpreis separat prüfen. Die Prognose bleibt unverändert.",
-    )
+        price_note = _PRICE_NOTES.get(card.price_code, "Wettpreis separat prüfen. Die Prognose bleibt unverändert.")
+        price_details = (
+            '<details class="wf-fact wf-price-explain"><summary>Preisberechnung</summary>'
+            '<div class="wf-fact-detail"><p>Sicherheitswert: Modell mit heuristischem '
+            'Abschlag, keine statistisch bestätigte Mindestchance. Der Risikopreis '
+            'ist eine Rechenschwelle, keine erwartete Buchmacherquote.</p></div></details>'
+            f'<p class="wf-price-note wf-price-note-{escape(card.price_tone, quote=True)}" '
+            f'data-price-code="{escape(card.price_code, quote=True)}">{escape(price_note)}</p>'
+        )
     event_label = escape(card.event_label)
     return (
         f'<article class="wf-top-card" data-key="{escape(card.key, quote=True)}" '
         f'aria-label="Modellprognose für {escape(card.event_label, quote=True)}">'
-        f"{_status_badges(card, featured=True)}"
+        f"{_status_badges(card, featured=True, show_price=show_price)}"
         '<p class="wf-meta">'
         f'<span class="wf-sport">{escape(card.sport)}</span>'
         '<span aria-hidden="true"> · </span>'
@@ -768,39 +775,39 @@ def _top_card_markup(card: WettfinderCard) -> str:
         f"{_analysis_markup(card, featured=True)}"
         f'<div class="wf-metric-grid">{metrics}</div>'
         '<p class="wf-uncertainty-note">Rechenwerte, keine gesicherte Mindestchance.</p>'
-        '<details class="wf-fact wf-price-explain"><summary>Preisberechnung</summary>'
-        '<div class="wf-fact-detail"><p>Sicherheitswert: Modell mit heuristischem '
-        'Abschlag, keine statistisch bestätigte Mindestchance. Der Risikopreis '
-        'ist eine Rechenschwelle, keine erwartete Buchmacherquote.</p></div></details>'
-        f'<p class="wf-price-note wf-price-note-{escape(card.price_tone, quote=True)}" '
-        f'data-price-code="{price_code}">{escape(price_note)}</p>'
+        f'{price_details if show_price else "<p class=\"wf-uncertainty-note\">Sicherheitswert: heuristischer Abschlag, keine statistisch bestätigte Mindestchance.</p>"}'
         "</article>"
     )
 
 
-def _compact_row_markup(card: WettfinderCard, *, grouped: bool = False, featured: bool = False) -> str:
+def _compact_row_markup(card: WettfinderCard, *, grouped: bool = False, featured: bool = False, show_price: bool = True) -> str:
     """Render one flat comparison row without duplicating full-card copy."""
 
-    price = format_decimal_odds(card.observed_odds)
-    bookmaker_note = quote_display_note(card)
     event = '' if grouped else (
         '<div class="wf-row-event"><span class="wf-row-meta">'
         f'{escape(card.sport)} · {escape(card.scheduled_start_label)}</span>'
         f'<strong>{escape(card.event_label)}</strong></div>'
     )
     group_attribute = ' data-grouped="true"' if grouped else ''
-    # The prominent selection keeps its price caveat, even inside a game block.
-    price_note = ''
+    price_columns = ''
+    if show_price:
+        price = format_decimal_odds(card.observed_odds)
+        bookmaker_note = quote_display_note(card)
+        price_columns = (
+            f'{_row_value("Risikopreis ab", format_decimal_odds(card.value_threshold))}'
+            f'{_row_value("Letzte Quote" if card.price_code == "STALE" else "Quote" if card.price_code == "OBSERVED" else "Aktuell", price, note=bookmaker_note)}'
+        )
+    uncertainty_note = ''
     if featured:
-        message = _PRICE_NOTES.get(card.price_code, 'Wettpreis separat prüfen.')
-        price_note = (
+        message = _PRICE_NOTES.get(card.price_code, 'Wettpreis separat prüfen.') if show_price else ''
+        uncertainty_note = (
             '<p class="wf-group-price-note">Sicherheitswert: heuristischer Abschlag, '
             'keine gesicherte Mindestchance. '
             f'{escape(message)}</p>'
         )
+    price_attribute = f' data-price-code="{escape(card.price_code, quote=True)}"' if show_price else ''
     return (
-        f'<article class="wf-row"{group_attribute} data-key="{escape(card.key, quote=True)}" '
-        f'data-price-code="{escape(card.price_code, quote=True)}" '
+        f'<article class="wf-row"{group_attribute} data-key="{escape(card.key, quote=True)}"{price_attribute} '
         f'aria-label="Modellprognose für {escape(card.event_label, quote=True)}">'
         f'{event}'
         '<div class="wf-row-pick">'
@@ -808,25 +815,24 @@ def _compact_row_markup(card: WettfinderCard, *, grouped: bool = False, featured
         f"<strong>{escape(card.selection)}</strong></div>"
         f'{_row_value("Modell", format_probability(card.model_probability))}'
         f'{_row_value("Sicherheitswert", format_probability(card.cautious_probability))}'
-        f'{_row_value("Risikopreis ab", format_decimal_odds(card.value_threshold))}'
-        f'{_row_value("Letzte Quote" if card.price_code == "STALE" else "Quote" if card.price_code == "OBSERVED" else "Aktuell", price, note=bookmaker_note)}'
-        f"{_status_badges(card, featured=featured)}"
+        f'{price_columns}'
+        f"{_status_badges(card, featured=featured, show_price=show_price)}"
         f"{_analysis_markup(card, featured=featured)}"
-        f'{price_note}'
+        f'{uncertainty_note}'
         "</article>"
     )
 
 
-def render_top_card_html(card: WettfinderCard) -> str:
+def render_top_card_html(card: WettfinderCard, *, show_price: bool = True) -> str:
     """Return escaped standalone markup for one top card."""
 
-    return _top_card_markup(card)
+    return _top_card_markup(card, show_price=show_price)
 
 
-def render_compact_row_html(card: WettfinderCard, *, grouped: bool = False, featured: bool = False) -> str:
+def render_compact_row_html(card: WettfinderCard, *, grouped: bool = False, featured: bool = False, show_price: bool = True) -> str:
     """Return escaped standalone markup for one flat additional row."""
 
-    return _compact_row_markup(card, grouped=grouped, featured=featured)
+    return _compact_row_markup(card, grouped=grouped, featured=featured, show_price=show_price)
 
 
 __all__ = [

@@ -394,17 +394,18 @@ def test_automatic_surface_overlays_only_the_exact_released_scheduler_row(
         forecasts=[forecast],
         signals=[released],
     )
+    original_build = app.build_wettfinder_card
     monkeypatch.setattr(
         app,
-        "render_price_decision",
-        lambda candidate, **_kwargs: rendered.append(candidate),
+        "build_wettfinder_card",
+        lambda signal, **kwargs: (rendered.append(signal), original_build(signal, **kwargs))[1],
     )
 
     app._render_automated_daily_selection()
 
     assert len(rendered) == 1
-    assert rendered[0].event_key == forecast.key
-    assert rendered[0].evidence_stage == "RELEASED"
+    assert rendered[0].key == forecast.key
+    assert rendered[0].evidence_stage == forecast.evidence_stage
 
 
 def test_automatic_price_summary_explains_why_models_were_not_published():
@@ -683,7 +684,7 @@ def test_manual_surface_filters_known_short_odds_but_keeps_exact_floor_and_order
     )
     monkeypatch.setattr(
         market_tab,
-        "render_price_decision",
+        "render_model_selection",
         lambda candidate, **_kwargs: rendered.append(
             (recording_st.current_expander, candidate.event_key)
         ),
@@ -697,21 +698,10 @@ def test_manual_surface_filters_known_short_odds_but_keeps_exact_floor_and_order
     )
 
     assert [key for _group, key in rendered] == [
-        "primary-a",
-        "primary-b",
-        "primary-c",
-    ] + ([extreme.candidate_id] if at_floor else [])
+        extreme.candidate_id, "primary-a", "primary-b", "primary-c",
+    ]
     assert snapshot['model_shortlist'] == forecasts  # Stored analyses are untouched.
-    if not at_floor:
-        assert not any(label.startswith('Sehr kurze Quoten') for label, _ in recording_st.expanders)
-        return
-    short_group = next(
-        (label, expanded)
-        for label, expanded in recording_st.expanders
-        if label.startswith("Sehr kurze Quoten")
-    )
-    assert short_group[1] is False
-    assert rendered[-1][0] == short_group[0]
+    assert not any(label.startswith('Sehr kurze Quoten') for label, _ in recording_st.expanders)
     assert len({key for _group, key in rendered}) == len(forecasts)
 
 
@@ -784,7 +774,7 @@ def test_manual_surface_promotes_useful_market_and_keeps_all_others(
     )
     monkeypatch.setattr(
         market_tab,
-        "render_price_decision",
+        "render_model_selection",
         lambda candidate, **_kwargs: rendered.append(
             (recording_st.current_expander, candidate.event_key)
         ),
@@ -982,25 +972,12 @@ def test_automatic_all_surface_has_one_game_block_and_exact_price_actions(
         for value, kwargs, _context in recording_st.markdown_calls
         if kwargs.get("unsafe_allow_html")
     )
-    assert {key for key, _kwargs, _context in price_calls} == {
-        "football-one",
-        "tennis-one",
-        "esport-one",
-        "football-two",
-    }
-    assert all(kwargs["presentation"] == "compact" for _key, kwargs, _ in price_calls)
-    assert all(kwargs["manual_surface"] == "popover" for _key, kwargs, _ in price_calls)
-    assert len(evaluation_calls) == len(forecasts)
+    assert price_calls == []
+    assert evaluation_calls == []
     assert len(card_calls) == len(forecasts)
-    run_now = evaluation_calls[0][1]["now"]
+    run_now = card_calls[0][1]["now"]
     assert run_now.tzinfo is not None
-    assert all(call[1]["now"] is run_now for call in evaluation_calls)
     assert all(call[1]["now"] is run_now for call in card_calls)
-    assert all(
-        kwargs["precomputed_reference_evaluation"].candidate.event_key == key
-        for key, kwargs, _context in price_calls
-    )
-    assert all(context != "expander" for _key, _kwargs, context in price_calls)
     assert len(recording_st.expanders) == 4
     assert all(not expanded for _label, expanded in recording_st.expanders)
     assert len(set(recording_st.expander_keys)) == 4
@@ -1011,7 +988,7 @@ def test_automatic_all_surface_has_one_game_block_and_exact_price_actions(
         for kind, _value in recording_st.event_log
         if kind in {"expander", "price_action"}
     ]
-    assert action_order == ["expander", "price_action"] * len(forecasts)
+    assert action_order == ["expander"] * len(forecasts)
     # These legacy fixtures intentionally lack attributable model evidence.
     assert html.count('class="wf-top-card"') == 0
     assert html.count('class="wf-row"') == 4
@@ -1271,10 +1248,14 @@ def test_automatic_strict_release_replaces_same_key_once(monkeypatch):
         forecasts=[forecast],
         signals=[released, unrelated],
     )
+    real_build_card = app.build_wettfinder_card
     monkeypatch.setattr(
         app,
-        "render_price_decision",
-        lambda candidate, **kwargs: rendered.append((candidate, kwargs)),
+        "build_wettfinder_card",
+        lambda signal, **kwargs: (
+            rendered.append((signal, kwargs)),
+            real_build_card(signal, **kwargs),
+        )[1],
     )
 
     app._render_automated_daily_selection()
@@ -1285,11 +1266,11 @@ def test_automatic_strict_release_replaces_same_key_once(monkeypatch):
         if kwargs.get("unsafe_allow_html")
     )
     assert len(rendered) == 1
-    assert rendered[0][0].event_key == "released-row"
-    assert rendered[0][0].evidence_stage == "RELEASED"
-    assert rendered[0][1]["precomputed_reference_evaluation"].decision.status == "BET"
+    assert rendered[0][0].key == "released-row"
+    assert rendered[0][0].evidence_stage == forecast.evidence_stage
+    assert "price_evaluation" not in rendered[0][1]
     assert html.count('data-key="released-row"') == 1
-    assert "Modell geprüft" in html
+    assert "Evidenzprüfung" in html
     assert "another-row" not in html
 
 
@@ -1473,7 +1454,9 @@ def test_all_sports_shows_tabs_without_redundant_explanation(monkeypatch):
     app.render_wettfinder()
 
     assert recording_st.tabs_created == [app.FINDER_SINGLE_SPORT_OPTIONS]
-    assert not [value for kind, value in recording_st.messages if kind == "caption"]
+    assert [value for kind, value in recording_st.messages if kind == "caption"] == [
+        "Auswahl nach Sportdaten · deine Mindestquote für eigene Wetten: 1,20"
+    ]
     assert "Alle Sportarten" in inspect.getsource(app.render_wettfinder)
 
 
@@ -1757,7 +1740,7 @@ def test_all_sports_ui_keeps_multi_sport_widget_keys_isolated():
     source = Path(app.__file__).read_text(encoding="utf-8")
 
     assert 'key=f"run_multi_sport_{sport_key}"' in source
-    assert 'bankroll_key=f"multi_sport_bankroll_{sport_key}"' in source
+    assert 'render_model_selection(candidate)' in source
 
 
 def test_multi_sport_window_rejects_reverse_and_overlong_ranges():
@@ -1839,8 +1822,8 @@ def test_market_worker_forwards_detailed_progress(monkeypatch):
     assert updates == [
         (0.225, "Liga 1/2"),
         (0.9, "Fertig"),
-        (0.92, "Marktquoten der Modellkandidaten werden verglichen"),
-        (1.0, "Tipps und Marktpreise sind bereit"),
+        (0.92, "Modell-Auswahlen werden zusammengestellt"),
+        (1.0, "Modell-Auswahlen sind bereit"),
     ]
     assert result["scope"] == {"league_ids": [39, 78]}
 

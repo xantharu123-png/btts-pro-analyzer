@@ -199,25 +199,15 @@ def test_frozen_surface_evidence_is_visible_on_tennis_card():
     assert "Belag-Elo berücksichtigt" in captions
 
 
-def test_price_check_edge_paths():
+def test_tennis_model_card_never_requires_a_price_check():
     at = AppTest.from_function(_run_price_check)
     at.run(timeout=60)
     assert len(at.exception) == 0
 
-    # Ein guter Preis bleibt eine Shadow-Auswahl und wird nie zum Nutzertipp.
-    at.number_input(key="odds_a_1").set_value(2.00)
-    at.number_input(key="odds_b_1").set_value(4.00)
-    at.run(timeout=60)
-    at.button(key="check_1").click().run(timeout=60)
-    assert any("PASSENDE QUOTE" in info.value for info in at.info)
+    assert not any(element.key == 'odds_a_1' for element in at.number_input)
+    assert not any(element.key == 'odds_b_1' for element in at.number_input)
+    assert any("Modellfavorit" in info.value for info in at.info)
     assert len(at.success) == 0
-    visible = " ".join(info.value for info in at.info)
-    assert "keinen Einsatzvorschlag" in visible
-
-    # Eine zu niedrige Quote ändert nur den Preisstatus.
-    at.number_input(key="odds_a_1").set_value(1.40)
-    at.button(key="check_1").click().run(timeout=60)
-    assert any("Quote reicht nicht" in info.value for info in at.info)
     assert len(at.error) == 0
 
 
@@ -227,7 +217,8 @@ def test_match_card_shows_plain_gates_and_markets():
     # market metrics visible without any click
     labels = [m.label for m in at.metric]
     assert "Modell" in labels
-    assert "Vorsichtige Prognose" in labels
+    assert "Sicherheitswert" in labels
+    assert "Value-Grenze" not in labels
 
 
 def test_blocked_card_hides_raw_probability_and_price_controls():

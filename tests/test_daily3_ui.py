@@ -138,16 +138,16 @@ def test_real_user_flow_start_reserve_place_settle_is_flat_and_persistent(tmp_pa
     assert any(m.label == 'Netto abgerechnet' and m.value == 'CHF 4.00' for m in app.metric)
 
 
-def test_current_quote_below_floor_has_no_suggestion_or_reservation_form(tmp_path):
+def test_observed_quote_below_floor_does_not_hide_model_selection(tmp_path):
     app = AppTest.from_function(
         _render, args=(str(tmp_path/'daily3.db'), False, 'too_low')
     ).run(timeout=30)
     assert not app.exception
     assert app.session_state['fixture_price_code'] == 'TOO_LOW'
-    assert not any('Heimteam 1' in item.value for item in app.subheader)
+    assert any('Heimteam 1' in item.value for item in app.subheader)
     _button(app, 'CHF 50 Tagesbudget bestätigen').click().run()
     assert not app.exception
-    assert not any(button.label == 'Einsatz vormerken' for button in app.button)
+    assert any(button.label == 'Einsatz vormerken' for button in app.button)
 
 
 def test_manually_entered_quote_below_floor_is_rejected_without_budget_debit(tmp_path):
@@ -162,17 +162,17 @@ def test_manually_entered_quote_below_floor_is_rejected_without_budget_debit(tmp
     assert any(m.label == 'Verfügbar' and m.value == 'CHF 50.00' for m in app.metric)
 
 
-def test_missing_or_stale_quote_status_does_not_change_model_selection(tmp_path):
-    for price_state, expected_code, expected_label in (
-        ('missing', 'UNAVAILABLE', 'Quote fehlt'),
-        ('stale', 'STALE', 'Veraltet'),
+def test_missing_or_stale_quote_status_does_not_enter_model_selection_ui(tmp_path):
+    for price_state, expected_code in (
+        ('missing', 'UNAVAILABLE'),
+        ('stale', 'STALE'),
     ):
         app = AppTest.from_function(
             _render, args=(str(tmp_path/f'{price_state}.db'), False, price_state)
         ).run(timeout=30)
         assert not app.exception
         assert app.session_state['fixture_price_code'] == expected_code
-        assert any(expected_label in item.value for item in app.info)
+        assert not any('Quote fehlt' in item.value or 'Veraltet' in item.value for item in app.info)
         assert any('Heimteam 1' in item.value for item in app.subheader)
 
 

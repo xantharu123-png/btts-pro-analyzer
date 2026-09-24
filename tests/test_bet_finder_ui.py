@@ -24,6 +24,30 @@ def _candidate(*, release_pending: bool = False) -> RecommendationCandidate:
     )
 
 
+def test_model_selection_displays_only_model_and_fixed_user_floor(monkeypatch):
+    import bet_finder_ui as ui
+
+    shown = []
+    monkeypatch.setattr(ui.st, "subheader", lambda value: shown.append(value))
+    monkeypatch.setattr(ui.st, "write", lambda value: shown.append(value))
+    monkeypatch.setattr(ui.st, "caption", lambda value: shown.append(value))
+    monkeypatch.setattr(ui.st, "info", lambda value: shown.append(value))
+    monkeypatch.setattr(
+        ui, "evaluate_reference_price",
+        lambda *args, **kwargs: pytest.fail("model view must not evaluate a quote"),
+    )
+
+    ui.render_model_selection(_candidate())
+
+    copy = " ".join(shown)
+    assert "Alpha vs Beta" in copy
+    assert "Modell: 65.0 %" in copy
+    assert "Mindestquote" in copy and "1,20" in copy
+    assert "1.80" not in copy
+    assert "Value" not in copy
+    assert "Preisprüfung" not in copy
+
+
 def _quote() -> MarketConsensus:
     return MarketConsensus(
         fixture_id=1, candidate_id="compact-price-action", market_key="BTTS_YES",

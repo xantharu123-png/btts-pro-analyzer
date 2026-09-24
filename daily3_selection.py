@@ -1,11 +1,11 @@
 """Defensive, price-blind comparison shortlist, not a certified safety ranking.
 
-v8 retains exact-bound model variants and at least 70% in all three. Compare
+v9 retains exact-bound model variants and at least 70% in all three. Compare
 form (football) or surface (ATP) against the same match's general strength; a minimum
 two-percentage-point change is a presentation rule, not an empirical guarantee.
 Haircut, odds, RELEASED flags, target profit and account money are not ranking
-inputs. Last observed exact offers below the user floor are excluded after coherence;
-the underlying full model catalog is never modified.
+inputs. Bookmaker offers never alter membership or order. The user's 1.20
+floor is checked only when an actual bet is entered.
 """
 from collections import Counter
 from dataclasses import dataclass
@@ -17,10 +17,9 @@ from daily3_identity import event_guard, events_overlap
 from daily3_comparison import Comparison, daily3_comparison
 from forecast_analysis import build_forecast_analysis, forecast_highlight_reason
 from forecast_selection import select_consumer_forecasts
-from market_consensus import quote_below_publication_floor
 from selection_coherence import consumer_event_identity
 
-POLICY_VERSION = 'daily3-defensive-match-comparison-observed-odds-v8'
+POLICY_VERSION = 'daily3-defensive-match-comparison-model-only-v9'
 # Deliberate shortlist threshold, not a learned/calibrated safety boundary.
 MIN_MODEL_PROBABILITY = 0.70
 _TZ = ZoneInfo('Europe/Zurich')
@@ -77,9 +76,6 @@ def daily3_choices(signals, *, now, occupied_events=(), occupied_guards=(), used
     guards = tuple(occupied_guards)
     prepared = []
     for s in select_consumer_forecasts(signals, now=now):
-        if quote_below_publication_floor(s.reference_quote,
-                candidate={**vars(s), 'candidate_id': s.candidate_id or s.key}, now=now):
-            continue
         sport = _SPORTS.get(str(s.sport or '').strip().casefold())
         start, sampled = _clock(s.scheduled_start), _clock(s.modeled_at)
         if not sport or not start or not sampled or not now < start or start.astimezone(_TZ).date() != today:

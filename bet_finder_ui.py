@@ -15,7 +15,11 @@ from zoneinfo import ZoneInfo
 import streamlit as st
 
 from account_identity import storage_scope
-from betting_math import EXTREME_SHORT_ODDS_CUTOFF, odds_below_publication_floor
+from betting_math import (
+    EXTREME_SHORT_ODDS_CUTOFF,
+    MINIMUM_RECOMMENDED_DECIMAL_ODDS,
+    odds_below_publication_floor,
+)
 from market_consensus import (
     MarketConsensus,
     ODDS_API_REFERENCE_SOURCE,
@@ -860,6 +864,27 @@ def _render_manual_check(
         return decision
 
 
+def render_model_selection(
+    candidate: RecommendationCandidate,
+    *,
+    presentation: str = "full",
+) -> None:
+    """Show a statistical selection without fetching or evaluating an offer."""
+    if presentation not in {"full", "compact", "fixture_first"}:
+        raise ValueError("unsupported model presentation")
+    if presentation != "compact":
+        st.subheader(candidate.event_label)
+        st.write(f"{candidate.market} · {candidate.selection or 'keine Auswahl'}")
+    if candidate.forecast_available:
+        st.write(f"Modell: {format_probability_percent(candidate.model_probability)}")
+    else:
+        st.info("Für diesen Markt liegt keine belastbare Modellprognose vor.")
+    if candidate.blockers:
+        st.caption("Daten- oder Modellprüfung noch offen.")
+    minimum = f"{MINIMUM_RECOMMENDED_DECIMAL_ODDS:.2f}".replace(".", ",")
+    st.caption(f"Deine Mindestquote für eine tatsächliche Wette: {minimum}")
+
+
 def render_price_decision(
     candidate: RecommendationCandidate,
     *,
@@ -1010,5 +1035,6 @@ __all__ = [
     "partition_consumer_forecasts",
     "ReferencePriceEvaluation",
     "evaluate_reference_price",
+    "render_model_selection",
     "render_price_decision",
 ]

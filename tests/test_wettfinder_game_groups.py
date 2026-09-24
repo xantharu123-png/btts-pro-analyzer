@@ -106,12 +106,15 @@ def test_grouped_market_does_not_repeat_game_heading_but_keeps_exact_price_bindi
 def test_each_market_action_stays_inside_its_game_once_and_highlight_games_open(monkeypatch):
     cards = [card(1, 'AWAY_OVER_2_5'), card(1), card(2, 'BTTS_YES'), card(3, 'HOME_OVER_1_5')]
     catalog = WettfinderCatalog((cards[0],), tuple(cards[1:]), ())
-    rows = {c.key: (None, c, None, None, None) for c in cards}
+    rows = {c.key: (None, c) for c in cards}
     recording = _RecordingStreamlit()
     actions = []
     monkeypatch.setattr(app, 'st', recording)
-    monkeypatch.setattr(app, '_render_wettfinder_card_actions',
-                        lambda _s, c, *_: actions.append((c.key, recording.current_expander)))
+    original_render = app.render_compact_row_html
+    def record_render(c, **kwargs):
+        actions.append((c.key, recording.current_expander))
+        return original_render(c, **kwargs)
+    monkeypatch.setattr(app, 'render_compact_row_html', record_render)
     app._render_wettfinder_games(catalog, rows, sport_filter='Alle')
     assert len(recording.expanders) == 3
     assert [opened for _label, opened in recording.expanders] == [True, False, False]
@@ -130,16 +133,15 @@ def test_closed_game_preference_survives_widget_cleanup_filter_and_highlight_cha
     key = app._wettfinder_game_key(group)
     recording = _RecordingStreamlit()
     monkeypatch.setattr(app, 'st', recording)
-    monkeypatch.setattr(app, '_render_wettfinder_card_actions', lambda *_: None)
     recording.session_state[key] = False  # Actual callback value after closing.
     app._remember_wettfinder_game_state(key)
     del recording.session_state[key]  # Streamlit cleanup after filtering away.
-    app._render_wettfinder_game(group, {first.key: (None, first, None, None, None)}, {first.key})
+    app._render_wettfinder_game(group, {first.key: (None, first)}, {first.key})
     assert recording.session_state[key] is False
     recording.session_state[key] = True
     app._remember_wettfinder_game_state(key)
     del recording.session_state[key]
-    app._render_wettfinder_game(group, {first.key: (None, first, None, None, None)}, set())
+    app._render_wettfinder_game(group, {first.key: (None, first)}, set())
     assert recording.session_state[key] is True
 
 

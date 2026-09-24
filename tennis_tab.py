@@ -666,138 +666,16 @@ def _render_match_card(row: dict) -> None:
             )
             return
 
-        min_a = minimum_recommendation_odds(
-            row["p_cal"] * 100.0,
-            probability_haircut=WINNER_PROBABILITY_HAIRCUT * 100.0,
-            minimum_expected_roi_percent=MINIMUM_RISK_ADJUSTED_ROI_PERCENT,
-        )
-        p_b = 1.0 - row["p_cal"]
-        min_b = minimum_recommendation_odds(
-            p_b * 100.0,
-            probability_haircut=WINNER_PROBABILITY_HAIRCUT * 100.0,
-            minimum_expected_roi_percent=MINIMUM_RISK_ADJUSTED_ROI_PERCENT,
-        )
-        likely_minimum = min_a if row["p_cal"] >= 0.5 else min_b
+        st.info(f"Modellfavorit: {likely_player}")
         conservative_probability = max(
-            0.0,
-            likely_probability - WINNER_PROBABILITY_HAIRCUT,
+            0.0, likely_probability - WINNER_PROBABILITY_HAIRCUT
         )
-        minimum_text = (
-            f"{likely_minimum:.2f}"
-            if likely_minimum is not None
-            else "nicht belastbar"
-        )
-        likely_price = st.session_state.get(
-            f'odds_a_{row["id"]}' if row['p_cal'] >= 0.5 else f'odds_b_{row["id"]}',
-            row.get('odds_a') if row['p_cal'] >= 0.5 else row.get('odds_b'))
-        if odds_below_publication_floor(likely_price):
-            st.info('Quote unter 1,20 · keine Auswahl zu diesem Preis.')
-        else:
-            st.info(f'Modellfavorit: {likely_player} · noch nicht bestätigt.')
-        metrics = st.columns(3)
+        metrics = st.columns(2)
         metrics[0].metric("Modell", f"{likely_probability:.1%}")
-        metrics[1].metric("Vorsichtige Prognose", f"{conservative_probability:.1%}")
-        metrics[2].metric("Value-Grenze", minimum_text)
-        st.caption('Eigene Quote prüfen · automatischer Vergleich fehlt.')
-
-        odds_a_key = f"odds_a_{row['id']}"
-        odds_b_key = f"odds_b_{row['id']}"
-        with st.expander("Eigene Buchmacherquote prüfen", expanded=False):
-            price_cols = st.columns([1, 1, 1])
-            odds_a_kwargs = {}
-            if odds_a_key not in st.session_state:
-                odds_a_kwargs["value"] = (
-                    float(row["odds_a"]) if row.get("odds_a") else None
-                )
-            odds_a = price_cols[0].number_input(
-                f"Quote {row['player_a']}",
-                min_value=1.01,
-                max_value=50.0,
-                step=0.01,
-                format="%.2f",
-                placeholder="Quote",
-                key=odds_a_key,
-                **odds_a_kwargs,
-            )
-            odds_b_kwargs = {}
-            if odds_b_key not in st.session_state:
-                odds_b_kwargs["value"] = (
-                    float(row["odds_b"]) if row.get("odds_b") else None
-                )
-            odds_b = price_cols[1].number_input(
-                f"Quote {row['player_b']}",
-                min_value=1.01,
-                max_value=50.0,
-                step=0.01,
-                format="%.2f",
-                placeholder="Quote",
-                key=odds_b_key,
-                **odds_b_kwargs,
-            )
-            prices_entered = odds_a is not None and odds_b is not None
-            if price_cols[2].button(
-                "Preis prüfen",
-                key=f"check_{row['id']}",
-                disabled=not prices_entered,
-                use_container_width=True,
-            ):
-                result = _update_price_check(
-                    row["id"],
-                    odds_a,
-                    odds_b,
-                    row["p_cal"],
-                    model_gates_ok,
-                )
-                st.session_state[f"price_result_{row['id']}"] = result
-
-        result = st.session_state.get(f"price_result_{row['id']}")
-        if row.get("verdict") and row.get("odds_a") and result is None:
-            result = {
-                "prices_ok": True,
-                "side": row.get("recommended_side"),
-                "verdict": row["verdict"],
-            }
-            restored_a = evaluate_market_price(
-                row["p_cal"] * 100.0,
-                row["odds_a"],
-                probability_haircut=WINNER_PROBABILITY_HAIRCUT * 100.0,
-            )
-            restored_b = evaluate_market_price(
-                (1.0 - row["p_cal"]) * 100.0,
-                row["odds_b"],
-                probability_haircut=WINNER_PROBABILITY_HAIRCUT * 100.0,
-            )
-            result.update(
-                {
-                    "edge_a": restored_a.risk_adjusted_edge / 100.0,
-                    "edge_b": restored_b.risk_adjusted_edge / 100.0,
-                    "risk_ev_a": restored_a.risk_adjusted_expected_roi / 100.0,
-                    "risk_ev_b": restored_b.risk_adjusted_expected_roi / 100.0,
-                    "minimum_a": min_a,
-                    "minimum_b": min_b,
-                }
-            )
-        if result:
-            selected_price = odds_a if result.get('side') == 'A' else odds_b
-            if result["verdict"] == "WETTE" and model_gates_ok and selected_price is not None and not odds_below_publication_floor(selected_price):
-                name = row["player_a"] if result["side"] == "A" else row["player_b"]
-                selected_odds = odds_a if result["side"] == "A" else odds_b
-                st.info(
-                    f"PASSENDE QUOTE: Sieg {name} @ {selected_odds:.2f}. "
-                    "Die Auswahl bleibt in Prüfung; es gibt keinen "
-                    "Einsatzvorschlag."
-                )
-            else:
-                if not result.get("prices_ok"):
-                    st.info(
-                        "PREIS NOCH OFFEN: Bitte beide Buchmacherquoten prüfen. "
-                        "Die Tennis-Auswahl bleibt unverändert."
-                    )
-                else:
-                    st.info(
-                        'Quote reicht nicht · eigenen Preis prüfen.'
-                    )
-
+        metrics[1].metric("Sicherheitswert", f"{conservative_probability:.1%}")
+        st.caption("Sicherheitswert: heuristischer Abschlag, keine statistisch bestätigte Mindestchance.")
+        st.caption("Deine Mindestquote für eine tatsächliche Wette: 1,20")
+        return
 
 def _render_settlement(open_rows: list[dict]) -> None:
     today = _zurich_today()

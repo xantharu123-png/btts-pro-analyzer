@@ -64,6 +64,7 @@ red_card_candidate = _football_recommendations.red_card_candidate
 
 from bet_finder_ui import (
     evaluate_reference_price,
+    render_model_selection,
     render_price_decision,
 )
 from betting_math import BETTING_POLICY_VERSION
@@ -97,7 +98,7 @@ from wettfinder_surface import (
 PAGE_INFO = {
     "Wettfinder": (
         "Wettfinder",
-        "Modell-Auswahlen und Quoten im Überblick.",
+        "Statistische Auswahlen und ihre Datengrundlage.",
     ),
     "RisikoBet": (
         "RisikoBet",
@@ -180,17 +181,11 @@ FINDER_SINGLE_SPORT_OPTIONS = (
 FINDER_SPORT_OPTIONS = ("Alle", *FINDER_SINGLE_SPORT_OPTIONS)
 FINDER_SPORT_CAPABILITIES = {
     "Fußball": "Pre-Match-Modell mit Markt- und Kontextprüfung.",
-    "Tennis": (
-        "Pre-Match-Modell; automatische Vergleichspreise nur mit "
-        "konfiguriertem Quotenanbieter."
-    ),
+    "Tennis": "Pre-Match-Modell mit Belag- und Formdaten.",
     "Basketball": "Live-Modell; vor Spielbeginn nur Spielplan, keine Prognose.",
     "Eishockey": "Live-Modell; vor Spielbeginn nur Spielplan, keine Prognose.",
     "Cricket": "Nur Spielplan; derzeit kein validiertes Wettmodell.",
-    "E-Sport": (
-        "Shadow-Prognosen; derzeit kein verifizierter automatischer "
-        "Preisvergleich."
-    ),
+    "E-Sport": "Modellprognosen mit dokumentierter Datenlage.",
 }
 SEARCH_HORIZONS = {
     "Heute": 0,
@@ -2455,7 +2450,7 @@ def _render_match_overview(row: pd.Series) -> None:
     model_status = row.get("Modellstatus", "Keine Schätzung")
     st.info(
         f"Explorative Modellschätzung: {model_status}. Nicht kalibriert, nicht "
-        "einsatzfähig und ohne verifizierte Quote keine Value-Aussage."
+        "als gesicherte Trefferchance belegt."
     )
 
     home_stats = analysis.get("home_stats", {})
@@ -2668,16 +2663,12 @@ def _render_prematch_results(
             f"Keines der {len(candidate_rows)} geprüften Spiele erfüllt "
             "derzeit alle Modellkriterien. Die Prognosen bleiben sichtbar."
         )
-        st.caption(
-            "Die Quote hat diese Spiele nicht aussortiert. Warum die "
-            "preisunabhängige Modellprüfung fehlt, steht direkt beim Kandidaten."
-        )
+        st.caption("Die offenen Daten- oder Modellprüfungen stehen direkt beim Kandidaten.")
         selectable_rows = shortlist
     else:
         st.success(
             f"{len(ready_rows)} von {len(candidate_rows)} geprüften Spielen bestehen "
-            "die Modellprüfung. Der automatische Marktvergleich bewertet danach, "
-            "ob der angebotene Preis die Value-Grenze erreicht."
+            "die Modellprüfung."
         )
         selectable_rows = ready_rows
 
@@ -2694,12 +2685,7 @@ def _render_prematch_results(
             key="prematch_bet_candidate",
         )
         candidate, selected_row = selectable_rows[selected_position]
-        render_price_decision(
-            candidate,
-            key=f"prematch_{candidate.event_key}_{scanned_at}",
-            bankroll_key="football_bet_finder_bankroll",
-            save_source="Fußball BTTS",
-        )
+        render_model_selection(candidate)
 
     with st.expander(f"Alle {len(candidate_rows)} geprüften Spiele mit Einzelgründen"):
         display_frame = pd.DataFrame(
@@ -2713,7 +2699,6 @@ def _render_prematch_results(
                     "Spiel": item.event_label,
                     "Auswahl": item.selection,
                     "Modell %": item.model_probability,
-                    "Value-Grenze": item.minimum_odds,
                     "Grund": "" if item.model_ready else plain_german(
                         item.blockers[0] if item.blockers else "Kriterien nicht erfüllt"
                     ),
@@ -3148,19 +3133,13 @@ def _render_live_football(analyzer, market: str) -> None:
             "Wettkandidat",
             live_detail_options,
             format_func=lambda index: (
-                f"{'PREIS PRÜFEN' if candidate_items[index][0].model_ready else 'NICHT WETTEN'} | "
+                f"{'Modell geprüft' if candidate_items[index][0].model_ready else 'Daten offen'} | "
                 f"{candidate_items[index][0].event_label} | {candidate_items[index][0].selection}"
             ),
             key=live_detail_key,
         )
         candidate, _item = candidate_items[selected]
-        render_price_decision(
-            candidate,
-            key=f"live_{candidate.event_key}_{market}_{snapshot.get('scanned_at')}",
-            bankroll_key="football_bet_finder_bankroll",
-            save_source="Fußball Live",
-            live_price=True,
-        )
+        render_model_selection(candidate)
 
     # Live-Überblick: IMMER alle unterstützten Live-Spiele mit Modellwerten
     # zeigen — auch wenn kein Kandidat das Gate passiert. Volle Transparenz
@@ -3564,19 +3543,13 @@ def _render_red_cards(analyzer) -> None:
         "Wettkandidat",
         detail_options,
         format_func=lambda index: (
-            f"{'PREIS PRÜFEN' if candidate_entries[index][0].model_ready else 'NICHT WETTEN'} | "
+            f"{'Modell geprüft' if candidate_entries[index][0].model_ready else 'Daten offen'} | "
             f"{candidate_entries[index][0].event_label} | {candidate_entries[index][0].selection}"
         ),
         key=detail_key,
     )
     candidate, _entry = candidate_entries[selected]
-    render_price_decision(
-        candidate,
-        key=f"red_card_{candidate.event_key}_{snapshot.get('scanned_at')}",
-        bankroll_key="football_bet_finder_bankroll",
-        save_source="Fußball Live Platzverweis",
-        live_price=True,
-    )
+    render_model_selection(candidate)
 
 def render_live(analyzer) -> None:
     if analyzer is None:
@@ -4296,8 +4269,7 @@ def render_multi_sport(
                 "Vorhersagemodell."
             ),
             "E-Sport": (
-                "Shadow-Prognose vor Serienbeginn; ein verifizierter "
-                "automatischer Preisvergleich fehlt derzeit."
+                "Modellprognose vor Serienbeginn; Datenlage am Spiel beachten."
             ),
         }
         st.caption(upcoming_copy[sport])
@@ -4348,12 +4320,7 @@ def render_multi_sport(
 
     if candidate.expected_total is not None:
         st.caption(f"Erwartete Gesamtzahl: {candidate.expected_total:.2f}")
-    render_price_decision(
-        candidate,
-        key=f"multi_sport_{scope_key}_{selected_index}_{snapshot_token}",
-        bankroll_key=f"multi_sport_bankroll_{sport_key}",
-        save_source=f"{sport} Wettfinder",
-    )
+    render_model_selection(candidate)
 
 
 def _automated_signal_candidate(signal: ModelSignal) -> RecommendationCandidate:
@@ -4694,12 +4661,12 @@ def _render_wettfinder_game(group, row_by_key, featured_keys) -> None:
         on_change=_remember_wettfinder_game_state, args=(key,),
     ):
         for card in group.cards:
-            signal, card, candidate, binding, evaluation = row_by_key[card.key]
+            signal, card = row_by_key[card.key]
             with st.container(key=f'wettfinder_v2_game_market_{card.manual_quote_key}'):
                 st.markdown(render_compact_row_html(
                     card, grouped=True, featured=card.key in featured_keys,
+                    show_price=False,
                 ), unsafe_allow_html=True)
-                _render_wettfinder_card_actions(signal, card, candidate, binding, evaluation)
 
 
 def _render_wettfinder_games(catalog, row_by_key, *, sport_filter: str) -> None:
@@ -4737,38 +4704,13 @@ def _render_automated_daily_selection() -> None:
         st.info("Aktuell ist noch kein automatisches Ergebnis verfügbar.")
         return
 
-    # One aware clock drives price evaluation and card construction for the
-    # complete run. Exact RELEASED rows replace forecasts only by persisted key.
-    strict_by_key = {
-        signal.key: signal
-        for signal in snapshot.signals
-        if signal.evidence_stage == EVIDENCE_RELEASED
-    }
-    signals = [
-        strict_by_key.get(signal.key, signal)
-        for signal in snapshot.forecasts
-    ]
-    bankroll = float(
-        st.session_state.get("automated_finder_bankroll", 100.0) or 100.0
-    )
+    # Forecasts are the sole selection source; bookmaker prices cannot
+    # replace their evidence stage or change their display order.
+    signals = list(snapshot.forecasts)
     rows = []
     for signal in signals:
-        candidate = _automated_signal_candidate(signal)
-        binding = wettfinder_quote_binding_candidate(signal)
-        evaluation = evaluate_reference_price(
-            candidate,
-            signal.reference_quote,
-            bankroll=bankroll,
-            reference_binding_candidate=binding,
-            now=evaluation_now,
-        )
-        card = build_wettfinder_card(
-            signal,
-            now=evaluation_now,
-            release_overlay=_automatic_release_overlay(evaluation),
-            price_evaluation=evaluation,
-        )
-        rows.append((signal, card, candidate, binding, evaluation))
+        card = build_wettfinder_card(signal, now=evaluation_now)
+        rows.append((signal, card))
 
     target_label = _automatic_target_label(status.target_search_date)
     time_parts = [
@@ -4789,7 +4731,7 @@ def _render_automated_daily_selection() -> None:
             "Alle",
         )
     catalog = compose_wettfinder_catalog(
-        (card for _signal, card, _candidate, _binding, _evaluation in rows),
+        (card for _signal, card in rows),
         sport_filter=sport_filter,
     )
     if not catalog.featured and not catalog.additional:
@@ -4801,8 +4743,8 @@ def _render_automated_daily_selection() -> None:
         return
 
     row_by_key = {
-        card.key: (signal, card, candidate, binding, evaluation)
-        for signal, card, candidate, binding, evaluation in rows
+        card.key: (signal, card)
+        for signal, card in rows
     }
     _render_wettfinder_games(catalog, row_by_key, sport_filter=sport_filter)
 
@@ -4847,6 +4789,7 @@ def render_wettfinder() -> None:
                 "wettfinder_mode_v2",
                 "Automatisch",
             )
+        st.caption("Auswahl nach Sportdaten · deine Mindestquote für eigene Wetten: 1,20")
         if mode == "3 a day":
             from daily3_ui import render_daily3
 

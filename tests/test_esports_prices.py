@@ -265,7 +265,7 @@ def test_riskobet_series_price_does_not_price_a_map(tmp_path):
     assert overlays['series_winner'].observed_odds==1.48
 
 
-def test_worker_and_public_reader_reuse_the_cache(tmp_path):
+def test_worker_and_public_reader_ignore_cached_price(tmp_path):
     from config_loader import AppConfig
     from esports_shadow import ESPORTS_MODEL_VERSION
     from betting_math import BETTING_POLICY_VERSION
@@ -281,16 +281,16 @@ def test_worker_and_public_reader_reuse_the_cache(tmp_path):
     output=run_wettfinder(now=NOW,state_path=path,config=AppConfig(oddspapi_key=KEY),
         football_scanner=lambda d:_football_snapshot(NOW),football_quote_loader=lambda rows:({},[]),
         tennis_loader=lambda **kw:[],esports_loader=lambda **kw:[signal],riskobet_enabled=False)
-    assert output['sources']['esports']['reference_quote_count']==1
+    assert output['sources']['esports']['reference_quote_count']==0
     saved=[r for r in output['model_candidates'] if r['source']=='esports_shadow'][0]
-    assert saved['probability']==.61 and saved['reference_quote']['best_odds']==2.5
+    assert saved['probability']==.61 and saved.get('reference_quote') is None
     assert saved['evidence_stage']=='SHADOW'
     forecasts=automated_wettfinder_forecasts(path,now=NOW)
     selected=next(s for s in forecasts if s.sport=='E-Sport')
-    assert selected.probability==.61 and selected.reference_quote['best_odds']==2.5
+    assert selected.probability==.61 and selected.reference_quote is None
     from wettfinder_surface import build_wettfinder_card
-    card=build_wettfinder_card(selected,selected.reference_quote,now=NOW)
-    assert card.observed_odds==2.5 and card.price_code=='OBSERVED'
+    card=build_wettfinder_card(selected,now=NOW)
+    assert card.model_probability==.61 and card.observed_odds is None
 
 
 def test_config_key_loaded_without_affecting_other_credentials(monkeypatch,tmp_path):
@@ -360,10 +360,11 @@ def test_daily3_and_wettfinder_do_not_change_probability_for_quote(tmp_path,sour
     assert low.probability==allowed.probability==signal.probability
     low_catalog=compose_wettfinder_catalog([build_wettfinder_card(low,low.reference_quote,now=NOW)])
     allowed_catalog=compose_wettfinder_catalog([build_wettfinder_card(allowed,allowed.reference_quote,now=NOW)])
-    assert not low_catalog.featured + low_catalog.additional
-    assert allowed_catalog.featured + allowed_catalog.additional
-    # Only exclusion is asserted here; an observation does not release a SHADOW model.
-    assert not daily3_choices([low],now=NOW)
+    assert [card.key for card in low_catalog.featured + low_catalog.additional] == [
+        card.key for card in allowed_catalog.featured + allowed_catalog.additional
+    ] == [signal.key]
+    # An observation does not release a SHADOW model or change Daily3 selection.
+    assert daily3_choices([low],now=NOW) == daily3_choices([allowed],now=NOW)
 
 
 @pytest.mark.parametrize('competition,accepted',[('CS2',True),('LoL',False),(None,False)])

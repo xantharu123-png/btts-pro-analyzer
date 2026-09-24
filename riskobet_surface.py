@@ -620,8 +620,7 @@ def compose_riskobet_catalog(
     ):
         raise ValueError("max_featured must be between one and three")
 
-    capped = [card for card in _cap_scenarios_per_event(tuple(cards))
-              if not card.quote_floor_excluded]
+    capped = list(_cap_scenarios_per_event(tuple(cards)))
     if sport_filter == "Alle":
         ordered = _evidence_then_sport_order(capped)
     else:
@@ -675,7 +674,7 @@ def _price_markup(card: RiskBetCard, *, compact: bool) -> str:
     )
 
 
-def render_riskobet_card_html(card: RiskBetCard) -> str:
+def render_riskobet_card_html(card: RiskBetCard, *, show_price: bool = True) -> str:
     """Render an escaped full card with all decision fields immediately visible."""
 
     probability = format_riskobet_probability(card.model_probability)
@@ -687,6 +686,10 @@ def render_riskobet_card_html(card: RiskBetCard) -> str:
             '<p class="rb-missing"><span>Fehlende Kerndaten:</span> '
             f"{escape(missing_items)}</p>"
         )
+    price_footer = (
+        '<p class="rb-price-separation">Der Wettpreis verändert diese Prognose nicht.</p>'
+        if show_price else ''
+    )
     return (
         f'<article class="rb-card rb-card-featured" data-key="'
         f'{escape(card.candidate_id, quote=True)}" '
@@ -715,14 +718,13 @@ def render_riskobet_card_html(card: RiskBetCard) -> str:
         f"{_reason_block('contra', 'Spricht dagegen', card.cons)}"
         "</div>"
         f"{missing}"
-        f"{_price_markup(card, compact=False)}"
-        '<p class="rb-price-separation">Der Wettpreis verändert diese '
-        "Prognose nicht.</p>"
+        f"{_price_markup(card, compact=False) if show_price else ''}"
+        f"{price_footer}"
         "</article>"
     )
 
 
-def render_riskobet_compact_row_html(card: RiskBetCard) -> str:
+def render_riskobet_compact_row_html(card: RiskBetCard, *, show_price: bool = True) -> str:
     """Render one genuinely flat row while retaining every decision field."""
 
     probability = format_riskobet_probability(card.model_probability)
@@ -759,7 +761,7 @@ def render_riskobet_compact_row_html(card: RiskBetCard) -> str:
         f"{escape(card.pros[0])}</span>"
         '<span class="rb-row-contra"><b>Contra:</b> '
         f"{escape(card.cons[0])}</span>{missing}</div>"
-        f"{_price_markup(card, compact=True)}"
+        f"{_price_markup(card, compact=True) if show_price else ''}"
         "</article>"
     )
 

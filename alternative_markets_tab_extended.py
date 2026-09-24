@@ -13,6 +13,7 @@ from bet_finder_ui import (
     merge_consumer_forecast_catalog,
     partition_consumer_featured_forecasts,
     partition_consumer_forecasts,
+    render_model_selection,
     render_price_decision,
 )
 from bet_finder_candidates import build_probability_candidate
@@ -40,8 +41,8 @@ from market_consensus import (
 
 
 DEFAULT_LEAGUES = [78, 39, 140]
-MARKET_WORKFLOW_VERSION = 12
-MARKET_SNAPSHOT_VERSION = 16
+MARKET_WORKFLOW_VERSION = 13
+MARKET_SNAPSHOT_VERSION = 17
 MAX_CONSUMER_MARKET_SELECTIONS = 25
 MAX_CONSUMER_MARKETS_PER_FIXTURE = 8
 FEATURED_CONSUMER_MARKET_SELECTIONS = 3
@@ -485,7 +486,7 @@ def _run_market_scan_worker(
     if capture is not None:
         challenge_snapshot["context_capture"] = capture.report()
     if progress_cb:
-        progress_cb(0.92, "Marktquoten der Modellkandidaten werden verglichen")
+        progress_cb(0.92, "Modell-Auswahlen werden zusammengestellt")
     # The calculated forecast is a separate axis from bookmaker price and
     # from the later release decision.  In particular, a provisional UEFA
     # forecast must remain visible even when it is not an Echtgeld tip.
@@ -514,95 +515,24 @@ def _run_market_scan_worker(
         max_candidates=MAX_CONSUMER_MARKET_SELECTIONS,
         max_per_fixture=MAX_CONSUMER_MARKETS_PER_FIXTURE,
     )
-    release_candidates = select_wettfinder_catalog(
-        candidate_pool,
-        max_candidates=MAX_CONSUMER_MARKET_SELECTIONS,
-        require_release=True,
-        max_per_fixture=MAX_CONSUMER_MARKETS_PER_FIXTURE,
-    )
-    price_annotation_candidates = [
-        candidate
-        for candidate in model_shortlist
-        if exact_market_target(candidate.market_key) is not None
-    ]
-    reference_quotes, quote_errors = fetch_football_consensus(
-        api_football_key,
-        price_annotation_candidates,
-    )
-    price_candidate_by_id = {
-        candidate.candidate_id: candidate
-        for candidate in price_annotation_candidates
-    }
-    price_checked_at = datetime.now(timezone.utc)
-    reference_quotes = {
-        candidate_id: (
-            wettfinder_consensus(quote, now=price_checked_at) or quote
-        )
-        for candidate_id, quote in reference_quotes.items()
-        if quote_matches_candidate(
-            quote,
-            price_candidate_by_id.get(candidate_id),
-        )
-    }
-    price_status_counts: dict[str, int] = {}
-    playable_candidates = []
-    strict_candidate_ids = {
-        candidate.candidate_id for candidate in release_candidates
-    }
-    for candidate in price_annotation_candidates:
-        quote = reference_quotes.get(candidate.candidate_id)
-        status = wettfinder_reference_price_status(
-            quote,
-            candidate.minimum_odds,
-            candidate=candidate,
-            now=price_checked_at,
-        )
-        price_status_counts[status.code] = (
-            price_status_counts.get(status.code, 0) + 1
-        )
-        if (
-            status.code == "PLAYABLE"
-            and candidate.candidate_id in strict_candidate_ids
-        ):
-            playable_candidates.append(candidate)
-
+    # Preserve all calculated selections. No price/API stage follows.
     challenge_snapshot["model_shortlist"] = model_shortlist
     challenge_snapshot["model_approved_candidates"] = len(model_shortlist)
-    visible_candidate_ids = {
-        candidate.candidate_id for candidate in model_shortlist
-    }
-    challenge_snapshot["shortlist"] = select_wettfinder_catalog(
-        [
-            candidate
-            for candidate in playable_candidates
-            if candidate.candidate_id in visible_candidate_ids
-        ],
-        max_candidates=MAX_CONSUMER_MARKET_SELECTIONS,
-        require_release=True,
-        max_per_fixture=MAX_CONSUMER_MARKETS_PER_FIXTURE,
-    )
+    challenge_snapshot["shortlist"] = list(model_shortlist)
     challenge_snapshot["approved_candidates"] = len(
         challenge_snapshot["shortlist"]
     )
-    challenge_snapshot["price_candidates"] = release_candidates
-    challenge_snapshot["reference_quotes"] = serialize_consensus_map(
-        reference_quotes
-    )
-    challenge_snapshot["quote_errors"] = quote_errors
-    challenge_snapshot["price_checked_at"] = price_checked_at.isoformat()
-    challenge_snapshot["price_annotation_candidates"] = (
-        price_annotation_candidates
-    )
-    challenge_snapshot["price_checked_count"] = len(
-        price_annotation_candidates
-    )
-    challenge_snapshot["price_fixture_count"] = len(
-        {candidate.fixture_id for candidate in price_annotation_candidates}
-    )
-    challenge_snapshot["price_status_counts"] = price_status_counts
-    challenge_snapshot["bookmaker_data_used"] = bool(reference_quotes)
+    challenge_snapshot["price_candidates"] = []
+    challenge_snapshot["reference_quotes"] = {}
+    challenge_snapshot["quote_errors"] = []
+    challenge_snapshot["price_checked_at"] = None
+    challenge_snapshot["price_annotation_candidates"] = []
+    challenge_snapshot["price_checked_count"] = 0
+    challenge_snapshot["price_fixture_count"] = 0
+    challenge_snapshot["price_status_counts"] = {}
+    challenge_snapshot["bookmaker_data_used"] = False
     if progress_cb:
-        progress_cb(1.0, "Tipps und Marktpreise sind bereit")
+        progress_cb(1.0, "Modell-Auswahlen sind bereit")
     return {"scope": scope, "challenge": challenge_snapshot}
 
 
@@ -861,19 +791,12 @@ def create_alternative_markets_tab_extended(
     stand_parts = [
         f"Modellstand: {_format_snapshot_time(snapshot.get('scanned_at'))}",
     ]
-    if int(snapshot.get("price_checked_count") or 0) > 0:
-        stand_parts.append(
-            f"Preisstand: {_format_snapshot_time(snapshot.get('price_checked_at'))}"
-        )
     stand_parts.append(f"Zeitraum: {result_day}")
     st.caption(" · ".join(stand_parts))
     shortlist = snapshot.get("shortlist")
     shortlist = shortlist if isinstance(shortlist, list) else []
     model_shortlist = snapshot.get("model_shortlist")
     model_shortlist = model_shortlist if isinstance(model_shortlist, list) else []
-    reference_quotes = deserialize_consensus_map(
-        snapshot.get("reference_quotes")
-    )
     partial_scope_notice = _consumer_partial_scope_notice(
         snapshot,
         has_candidates=bool(shortlist or model_shortlist),
@@ -885,41 +808,14 @@ def create_alternative_markets_tab_extended(
     displayed_rows = _merge_consumer_market_rows(
         shortlist, model_shortlist, coherent=True,
     )
-    displayed_by_id = {
-        candidate.candidate_id: candidate for candidate in displayed_rows
-    }
-    reference_quotes = {
-        candidate_id: quote
-        for candidate_id, quote in reference_quotes.items()
-        if quote_matches_candidate(
-            quote,
-            displayed_by_id.get(candidate_id),
-        )
-    }
-    price_now = datetime.now(timezone.utc)
-    had_model_rows = bool(displayed_rows)
-    displayed_rows = [candidate for candidate in displayed_rows
-                      if not quote_below_publication_floor(reference_quotes.get(candidate.candidate_id),
-                                                           candidate=candidate, now=price_now)]
-    primary_rows, extreme_short_rows = partition_consumer_forecasts(
-        displayed_rows,
-        quote_for=lambda candidate: reference_quotes.get(candidate.candidate_id),
-    )
+    primary_rows = displayed_rows
     featured_rows, more_rows = partition_consumer_featured_forecasts(
         primary_rows,
         max_featured=FEATURED_CONSUMER_MARKET_SELECTIONS,
         allow_mixed_backfill=True,
     )
-    priced_ids = {candidate.candidate_id for candidate in shortlist}
-    priced_count = sum(
-        candidate.candidate_id in priced_ids for candidate in displayed_rows
-    )
-
     if not displayed_rows:
-        if had_model_rows:
-            st.info('Aktuell keine passende Auswahl ab Quote 1,20.')
-        else:
-            _render_consumer_no_tip(snapshot, day_label=result_day)
+        _render_consumer_no_tip(snapshot, day_label=result_day)
     else:
         if not featured_rows:
             st.info(
@@ -927,8 +823,6 @@ def create_alternative_markets_tab_extended(
                 "Basisprognosen und weitere miteinander vereinbare "
                 "Auswahlen stehen unten."
             )
-        elif priced_count:
-            st.caption(f"{len(primary_rows)} Auswahlen · {priced_count} mit Vergleichsquote")
         else:
             st.caption(f"{len(primary_rows)} Auswahlen")
         def render_rows(rows, *, start_index: int) -> None:
@@ -938,21 +832,7 @@ def create_alternative_markets_tab_extended(
             ):
                 index = start_index + offset
                 st.caption(f"Auswahl {index}")
-                render_price_decision(
-                    candidate,
-                    key=(
-                        f"market_{candidate.event_key}_"
-                        f"{snapshot.get('scanned_at')}"
-                    ),
-                    bankroll_key="football_bet_finder_bankroll",
-                    save_source="Fußball Prematch",
-                    reference_quote=reference_quotes.get(
-                        raw_candidate.candidate_id
-                    ),
-                    reference_binding_candidate=raw_candidate,
-                    allow_manual_check=True,
-                    presentation="fixture_first",
-                )
+                render_model_selection(candidate, presentation="fixture_first")
                 with st.popover("Kontextdaten"):
                     st.caption(candidate_context_summary(raw_candidate))
                 if offset < len(candidates) - 1:
@@ -968,29 +848,12 @@ def create_alternative_markets_tab_extended(
                     f"Weitere Märkte zu {event_label}",
                     expanded=False,
                 ):
-                    st.caption(
-                        "Diese zusätzlichen Auswahlen widersprechen sich "
-                        "nicht. Ihre Quote wird getrennt bewertet."
-                    )
+                    st.caption("Weitere miteinander vereinbare Modell-Auswahlen.")
                     render_rows(
                         event_rows,
                         start_index=next_index,
                     )
                 next_index += len(event_rows)
-        if extreme_short_rows:
-            with st.expander(
-                f"Sehr kurze Quoten ({len(extreme_short_rows)})",
-                expanded=False,
-            ):
-                st.caption(
-                    "Diese Modellprognosen bleiben sichtbar. Die sehr kurze "
-                    "Quote macht die Prognose nicht falsch; sie wird nur nicht "
-                    "als nützliche Hauptauswahl hervorgehoben."
-                )
-                render_rows(
-                    extreme_short_rows,
-                    start_index=len(primary_rows) + 1,
-                )
 
 
 __all__ = [
