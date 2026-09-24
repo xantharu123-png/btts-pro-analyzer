@@ -7,6 +7,7 @@ from challenge_engine import (
     ValidationMetrics,
     build_fixture_candidates,
     market_is_basic_forecast,
+    markets_mutually_exclusive,
     select_wettfinder_catalog,
 )
 
@@ -33,6 +34,15 @@ def _credible_metric() -> ValidationMetrics:
         statistical_release_passed=True,
         prediction_version=CHALLENGE_PREDICTION_VERSION,
     )
+
+
+def test_market_conflicts_use_actual_settlement_not_market_names():
+    assert markets_mutually_exclusive("RESULT_HOME", "RESULT_AWAY")
+    assert markets_mutually_exclusive("TOTAL_OVER_1_5", "TOTAL_UNDER_1_5")
+    assert markets_mutually_exclusive("CORNERS_OVER_11_5", "CORNERS_UNDER_11_5")
+    assert not markets_mutually_exclusive("DC_1X", "DC_X2")  # A draw wins both.
+    assert not markets_mutually_exclusive("HOME_OVER_2_5", "AWAY_OVER_2_5")
+    assert not markets_mutually_exclusive("TOTAL_OVER_1_5", "CORNERS_UNDER_5_5")
 
 
 def test_high_probability_market_isolated_from_15k_challenge_corridor():
@@ -113,6 +123,27 @@ def test_high_probability_market_isolated_from_15k_challenge_corridor():
         "7001:AWAY_UNDER_2_5",
         "7001:BTTS_YES",
     }
+
+    opposite = replace(
+        candidate,
+        candidate_id="7001:AWAY_OVER_2_5",
+        market_key="AWAY_OVER_2_5",
+        selection="Über 2.5",
+        probability=0.06,
+        conservative_probability=0.04,
+        probability_haircut_pp=2.0,
+        model_price=25.0,
+    )
+    coherent = select_wettfinder_catalog(
+        [candidate, opposite, same_fixture_core_market],
+    )
+    coherent_keys = {row.market_key for row in coherent}
+    assert "BTTS_YES" in coherent_keys
+    assert len(coherent_keys & {"AWAY_UNDER_2_5", "AWAY_OVER_2_5"}) == 1
+    raw_pool = select_wettfinder_catalog(
+        [candidate, opposite, same_fixture_core_market], avoid_conflicts=False,
+    )
+    assert len(raw_pool) == 3
 
     other_fixture = replace(
         same_fixture_core_market,

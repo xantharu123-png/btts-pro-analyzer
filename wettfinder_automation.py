@@ -50,6 +50,7 @@ from challenge_engine import (
     candidate_is_forecast_credible,
     candidate_is_credible,
     candidate_selection_rank,
+    markets_mutually_exclusive,
     market_is_basic_forecast,
     select_wettfinder_catalog,
 )
@@ -534,6 +535,9 @@ def _wettfinder_candidates_from_snapshot(payload: object) -> list[ChallengeCandi
             if isinstance(candidate, ChallengeCandidate)
         ),
         max_candidates=None,
+        # Preserve the complete model/quote pool; only user-facing catalogs
+        # suppress mutually impossible selections from the same match.
+        avoid_conflicts=False,
     )
 
 
@@ -787,11 +791,11 @@ def select_catalog_candidates(
     limit: Optional[int] = None,
     preserve_order: bool = False,
 ) -> list[dict[str, Any]]:
-    """Keep distinct credible markets; fixture deduplication is UI-only.
+    """Keep distinct, mutually compatible markets for the user-facing ledger.
 
     Variants that describe the exact same market and selection are collapsed,
-    while a second genuinely different market from one fixture remains in the
-    forecast catalog for price checking and the secondary UI section.
+    while another compatible market from the fixture may still appear.  Raw
+    model rows stay separate and can all be checked against bookmaker prices.
     """
 
     valid = _ranked_candidates(
@@ -803,6 +807,7 @@ def select_catalog_candidates(
     selected: list[dict[str, Any]] = []
     seen_keys: set[str] = set()
     seen_markets: set[tuple[str, str, str]] = set()
+    football_markets_by_event: dict[str, list[str]] = {}
     for row in valid:
         key = str(row.get("key") or "").strip()
         event = str(row.get("event_identity") or key).strip()
@@ -816,8 +821,19 @@ def select_catalog_candidates(
             or market_identity in seen_markets
         ):
             continue
+        football_market = (
+            market if row.get("source") == "football_challenge" else ""
+        )
+        prior = football_markets_by_event.get(event, [])
+        if football_market and any(
+            markets_mutually_exclusive(football_market, prior_key)
+            for prior_key in prior
+        ):
+            continue
         seen_keys.add(key)
         seen_markets.add(market_identity)
+        if football_market:
+            football_markets_by_event.setdefault(event, []).append(football_market)
         selected.append(row)
         if limit is not None and len(selected) >= limit:
             break

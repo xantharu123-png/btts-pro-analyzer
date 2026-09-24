@@ -810,6 +810,43 @@ def market_outcome(spec: MarketSpec, home_count: int, away_count: int) -> bool:
     raise ValueError(f"Unsupported market kind: {spec.kind}")
 
 
+@lru_cache(maxsize=4096)
+def markets_mutually_exclusive(left_key: str, right_key: str) -> bool:
+    """Whether two selections for one fixture can never both settle as wins.
+
+    Compare only within the same count family: goals, corners or cards.
+    The grid extends beyond both definitions' thresholds, so the existing
+    settlement rules decide conflicts instead of market-name heuristics.
+    """
+    left = MARKET_BY_KEY.get(left_key)
+    right = MARKET_BY_KEY.get(right_key)
+    if left is None or right is None or left_key == right_key:
+        return False
+
+    def family(spec: MarketSpec) -> str:
+        if spec.kind in {"corner_total", "team_corners"}:
+            return "corners"
+        if spec.kind in {"yellow_total", "team_yellow"}:
+            return "yellow"
+        return "goals"
+
+    if family(left) != family(right):
+        return False
+    bound = max(
+        2,
+        math.ceil(max(
+            float(left.threshold or 0), float(right.threshold or 0),
+            float(left.high or 0), float(right.high or 0),
+        )) + 2,
+    )
+    return not any(
+        market_outcome(left, home, away)
+        and market_outcome(right, home, away)
+        for home in range(bound + 1)
+        for away in range(bound + 1)
+    )
+
+
 def market_probability(matrix: dict[tuple[int, int], float], spec: MarketSpec) -> float:
     return sum(
         probability
@@ -3615,6 +3652,7 @@ def select_wettfinder_catalog(
     *,
     require_release: bool = False,
     max_per_fixture: Optional[int] = None,
+    avoid_conflicts: bool = True,
 ) -> list[ChallengeCandidate]:
     """Select the normal consumer catalog without market-name scarcity gates.
 
@@ -3625,11 +3663,15 @@ def select_wettfinder_catalog(
     A caller may cap processing volume and the number of markets per fixture,
     but both caps are applied only after the common evidence ranking and never
     by market type.  The fixture cap is applied before the global cap so one
-    match cannot crowd every other match out of the catalog.
+    match cannot crowd every other match out of the catalog.  The display
+    default omits mutually impossible same-match selections; the internal
+    model/quote pool may opt out without changing model probabilities.
     """
 
     if not isinstance(require_release, bool):
         raise ValueError("require_release must be boolean")
+    if not isinstance(avoid_conflicts, bool):
+        raise ValueError("avoid_conflicts must be boolean")
     if max_candidates is not None and (
         isinstance(max_candidates, bool)
         or not isinstance(max_candidates, int)
@@ -3654,6 +3696,16 @@ def select_wettfinder_catalog(
             candidate.candidate_id,
         ),
     )
+    if avoid_conflicts:
+        compatible: list[ChallengeCandidate] = []
+        fixture_markets: dict[int, list[str]] = {}
+        for candidate in eligible:
+            prior = fixture_markets.setdefault(candidate.fixture_id, [])
+            if any(markets_mutually_exclusive(candidate.market_key, key) for key in prior):
+                continue
+            prior.append(candidate.market_key)
+            compatible.append(candidate)
+        eligible = compatible
     if max_per_fixture is not None:
         fixture_counts: dict[int, int] = {}
         capped: list[ChallengeCandidate] = []
@@ -4427,6 +4479,7 @@ __all__ = [
     "expected_log_growth_for_price",
     "fixture_market_probabilities",
     "market_outcome",
+    "markets_mutually_exclusive",
     "market_is_basic_forecast",
     "market_probability",
     "score_matrix",

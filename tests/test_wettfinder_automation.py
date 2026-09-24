@@ -1478,10 +1478,11 @@ def test_runner_keeps_full_model_pool_after_budgeted_price_check(tmp_path):
     assert len(priced_ids) == 16
     assert len(set(priced_ids)) == 16
     assert document["sources"]["football"]["price_checked_count"] == 16
+    assert len(document["football"]["candidates"]) == 16
     assert sum(
         row["source"] == "football_challenge"
         for row in document["model_candidates"]
-    ) == 16
+    ) == 14
 
 
 def test_persisted_model_signal_keeps_event_market_and_selection_separate():
@@ -1917,6 +1918,26 @@ def test_price_pool_keeps_multiple_markets_for_the_same_fixture():
         "home-win",
         "under-4-5",
         "other",
+    ]
+
+
+def test_daily_catalog_hides_opposite_football_selections_but_keeps_compatible_ones():
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    rows = [
+        _football_model_row("over", fixture_id=1, market_key="TOTAL_OVER_1_5",
+                            is_basic_forecast=False, probability=0.82),
+        _football_model_row("under", fixture_id=1, market_key="TOTAL_UNDER_1_5",
+                            is_basic_forecast=False, probability=0.18),
+        _football_model_row("home-goal", fixture_id=1, market_key="HOME_OVER_0_5",
+                            is_basic_forecast=False, probability=0.74),
+        _football_model_row("other-under", fixture_id=2, market_key="TOTAL_UNDER_1_5",
+                            is_basic_forecast=False, probability=0.63),
+    ]
+    catalog = build_daily_forecast_catalog(
+        rows, [], now=now, target_date=now.date(),
+    )
+    assert [row["key"] for row in catalog] == [
+        "over", "home-goal", "other-under",
     ]
 
 
