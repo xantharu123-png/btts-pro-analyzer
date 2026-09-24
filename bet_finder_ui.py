@@ -10,6 +10,7 @@ import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Callable, Iterable, Optional, TypeVar
+from zoneinfo import ZoneInfo
 
 import streamlit as st
 
@@ -37,6 +38,17 @@ from tip_store import TipStore
 
 LOGGER = logging.getLogger(__name__)
 _ForecastRow = TypeVar("_ForecastRow")
+_ZURICH_TZ = ZoneInfo("Europe/Zurich")
+
+
+def _quote_time_label(raw_time: str) -> str:
+    try:
+        parsed = datetime.fromisoformat(raw_time.replace("Z", "+00:00"))
+        if parsed.tzinfo is not None:
+            return parsed.astimezone(_ZURICH_TZ).strftime("%d.%m. %H:%M")
+    except (AttributeError, TypeError, ValueError):
+        pass
+    return "Zeit unbekannt"
 
 
 @dataclass(frozen=True)
@@ -617,16 +629,21 @@ def _render_reference_price(
         st.info(
             f'Quote {quote.best_odds:.2f} · unter Value-Grenze {candidate.minimum_odds:.2f}.'
         )
+    elif status.code == "STALE":
+        if quote is not None:
+            st.caption(
+                f"Letzte Quote (alt): {quote.best_odds:.2f} · "
+                f"{_quote_time_label(quote.quoted_at)}"
+            )
+        else:
+            st.caption("Keine aktuelle Quote")
     else:
         reason = {
             "THIN": "Es liegen noch zu wenige Vergleichsquoten vor.",
-            "STALE": "Die Vergleichsquote ist nicht mehr aktuell.",
             "UNAVAILABLE": "Keine exakt passende Marktquote verfügbar.",
             "INVALID_MINIMUM": "Die Value-Grenze konnte nicht sicher berechnet werden.",
         }.get(status.code, "Der Wettpreis kann noch nicht sicher bewertet werden.")
         st.info(reason)
-        if status.code == 'STALE' and quote is not None:
-            st.caption(f'Letzte Quote: {quote.best_odds:.2f} · Stand: {quote.quoted_at}')
 
     if decision is not None and decision.status == "BET":
         _render_stake_recommendation(decision)
@@ -862,8 +879,8 @@ def render_price_decision(
 ) -> Optional[PriceDecision]:
     """Render one model selection while keeping forecast and price separate."""
     del live_price  # Kept for call-site compatibility.
-    if presentation not in {"full", "compact"}:
-        raise ValueError("presentation must be 'full' or 'compact'")
+    if presentation not in {"full", "compact", "fixture_first"}:
+        raise ValueError("presentation must be 'full', 'compact' or 'fixture_first'")
     if manual_surface not in {"expander", "popover"}:
         raise ValueError("manual_surface must be 'expander' or 'popover'")
     selection = candidate.selection or "keine Auswahl"
@@ -882,8 +899,22 @@ def render_price_decision(
     if presentation == "full":
         st.subheader(f"{candidate.market}: {selection}")
         st.caption(candidate.event_label)
+    elif presentation == "fixture_first":
+        st.subheader(candidate.event_label)
+        st.write(f"{candidate.market}: {selection}")
 
-    if presentation == "full" and candidate.forecast_available:
+    if presentation == "fixture_first" and candidate.forecast_available:
+        value_label = (
+            f"{candidate.minimum_odds:.2f}"
+            if candidate.minimum_odds is not None
+            else "k. A."
+        )
+        st.write(
+            f"Modell {format_probability_percent(candidate.model_probability)} · "
+            f"Vorsichtig {format_probability_percent(candidate.risk_adjusted_probability)} · "
+            f"Value ab {value_label}"
+        )
+    elif presentation == "full" and candidate.forecast_available:
         metrics = st.columns(3)
         metrics[0].metric(
             "Modellwahrscheinlichkeit",
@@ -930,7 +961,7 @@ def render_price_decision(
         )
     )
     automatic_decision = automatic_evaluation.decision
-    if presentation == "full":
+    if presentation in {"full", "fixture_first"}:
         _render_reference_price(candidate, automatic_evaluation)
     elif automatic_decision is not None and automatic_decision.status == "BET":
         _render_stake_recommendation(automatic_decision)

@@ -928,33 +928,16 @@ def create_alternative_markets_tab_extended(
                 "Auswahlen stehen unten."
             )
         elif priced_count:
-            st.info(
-                f"{priced_count} Modell-Auswahl"
-                f"{'en' if priced_count != 1 else ''} mit passender "
-                f"Vergleichsquote für {result_day}. Weitere berechnete "
-                "miteinander vereinbare Auswahlen bleiben unabhängig vom "
-                "Preis sichtbar."
-            )
+            st.caption(f"{len(primary_rows)} Auswahlen · {priced_count} mit Vergleichsquote")
         else:
-            found_label = (
-                "Eine interessante Auswahl gefunden"
-                if len(primary_rows) == 1
-                else f"{len(primary_rows)} interessante Auswahlen gefunden"
-            )
-            st.info(f"{found_label}. Der Preisstand steht bei jeder Auswahl.")
-        st.caption(
-            "Die Quote bewertet den Wettpreis, nicht den möglichen "
-            "Spielausgang. Bekannte Quoten unter 1,20 werden ausgefiltert; "
-            "fehlende Quoten bleiben offen."
-        )
+            st.caption(f"{len(primary_rows)} Auswahlen")
         def render_rows(rows, *, start_index: int) -> None:
             candidates = [_strict_market_candidate(candidate) for candidate in rows]
             for offset, (candidate, raw_candidate) in enumerate(
                 zip(candidates, rows),
             ):
                 index = start_index + offset
-                st.markdown(f"### Auswahl {index}")
-                st.caption(candidate_context_summary(raw_candidate))
+                st.caption(f"Auswahl {index}")
                 render_price_decision(
                     candidate,
                     key=(
@@ -968,7 +951,10 @@ def create_alternative_markets_tab_extended(
                     ),
                     reference_binding_candidate=raw_candidate,
                     allow_manual_check=True,
+                    presentation="fixture_first",
                 )
+                with st.popover("Kontextdaten"):
+                    st.caption(candidate_context_summary(raw_candidate))
                 if offset < len(candidates) - 1:
                     st.divider()
 

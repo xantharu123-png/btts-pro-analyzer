@@ -99,6 +99,76 @@ def _render_compact() -> None:
     )
 
 
+def _render_fixture_first() -> None:
+    from bet_finder_ui import render_price_decision
+    from multi_sport_recommendations import EVIDENCE_RELEASED, RecommendationCandidate
+
+    candidate = RecommendationCandidate(
+        event_key="fixture-first-contract", sport="Fußball", event_label="Alpha vs Beta",
+        market="Beide treffen", selection="Ja", line=None,
+        model_probability=65.0, risk_adjusted_probability=60.0,
+        probability_haircut=5.0, fair_odds=1.538, minimum_odds=1.80,
+        model_name="Testmodell", expected_total=3.0, evidence=("interne Prüfung",),
+        evidence_stage=EVIDENCE_RELEASED,
+    )
+
+    render_price_decision(
+        candidate, key="fixture-first-contract", presentation="fixture_first",
+    )
+
+
+def test_fixture_first_presentation_leads_with_teams_and_uses_inline_metrics():
+    app = AppTest.from_function(_render_fixture_first)
+    app.run(timeout=30)
+
+    assert not app.exception
+    assert [item.value for item in app.subheader] == ["Alpha vs Beta"]
+    assert not app.metric
+    text = " ".join(item.value for item in app.markdown)
+    assert "Beide treffen: Ja" in text
+    assert "Modell 65.0 %" in text
+    assert "Vorsichtig 60.0 %" in text
+    assert "Value ab 1.80" in text
+
+
+def test_stale_quote_is_one_short_localized_line_not_a_current_offer(monkeypatch):
+    import bet_finder_ui as ui
+    from market_consensus import ReferencePriceStatus
+
+    messages = []
+    monkeypatch.setattr(ui.st, "caption", lambda value: messages.append(("caption", value)))
+    monkeypatch.setattr(ui.st, "info", lambda value: messages.append(("info", value)))
+    stale = replace(_quote(), quoted_at="2026-09-24T03:31:16+00:00")
+    evaluation = ui.ReferencePriceEvaluation(
+        decision=None,
+        status=ReferencePriceStatus("STALE", "Veraltet", None),
+        quote=stale,
+        candidate=_candidate(),
+        evaluated_at=datetime(2026, 9, 24, 12, 0, tzinfo=timezone.utc),
+    )
+
+    ui._render_reference_price(_candidate(), evaluation)
+
+    assert messages == [("caption", "Letzte Quote (alt): 2.10 · 24.09. 05:31")]
+    assert ui._quote_time_label("2026-01-24T03:31:16+00:00") == "24.01. 04:31"
+
+
+def _render_context_in_more_markets() -> None:
+    import streamlit as st
+
+    with st.expander("Weitere Märkte"):
+        with st.popover("Kontextdaten"):
+            st.caption("Aufstellungen offen")
+
+
+def test_context_popover_can_be_used_inside_more_markets_group():
+    app = AppTest.from_function(_render_context_in_more_markets)
+    app.run(timeout=30)
+
+    assert not app.exception
+    assert len(app.expander) == 1
+
+
 def test_default_full_presentation_keeps_reference_details_and_manual_expander():
     app = AppTest.from_function(_render_full)
     app.run(timeout=30)
