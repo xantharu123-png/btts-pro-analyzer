@@ -413,11 +413,11 @@ def test_zero_ready_keeps_best_price_independent_forecast_visible():
     at = AppTest.from_function(_run_zero_ready)
     at.run(timeout=60)
     assert len(at.warning) >= 1
-    assert any("KEINE WETTE" in warning.value for warning in at.warning)
+    assert any("Keines der" in warning.value for warning in at.warning)
     # Die Quote darf eine gesperrte Modellprognose nicht unsichtbar machen.
     assert len(at.selectbox) == 1
     assert any(
-        "PROGNOSE VORHANDEN" in warning.value for warning in at.warning
+        "Prognose vorhanden" in warning.value for warning in at.warning
     )
     # Keine nackte Auswahl-Überschrift wie "Ja"
     assert all(header.value.strip() not in {"Ja", "Nein"} for header in at.subheader)
@@ -440,7 +440,7 @@ def test_blocked_candidate_card_has_single_verdict_and_plain_reasons():
     at.run(timeout=60)
     assert len(at.error) == 0
     assert len(at.warning) == 1
-    assert "PROGNOSE VORHANDEN" in at.warning[0].value
+    assert "Prognose vorhanden" in at.warning[0].value
     headings = [header.value for header in at.subheader]
     assert all(heading.strip() != "Ja" for heading in headings)
     assert any(":" in heading for heading in headings)
@@ -452,7 +452,7 @@ def test_shadow_selection_with_good_price_is_never_labeled_or_saved_as_tip():
     assert len(at.exception) == 0
     assert len(at.success) == 0
     assert any("PASSENDE QUOTE" in info.value for info in at.info)
-    assert any("kein Einsatzvorschlag" in info.value for info in at.info)
+    assert any("Modellprüfung offen" in info.value for info in at.info)
     assert all("TIPP" not in info.value for info in at.info)
     assert all(button.label != "Tipp merken" for button in at.button)
 
@@ -461,7 +461,7 @@ def test_released_selection_with_good_price_is_a_playable_tip():
     at = AppTest.from_function(_run_released_playable_card)
     at.run(timeout=60)
     assert len(at.exception) == 0
-    assert any("SPIELBARER TIPP" in success.value for success in at.success)
+    assert any("QUOTE IM VALUE-BEREICH" in success.value for success in at.success)
     assert any("2.00 bei B" in success.value for success in at.success)
     assert any(button.label == "Tipp merken" for button in at.button)
 
@@ -524,10 +524,7 @@ def test_playable_price_cannot_bypass_pending_statistical_release():
     assert len(at.exception) == 0
     assert len(at.success) == 0
     text = " ".join(info.value for info in at.info)
-    assert (
-        "Modell noch in statistischer Evidenzprüfung – Prognose sichtbar, "
-        "kein Einsatz."
-    ) in text
+    assert "Quote im Value-Bereich; Modellprüfung offen." in text
     assert "p-Wert" not in text
     assert "q-Wert" not in text
     assert all(button.label != "Tipp merken" for button in at.button)

@@ -108,7 +108,7 @@ def test_default_full_presentation_keeps_reference_details_and_manual_expander()
     assert {item.label for item in app.metric} >= {
         "Modellwahrscheinlichkeit", "Vorsichtige Prognose", "Value-Grenze",
     }
-    assert any("SPIELBARER TIPP" in item.value for item in app.success)
+    assert any("QUOTE IM VALUE-BEREICH" in item.value for item in app.success)
     assert len(app.expander) == 1
 
 

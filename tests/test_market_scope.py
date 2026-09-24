@@ -206,7 +206,7 @@ def test_market_worker_rejects_only_the_cheap_market_not_the_fixture(monkeypatch
     }
     assert market_tab._price_check_summary(result) == (
         "Preisprüfung: 2 Modellmärkte aus 1 Spiel geprüft · "
-        "1 unter der Value-Grenze · 1 preislich spielbar"
+        "1 unter der Value-Grenze · 1 im Value-Bereich"
     )
 
 

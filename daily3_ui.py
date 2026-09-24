@@ -63,7 +63,7 @@ def _saved_bet(st, store, scope, day, bet):
         st.write(snap['analysis_basis'])
         st.write(snap['analysis_caution'])
         if bet['external_deviation']:
-            st.warning('Nachträglich erfasste externe Wette. Diese Buchung war keine Einsatzfreigabe der App.')
+            st.warning('Nachträglich erfasste externe Wette. Die App dokumentiert diesen Einsatz nur.')
         if bet['under_review']:
             st.warning('Abrechnung wird geklärt. Bis dahin keine neue Einsatzvormerkung.')
         if bet['status'] == 'reserved':
@@ -116,7 +116,7 @@ def _external_bet(st, store, scope, history, today, now):
     if not history:
         return
     with st.expander('Bereits extern platzierte Wette nachtragen'):
-        st.warning('Nur bereits getätigte Wetten nachtragen. Auch eine Budgetüberschreitung wird ehrlich erfasst – das ist keine Freigabe, zusätzlich zu wetten.')
+        st.warning('Nur bereits getätigte Wetten nachtragen. Eine Überschreitung des gewählten Tagesbudgets wird angezeigt.')
         with st.form('d3-external:'+scope):
             st.selectbox('Zugehöriger Tageslauf', sorted(history, reverse=True), key='d3-ext-day')
             sports = {'Fußball': 'football', 'Tennis': 'tennis', 'Basketball': 'basketball', 'Eishockey': 'hockey', 'E-Sport': 'esports'}
@@ -189,7 +189,7 @@ def render_daily3(st, *, snapshot_loader=None, store_factory=None, now=None):
         except Daily3Error as exc:
             st.error(str(exc))
         except (OSError, sqlite3.Error, RuntimeError):
-            st.error('Die Tagesaufzeichnungen sind momentan nicht verfügbar. Es wird kein neues Budget freigegeben.')
+            st.error('Die Tagesaufzeichnungen sind momentan nicht verfügbar. Das verbleibende Budget kann nicht zuverlässig berechnet werden.')
     day = history.get(today)
     prior_pending = [d for d in history.values() if d['date'] != today and
                      any(b['status'] in ('reserved', 'open') or b['under_review'] for b in d['bets'].values())]

@@ -2665,9 +2665,8 @@ def _render_prematch_results(
 
     if not ready_rows:
         st.warning(
-            f"KEINE WETTE — keines der {len(candidate_rows)} geprüften Spiele "
-            "besteht alle Prüf- und Freigabekriterien. Die quotenfreie "
-            "Prognose bleibt trotzdem sichtbar."
+            f"Keines der {len(candidate_rows)} geprüften Spiele erfüllt "
+            "derzeit alle Modellkriterien. Die Prognosen bleiben sichtbar."
         )
         st.caption(
             "Die Quote hat diese Spiele nicht aussortiert. Warum die "
@@ -4098,7 +4097,7 @@ def _render_esports_shadow_status() -> None:
             f"{settled}/{release['required']} abgerechnet | Treffer {summary['hit_rate']} % bei Ø "
             f"risikoadjustiert {summary['avg_risk_adjusted_probability']} % | "
             f"{summary['open']} offen | "
-            f"{'Freigabe aktiv' if release['ready'] else 'Lernphase, noch keine Wettfreigabe'}"
+            f"{'Modell geprüft' if release['ready'] else 'Modellprüfung läuft'}"
         )
     else:
         st.caption(
@@ -4293,8 +4292,8 @@ def render_multi_sport(
                 "Tennis-Wettfinder berechnet."
             ),
             "Cricket": (
-                "Nur Spielplan: Für Cricket ist noch kein validiertes "
-                "Wettmodell freigegeben."
+                "Nur Spielplan: Für Cricket fehlt noch ein belastbares "
+                "Vorhersagemodell."
             ),
             "E-Sport": (
                 "Shadow-Prognose vor Serienbeginn; ein verifizierter "
@@ -4381,7 +4380,7 @@ _AUTOMATIC_PRICE_STATUS_LABELS = {
     "THIN": "mit zu wenigen Vergleichsanbietern",
     "STALE": "mit veraltetem Marktstand",
     "INVALID_MINIMUM": "mit ungültiger Value-Grenze",
-    "PLAYABLE": "preislich spielbar",
+    "PLAYABLE": "im Value-Bereich",
 }
 
 
@@ -4523,7 +4522,7 @@ def _automatic_consumer_summary(
         return (
             evidence,
             "Ein Teil der benötigten Daten war nicht vollständig verfügbar. "
-            "Deshalb wurde kein Tipp freigegeben; das ist keine negative "
+            "Die Datenprüfung ist deshalb nicht vollständig; das ist keine "
             "Aussage über den möglichen Spielausgang.",
             True,
         )

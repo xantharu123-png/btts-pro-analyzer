@@ -354,15 +354,12 @@ def _price_copy(
         "OBSERVED": ("Quote abgerufen", "neutral"),
     }
     if status.code == "PLAYABLE":
-        # A matching price is not a released tip. Reserve the green
-        # consumer-facing "Spielbar" state for the exact, persisted release
-        # overlay; SHADOW/RESEARCH rows remain visibly non-actionable.
-        label, tone = (
-            ("Spielbar", "positive")
-            if confirmed_tip
-            else ("Quote passend", "warning")
+        # Report only what the price check established; the user decides
+        # whether to place a bet, independently of internal model status.
+        return (
+            "Quote im Value-Bereich", "neutral",
+            status.usable_odds, status.bookmaker,
         )
-        return label, tone, status.usable_odds, status.bookmaker
     label, tone = labels.get(status.code, ("Quote offen", "warning"))
     if status.code in {"TOO_LOW", "BORDERLINE", "THIN", "STALE", "OBSERVED"} and quote is not None:
         best = max(quote.points, key=lambda point: point.odds, default=None)
@@ -377,12 +374,12 @@ def _price_copy(
 
 def _evidence_copy(signal: ModelSignal, confirmed_tip: bool) -> tuple[str, str]:
     if confirmed_tip:
-        return "Bestätigter Tipp", "positive"
+        return "Modell geprüft", "positive"
     evidence_stage = str(signal.evidence_stage or "").strip().upper()
     if evidence_stage == "RELEASED":
         if signal.statistical_release_passed is True:
-            return "Freigegeben", "positive"
-        return "Freigabe ausstehend", "warning"
+            return "Modell geprüft", "positive"
+        return "Modellprüfung offen", "warning"
     if evidence_stage == "SHADOW":
         return "Evidenzprüfung", "warning"
     if evidence_stage == "RESEARCH":
@@ -752,10 +749,6 @@ def _top_card_markup(card: WettfinderCard) -> str:
         card.price_code,
         "Wettpreis separat prüfen. Die Prognose bleibt unverändert.",
     )
-    if card.price_code == "PLAYABLE" and not card.confirmed_tip:
-        price_note = (
-            "Die Quote erreicht den Value-Bereich; noch kein freigegebener Tipp."
-        )
     event_label = escape(card.event_label)
     return (
         f'<article class="wf-top-card" data-key="{escape(card.key, quote=True)}" '
@@ -800,8 +793,6 @@ def _compact_row_markup(card: WettfinderCard, *, grouped: bool = False, featured
     price_note = ''
     if featured:
         message = _PRICE_NOTES.get(card.price_code, 'Wettpreis separat prüfen.')
-        if card.price_code == 'PLAYABLE' and not card.confirmed_tip:
-            message = 'Die Quote erreicht den Value-Bereich; noch kein freigegebener Tipp.'
         price_note = (
             '<p class="wf-group-price-note">Sicherheitswert: heuristischer Abschlag, '
             'keine gesicherte Mindestchance. '

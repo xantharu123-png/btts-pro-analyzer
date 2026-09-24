@@ -64,7 +64,7 @@ PRICE_STATUS_LABELS = {
     "THIN": "mit zu wenigen Vergleichsanbietern",
     "STALE": "mit veraltetem Marktstand",
     "INVALID_MINIMUM": "mit ungültiger Value-Grenze",
-    "PLAYABLE": "preislich spielbar",
+    "PLAYABLE": "im Value-Bereich",
 }
 
 
@@ -941,7 +941,7 @@ def create_alternative_markets_tab_extended(
                 if len(primary_rows) == 1
                 else f"{len(primary_rows)} interessante Auswahlen gefunden"
             )
-            st.info(f"{found_label} – aktuell noch kein spielbarer Tipp.")
+            st.info(f"{found_label}. Der Preisstand steht bei jeder Auswahl.")
         st.caption(
             "Die Quote bewertet den Wettpreis, nicht den möglichen "
             "Spielausgang. Bekannte Quoten unter 1,20 werden ausgefiltert; "

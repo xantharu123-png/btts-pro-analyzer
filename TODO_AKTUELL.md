@@ -1,5 +1,16 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 24.09.2026 – Wettentscheidung liegt beim Nutzer
+
+- Wettfinder, eigene Suche, Daily3 und Sportansichten bezeichnen Modell- und
+  Quotenstatus als Informationen, nicht als Erlaubnis zum Wetten. Eine fehlende
+  oder niedrige Quote verändert die Prognose nicht und blendet sie nicht aus.
+- Interne Kriterien für optionale Einsatzvorschläge und die bestehende
+  TipStore-Speicherung bleiben unverändert. Das ist eine Funktionsgrenze der
+  App, keine Entscheidung über extern platzierte Wetten.
+- Keine Modellwahrscheinlichkeiten, Preisgrenzen oder CHF-50-Budgetregeln
+  geändert.
+
 ## 24.09.2026 – Wetter, Form, Ausfälle und Tennis-Belag
 
 - Tennis: Das bestehende Elo nutzt bei mindestens acht Belagspielen **je Spieler**

@@ -586,7 +586,7 @@ def esports_signals(
                 ),
                 detail=(
                     "E-Sport-Pre-Match-Modell · "
-                    f"{'Freigegeben' if released else 'Shadow'}"
+                    f"{'Modell geprüft' if released else 'Modell im Test'}"
                 ),
                 scheduled_start=scheduled.isoformat(),
                 minimum_odds=minimum_odds,

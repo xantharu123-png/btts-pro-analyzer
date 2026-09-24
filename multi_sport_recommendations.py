@@ -53,7 +53,7 @@ EVIDENCE_UNAVAILABLE = "UNAVAILABLE"
 EVIDENCE_LABELS = {
     EVIDENCE_RESEARCH: "Forschung",
     EVIDENCE_SHADOW: "Unabhängige Shadow-Prüfung",
-    EVIDENCE_RELEASED: "Echtgeld-freigegeben",
+    EVIDENCE_RELEASED: "Modell geprüft",
     EVIDENCE_UNAVAILABLE: "Kein belastbares Modell",
 }
 ESPORTS_MODEL_VERSION = "subgraph-elo-v3"
@@ -291,7 +291,7 @@ def _candidate(
         blockers=(
             ()
             if minimum_odds is not None
-            else ("Die konservative Modellwahrscheinlichkeit ist für eine Preisfreigabe zu niedrig.",)
+            else ("Die konservative Modellwahrscheinlichkeit reicht für diese Preisrechnung nicht aus.",)
         ),
     )
 
@@ -301,7 +301,7 @@ def no_bet_candidate(
     item: dict,
     blockers: Sequence[str],
     *,
-    market: str = "Kein freigegebener Markt",
+    market: str = "Kein berechneter Markt",
     model_name: str = "Kein belastbares Modell",
 ) -> RecommendationCandidate:
     home = item.get("home_team") or item.get("player1") or item.get("team1") or "Team 1"
@@ -395,11 +395,11 @@ def basketball_total_candidate(game: dict, market_line: Any) -> RecommendationCa
             game,
             [
                 "Für Basketball ist noch kein leakage-frei walk-forward-validiertes "
-                "Pre-Match-Modell freigegeben. Das vorhandene Totalmodell benötigt "
+                "Pre-Match-Modell vorhanden. Das bestehende Totalmodell benötigt "
                 "einen verifizierten Live-Spielstand und eine Spieluhr."
             ],
             market="Pre-Match",
-            model_name="Pre-Match-Modell nicht freigegeben",
+            model_name="Kein belastbares Pre-Match-Modell",
         )
     league = str(game.get("league") or "").strip()
     league_key = league.casefold()
@@ -416,7 +416,7 @@ def basketball_total_candidate(game: dict, market_line: Any) -> RecommendationCa
     line = _half_line(market_line)
     blockers = []
     if baseline is None:
-        blockers.append("Liga besitzt keinen freigegebenen Gesamtpunkte-Prior.")
+        blockers.append("Für diese Liga fehlt ein geprüfter Gesamtpunkte-Prior.")
     if line is None:
         blockers.append("Die angebotene Gesamtlinie muss eine positive x,5-Linie sein.")
     period = _whole_non_negative(game.get("period"))
@@ -510,11 +510,11 @@ def nhl_total_candidate(game: dict, market_line: Any) -> RecommendationCandidate
             game,
             [
                 "Für NHL ist noch kein goalie- und lineup-sensitives, leakage-frei "
-                "walk-forward-validiertes Pre-Match-Modell freigegeben. Das vorhandene "
+                "walk-forward-validiertes Pre-Match-Modell vorhanden. Das bestehende "
                 "Totalmodell benötigt einen verifizierten Live-Spielstand."
             ],
             market="Pre-Match",
-            model_name="Pre-Match-Modell nicht freigegeben",
+            model_name="Kein belastbares Pre-Match-Modell",
         )
     home = str(game.get("home_team") or "HOME").strip() or "HOME"
     away = str(game.get("away_team") or "AWAY").strip() or "AWAY"
@@ -1029,8 +1029,7 @@ def evaluate_candidate_price(
             )
             if status == "BET"
             else (
-                "Modell- und Preisprüfung bestanden; die unabhängige "
-                "Shadow-Evidenz reicht noch nicht für Echtgeld.",
+                "Die unabhängige Modellprüfung ist noch offen.",
             )
             if status == "SHADOW"
             else (

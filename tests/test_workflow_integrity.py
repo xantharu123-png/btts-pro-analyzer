@@ -1289,7 +1289,7 @@ def test_automatic_strict_release_replaces_same_key_once(monkeypatch):
     assert rendered[0][0].evidence_stage == "RELEASED"
     assert rendered[0][1]["precomputed_reference_evaluation"].decision.status == "BET"
     assert html.count('data-key="released-row"') == 1
-    assert "Bestätigter Tipp" in html
+    assert "Modell geprüft" in html
     assert "another-row" not in html
 
 

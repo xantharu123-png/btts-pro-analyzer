@@ -588,14 +588,13 @@ def _render_reference_price(
     if status.code == "PLAYABLE" and quote is not None:
         if candidate.release_pending:
             st.info(
-                "Modell noch in statistischer Evidenzprüfung – Prognose "
-                "sichtbar, kein Einsatz."
+                "Quote im Value-Bereich; Modellprüfung offen."
             )
         elif decision is not None and decision.status == "BET":
             st.success(
-                f"SPIELBARER TIPP: {candidate.selection} | aktuelle "
+                f"QUOTE IM VALUE-BEREICH: {candidate.selection} | aktuelle "
                 f"Quote {status.usable_odds:.2f} bei {status.bookmaker} | "
-                "spielbar ab "
+                "Value ab "
                 f"{candidate.minimum_odds:.2f}"
             )
         else:
@@ -603,8 +602,8 @@ def _render_reference_price(
                 f"PASSENDE QUOTE: {candidate.selection} | die aktuelle "
                 f"Quote {status.usable_odds:.2f} bei {status.bookmaker} "
                 "erreicht die "
-                f"Value-Grenze von {candidate.minimum_odds:.2f}. Das Modell "
-                "sammelt noch Praxisergebnisse; daher kein Einsatzvorschlag."
+                f"Value-Grenze von {candidate.minimum_odds:.2f}. "
+                "Modellprüfung offen."
             )
     elif status.code == "OBSERVED" and quote is not None:
         point = max(quote.points, key=lambda p: p.odds)
@@ -822,20 +821,18 @@ def _render_manual_check(
             )
         elif decision.status == "BET":
             st.success(
-                f"PREIS BESTANDEN: {candidate.selection} @ "
+                f"QUOTE IM VALUE-BEREICH: {candidate.selection} @ "
                 f"{decision.quoted_odds:.2f}"
             )
         elif decision.status in {"SHADOW", "RESEARCH"}:
             if candidate.release_pending:
                 st.info(
-                    "Modell noch in statistischer Evidenzprüfung – Prognose "
-                    "sichtbar, kein Einsatz."
+                    "Modellprüfung offen; Prognose und Quote bleiben sichtbar."
                 )
             else:
                 st.info(
                     f"PREIS PASST: {candidate.selection} @ "
-                    f"{decision.quoted_odds:.2f}. Diese Auswahl wird noch "
-                    "geprüft; deshalb gibt es keinen Einsatzvorschlag."
+                    f"{decision.quoted_odds:.2f}. Modellprüfung offen."
                 )
         else:
             st.info('Unter 1,20 · kein Vorschlag zu diesem Preis.'
@@ -912,7 +909,7 @@ def render_price_decision(
     if candidate.blockers:
         if candidate.forecast_available:
             st.warning(
-                "PROGNOSE VORHANDEN, ABER NICHT ALS TIPP FREIGEGEBEN."
+                "Prognose vorhanden; Modellprüfung offen."
             )
         else:
             st.error("KEINE BELASTBARE PROGNOSE.")
