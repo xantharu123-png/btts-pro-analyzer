@@ -101,7 +101,6 @@ def test_existing_riskobet_data_can_publish_new_explanations_without_rewriting_h
     create_tennis_db(source)
     insert_tennis(source, row_id=1, p_a=.35, markets='{}')
     with sqlite3.connect(source) as db:
-        db.execute('ALTER TABLE predictions ADD COLUMN context_json TEXT')
         db.execute('UPDATE predictions SET context_json=?', (json.dumps({'players': {
             'a': {'facts': ['Player A: 3 Sätze beobachtet.']}}}),))
     store = RiskBetStore(tmp_path/'risk.db', tmp_path/'latest.json')
