@@ -251,6 +251,10 @@ def football_due(
     # Legacy states have no scope marker and get one fresh discovery.
     if previous.get("discovery_league_ids") != sorted(ALTERNATIVE_MARKET_LEAGUES):
         return FootballDueDecision(True, "league_scope_changed")
+    # A same-day code deploy must not keep a discovery calculated by an older
+    # prediction model, even when the league list itself is unchanged.
+    if previous.get("discovery_model_version") != CHALLENGE_PREDICTION_VERSION:
+        return FootballDueDecision(True, "model_version_changed")
 
     return FootballDueDecision(
         False,
@@ -1122,6 +1126,7 @@ def _football_state_from_snapshot(
         "status": "degraded" if degraded else "completed",
         "search_date": search_date.isoformat(),
         "discovery_league_ids": sorted(ALTERNATIVE_MARKET_LEAGUES),
+        "discovery_model_version": CHALLENGE_PREDICTION_VERSION,
         "last_attempt_at": attempted_at.isoformat(),
         "last_discovery_at": scanned_at.isoformat() if not degraded else None,
         "last_success_at": scanned_at.isoformat() if not degraded else None,

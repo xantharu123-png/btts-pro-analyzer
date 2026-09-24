@@ -1598,11 +1598,14 @@ def test_degraded_discovery_retries_on_the_next_half_hour_tick():
 
 
 def test_football_discovery_runs_only_once_for_current_target_date():
+    from challenge_engine import CHALLENGE_PREDICTION_VERSION
+
     search_date = date(2030, 1, 1)
     previous = {
         "status": "completed",
         "search_date": search_date.isoformat(),
         "discovery_league_ids": sorted(ALTERNATIVE_MARKET_LEAGUES),
+        "discovery_model_version": CHALLENGE_PREDICTION_VERSION,
         "last_attempt_at": "2030-01-01T06:00:00+00:00",
         "fixture_kickoffs": ["2030-01-01T20:00:00+00:00"],
     }
@@ -1625,6 +1628,8 @@ def test_football_discovery_runs_only_once_for_current_target_date():
 
 
 def test_completed_empty_discovery_rescans_when_league_scope_changes():
+    from challenge_engine import CHALLENGE_PREDICTION_VERSION
+
     now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
     previous = {
         "status": "completed",
@@ -1645,6 +1650,7 @@ def test_completed_empty_discovery_rescans_when_league_scope_changes():
     assert legacy.reason == "league_scope_changed"
 
     previous["discovery_league_ids"] = sorted(ALTERNATIVE_MARKET_LEAGUES)
+    previous["discovery_model_version"] = CHALLENGE_PREDICTION_VERSION
     current = football_due(previous, now=now, search_date=now.date())
     assert current.due is False
     assert current.reason == "daily_discovery_current"
@@ -1655,9 +1661,36 @@ def test_completed_empty_discovery_rescans_when_league_scope_changes():
         search_date=now.date(),
     )
     assert rescan_state["discovery_league_ids"] == sorted(ALTERNATIVE_MARKET_LEAGUES)
+    assert rescan_state["discovery_model_version"] == CHALLENGE_PREDICTION_VERSION
     assert football_due(
         rescan_state, now=now + timedelta(minutes=30), search_date=now.date()
     ).due is False
+
+
+def test_completed_discovery_rescans_after_model_version_changes():
+    from challenge_engine import CHALLENGE_PREDICTION_VERSION
+
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    previous = {
+        "status": "completed",
+        "search_date": now.date().isoformat(),
+        "last_attempt_at": now.isoformat(),
+        "discovery_league_ids": sorted(ALTERNATIVE_MARKET_LEAGUES),
+        "discovery_model_version": "older-model",
+    }
+    changed = football_due(previous, now=now, search_date=now.date())
+    assert changed.due is True
+    assert changed.reason == "model_version_changed"
+
+    previous.pop("discovery_model_version")
+    legacy = football_due(previous, now=now, search_date=now.date())
+    assert legacy.due is True
+    assert legacy.reason == "model_version_changed"
+
+    previous["discovery_model_version"] = CHALLENGE_PREDICTION_VERSION
+    current = football_due(previous, now=now, search_date=now.date())
+    assert current.due is False
+    assert current.reason == "daily_discovery_current"
 
 
 def test_context_due_includes_unchecked_far_persisted_fixture_ids():
@@ -4079,6 +4112,7 @@ def test_failed_research_attempt_is_retried_without_new_football_discovery(
                     "status": "completed",
                     "search_date": now.date().isoformat(),
                     "discovery_league_ids": sorted(ALTERNATIVE_MARKET_LEAGUES),
+                    "discovery_model_version": wettfinder_automation.CHALLENGE_PREDICTION_VERSION,
                     "last_attempt_at": (now - timedelta(minutes=5)).isoformat(),
                     "context_checks": {},
                     "discovery_candidates": [],
