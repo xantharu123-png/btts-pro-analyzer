@@ -4866,7 +4866,7 @@ def render_wettfinder() -> None:
                     index=1,
                     key="finder_sport",
                     format_func=lambda value: (
-                        "Alle Bereiche (separate Suchen)"
+                        "Alle Sportarten"
                         if value == "Alle"
                         else value
                     ),
@@ -4895,11 +4895,6 @@ def render_wettfinder() -> None:
                     )
 
             if sport == "Alle":
-                st.caption(
-                    "Alle zeigt getrennte Sportbereiche. Jede Suche wird im "
-                    "jeweiligen Tab separat gestartet; das Ergebnis gilt nur "
-                    "für diesen Sport."
-                )
                 sport_tabs = st.tabs(list(selected_sports))
                 for sport_tab, selected_sport in zip(sport_tabs, selected_sports):
                     with sport_tab:

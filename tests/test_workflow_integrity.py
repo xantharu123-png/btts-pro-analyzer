@@ -1460,7 +1460,7 @@ def test_legacy_automatic_context_scope_is_unknown_without_zero_pending_claim():
     assert incomplete is True
 
 
-def test_all_sports_copy_says_each_tab_is_a_separate_search(monkeypatch):
+def test_all_sports_shows_tabs_without_redundant_explanation(monkeypatch):
     recording_st = _RecordingStreamlit(
         widget_values={
             "wettfinder_mode_v2": "Eigene Suche",
@@ -1472,11 +1472,9 @@ def test_all_sports_copy_says_each_tab_is_a_separate_search(monkeypatch):
 
     app.render_wettfinder()
 
-    captions = [value for kind, value in recording_st.messages if kind == "caption"]
-    assert captions == [
-        "Alle zeigt getrennte Sportbereiche. Jede Suche wird im jeweiligen "
-        "Tab separat gestartet; das Ergebnis gilt nur für diesen Sport."
-    ]
+    assert recording_st.tabs_created == [app.FINDER_SINGLE_SPORT_OPTIONS]
+    assert not [value for kind, value in recording_st.messages if kind == "caption"]
+    assert "Alle Sportarten" in inspect.getsource(app.render_wettfinder)
 
 
 def test_public_navigation_exposes_no_admin_settings_or_training_route():
