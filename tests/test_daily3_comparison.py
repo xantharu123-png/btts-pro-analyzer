@@ -4,7 +4,9 @@ from datetime import timedelta
 
 import pytest
 
-from daily3_comparison import baseline_upper, build_market_comparisons
+from daily3_comparison import (
+    NATIONAL_SCHEMA, baseline_upper, build_market_comparisons, validated_comparison,
+)
 from daily3_selection import daily3_choices
 from forecast_selection import select_consumer_forecasts
 from test_daily3_selection import NOW, football
@@ -167,3 +169,127 @@ def test_existing_15k_candidate_payload_does_not_gain_a_null_financial_field():
     from test_challenge_integrity import _candidate
     c = _candidate(NOW)
     assert 'market_comparison' not in c.to_dict()
+
+
+def _national_comparison_signal():
+    from test_challenge_market_eligibility import _credible_metric
+    from forecast_analysis import project_football_analysis
+
+    signal = football(probability=.8, variants=(.8, .75, .85))
+    signal = replace(signal, model_scope='senior_national_pooled')
+    fixture = target()
+    fixture['league']['id'] = 5
+    rows = history_rows()
+    for index, row in enumerate(rows):
+        row['league']['id'] = (5, 32, 10, 1)[index % 4]
+        row['challenge_senior_national_team'] = True
+    metric = replace(_credible_metric(), prediction_version=signal.model_version)
+    comparison = build_market_comparisons(
+        fixture, rows, {signal.market_key: (.8, .75, .85)},
+        {signal.market_key: metric}, prediction_version=signal.model_version,
+        as_of=NOW, model_scope=signal.model_scope,
+    )[signal.market_key]
+    raw = vars(signal)
+    evidence = project_football_analysis(raw, model_basis={
+        **raw, 'expected_home_goals': 1.8, 'expected_away_goals': .9,
+        'national_samples': [12, 12], 'form_samples': [6, 6],
+        'market_comparison': comparison,
+    })
+    return replace(signal, analysis_evidence=evidence), rows, comparison
+
+
+def test_national_comparison_uses_only_marked_recent_senior_pool_and_reaches_daily3():
+    from forecast_analysis import read_football_analysis
+    from wettfinder_surface import build_wettfinder_card, compose_wettfinder_catalog
+    from test_challenge_market_eligibility import _credible_metric
+
+    signal, rows, comparison = _national_comparison_signal()
+    assert comparison['schema'] == NATIONAL_SCHEMA
+    assert comparison['samples'] == 240
+    assert comparison['successes'] == 120
+    assert comparison['source_league_ids'] == [1, 5, 10, 32]
+    assert read_football_analysis(vars(signal), now=NOW)['basis']['national_samples'] == [12, 12]
+    choices = daily3_choices([signal], now=NOW)
+    assert len(choices) == 1
+    assert choices[0].comparison.margin == pytest.approx(.05)
+    assert 'A-Länderspiel' in choices[0].comparison.summary
+    card = build_wettfinder_card(signal, now=NOW)
+    assert 'A-Länderspiele' in card.analysis_samples
+    assert compose_wettfinder_catalog([card]).featured == (card,)
+
+    fixture = target()
+    fixture['league']['id'] = 5
+    metric = replace(_credible_metric(), prediction_version=signal.model_version)
+    probabilities = {signal.market_key: (.8, .75, .85)}
+    validation = {signal.market_key: metric}
+    altered = deepcopy(rows)
+    altered[0].pop('challenge_senior_national_team')
+    assert build_market_comparisons(fixture, altered, probabilities, validation,
+        prediction_version=signal.model_version, as_of=NOW, model_scope=signal.model_scope) == {}
+    old = deepcopy(rows[0])
+    old['fixture']['id'] = 9999
+    old['fixture']['date'] = (NOW-timedelta(days=731)).isoformat()
+    old['league']['id'] = 32
+    assert build_market_comparisons(fixture, [*rows, old], probabilities, validation,
+        prediction_version=signal.model_version, as_of=NOW, model_scope=signal.model_scope) == {
+            signal.market_key: comparison
+        }
+
+
+@pytest.mark.parametrize('change', [
+    {'schema': 'league-market-comparison-v1'},
+    {'source_league_ids': [5, 5]},
+    {'source_league_ids': [5, True]},
+    {'history_window_days': 1460},
+    {'oldest_kickoff': (NOW-timedelta(days=731)).isoformat()},
+])
+def test_national_comparison_rejects_wrong_scope_or_provenance(change):
+    from forecast_analysis import read_football_analysis
+    signal, _, comparison = _national_comparison_signal()
+    raw = deepcopy(comparison)
+    raw.update(change)
+    evidence = deepcopy(signal.analysis_evidence)
+    evidence['basis']['market_comparison'] = raw
+    broken = replace(signal, analysis_evidence=evidence)
+    assert read_football_analysis(vars(broken), now=NOW)['basis'].get('market_comparison') is None
+    assert daily3_choices([broken], now=NOW) == ()
+
+
+def test_national_comparison_does_not_transfer_to_club_fixture():
+    signal, _, comparison = _national_comparison_signal()
+    identity = dict(signal.analysis_evidence['identity'])
+    identity['model_scope'] = 'same_competition'
+    assert validated_comparison(comparison, identity=identity, model_version=signal.model_version) is None
+
+
+def test_national_candidate_producer_attaches_comparison_without_changing_probabilities(monkeypatch):
+    from datetime import datetime, timezone
+    from challenge_engine import build_fixture_candidates
+    from challenge_15k import NATIONAL_TEAM_HISTORY_DAYS
+    from test_challenge_market_eligibility import _credible_metric
+
+    assert NATIONAL_TEAM_HISTORY_DAYS == 730
+    signal, rows, _ = _national_comparison_signal()
+    fixture = target()
+    fixture['league']['id'] = 5
+    # The producer uses its real decision clock; move only these synthetic
+    # 2030 fixtures into the current test run's historical window.
+    shift = NOW - datetime.now(timezone.utc)
+    fixture['fixture']['date'] = (datetime.fromisoformat(fixture['fixture']['date']) - shift).isoformat()
+    for row in rows:
+        row['fixture']['date'] = (datetime.fromisoformat(row['fixture']['date']) - shift).isoformat()
+    model = dict(projection_success=True, freshness_days=1., active_lambdas=(1.8, .9),
+        venue_samples=(0, 0), national_samples=(12, 12), form_samples=(6, 6),
+        probabilities={signal.market_key: (.8, .75, .85)}, count_models={}, xg_coverage=0.)
+    monkeypatch.setattr('challenge_engine.fixture_market_probabilities',
+                        lambda *args, **kwargs: deepcopy(model))
+    metric = replace(_credible_metric(), prediction_version=signal.model_version)
+    candidates = build_fixture_candidates(
+        fixture, rows, {signal.market_key: metric}, candidate_profile='wettfinder',
+        model_scope=signal.model_scope,
+    )
+    selected = [row for row in candidates if row.market_key == signal.market_key]
+    assert len(selected) == 1
+    assert selected[0].probability == .8
+    assert selected[0].market_comparison['schema'] == NATIONAL_SCHEMA
+    assert selected[0].market_comparison['samples'] == 240

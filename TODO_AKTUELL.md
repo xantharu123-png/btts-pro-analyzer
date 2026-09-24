@@ -13,8 +13,13 @@
   Die bestehende Ticket-/Einsatzrechnung und authentisierte Buchung bleiben.
 - Tagesbestand 24.09., 17:24 CEST: 40 Nationalteam-Modellkandidaten, 15 über
   70 Prozent, aber kein gespeicherter Same-Match-Formvergleich für Daily3.
-  Daily3 bleibt deshalb für diesen Bestand leer. Die 2-Prozentpunkte-Regel
-  nicht durch eine bloße hohe Favoritenchance ersetzen.
+  Der Nationalteam-Vergleich wird nun aus dem bereits geladenen, markierten
+  A-Länderspielpool der letzten 730 Tage aufgebaut. Club- und U23-Daten,
+  ältere Resultate und abweichende Spiel-/Markt-/Modellbelege qualifizieren
+  nicht. Wettfinder und Daily3 können damit einen echten Formvergleich
+  verwenden; die 2-Prozentpunkte-Regel bleibt. Wie viele heutige Auswahlen
+  sie erfüllen, muss der nächste echte Scan zeigen. Die gepoolte Prüfung ist
+  weiterhin kein eigener Nations-League-Qualitätsnachweis.
 
 ## 24.09.2026 – Tippfindung ohne Buchmacherpreise
 

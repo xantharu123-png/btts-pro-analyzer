@@ -114,7 +114,7 @@ def _basis_projection(raw: Mapping, *, identity=None) -> dict:
             result.update({home: raw[home], away: raw[away]})
     if raw.get("expected_unit") in ("Ecken", "Gelbe Karten"):
         result["expected_unit"] = raw["expected_unit"]
-    for field in ("venue_samples", "form_samples"):
+    for field in ("venue_samples", "national_samples", "form_samples"):
         values = raw.get(field)
         if isinstance(values, (tuple, list)) and len(values) == 2 and all(_integer(n, minimum=1) for n in values):
             result[field] = list(values)
@@ -320,9 +320,13 @@ def _rate_copy(spec, basis: Mapping, home: str, away: str) -> str | None:
 
 
 def _sample_copy(basis: Mapping) -> str:
-    venue, form = basis.get("venue_samples"), basis.get("form_samples")
+    venue, national, form = (
+        basis.get("venue_samples"), basis.get("national_samples"), basis.get("form_samples")
+    )
     parts = []
-    if venue:
+    if national:
+        parts.append(f"{national[0]} / {national[1]} A-Länderspiele")
+    elif venue:
         parts.append(f"{venue[0]} Heimspiele / {venue[1]} Auswärtsspiele")
     if form:
         parts.append(

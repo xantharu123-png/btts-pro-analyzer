@@ -2578,6 +2578,7 @@ def build_fixture_candidates(
         comparisons = build_market_comparisons(
             fixture, league_history, model['probabilities'], validation,
             prediction_version=CHALLENGE_PREDICTION_VERSION, as_of=datetime.now(timezone.utc),
+            model_scope=model_scope,
         )
     candidates: list[ChallengeCandidate] = []
     for spec in MARKET_SPECS:

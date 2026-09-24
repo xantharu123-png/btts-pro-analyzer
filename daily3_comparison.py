@@ -6,11 +6,14 @@ unconditioned league frequency. Neither comparison is proof of betting value
 or applied injury/weather effects. Ordinary forecasts remain unchanged.
 """
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import math
 from collections.abc import Mapping
 
 SCHEMA = 'league-market-comparison-v1'
+NATIONAL_SCHEMA = 'senior-national-market-comparison-v1'
+NATIONAL_SCOPE = 'senior_national_pooled'
+NATIONAL_HISTORY_DAYS = 730
 MIN_BASELINE_SAMPLES = 200
 MIN_FORM_CHANGE = .02  # Presentation relevance, not empirical significance.
 
@@ -19,7 +22,8 @@ def _mapping(value):
     return value if isinstance(value, Mapping) else {}
 
 
-def build_market_comparisons(fixture, history, probabilities, validation, *, prediction_version, as_of):
+def build_market_comparisons(fixture, history, probabilities, validation, *, prediction_version, as_of,
+                             model_scope='same_competition'):
     """Use only the same already-loaded, completed league history; no I/O.
 
     Do not recalculate any model. Counts and the already computed three model
@@ -31,16 +35,32 @@ def build_market_comparisons(fixture, history, probabilities, validation, *, pre
     kickoff = _fixture_datetime(fixture)
     if type(league) is not int or kickoff is None:
         return {}
+    national = model_scope == NATIONAL_SCOPE
+    if model_scope not in ('same_competition', NATIONAL_SCOPE) or (national and league != 5):
+        return {}
+    history = list(history)
+    # The pooled national model uses several senior competitions. Never
+    # silently mix unmarked club or youth results into its comparison.
+    if national and (not history or any(
+        not isinstance(row, dict) or row.get('challenge_senior_national_team') is not True
+        for row in history
+    )):
+        return {}
     cutoff = min(kickoff, as_of)
     observations = []
     for row in history:
-        if not isinstance(row, dict) or _mapping(row.get('league')).get('id') != league:
+        source_league = _mapping(row.get('league')).get('id') if isinstance(row, dict) else None
+        if type(source_league) is not int or source_league <= 0 or (
+            not national and source_league != league
+        ):
             continue
         played = _fixture_datetime(row)
         status = _mapping(_mapping(row.get('fixture')).get('status')).get('short')
         # Existing historical adapters may omit status, but never accept a
         # known ongoing, postponed or extra-time score as a 90-minute result.
-        if played is None or played >= cutoff or status not in (None, 'FT'):
+        if (played is None or played >= cutoff or status not in (None, 'FT')
+                or (national and (played < cutoff - timedelta(days=NATIONAL_HISTORY_DAYS)
+                                  or status != 'FT'))):
             continue
         teams = _mapping(row.get('teams'))
         home, away = _mapping(teams.get('home')).get('id'), _mapping(teams.get('away')).get('id')
@@ -55,11 +75,12 @@ def build_market_comparisons(fixture, history, probabilities, validation, *, pre
             continue
         if any(not _number(p) or not 0 < p < 1 for p in variants):
             continue
-        outcomes, dates, conflicts = {}, {}, set()
+        outcomes, dates, conflicts, source_leagues = {}, {}, set(), set()
         for event, played, row in observations:
             outcome = _fixture_market_outcome(spec, row)
             if outcome is None:
                 continue
+            source_leagues.add(row['league']['id'])
             if event in outcomes and outcomes[event] != outcome:
                 conflicts.add(event)
             outcomes[event] = outcome
@@ -68,7 +89,11 @@ def build_market_comparisons(fixture, history, probabilities, validation, *, pre
             continue
         metric = validation.get(key)
         results[key] = {
-            'schema': SCHEMA, 'fixture_id': fixture['fixture']['id'], 'league_id': league,
+            'schema': NATIONAL_SCHEMA if national else SCHEMA,
+            **({'source_league_ids': sorted(source_leagues),
+                'oldest_kickoff': min(dates.values()).isoformat(),
+                'history_window_days': NATIONAL_HISTORY_DAYS} if national else {}),
+            'fixture_id': fixture['fixture']['id'], 'league_id': league,
             'home_id': fixture['teams']['home']['id'], 'away_id': fixture['teams']['away']['id'],
             'market_key': key, 'scheduled_start': kickoff.isoformat(),
             'prediction_version': prediction_version,
@@ -107,13 +132,16 @@ def baseline_upper(successes, samples):
 
 def validated_comparison(raw, *, identity, model_version=None):
     """Only exact event/market/model evidence; no legacy/fabricated fallback."""
-    if not isinstance(raw, Mapping) or raw.get('schema') != SCHEMA:
+    if not isinstance(raw, Mapping):
+        return None
+    national = identity.get('model_scope') == NATIONAL_SCOPE
+    if identity.get('model_scope') not in ('same_competition', NATIONAL_SCOPE):
+        return None
+    if raw.get('schema') != (NATIONAL_SCHEMA if national else SCHEMA):
         return None
     for field in ('fixture_id', 'market_key', 'home_id', 'away_id', 'scheduled_start'):
         if raw.get(field) != identity.get(field) or type(raw.get(field)) is not type(identity.get(field)):
             return None
-    if identity.get('model_scope') != 'same_competition':
-        return None
     version = raw.get('prediction_version')
     if not isinstance(version, str) or not version or (model_version is not None and version != model_version):
         return None
@@ -121,6 +149,14 @@ def validated_comparison(raw, *, identity, model_version=None):
         return None
     if type(raw.get('league_id')) is not int or raw['league_id'] <= 0:
         return None
+    if national:
+        if raw['league_id'] != 5 or raw.get('history_window_days') != NATIONAL_HISTORY_DAYS:
+            return None
+        source_ids = raw.get('source_league_ids')
+        if (not isinstance(source_ids, list) or not 1 <= len(source_ids) <= 16
+                or any(type(item) is not int or item <= 0 for item in source_ids)
+                or source_ids != sorted(set(source_ids))):
+            return None
     n, k = raw.get('samples'), raw.get('successes')
     if type(n) is not int or type(k) is not int or not MIN_BASELINE_SAMPLES <= n <= 100000 or not 0 <= k <= n:
         return None
@@ -129,6 +165,10 @@ def validated_comparison(raw, *, identity, model_version=None):
     modeled = _clock(identity.get('modeled_at'))
     if not latest or not cutoff or not modeled or not latest < cutoff <= modeled:
         return None
+    if national:
+        oldest = _clock(raw.get('oldest_kickoff'))
+        if not oldest or not cutoff - timedelta(days=NATIONAL_HISTORY_DAYS) <= oldest <= latest:
+            return None
     probabilities = raw.get('probabilities')
     if not isinstance(probabilities, (list, tuple)) or len(probabilities) != 3:
         return None
@@ -139,6 +179,8 @@ def validated_comparison(raw, *, identity, model_version=None):
     fields = ('schema', 'fixture_id', 'home_id', 'away_id', 'league_id', 'market_key',
               'scheduled_start', 'prediction_version', 'validation_prediction_version',
               'model_skill_supported', 'samples', 'successes', 'latest_kickoff')
+    if national:
+        fields += ('source_league_ids', 'oldest_kickoff', 'history_window_days')
     return {**{key: raw[key] for key in fields}, 'probabilities': list(probabilities)}
 
 
@@ -190,7 +232,10 @@ def football_form_comparison(signal, *, now, minimum_probability=0.0):
     # a confidence bound. Never fill slots with round-off/tiny positive deltas.
     if floor < minimum_probability or margin < MIN_FORM_CHANGE - 1e-12:
         return None
-    return Comparison(margin, floor, raw['successes']/raw['samples'], raw['samples'], season, active)
+    return Comparison(
+        margin, floor, raw['successes']/raw['samples'], raw['samples'], season, active,
+        signal_label=('A-Länderspiel-Formsignal' if raw['schema'] == NATIONAL_SCHEMA else 'Formsignal'),
+    )
 
 
 def daily3_comparison(signal, *, now, minimum_probability):
