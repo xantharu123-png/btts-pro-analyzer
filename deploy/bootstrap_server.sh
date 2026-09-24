@@ -360,7 +360,7 @@ expected_unit_sha256() {
         deploy/systemd/betboy-esports.service) printf '%s\n' 1df7e7c001c093c211ce03ae3c0ac57ce8030f9c3da008e1ee04e431ca9cfd8b ;;
         deploy/systemd/betboy-esports.timer) printf '%s\n' d436a79258ab1aa4a4dd31697f9fb7cdb9d93b64d8a58b66c0b98f2cd3921832 ;;
         deploy/systemd/betboy-football-shadow.service) printf '%s\n' 0e9bf4d73bc8db2b2dee201b116d63f86c0dcd953a5458e0f6c8ea00df33a149 ;;
-        deploy/systemd/betboy-football-shadow.timer) printf '%s\n' d6d5d1b48e42328194293637c5083b9bee88dcbe08a2f80e52a0f33c5790ba70 ;;
+        deploy/systemd/betboy-football-shadow.timer) printf '%s\n' ee402db87bc5d57fbf640f3ef390c5945b4c2667009c428eb4e28dc83f69a84d ;;
         deploy/systemd/betboy-redcard-history.service) printf '%s\n' a063bd88657bfbcffe804732c48c5302b98c3fd869864383a62f6b2f1daa8795 ;;
         deploy/systemd/betboy-redcard-history.timer) printf '%s\n' 8e888c84244bda2868962831f7106c1ebbcaacc5dd54071004452b05c1d53920 ;;
         deploy/systemd/betboy-redcard-settlement.service) printf '%s\n' f2bdb5ed768012258ecec20f3ba91c0f8290853218f26842524a210aa1ba767a ;;

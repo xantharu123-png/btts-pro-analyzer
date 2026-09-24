@@ -1,8 +1,8 @@
 [Unit]
-Description=Run BetBoy football Shadow once daily
+Description=Check due BetBoy football Shadow work every ten minutes
 
 [Timer]
-OnCalendar=*-*-* 17:02:00
+OnCalendar=*-*-* *:02,12,22,32,42,52:00
 AccuracySec=30s
 Persistent=false
 

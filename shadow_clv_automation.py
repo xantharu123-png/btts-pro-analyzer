@@ -4,11 +4,10 @@ One run performs every due step, idempotently:
 
 1. Settle finished predictions from verified API-Football final scores.
 2. Capture closing quotes inside the 15-minute pre-kickoff window.
-3. Load the day's fixture schedule once per Zurich calendar day.
-4. Evaluate each fixture 75-20 minutes before kickoff with the real BetBoy
-   model pipeline (walk-forward validation + context gates: confirmed lineups,
-   injuries, H2H, weather) and log passing BTTS candidates with the verified
-   Bet365 opening quote into the CLV ledger.
+3. Load today and tomorrow's schedules once per Zurich calendar day.
+4. Evaluate fixtures 75-20 minutes before kickoff with the real BetBoy model
+   pipeline and select model forecasts independently of the offered price.
+   Only provider-timestamped Bet365 quotes enter the separate CLV ledger.
 
 Model and price stay strictly separated; the ledger enforces identical
 bookmaker and source for opening and closing quotes.
@@ -34,15 +33,14 @@ from api_budget import (  # noqa: E402
     APIBudgetPriority,
     api_football_get,
 )
-from betting_math import BettingMathError, evaluate_market_price  # noqa: E402
 from challenge_engine import (  # noqa: E402
-    KELLY_REFERENCE_CAP,
-    MIN_LEG_EXPECTED_ROI,
     MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST,
     apply_candidate_context,
     build_fixture_candidates,
-    candidate_is_credible,
+    candidate_is_forecast_credible,
+    candidate_selection_rank,
     fit_market_calibration,
+    market_is_basic_forecast,
     validate_league_markets,
 )
 from clv_tracker import CLVTracker, DuplicatePredictionError  # noqa: E402
@@ -76,6 +74,7 @@ def _zurich_time(moment_utc: datetime) -> datetime:
 SHADOW_DB = PROJECT_DIR / "shadow_clv.db"
 CACHE_DIR = PROJECT_DIR / ".shadow_cache"
 BOOKMAKER_NAME = "Bet365"
+BOOKMAKER_ID = 8  # /odds/bookmakers?search=Bet365, live verified 2026-09-24
 QUOTE_SOURCE = "API-Football"
 BTTS_MARKET_LABEL = "Beide Teams treffen"
 CLOSING_WINDOW = timedelta(minutes=15)
@@ -86,7 +85,7 @@ SETTLE_GRACE = timedelta(hours=2)
 FT_STATUSES = {"FT"}
 MIN_HISTORY_GAMES = 220  # darunter wird die Vorsaison vorangestellt (Cold-Start)
 SHADOW_MODEL_VERSION = "challenge-engine-coherent-joint-calibration-v13"
-SHADOW_POLICY_VERSION = "shadow-risk-ev-v4"
+SHADOW_POLICY_VERSION = "shadow-model-first-v5"
 SHADOW_REVIEW_MIN_CLV_BETS = 300
 
 # Tor-basierte Märkte mit eindeutigem Buchmacher-Pendant (Bet365 via API-Football).
@@ -146,6 +145,10 @@ def _schedule_marker(target_date: date) -> str:
     )
 
 
+def _settlement_marker(target_date: date) -> str:
+    return f"settlement-check:{target_date.isoformat()}"
+
+
 def _shadow_work_due(now: datetime, db_path: Path = SHADOW_DB) -> bool:
     """Return whether the managed Shadow job currently has due work."""
     now = now.astimezone(timezone.utc)
@@ -168,34 +171,41 @@ def _shadow_work_due(now: datetime, db_path: Path = SHADOW_DB) -> bool:
             if "predictions" not in tables:
                 return zurich_now.hour >= 9
 
-            settle_due = connection.execute(
-                "SELECT 1 FROM predictions "
-                "WHERE result IS NULL AND fixture_kickoff < ? LIMIT 1",
-                (_utc_iso(now - SETTLE_GRACE),),
-            ).fetchone()
-            if settle_due:
-                return True
+            if zurich_now.hour >= 9 and "shadow_meta" in tables:
+                settled_today = connection.execute(
+                    "SELECT 1 FROM shadow_meta WHERE key = ? LIMIT 1",
+                    (_settlement_marker(zurich_now.date()),),
+                ).fetchone()
+                if not settled_today:
+                    settle_due = connection.execute(
+                        "SELECT 1 FROM predictions "
+                        "WHERE result IS NULL AND fixture_kickoff < ? LIMIT 1",
+                        (_utc_iso(now - SETTLE_GRACE),),
+                    ).fetchone()
+                    if settle_due:
+                        return True
 
             closing_due = connection.execute(
                 "SELECT 1 FROM predictions "
                 "WHERE closing_odds IS NULL AND result IS NULL "
-                "AND fixture_kickoff >= ? AND fixture_kickoff <= ? LIMIT 1",
+                "AND fixture_kickoff > ? AND fixture_kickoff <= ? LIMIT 1",
                 (_utc_iso(now), _utc_iso(now + CLOSING_WINDOW)),
             ).fetchone()
             if closing_due:
                 return True
 
-            schedule_marker = _schedule_marker(zurich_now.date())
-            schedule_loaded = (
-                "shadow_meta" in tables
-                and connection.execute(
-                    "SELECT 1 FROM shadow_meta WHERE key = ? LIMIT 1",
-                    (schedule_marker,),
-                ).fetchone()
-                is not None
-            )
-            if not schedule_loaded and zurich_now.hour >= 9:
-                return True
+            if zurich_now.hour >= 9:
+                for target_date in (zurich_now.date(), zurich_now.date() + timedelta(days=1)):
+                    schedule_loaded = (
+                        "shadow_meta" in tables
+                        and connection.execute(
+                            "SELECT 1 FROM shadow_meta WHERE key = ? LIMIT 1",
+                            (_schedule_marker(target_date),),
+                        ).fetchone()
+                        is not None
+                    )
+                    if not schedule_loaded:
+                        return True
 
             if "shadow_fixtures" not in tables:
                 return False
@@ -327,10 +337,15 @@ class ShadowProvider:
     def fixtures_by_ids(self, ids: list[int]):
         if not ids:
             return []
-        return self._get(
-            "fixtures", {"ids": "-".join(str(i) for i in ids[:20])}, "Fixture-Details",
-            priority=APIBudgetPriority.CRITICAL,
-        ) or []
+        fixtures = []
+        for offset in range(0, len(ids), 20):
+            batch = self._get(
+                "fixtures", {"ids": "-".join(str(i) for i in ids[offset:offset + 20])},
+                "Fixture-Details", priority=APIBudgetPriority.CRITICAL,
+            )
+            if batch is not None:
+                fixtures.extend(batch)
+        return fixtures
 
     def ft_history(self, league_id: int, season: int):
         return self._get(
@@ -388,7 +403,7 @@ class ShadowProvider:
     ):
         return self._get(
             "odds",
-            {"fixture": fixture_id},
+            {"fixture": fixture_id, "bookmaker": BOOKMAKER_ID},
             f"Quoten {fixture_id}",
             priority=priority,
         )
@@ -642,23 +657,25 @@ def _market_quote(odds_response, market_key: str):
     bet_name, value_name = target
     if not isinstance(odds_response, list) or not odds_response:
         return None
-    bookmakers = odds_response[0].get("bookmakers") or []
-    for bookmaker in bookmakers:
-        if not isinstance(bookmaker, dict):
+    for entry in odds_response:
+        if not isinstance(entry, dict):
             continue
-        if str(bookmaker.get("name") or "").casefold() != BOOKMAKER_NAME.casefold():
-            continue
-        for bet in bookmaker.get("bets") or []:
-            if not isinstance(bet, dict) or bet.get("name") != bet_name:
+        for bookmaker in entry.get("bookmakers") or []:
+            if not isinstance(bookmaker, dict):
                 continue
-            for value in bet.get("values") or []:
-                if not isinstance(value, dict) or str(value.get("value")) != value_name:
+            if str(bookmaker.get("name") or "").casefold() != BOOKMAKER_NAME.casefold():
+                continue
+            for bet in bookmaker.get("bets") or []:
+                if not isinstance(bet, dict) or bet.get("name") != bet_name:
                     continue
-                try:
-                    quote = float(str(value.get("odd")).strip())
-                except (TypeError, ValueError):
-                    return None
-                return quote if math.isfinite(quote) and quote > 1.0 else None
+                for value in bet.get("values") or []:
+                    if not isinstance(value, dict) or str(value.get("value")) != value_name:
+                        continue
+                    try:
+                        quote = float(str(value.get("odd")).strip())
+                    except (TypeError, ValueError):
+                        return None
+                    return quote if math.isfinite(quote) and quote > 1.0 else None
     return None
 
 
@@ -667,38 +684,41 @@ def _btts_quote(odds_response, market_key: str):
     return _market_quote(odds_response, market_key)
 
 
-def _priced_candidates(credible, odds_response):
-    """Apply the production leg-value gate to one shared quote snapshot."""
-    priced = []
-    quote_seen = False
+def _market_quote_observation(odds_response, market_key: str):
+    """Return price and provider update time from the same fixture odds entry."""
+    if not isinstance(odds_response, list):
+        return None
+    for entry in odds_response:
+        if not isinstance(entry, dict):
+            continue
+        quote = _market_quote([entry], market_key)
+        if quote is not None:
+            quoted_at = _parse_iso(entry.get("update"))
+            if quoted_at is not None:
+                return quote, quoted_at
+    return None
+
+
+def _model_first_observations(credible, odds_response, now: datetime):
+    """Rank observed model forecasts without using the size of their odds."""
+    observed = []
     for candidate in credible:
-        quote = _market_quote(odds_response, candidate.market_key)
-        if quote is None:
+        observation = _market_quote_observation(odds_response, candidate.market_key)
+        if observation is None:
             continue
-        quote_seen = True
-        try:
-            metrics = evaluate_market_price(
-                candidate.conservative_probability * 100.0,
-                quote,
-                probability_haircut=0.0,
-                kelly_fraction=0.25,
-                kelly_cap=KELLY_REFERENCE_CAP,
-            )
-        except BettingMathError:
+        quote, quoted_at = observation
+        if quoted_at > now or now - quoted_at > CLVTracker.OPENING_QUOTE_MAX_AGE:
             continue
-        expected_roi = metrics.risk_adjusted_expected_roi / 100.0
-        if expected_roi < MIN_LEG_EXPECTED_ROI:
-            continue
-        priced.append((candidate, quote, expected_roi))
-    priced.sort(
+        observed.append((candidate, quote, quoted_at))
+    observed.sort(
         key=lambda item: (
-            item[2],
-            item[0].conservative_probability,
-            item[0].evidence_score,
+            not market_is_basic_forecast(item[0].market_key),
+            candidate_selection_rank(item[0]),
+            str(item[0].market_key),
         ),
         reverse=True,
     )
-    return priced, quote_seen
+    return observed
 
 
 # --------------------------------------------------------------------------
@@ -766,32 +786,39 @@ def step_closing(tracker: CLVTracker, provider: ShadowProvider, now: datetime) -
     start, end = _utc_iso(now), _utc_iso(now + CLOSING_WINDOW)
     with _connect() as connection:
         rows = connection.execute(
-            """SELECT id, fixture_id, prediction, market_type FROM predictions
+            """SELECT id, fixture_id, prediction, market_type, fixture_kickoff FROM predictions
                WHERE closing_odds IS NULL AND result IS NULL
-               AND fixture_kickoff >= ? AND fixture_kickoff <= ?""",
+               AND fixture_kickoff > ? AND fixture_kickoff <= ?""",
             (start, end),
         ).fetchall()
     captured = 0
-    for prediction_id, fixture_id, selection, market_type in rows:
+    for prediction_id, fixture_id, selection, market_type, kickoff_text in rows:
         market_key = (
             str(market_type)
             if str(market_type) in _QUOTE_BETS
             else ("BTTS_YES" if str(selection).strip() == "Ja" else "BTTS_NO")
         )
-        quote = _market_quote(
+        observation = _market_quote_observation(
             provider.odds(
                 fixture_id,
                 priority=APIBudgetPriority.CRITICAL,
             ),
             market_key,
         )
-        if quote is None:
-            errors.append(f"Closing {fixture_id}: {BOOKMAKER_NAME}-Quote {market_key} fehlt")
+        if observation is None:
+            errors.append(f"Closing {fixture_id}: {BOOKMAKER_NAME}-Quote/Zeitstempel {market_key} fehlt")
+            continue
+        quote, quoted_at = observation
+        kickoff_at = _parse_iso(kickoff_text)
+        if quoted_at > now or kickoff_at is None or not now < kickoff_at:
+            continue
+        if not timedelta(0) < kickoff_at - quoted_at <= CLOSING_WINDOW:
             continue
         try:
             tracker.update_closing_odds(
                 prediction_id, quote,
                 bookmaker=BOOKMAKER_NAME, quote_source=QUOTE_SOURCE,
+                quoted_at=quoted_at,
             )
             captured += 1
         except (ValueError, KeyError) as exc:
@@ -901,11 +928,12 @@ def step_evaluate(tracker: CLVTracker, provider: ShadowProvider, now: datetime,
                 weather=weather,
                 lineups=lineups,
             )
-            if candidate_is_credible(candidate):
+            if candidate_is_forecast_credible(candidate):
                 credible.append(candidate)
+        result["credible_candidates"] = result.get("credible_candidates", 0) + len(credible)
         odds_response = provider.odds(fixture_id) if credible else None
-        priced, quote_seen = _priced_candidates(credible, odds_response)
-        pick, quote, _expected_roi = priced[0] if priced else (None, None, None)
+        observed = _model_first_observations(credible, odds_response, now)
+        pick, quote, quoted_at = observed[0] if observed else (None, None, None)
         logged = False
         existing = False
         if pick is not None:
@@ -919,10 +947,11 @@ def step_evaluate(tracker: CLVTracker, provider: ShadowProvider, now: datetime,
                         market_type=pick.market_key,
                         prediction=pick.selection,
                         odds=quote,
-                        model_probability=pick.conservative_probability * 100.0,
+                        model_probability=pick.probability * 100.0,
                         confidence=int(round(min(100.0, max(0.0, pick.evidence_score)))),
                         bookmaker=BOOKMAKER_NAME,
                         quote_source=QUOTE_SOURCE,
+                        quoted_at=quoted_at,
                         fixture_kickoff=kickoff_text,
                         data_quality="shadow",
                         model_version=SHADOW_MODEL_VERSION,
@@ -938,13 +967,11 @@ def step_evaluate(tracker: CLVTracker, provider: ShadowProvider, now: datetime,
                         )
                 except ValueError as exc:
                     errors.append(f"Logging {fixture_id}: {exc}")
-        elif credible and not quote_seen:
+        elif credible:
             errors.append(
-                f"Fixture {fixture_id}: keine verwertbare {BOOKMAKER_NAME}-Quote; Retry"
+                f"Fixture {fixture_id}: keine aktuelle {BOOKMAKER_NAME}-Quote mit Providerzeit; Retry"
             )
             result["quote_missing"] = result.get("quote_missing", 0) + 1
-        elif credible:
-            result["price_rejected"] = result.get("price_rejected", 0) + 1
         # Terminal-Logik: nur endgültig abhaken, wenn (a) ein Pick geloggt wurde
         # oder (b) das Modell grundsätzlich nichts anbietet (ändert sich heute
         # nicht mehr) oder (c) der Anpfiff so nah ist, dass kein Retry mehr
@@ -955,7 +982,6 @@ def step_evaluate(tracker: CLVTracker, provider: ShadowProvider, now: datetime,
             logged
             or bool(existing)
             or not base_candidates
-            or bool(credible and quote_seen and not priced)
         )
         if not terminal:
             kickoff_dt = _fixture_kickoff({"fixture": {"date": kickoff_text}})
@@ -1133,9 +1159,20 @@ def run(ctx):
     now = datetime.now(timezone.utc)
     zurich_today = _zurich_time(now).date()
 
-    settled = step_settle(tracker, provider, now)
+    settled = 0
+    if _zurich_time(now).hour >= 9:
+        with _connect() as connection:
+            already_checked = bool(_meta_get(connection, _settlement_marker(zurich_today)))
+        if not already_checked:
+            settled = step_settle(tracker, provider, now)
+            with _connect() as connection:
+                _meta_set(connection, _settlement_marker(zurich_today), _utc_iso(now))
+                connection.commit()
     closings = step_closing(tracker, provider, now)
-    scheduled = step_schedule(provider, league_ids, zurich_today, force_schedule)
+    scheduled = sum(
+        step_schedule(provider, league_ids, day, force_schedule)
+        for day in (zurich_today, zurich_today + timedelta(days=1))
+    ) if _zurich_time(now).hour >= 9 or force_schedule else 0
     evaluation = step_evaluate(tracker, provider, now, zurich_today, max_fixtures)
 
     stats_30 = tracker.get_clv_statistics(
@@ -1157,6 +1194,8 @@ def run(ctx):
             "fixtures_scheduled": scheduled,
             "fixtures_evaluated": evaluation["evaluated"],
             "fixtures_deferred": evaluation.get("deferred", 0),
+            "credible_model_candidates": evaluation.get("credible_candidates", 0),
+            "fixtures_without_fresh_quote": evaluation.get("quote_missing", 0),
             "predictions_logged": evaluation["logged"],
             "closings_captured": closings,
             "predictions_settled": settled,

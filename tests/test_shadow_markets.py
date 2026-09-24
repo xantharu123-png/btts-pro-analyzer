@@ -1,4 +1,5 @@
 """Tests für das Shadow-Automation-Modul (Quoten-Mapping + Settlement-Integrität)."""
+import gc
 import sqlite3
 import sys
 import tempfile
@@ -39,8 +40,9 @@ def test_nations_league_shadow_history_uses_recent_team_adapter_not_2025(tmp_pat
 from challenge_engine import MARKET_BY_KEY, MARKET_SPECS, market_outcome  # noqa: E402
 
 
-def _odds_response(bookmaker_name="Bet365", bets=None):
+def _odds_response(bookmaker_name="Bet365", bets=None, updated_at=None):
     return [{
+        "update": updated_at,
         "bookmakers": [{
             "name": bookmaker_name,
             "bets": bets if bets is not None else [
@@ -113,8 +115,26 @@ class MarketQuoteTest(unittest.TestCase):
     def test_btts_wrapper_still_works(self):
         self.assertAlmostEqual(shadow._btts_quote(_odds_response(), "BTTS_YES"), 1.75)
 
+    def test_provider_update_time_is_required_for_clv(self):
+        self.assertIsNone(shadow._market_quote_observation(_odds_response(), "BTTS_YES"))
+        stamp = datetime(2026, 9, 24, 12, 0, tzinfo=timezone.utc)
+        self.assertEqual(
+            shadow._market_quote_observation(
+                _odds_response(updated_at=stamp.isoformat()), "BTTS_YES"
+            ),
+            (1.75, stamp),
+        )
+
 
 class ProviderSecretRedactionTest(unittest.TestCase):
+    def test_shadow_odds_filter_exact_bet365_id_not_first_bookmaker_page(self):
+        provider = shadow.ShadowProvider("football-key", None)
+        with patch.object(provider, "_get", return_value=[]) as fetch:
+            provider.odds(91)
+        self.assertEqual(fetch.call_args.args[:2], (
+            "odds", {"fixture": 91, "bookmaker": shadow.BOOKMAKER_ID},
+        ))
+
     def test_weather_http_error_never_leaks_query_string_api_key(self):
         secret = "weather-secret-must-not-escape"
         prepared = shadow.requests.Request(
@@ -182,7 +202,7 @@ class QuoteMappingIntegrityTest(unittest.TestCase):
             self.assertNotIn("YELLOW", market_key)
 
 
-class PriceGateTest(unittest.TestCase):
+class ModelFirstShadowTest(unittest.TestCase):
     @staticmethod
     def _candidate(market_key, probability, evidence=80.0):
         return SimpleNamespace(
@@ -191,22 +211,64 @@ class PriceGateTest(unittest.TestCase):
             evidence_score=evidence,
         )
 
-    def test_candidates_must_clear_production_value_gate(self):
-        rejected = self._candidate("RESULT_HOME", 0.45)
-        accepted = self._candidate("BTTS_NO", 0.55)
+    def test_candidate_ranking_ignores_price_size_and_value_gate(self):
+        now = datetime(2026, 9, 24, 12, 0, tzinfo=timezone.utc)
+        weaker = self._candidate("RESULT_HOME", 0.45, evidence=75.0)
+        stronger = self._candidate("BTTS_NO", 0.55, evidence=85.0)
+        response = _odds_response(updated_at=(now - timedelta(minutes=2)).isoformat())
+        with patch.object(shadow, "candidate_selection_rank", side_effect=lambda c: (c.evidence_score,)):
+            selected = shadow._model_first_observations([weaker, stronger], response, now)
+        self.assertEqual([item[0] for item in selected], [stronger, weaker])
+        self.assertEqual(selected[0][1], 2.05)
 
-        priced, quote_seen = shadow._priced_candidates(
-            [rejected, accepted],
-            _odds_response(),
-        )
-
-        self.assertTrue(quote_seen)
-        self.assertEqual(len(priced), 1)
-        self.assertIs(priced[0][0], accepted)
-        self.assertGreaterEqual(priced[0][2], shadow.MIN_LEG_EXPECTED_ROI)
+    def test_unstamped_or_stale_quote_is_not_clv_evidence(self):
+        now = datetime(2026, 9, 24, 12, 0, tzinfo=timezone.utc)
+        candidate = self._candidate("BTTS_NO", 0.55)
+        self.assertEqual(shadow._model_first_observations([candidate], _odds_response(), now), [])
+        stale = _odds_response(updated_at=(now - timedelta(minutes=11)).isoformat())
+        self.assertEqual(shadow._model_first_observations([candidate], stale, now), [])
 
     def test_extra_time_results_are_not_auto_settled_as_regulation(self):
         self.assertEqual(shadow.FT_STATUSES, {"FT"})
+
+    def test_closing_requires_provider_update_inside_final_window(self):
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        kickoff = now + timedelta(minutes=10)
+        with tempfile.TemporaryDirectory() as folder:
+            db_path = Path(folder) / "shadow.db"
+            tracker = shadow.CLVTracker(db_path=str(db_path))
+            prediction_id = tracker.record_prediction(
+                fixture_id=91, home_team="Home", away_team="Away",
+                market_type="BTTS_YES", prediction="Ja", odds=1.75,
+                model_probability=55.0, bookmaker=shadow.BOOKMAKER_NAME,
+                quote_source=shadow.QUOTE_SOURCE, quoted_at=now - timedelta(minutes=3),
+                fixture_kickoff=kickoff, model_version=shadow.SHADOW_MODEL_VERSION,
+                policy_version=shadow.SHADOW_POLICY_VERSION,
+            )
+            previous_db = shadow.SHADOW_DB
+            shadow.SHADOW_DB = db_path
+            try:
+                provider = SimpleNamespace(odds=lambda *_args, **_kwargs: _odds_response(
+                    updated_at=(now - timedelta(minutes=30)).isoformat()
+                ))
+                self.assertEqual(shadow.step_closing(tracker, provider, now), 0)
+                fresh = now - timedelta(minutes=1)
+                provider.odds = lambda *_args, **_kwargs: _odds_response(
+                    updated_at=fresh.isoformat()
+                )
+                self.assertEqual(shadow.step_closing(tracker, provider, now), 1)
+                connection = sqlite3.connect(db_path)
+                try:
+                    row = connection.execute(
+                        "SELECT closing_odds, closing_quoted_at FROM predictions WHERE id = ?",
+                        (prediction_id,),
+                    ).fetchone()
+                finally:
+                    connection.close()
+                self.assertEqual(row, (1.75, fresh.isoformat()))
+            finally:
+                shadow.SHADOW_DB = previous_db
+                gc.collect()
 
 
 class ShadowConditionTest(unittest.TestCase):
@@ -227,6 +289,10 @@ class ShadowConditionTest(unittest.TestCase):
             connection.execute(
                 "INSERT INTO shadow_meta (key, value) VALUES (?, ?)",
                 (shadow._schedule_marker(shadow._zurich_time(now).date()), "loaded"),
+            )
+            connection.execute(
+                "INSERT INTO shadow_meta (key, value) VALUES (?, ?)",
+                (shadow._schedule_marker(shadow._zurich_time(now).date() + timedelta(days=1)), "loaded"),
             )
             if fixture_due:
                 connection.execute(
@@ -251,6 +317,44 @@ class ShadowConditionTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             db_path = Path(folder) / "shadow.db"
             self._database(db_path, now, fixture_due=False)
+            self.assertFalse(shadow._shadow_work_due(now, db_path))
+
+    def test_missing_tomorrow_schedule_is_due_only_after_nine_zurich(self):
+        now = datetime(2026, 8, 1, 10, 0, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as folder:
+            db_path = Path(folder) / "shadow.db"
+            self._database(db_path, now, fixture_due=False)
+            connection = sqlite3.connect(db_path)
+            try:
+                connection.execute(
+                    "DELETE FROM shadow_meta WHERE key = ?",
+                    (shadow._schedule_marker(shadow._zurich_time(now).date() + timedelta(days=1)),),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+            self.assertTrue(shadow._shadow_work_due(now, db_path))
+
+    def test_settlement_retry_is_not_due_every_ten_minutes(self):
+        now = datetime(2026, 8, 1, 10, 0, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as folder:
+            db_path = Path(folder) / "shadow.db"
+            self._database(db_path, now, fixture_due=False)
+            connection = sqlite3.connect(db_path)
+            try:
+                connection.execute(
+                    "INSERT INTO predictions VALUES (?, ?, ?)",
+                    (None, (now - timedelta(hours=3)).isoformat(), None),
+                )
+                connection.commit()
+                self.assertTrue(shadow._shadow_work_due(now, db_path))
+                connection.execute(
+                    "INSERT INTO shadow_meta VALUES (?, ?)",
+                    (shadow._settlement_marker(shadow._zurich_time(now).date()), now.isoformat()),
+                )
+                connection.commit()
+            finally:
+                connection.close()
             self.assertFalse(shadow._shadow_work_due(now, db_path))
 
     def test_legacy_schedule_marker_does_not_hide_new_model_run(self):

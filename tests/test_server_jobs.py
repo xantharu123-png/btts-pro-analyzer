@@ -86,12 +86,12 @@ def test_wettfinder_timer_is_installed_and_enabled_by_deploy_scripts():
         assert 'systemctl enable --now "${BETBOY_TIMERS[@]}"' not in source
 
 
-def test_automatic_sport_timers_run_once_daily_without_catchup():
+def test_daily_sport_scans_and_ten_minute_shadow_checks_do_not_catch_up():
     root = Path(__file__).resolve().parents[1]
     systemd = root / "deploy" / "systemd"
     schedules = {
         "betboy-wettfinder.timer": "*-*-* 03:35:00 Europe/Zurich",
-        "betboy-football-shadow.timer": "*-*-* 17:02:00",
+        "betboy-football-shadow.timer": "*-*-* *:02,12,22,32,42,52:00",
         "betboy-tennis.timer": "*-*-* 00:05:00 Europe/Zurich",
         "betboy-esports.timer": "*-*-* 03:10:00 Europe/Zurich",
         "betboy-redcard-history.timer": "*-*-* 05:41:00",
