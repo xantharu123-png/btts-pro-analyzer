@@ -34,7 +34,8 @@ from api_budget import (  # noqa: E402
     api_football_get,
 )
 from challenge_engine import (  # noqa: E402
-    MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST,
+    MODEL_SCOPE_CROSS_COMPETITION_UNVALIDATED,
+    MODEL_SCOPE_SENIOR_NATIONAL,
     apply_candidate_context,
     build_fixture_candidates,
     candidate_is_forecast_credible,
@@ -84,7 +85,7 @@ EVAL_FINAL_RETRY_MINUTES = 30  # Kontext-gesperrte Fixtures werden bis -30 min e
 SETTLE_GRACE = timedelta(hours=2)
 FT_STATUSES = {"FT"}
 MIN_HISTORY_GAMES = 220  # darunter wird die Vorsaison vorangestellt (Cold-Start)
-SHADOW_MODEL_VERSION = "challenge-engine-coherent-joint-calibration-v13"
+SHADOW_MODEL_VERSION = "challenge-engine-coherent-joint-calibration-v14"
 SHADOW_POLICY_VERSION = "shadow-model-first-v5"
 SHADOW_REVIEW_MIN_CLV_BETS = 300
 
@@ -525,7 +526,7 @@ def _meta_set(connection, key: str, value: str) -> None:
 def _cache_path(kind: str, league_id: int, season: int, day: str) -> Path:
     CACHE_DIR.mkdir(exist_ok=True)
     version = (
-        f"{SHADOW_MODEL_VERSION}-national-recent-v2"
+        f"{SHADOW_MODEL_VERSION}-national-pooled-v1"
         if league_id == 5 else SHADOW_MODEL_VERSION
     )
     return CACHE_DIR / (
@@ -894,14 +895,18 @@ def step_evaluate(tracker: CLVTracker, provider: ShadowProvider, now: datetime,
         )
         validation = _cached_validation(league_id, season, history, zurich_today.isoformat())
         calibration = _cached_calibration(league_id, season, history, zurich_today.isoformat())
-        national_transfer = league_id == 5 and any(
-            row.get("league", {}).get("id") != 5 for row in history
+        national_history = (
+            league_id == 5 and bool(history)
+            and all(row.get("challenge_senior_national_team") is True for row in history)
         )
         candidates = build_fixture_candidates(
             detail, history, validation, calibration,
             **(
-                {"model_scope": MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST}
-                if national_transfer else {}
+                {"model_scope": (
+                    MODEL_SCOPE_SENIOR_NATIONAL if national_history
+                    else MODEL_SCOPE_CROSS_COMPETITION_UNVALIDATED
+                )}
+                if league_id == 5 else {}
             ),
         )
         coverage = provider.coverage(league_id, season)

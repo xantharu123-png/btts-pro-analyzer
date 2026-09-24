@@ -45,6 +45,7 @@ from challenge_engine import (
     MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST,
     MODEL_SCOPE_CROSS_COMPETITION_UNVALIDATED,
     MODEL_SCOPE_SAME_COMPETITION,
+    MODEL_SCOPE_SENIOR_NATIONAL,
     MIN_LEG_EXPECTED_ROI,
     TARGET_ODDS_MAX,
     TARGET_ODDS_MIN,
@@ -132,6 +133,10 @@ XG_MAX_NEW_CALLS_PER_SCAN = 12
 CONTINENTAL_LEAGUE_IDS = frozenset({2, 3, 848})
 DOMESTIC_HISTORY_LAST_FIXTURES = 60
 NATIONAL_TEAM_HISTORY_DAYS = 730
+# One competition-season request covers every national team in that pool.  The
+# former team-by-team loop was expensive and left walk-forward validation with
+# only the teams scheduled on the search date, not an independent population.
+NATIONAL_HISTORY_LEAGUES = (5, 32, 10, 1)
 NATIONAL_COMPETITIONS = frozenset({
     "uefa nations league",
     "world cup",
@@ -236,9 +241,10 @@ def _senior_national_result(row: dict[str, Any]) -> bool:
     return True
 
 
-def _neutral_national_venue(row: dict[str, Any]) -> bool:
+def _uncertain_national_venue(row: dict[str, Any]) -> bool:
     name = str(row["league"].get("name") or "").strip().casefold()
-    # Tournament brackets and friendlies have no reliable league home edge.
+    # The fixtures feed has no verified neutral flag. Finals and friendlies
+    # may be hosted or neutral, so never assert either from competition alone.
     return name in {"world cup", "euro championship", "friendlies"}
 
 
@@ -876,10 +882,10 @@ class ChallengeDataProvider:
         upcoming_fixtures: list[dict[str, Any]],
     ) -> Optional[list[dict[str, Any]]]:
         if league_id == 5:
-            # API-Football requires season alongside team + from/to. A match
-            # played in 2025 may belong to a 2024 or 2026 competition season,
-            # so query each season intersecting the recent date window and
-            # deduplicate the returned fixtures below. Never request 2022.
+            # Fetch the recent senior international population, not only the
+            # teams playing today.  Validation must have independent previous
+            # fixtures, and a bulk competition query spends far fewer calls
+            # than querying every team/season combination. Never request 2022.
             target_kickoffs = [
                 kickoff for row in upcoming_fixtures
                 if isinstance(row, dict)
@@ -889,47 +895,73 @@ class ChallengeDataProvider:
                 return None
             before = min(datetime.now(timezone.utc), min(target_kickoffs))
             earliest = before - timedelta(days=NATIONAL_TEAM_HISTORY_DAYS)
-            team_ids = sorted({
+            target_team_ids = {
                 team_id
                 for row in upcoming_fixtures if isinstance(row, dict)
                 for side in ("home", "away")
                 if isinstance(row.get("teams"), dict)
                 and isinstance(row["teams"].get(side), dict)
                 if (team_id := _positive_integer(row["teams"][side].get("id"))) is not None
-            })
-            if not team_ids:
+            }
+            if not target_team_ids:
                 return None
-            gathered: list[dict[str, Any]] = []
-            for team_id in team_ids:
+            by_league: dict[int, list[dict[str, Any]]] = {}
+            for source_league_id in NATIONAL_HISTORY_LEAGUES:
+                source_rows: list[dict[str, Any]] = []
                 for history_season in range(earliest.year, before.year + 1):
                     recent = self._football_get(
                         "fixtures",
                         {
-                            "team": team_id,
+                            "league": source_league_id,
                             "season": history_season,
                             "from": earliest.date().isoformat(),
                             "to": before.date().isoformat(),
                             "status": "FT",
                             "timezone": "Europe/Zurich",
                         },
-                        f"Aktuelle Länderspiele Team {team_id} Saison {history_season}",
+                        f"A-Länderspiele Liga {source_league_id} Saison {history_season}",
                         priority=APIBudgetPriority.BACKGROUND,
                     )
                     if recent is None:
-                        return None
+                        # Nations League and European qualifying are the
+                        # required base.  Friendlies/finals are optional form
+                        # sources and must be reported as partial if missing.
+                        if source_league_id in {5, 32}:
+                            return None
+                        continue
                     for row in recent:
                         if not _senior_national_result(row):
                             continue
-                        teams = row["teams"]
-                        if team_id not in {teams["home"]["id"], teams["away"]["id"]}:
+                        if row["league"].get("id") != source_league_id:
                             continue
                         kickoff = _fixture_kickoff(row)
                         if kickoff is None or not earliest <= kickoff < before:
                             continue
-                        gathered.append(
-                            {**row, "challenge_neutral_venue": True}
-                            if _neutral_national_venue(row) else row
-                        )
+                        source_rows.append({
+                            **row,
+                            "challenge_senior_national_team": True,
+                            **({"challenge_venue_unknown": True}
+                               if _uncertain_national_venue(row) else {}),
+                        })
+                by_league[source_league_id] = source_rows
+            # Nations League membership is the stable UEFA-team identity.
+            # Include friendlies/finals against non-UEFA sides for the UEFA
+            # team's form, but never fold unrelated national competitions into
+            # the population or its validation baseline.
+            uefa_team_ids = target_team_ids | {
+                team["id"]
+                for row in by_league[5]
+                for team in (row["teams"]["home"], row["teams"]["away"])
+            }
+            gathered = [
+                row
+                for source_rows in by_league.values()
+                for row in source_rows
+                if any(
+                    row["teams"][side]["id"] in uefa_team_ids
+                    for side in ("home", "away")
+                )
+            ]
             return _bounded_completed_history(gathered, before=before) or None
 
         statistical_history = fetch_stat_history(
@@ -2687,16 +2719,22 @@ def scan_daily_challenge(
             calibration,
             team_history=fixture_team_histories.get(fixture_id),
             model_scope=(
-                MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST
-                if fixture_id in provisional_fixture_ids
-                or (
+                MODEL_SCOPE_SENIOR_NATIONAL
+                if (
                     competition is not None
                     and competition[0] == 5
-                    and any(
-                        row.get("league", {}).get("id") != 5
-                        for row in histories.get(competition, [])
+                    and bool(histories.get(competition))
+                    and all(
+                        row.get("challenge_senior_national_team") is True
+                        for row in histories[competition]
                     )
                 )
+                else
+                MODEL_SCOPE_CROSS_COMPETITION_UNVALIDATED
+                if competition is not None and competition[0] == 5
+                else
+                MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST
+                if fixture_id in provisional_fixture_ids
                 else MODEL_SCOPE_CROSS_COMPETITION_UNVALIDATED
                 if fixture_id in fixture_team_histories
                 else MODEL_SCOPE_SAME_COMPETITION

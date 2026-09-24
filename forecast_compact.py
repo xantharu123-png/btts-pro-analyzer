@@ -132,7 +132,9 @@ def build_compact_analysis(signal, analysis, *, now):
         facts.append(Fact('Aufstellung', lineup_label,
                           ('Stand: ' + format_model_clock(lineups.get('checked_at')),
                            'Heim- und Gastaufstellung.' if status == 'passed' else 'Keine vollständig bestätigte Aufstellung.')))
-        if signal.model_scope and signal.model_scope != 'same_competition':
+        if signal.model_scope and signal.model_scope not in {
+            'same_competition', 'senior_national_pooled',
+        }:
             warnings.append('Ligavergleich nicht bestätigt')
     elif sport == 'tennis' and analysis.supported:
         inputs = _tennis_inputs(signal)

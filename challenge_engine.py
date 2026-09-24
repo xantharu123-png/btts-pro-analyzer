@@ -40,7 +40,7 @@ CHALLENGE_MODEL_CONTRACT_SIGNATURE = (
 )
 # Prediction/cache provenance is separate from the immutable monetary ticket
 # contract. Finder profiles/history updates must not invalidate old tickets.
-CHALLENGE_PREDICTION_VERSION = "challenge-engine:coherent-joint-calibration-v13"
+CHALLENGE_PREDICTION_VERSION = "challenge-engine:coherent-joint-calibration-v14"
 CANDIDATE_PROFILE_CHALLENGE = "challenge"
 CANDIDATE_PROFILE_WETTFINDER = "wettfinder"
 TARGET_ODDS_MIN = 2.0
@@ -69,6 +69,7 @@ MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST = (
     "cross_competition_provisional_forecast"
 )
 MODEL_SCOPE_CROSS_COMPETITION_UNVALIDATED = "cross_competition_unvalidated"
+MODEL_SCOPE_SENIOR_NATIONAL = "senior_national_pooled"
 UNVALIDATED_TRANSFER_REASON = (
     "Heimatliga-Transfermodell ist fuer UEFA-Duelle nicht validiert"
 )
@@ -183,6 +184,9 @@ class ChallengeCandidate:
     prediction_version: Optional[str] = None
     # Optional Daily3 comparison metadata. Never a probability/release input.
     market_comparison: Optional[dict[str, Any]] = None
+    # Actual overall A-international samples for the national-team model.
+    # Venue samples keep their literal home/away meaning and may be zero.
+    national_samples: tuple[int, int] = (0, 0)
 
     @property
     def base_eligible(self) -> bool:
@@ -211,6 +215,8 @@ class ChallengeCandidate:
         payload = asdict(self)
         if self.market_comparison is None:
             payload.pop('market_comparison')
+        if self.national_samples == (0, 0):
+            payload.pop("national_samples")
         # Preserve authenticated historical payload shape; absence is not a
         # current-version claim and must never become a newly signed null.
         if self.prediction_version is None:
@@ -871,6 +877,13 @@ def _fixture_market_outcome(spec: MarketSpec, fixture: dict[str, Any]) -> Option
     return market_outcome(spec, *counts) if counts is not None else None
 
 
+def _venue_home_edge_unknown(fixture: dict[str, Any]) -> bool:
+    return (
+        fixture.get("challenge_neutral_venue") is True
+        or fixture.get("challenge_venue_unknown") is True
+    )
+
+
 def _team_observations(
     fixtures: Iterable[dict[str, Any]],
     team_id: int,
@@ -896,7 +909,7 @@ def _team_observations(
         if team_id not in {home_id, away_id}:
             continue
         actual_venue = "home" if home_id == team_id else "away"
-        if venue is not None and fixture.get("challenge_neutral_venue") is True:
+        if venue is not None and _venue_home_edge_unknown(fixture):
             continue
         if venue is not None and actual_venue != venue:
             continue
@@ -1014,7 +1027,7 @@ def _league_goal_means(fixtures: Iterable[dict[str, Any]], before: datetime) -> 
         _fixture_score(fixture)
         for fixture in fixtures
         if _is_completed_before(fixture, before)
-        and fixture.get("challenge_neutral_venue") is not True
+        and not _venue_home_edge_unknown(fixture)
     ]
     scores = [score for score in scores if score is not None]
     if len(scores) < MIN_LEAGUE_MATCHES:
@@ -1024,6 +1037,98 @@ def _league_goal_means(fixtures: Iterable[dict[str, Any]], before: datetime) -> 
         _mean(score[1] for score in scores),
         len(scores),
     )
+
+
+def _senior_national_fixture_model(
+    fixture: dict[str, Any],
+    history: list[dict[str, Any]],
+    observations: list[dict[str, Any]],
+    *,
+    include_provenance: bool,
+) -> Optional[dict[str, Any]]:
+    """Overall A-team form model; neutral matches never create home advantage.
+
+    Internationals are too sparse for the club model's five *home* and five
+    *away* observations.  Both teams instead need five recent senior matches;
+    the small pooled host effect is estimated only from non-neutral results.
+    Walk-forward uses this exact function for every senior international.
+    """
+    kickoff = _fixture_datetime(fixture)
+    teams = fixture.get("teams", {})
+    home_id = teams.get("home", {}).get("id")
+    away_id = teams.get("away", {}).get("id")
+    if kickoff is None or not isinstance(home_id, int) or not isinstance(away_id, int):
+        return None
+    prior_scores = [
+        score for row in history
+        if _is_completed_before(row, kickoff)
+        and (score := _fixture_score(row)) is not None
+    ]
+    if len(prior_scores) < MIN_LEAGUE_MATCHES:
+        return None
+    prior_goal_mean = _mean((home + away) / 2.0 for home, away in prior_scores)
+    hosted_means = _league_goal_means(history, kickoff)
+    host_factor = 1.0
+    if not _venue_home_edge_unknown(fixture) and hosted_means is not None:
+        host_mean, guest_mean, _ = hosted_means
+        if host_mean > 0.0 and guest_mean > 0.0:
+            # The quarter power avoids treating a small pooled location effect
+            # as a full team-strength multiplier on top of overall form.
+            host_factor = max(0.9, min(1.1, (host_mean / guest_mean) ** 0.25))
+
+    home_season = _team_observations(observations, home_id, kickoff, venue=None, limit=12)
+    away_season = _team_observations(observations, away_id, kickoff, venue=None, limit=12)
+    home_form = home_season[:6]
+    away_form = away_season[:6]
+    if min(len(home_form), len(away_form)) < MIN_FORM_MATCHES:
+        return None
+
+    def pair_rates(home_rows, away_rows, prior_weight):
+        home_attack, cov_ha = _hybrid_strength(
+            home_rows, scored=True, prior_mean=prior_goal_mean, prior_weight=prior_weight,
+        )
+        away_defense, cov_ad = _hybrid_strength(
+            away_rows, scored=False, prior_mean=prior_goal_mean, prior_weight=prior_weight,
+        )
+        away_attack, cov_aa = _hybrid_strength(
+            away_rows, scored=True, prior_mean=prior_goal_mean, prior_weight=prior_weight,
+        )
+        home_defense, cov_hd = _hybrid_strength(
+            home_rows, scored=False, prior_mean=prior_goal_mean, prior_weight=prior_weight,
+        )
+        rates = (
+            max(0.05, min(6.0, (home_attack + away_defense) / 2.0 * host_factor)),
+            max(0.05, min(6.0, (away_attack + home_defense) / 2.0 / host_factor)),
+        )
+        return rates, (cov_ha, cov_ad, cov_aa, cov_hd)
+
+    season, season_coverage = pair_rates(home_season, away_season, 6.0)
+    form, form_coverage = pair_rates(home_form, away_form, 4.0)
+    active = tuple(0.75 * slow + 0.25 * recent for slow, recent in zip(season, form))
+    latest_required = min(home_form[0][2], away_form[0][2])
+    model = {
+        "active_lambdas": active,
+        "season_lambdas": season,
+        "form_lambdas": form,
+        "venue_samples": (
+            len(_team_observations(observations, home_id, kickoff, venue="home", limit=12)),
+            len(_team_observations(observations, away_id, kickoff, venue="away", limit=12)),
+        ),
+        "national_samples": (len(home_season), len(away_season)),
+        "form_samples": (len(home_form), len(away_form)),
+        "league_sample": len(prior_scores),
+        "freshness_days": max(0.0, (kickoff - latest_required).total_seconds() / 86_400.0),
+        "freshness_observed_at": latest_required.isoformat(),
+        "xg_coverage": min(*season_coverage, *form_coverage),
+    }
+    if include_provenance:
+        # The club goal-weight recipe is not the national model recipe.
+        # Until a national recipe is specified, declare this provenance
+        # unavailable rather than signing incorrect reference weights.
+        model.update(history_refs=[], reference_weights={
+            "schema": 1, "kind": "unavailable", "reason": "national-model-provenance-not-modeled",
+        })
+    return model
 
 
 def _fixture_model(
@@ -1054,6 +1159,13 @@ def _fixture_model(
 
     history = list(league_history)
     observations = list(team_history) if team_history is not None else history
+    if (
+        fixture.get("league", {}).get("id") == 5
+        or fixture.get("challenge_senior_national_team") is True
+    ):
+        return _senior_national_fixture_model(
+            fixture, history, observations, include_provenance=include_provenance,
+        )
     league_means = _league_goal_means(history, kickoff)
     if league_means is None:
         return None
@@ -1460,7 +1572,7 @@ def _team_count_observations(
         if team_id not in {home_id, away_id}:
             continue
         actual_venue = "home" if home_id == team_id else "away"
-        if venue is not None and fixture.get("challenge_neutral_venue") is True:
+        if venue is not None and _venue_home_edge_unknown(fixture):
             continue
         if venue is not None and actual_venue != venue:
             continue
@@ -1480,7 +1592,7 @@ def _league_count_means(
         _fixture_count_pair(fixture, family)
         for fixture in fixtures
         if _is_completed_before(fixture, before)
-        and fixture.get("challenge_neutral_venue") is not True
+        and not _venue_home_edge_unknown(fixture)
     ]
     pairs = [pair for pair in pairs if pair is not None]
     if len(pairs) < MIN_LEAGUE_MATCHES:
@@ -2116,7 +2228,8 @@ def _walk_forward_market_records(
         day_calibration = {key: state["map"] for key, state in calibration_state.items()
                            if state["map"] is not None}
         for fixture in day_fixtures:
-            if fixture.get("challenge_neutral_venue") is True:
+            if (_venue_home_edge_unknown(fixture)
+                    and fixture.get("challenge_senior_national_team") is not True):
                 continue
             prediction = fixture_market_probabilities(fixture, prior, day_calibration, _validation_only=True)
             if prediction is None:
@@ -2137,7 +2250,8 @@ def _walk_forward_market_records(
                 records[spec.key]["projection_success"].append(prediction["projection_success"])
 
         for fixture in day_fixtures:
-            if fixture.get("challenge_neutral_venue") is True:
+            if (_venue_home_edge_unknown(fixture)
+                    and fixture.get("challenge_senior_national_team") is not True):
                 continue
             for spec in MARKET_SPECS:
                 outcome_value = _fixture_market_outcome(spec, fixture)
@@ -2391,6 +2505,7 @@ def build_fixture_candidates(
         raise ValueError("candidate_profile must be challenge or wettfinder")
     if model_scope not in {
         MODEL_SCOPE_SAME_COMPETITION,
+        MODEL_SCOPE_SENIOR_NATIONAL,
         MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST,
         MODEL_SCOPE_CROSS_COMPETITION_UNVALIDATED,
     }:
@@ -2418,7 +2533,9 @@ def build_fixture_candidates(
     freshness_days = float(model["freshness_days"])
     active_home, active_away = model["active_lambdas"]
     comparisons = {}
-    if candidate_profile == CANDIDATE_PROFILE_WETTFINDER and model_scope == MODEL_SCOPE_SAME_COMPETITION:
+    if candidate_profile == CANDIDATE_PROFILE_WETTFINDER and model_scope in {
+        MODEL_SCOPE_SAME_COMPETITION, MODEL_SCOPE_SENIOR_NATIONAL,
+    }:
         from daily3_comparison import build_market_comparisons
         comparisons = build_market_comparisons(
             fixture, league_history, model['probabilities'], validation,
@@ -2451,8 +2568,13 @@ def build_fixture_candidates(
             expected_market_away = None
             expected_unit = None
         spread_pp = (max(active, season, form) - min(active, season, form)) * 100.0
-        sample_penalty = max(0.0, 8 - min(venue_samples)) * 0.5
-        freshness_penalty = max(0.0, freshness_days - 14.0) * 0.12
+        national = model_scope == MODEL_SCOPE_SENIOR_NATIONAL and spec.kind not in COUNT_MARKET_KINDS
+        sample_basis = model.get("national_samples", venue_samples) if national else venue_samples
+        sample_penalty = max(0.0, 8 - min(sample_basis)) * 0.5
+        freshness_penalty = (
+            max(0.0, freshness_days - 45.0) * 0.04 if national
+            else max(0.0, freshness_days - 14.0) * 0.12
+        )
         metric = validation.get(spec.key)
         structural_haircut = 3.0 + spread_pp * 0.5 + sample_penalty + freshness_penalty
         calibration_haircut = (
@@ -2465,10 +2587,12 @@ def build_fixture_candidates(
         conservative = max(0.0, min(active, season, form) - haircut_pp / 100.0)
         validation_passed = _credible_validation(metric)
 
-        sample_score = 35.0 * min(1.0, min(venue_samples) / 10.0)
+        sample_score = 35.0 * min(1.0, min(sample_basis) / 10.0)
         form_score = 15.0 * min(1.0, min(form_samples) / 6.0)
         agreement_score = 20.0 * max(0.0, 1.0 - spread_pp / 20.0)
-        freshness_score = 10.0 * max(0.0, 1.0 - max(0.0, freshness_days - 7.0) / 28.0)
+        freshness_score = 10.0 * max(0.0, 1.0 - max(
+            0.0, freshness_days - (35.0 if national else 7.0)
+        ) / (145.0 if national else 28.0))
         validation_score = 20.0 if validation_passed else 0.0
         evidence = min(100.0, sample_score + form_score + agreement_score + freshness_score + validation_score)
 
@@ -2494,14 +2618,15 @@ def build_fixture_candidates(
             blocked.append("Markt hat das Walk-forward-Gate nicht bestanden")
         if evidence < 72.0:
             blocked.append("Evidenzscore unter 72")
-        if freshness_days > 35.0:
+        if freshness_days > (180.0 if national else 35.0):
             blocked.append("Letzte Formbeobachtung ist zu alt")
 
         model_price = 1.0 / conservative if conservative > 0 else math.inf
         candidate_id = f"{identity['fixture_id']}:{spec.key}"
         reasons = [
             f"Konservativ {conservative * 100:.1f} % nach {haircut_pp:.1f} PP Abschlag",
-            f"Venue-Stichprobe {venue_samples[0]}/{venue_samples[1]}",
+            (f"A-Länderspiel-Stichprobe {sample_basis[0]}/{sample_basis[1]}"
+             if national else f"Venue-Stichprobe {venue_samples[0]}/{venue_samples[1]}"),
             f"Saison/Form-Spanne {spread_pp:.1f} PP",
         ]
         if active > 0.92:
@@ -2537,6 +2662,7 @@ def build_fixture_candidates(
                 expected_away_goals=round(active_away, 3),
                 venue_samples=venue_samples,
                 form_samples=form_samples,
+                national_samples=model.get("national_samples", (0, 0)) if national else (0, 0),
                 validation=metric,
                 expected_market_home=(
                     round(expected_market_home, 3)
@@ -3131,9 +3257,12 @@ def apply_candidate_context(
         return candidate
 
     blocked: list[str] = []
+    # Pooled A-international backtests support a model forecast.  They do not
+    # establish an independent Nations-League-only Echtgeld release claim.
     release_validated = candidate.model_scope == MODEL_SCOPE_SAME_COMPETITION
     forecast_supported = candidate.model_scope in {
         MODEL_SCOPE_SAME_COMPETITION,
+        MODEL_SCOPE_SENIOR_NATIONAL,
         MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST,
     }
     if not forecast_supported:
@@ -3308,8 +3437,7 @@ def apply_candidate_context(
                 None
                 if release_validated
                 else (
-                    "Aktuelle Länderspiele aus mehreren Wettbewerben; "
-                    "Übertrag auf die Nations League noch nicht separat validiert"
+                    "A-Länderspiele geprüft; Nations League allein noch nicht ausreichend belegt"
                     if candidate.league_id == 5
                     else
                     "Konservativ validierte Heimatliga-Prognose; "
@@ -3594,9 +3722,11 @@ def _candidate_model_contract_is_valid(candidate: ChallengeCandidate) -> bool:
     expected_price = 1.0 / candidate.conservative_probability
     if not math.isclose(candidate.model_price, expected_price, rel_tol=0.0, abs_tol=0.001):
         return False
+    national = candidate.model_scope == MODEL_SCOPE_SENIOR_NATIONAL
     for samples, minimum in (
-        (candidate.venue_samples, MIN_VENUE_MATCHES),
+        (candidate.venue_samples, 0 if national else MIN_VENUE_MATCHES),
         (candidate.form_samples, MIN_FORM_MATCHES),
+        (candidate.national_samples, MIN_FORM_MATCHES if national else 0),
     ):
         if (
             not isinstance(samples, tuple)
@@ -3623,6 +3753,7 @@ def candidate_is_forecast_credible(candidate: ChallengeCandidate) -> bool:
         return False
     if candidate.model_scope not in {
         MODEL_SCOPE_SAME_COMPETITION,
+        MODEL_SCOPE_SENIOR_NATIONAL,
         MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST,
     }:
         return False
@@ -3635,7 +3766,10 @@ def candidate_is_forecast_credible(candidate: ChallengeCandidate) -> bool:
     if forecast_passed is not True:
         return False
     model_transfer = candidate.context.get("model_transfer")
-    if candidate.model_scope == MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST:
+    if candidate.model_scope in {
+        MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST,
+        MODEL_SCOPE_SENIOR_NATIONAL,
+    }:
         if (
             not isinstance(model_transfer, dict)
             or model_transfer.get("status") != "provisional"

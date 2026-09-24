@@ -331,6 +331,7 @@ def _challenge_candidate_from_payload(
         raw["validation"] = ValidationMetrics(**validation_payload)
         raw["venue_samples"] = tuple(raw.get("venue_samples") or ())
         raw["form_samples"] = tuple(raw.get("form_samples") or ())
+        raw["national_samples"] = tuple(raw.get("national_samples") or (0, 0))
         raw["reasons"] = list(raw.get("reasons") or [])
         raw["blocked_reasons"] = list(raw.get("blocked_reasons") or [])
         raw["context"] = (

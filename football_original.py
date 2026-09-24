@@ -21,9 +21,13 @@ _FIXTURE = {
     "challenge_stats": {key: _SCALAR for key in ("xg_home", "xg_away", "corners_home", "corners_away",
                                                  "yellow_cards_home", "yellow_cards_away")},
     "challenge_source": _SCALAR,
+    "challenge_neutral_venue": _SCALAR,
+    "challenge_venue_unknown": _SCALAR,
+    "challenge_senior_national_team": _SCALAR,
 }
 _GOAL_FIELDS = ("active_lambdas", "season_lambdas", "form_lambdas", "venue_samples",
-                "form_samples", "league_sample", "freshness_days", "freshness_observed_at", "xg_coverage")
+                "national_samples", "form_samples", "league_sample", "freshness_days",
+                "freshness_observed_at", "xg_coverage")
 _COUNT_FIELDS = ("active_counts", "season_counts", "form_counts", "venue_samples", "form_samples",
                  "league_sample", "dispersion", "referee_sample", "referee_mean")
 
@@ -166,7 +170,7 @@ def capture_football_original(*, inputs, model, raw_probabilities,
         "source_evidence": "unresolved-receipts-not-in-this-capture",
         "fixture": inputs["fixture"], "league_history": inputs["league_history"],
         "team_history": inputs["team_history"],
-        "goal_model": _json_value({key: model[key] for key in _GOAL_FIELDS}, issues),
+        "goal_model": _json_value({key: model[key] for key in _GOAL_FIELDS if key in model}, issues),
         "count_models": {family: _json_value({key: value[key] for key in _COUNT_FIELDS}, issues)
                          for family, value in model["count_models"].items()},
         "raw_probabilities": _probabilities(raw_probabilities, issues),

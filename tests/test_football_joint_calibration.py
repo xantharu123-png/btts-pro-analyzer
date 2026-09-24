@@ -216,6 +216,7 @@ def test_historical_authenticated_ticket_reads_and_settles_without_redefinition(
     payload=asdict(_candidate(now))
     payload.pop('prediction_version');payload['validation'].pop('prediction_version')
     payload.pop('market_comparison')  # Optional new presentation metadata did not exist in the old ticket schema.
+    payload.pop('national_samples')  # Optional national-model field did not exist in old tickets.
     payload['validation']=old.ValidationMetrics(**payload['validation'])
     candidate=old.ChallengeCandidate(**payload)
     ticket=old.select_quoted_ticket([candidate],{candidate.candidate_id:2.10},now=now)
@@ -248,6 +249,7 @@ def test_unversioned_candidate_serialization_preserves_absent_fields():
     payload=candidate.to_dict()
     assert 'prediction_version' not in payload
     assert 'prediction_version' not in payload['validation']
+    assert 'national_samples' not in payload
 
 
 def test_projection_failure_keeps_raw_law_and_blocks_candidates(monkeypatch):

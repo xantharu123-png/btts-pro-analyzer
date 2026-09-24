@@ -146,10 +146,11 @@ def test_nations_league_uses_recent_cross_competition_team_results_not_2022():
     def get_history(endpoint, params, _label, **_kwargs):
         assert endpoint == "fixtures" and params["status"] == "FT"
         calls.append(params)
-        return (
-            [qualification, shared, old, club, youth]
-            if params["team"] == 10 else [friendly, shared, old]
-        )
+        return {
+            5: [shared, old],
+            32: [qualification],
+            10: [friendly, club, youth],
+        }.get(params["league"], [])
 
     provider._football_get = Mock(side_effect=get_history)
     with patch("challenge_15k.fetch_stat_history") as csv_history:
@@ -158,9 +159,15 @@ def test_nations_league_uses_recent_cross_competition_team_results_not_2022():
     csv_history.assert_not_called()
     assert {row["fixture"]["id"] for row in result} == {2601, 2602, 2603}
     assert next(row for row in result if row["fixture"]["id"] == 2602)[
-        "challenge_neutral_venue"
+        "challenge_venue_unknown"
     ] is True
-    assert {call["team"] for call in calls} == {10, 11}
+    assert {call["league"] for call in calls} == set(
+        challenge_15k.NATIONAL_HISTORY_LEAGUES
+    )
+    assert all("team" not in call for call in calls)
+    assert len(calls) == len(challenge_15k.NATIONAL_HISTORY_LEAGUES) * len(
+        range((now - timedelta(days=730)).year, now.year + 1)
+    )
     assert {call["season"] for call in calls} == set(
         range((now - timedelta(days=730)).year, now.year + 1)
     )
@@ -187,6 +194,25 @@ def test_nations_league_history_fails_closed_if_a_team_fetch_fails():
     assert provider.completed_history(5, 2026, target) is None
 
 
+def test_nations_league_bulk_history_excludes_unrelated_non_uefa_games():
+    now = datetime.now(timezone.utc)
+    target = fixture(9999, now + timedelta(hours=3), 10, 11, league_id=5)
+    nations = fixture(2601, now - timedelta(days=120), 10, 11, 1, 0, league_id=5)
+    nations["league"].update(name="UEFA Nations League", country="World")
+    european_qualifier = fixture(2602, now - timedelta(days=90), 12, 13, 2, 1, league_id=32)
+    european_qualifier["league"].update(name="World Cup - Qualification Europe", country="World")
+    friendly = fixture(2603, now - timedelta(days=10), 10, 101, 2, 0, league_id=10)
+    friendly["league"].update(name="Friendlies", country="World")
+    unrelated_friendly = fixture(2604, now - timedelta(days=8), 201, 202, 1, 1, league_id=10)
+    unrelated_friendly["league"].update(name="Friendlies", country="World")
+    provider = ChallengeDataProvider("test", None)
+    provider._football_get = Mock(side_effect=lambda _path, params, _label, **_kwargs: {
+        5: [nations], 32: [european_qualifier], 10: [friendly, unrelated_friendly],
+    }.get(params["league"], []))
+    rows = provider.completed_history(5, 2026, [target])
+    assert {row["fixture"]["id"] for row in rows} == {2601, 2603}
+
+
 def test_recent_national_friendly_changes_form_but_not_goal_prior():
     from challenge_engine import _league_goal_means, fixture_market_probabilities
 
@@ -206,7 +232,7 @@ def test_recent_national_friendly_changes_form_but_not_goal_prior():
         for index in range(12)
     ]
     friendly = fixture(5000, now - timedelta(days=2), 10, 300, 5, 0, league_id=10)
-    friendly["challenge_neutral_venue"] = True
+    friendly["challenge_venue_unknown"] = True
     prior_before = _league_goal_means(history, now)
     prior_after = _league_goal_means([*history, friendly], now)
     assert prior_after == prior_before
@@ -217,7 +243,76 @@ def test_recent_national_friendly_changes_form_but_not_goal_prior():
     assert updated["probabilities"]["RESULT_HOME"][0] > baseline["probabilities"]["RESULT_HOME"][0]
 
 
-def test_nations_league_scan_models_cross_competition_history_without_releasing_tip():
+def test_national_model_uses_real_overall_samples_without_invented_venue_games():
+    from challenge_engine import _fixture_model, fixture_market_probabilities
+
+    now = datetime.now(timezone.utc)
+    history = [
+        fixture(6000 + index, now - timedelta(days=120 - index),
+                10, 100 + index, 2, 1, league_id=10)
+        for index in range(12)
+    ] + [
+        fixture(7000 + index, now - timedelta(days=119 - index),
+                200 + index, 11, 1, 1, league_id=10)
+        for index in range(12)
+    ]
+    for row in history:
+        row["challenge_venue_unknown"] = True
+        row["challenge_senior_national_team"] = True
+    target = fixture(9999, now + timedelta(hours=3), 10, 11, league_id=5)
+    model = _fixture_model(target, history)
+    assert model is not None
+    assert model["national_samples"] == (12, 12)
+    assert model["venue_samples"] == (0, 0)
+    assert model["form_samples"] == (6, 6)
+    future = fixture(9998, now + timedelta(hours=4), 10, 11, 9, 0, league_id=5)
+    future["challenge_senior_national_team"] = True
+    assert _fixture_model(target, [*history, future])["active_lambdas"] == model["active_lambdas"]
+    captures = []
+    probabilities = fixture_market_probabilities(
+        target, history, original_capture=captures.append,
+    )
+    assert probabilities is not None and len(captures) == 1
+    original = captures[0].to_dict()
+    assert original["goal_model"]["venue_samples"] == [0, 0]
+    assert original["goal_model"]["national_samples"] == [12, 12]
+    assert all(row["challenge_senior_national_team"] is True
+               for row in original["league_history"])
+    assert all(row["challenge_venue_unknown"] is True
+               for row in original["league_history"])
+    assert original["goal_provenance"]["reference_weights"]["kind"] == "unavailable"
+
+
+def test_national_neutral_target_removes_host_effect_and_is_walk_forward_target():
+    from challenge_engine import _fixture_model, _walk_forward_market_records
+
+    now = datetime.now(timezone.utc)
+    history = [
+        fixture(8000 + index, now - timedelta(days=120 - index),
+                10, 100 + index, 2, 1, league_id=5)
+        for index in range(12)
+    ] + [
+        fixture(9000 + index, now - timedelta(days=119 - index),
+                200 + index, 11, 2, 1, league_id=5)
+        for index in range(12)
+    ]
+    for row in history:
+        row["challenge_senior_national_team"] = True
+    hosted = fixture(9999, now + timedelta(hours=3), 10, 11, league_id=5)
+    neutral = fixture(9997, now + timedelta(hours=3), 10, 11, 1, 1, league_id=10)
+    neutral["challenge_neutral_venue"] = True
+    neutral["challenge_senior_national_team"] = True
+    host_model = _fixture_model(hosted, history)
+    neutral_model = _fixture_model(neutral, history)
+    assert host_model is not None and neutral_model is not None
+    assert host_model["active_lambdas"][0] > neutral_model["active_lambdas"][0]
+    assert host_model["active_lambdas"][1] < neutral_model["active_lambdas"][1]
+    before = _walk_forward_market_records(history)
+    after = _walk_forward_market_records([*history, neutral])
+    assert len(after["RESULT_HOME"]["outcomes"]) == len(before["RESULT_HOME"]["outcomes"]) + 1
+
+
+def test_nations_league_scan_uses_pooled_national_scope_without_context_release():
     from test_challenge_market_eligibility import _credible_metric
 
     now = datetime.now(timezone.utc)
@@ -236,6 +331,8 @@ def test_nations_league_scan_models_cross_competition_history_without_releasing_
         )
         for index in range(12)
     ]
+    for row in history:
+        row["challenge_senior_national_team"] = True
     provider = Mock()
     provider.errors = []
     provider.upcoming_fixtures.return_value = [target]
@@ -260,10 +357,25 @@ def test_nations_league_scan_models_cross_competition_history_without_releasing_
     assert snapshot["fixtures_found"] == snapshot["fixtures_modeled"] == 1
     assert snapshot["base_shortlist"]
     assert all(
-        row.model_scope == challenge_15k.MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST
+        row.model_scope == challenge_15k.MODEL_SCOPE_SENIOR_NATIONAL
         for row in snapshot["base_shortlist"]
     )
     assert snapshot["approved_candidates"] == 0
+    for row in history:
+        del row["challenge_senior_national_team"]
+    with (
+        patch(
+            "challenge_15k._cached_market_validation",
+            return_value={spec.key: _credible_metric() for spec in MARKET_SPECS},
+        ),
+        patch("challenge_15k._cached_market_calibration", return_value={}),
+    ):
+        unmarked = challenge_15k.scan_daily_challenge(
+            provider, [5], kickoff.astimezone(challenge_15k.CHALLENGE_TIMEZONE).date(),
+            8, candidate_profile="wettfinder",
+        )
+    assert unmarked["fixtures_modeled"] == 1
+    assert unmarked["base_candidates"] == 0
 
 
 def test_completed_history_is_causal_unique_and_bounded():
