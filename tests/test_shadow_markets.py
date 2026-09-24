@@ -13,6 +13,29 @@ sys.path.insert(0, str(ROOT))
 
 import shadow_clv_automation as shadow  # noqa: E402
 
+
+def test_nations_league_shadow_history_uses_recent_team_adapter_not_2025(tmp_path):
+    from unittest.mock import Mock
+
+    fixture = {"fixture": {"id": 91}, "league": {"id": 5}}
+    provider = Mock()
+    recent = [{"fixture": {"id": 20}, "league": {"id": 32}}]
+    with (
+        patch.object(shadow, "CACHE_DIR", tmp_path),
+        patch("challenge_15k.ChallengeDataProvider") as adapter_type,
+        patch.object(shadow, "fetch_stat_history") as old_history,
+    ):
+        adapter_type.return_value.completed_history.return_value = recent
+        result = shadow._cached_history(provider, 5, 2026, fixture, "2026-09-24")
+        again = shadow._cached_history(provider, 5, 2026, fixture, "2026-09-24")
+
+    assert result == again == recent
+    adapter_type.return_value.completed_history.assert_called_once_with(
+        5, 2026, [fixture],
+    )
+    old_history.assert_not_called()
+    provider.ft_history.assert_not_called()
+
 from challenge_engine import MARKET_BY_KEY, MARKET_SPECS, market_outcome  # noqa: E402
 
 

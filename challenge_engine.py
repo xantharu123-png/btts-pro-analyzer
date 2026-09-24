@@ -896,6 +896,8 @@ def _team_observations(
         if team_id not in {home_id, away_id}:
             continue
         actual_venue = "home" if home_id == team_id else "away"
+        if venue is not None and fixture.get("challenge_neutral_venue") is True:
+            continue
         if venue is not None and actual_venue != venue:
             continue
         home_goals, away_goals = _fixture_score(fixture) or (None, None)
@@ -1012,6 +1014,7 @@ def _league_goal_means(fixtures: Iterable[dict[str, Any]], before: datetime) -> 
         _fixture_score(fixture)
         for fixture in fixtures
         if _is_completed_before(fixture, before)
+        and fixture.get("challenge_neutral_venue") is not True
     ]
     scores = [score for score in scores if score is not None]
     if len(scores) < MIN_LEAGUE_MATCHES:
@@ -1457,6 +1460,8 @@ def _team_count_observations(
         if team_id not in {home_id, away_id}:
             continue
         actual_venue = "home" if home_id == team_id else "away"
+        if venue is not None and fixture.get("challenge_neutral_venue") is True:
+            continue
         if venue is not None and actual_venue != venue:
             continue
         own, opponent = counts if actual_venue == "home" else (counts[1], counts[0])
@@ -1475,6 +1480,7 @@ def _league_count_means(
         _fixture_count_pair(fixture, family)
         for fixture in fixtures
         if _is_completed_before(fixture, before)
+        and fixture.get("challenge_neutral_venue") is not True
     ]
     pairs = [pair for pair in pairs if pair is not None]
     if len(pairs) < MIN_LEAGUE_MATCHES:
@@ -2110,6 +2116,8 @@ def _walk_forward_market_records(
         day_calibration = {key: state["map"] for key, state in calibration_state.items()
                            if state["map"] is not None}
         for fixture in day_fixtures:
+            if fixture.get("challenge_neutral_venue") is True:
+                continue
             prediction = fixture_market_probabilities(fixture, prior, day_calibration, _validation_only=True)
             if prediction is None:
                 continue
@@ -2129,6 +2137,8 @@ def _walk_forward_market_records(
                 records[spec.key]["projection_success"].append(prediction["projection_success"])
 
         for fixture in day_fixtures:
+            if fixture.get("challenge_neutral_venue") is True:
+                continue
             for spec in MARKET_SPECS:
                 outcome_value = _fixture_market_outcome(spec, fixture)
                 if outcome_value is None:
@@ -3298,6 +3308,10 @@ def apply_candidate_context(
                 None
                 if release_validated
                 else (
+                    "Aktuelle Länderspiele aus mehreren Wettbewerben; "
+                    "Übertrag auf die Nations League noch nicht separat validiert"
+                    if candidate.league_id == 5
+                    else
                     "Konservativ validierte Heimatliga-Prognose; "
                     "kein historisch freigegebenes UEFA-Transfermodell"
                 )

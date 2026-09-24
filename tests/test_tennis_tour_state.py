@@ -40,9 +40,9 @@ def test_atp_publishes_even_when_wta_fails(tmp_path):
 ])
 def test_training_years_cover_current_utc_season(cutoff, last):
     years = training_years(cutoff)
-    assert years[0] == 2010
+    assert years[0] == max(2023, last - 3)
     assert years[-1] == last
-    assert len(years) == last - 2009
+    assert 2022 not in years
 
 
 def test_training_years_reject_naive_cutoff():
@@ -245,7 +245,7 @@ def test_separate_builds_exclude_other_tour_future_and_retired_rows(monkeypatch,
     monkeypatch.setattr(tour_state, "load_market_odds", market if tour == "WTA" else lambda *a, **k: pytest.fail("WTA contamination"))
     def calibration(**kwargs):
         assert kwargs["tours"] == (tour.lower(),)
-        assert kwargs["odds_years"] == (2022, 2023, 2024)
+        assert kwargs["odds_years"] == (2024, 2025, 2026)
         assert kwargs["end_cutoff"] == NOW
         assert kwargs["calibration_only"] is True
         return SimpleNamespace(rows=[])

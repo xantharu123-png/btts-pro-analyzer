@@ -41,8 +41,9 @@ def _tour(tour: str) -> str:
 
 
 def training_years(as_of: datetime) -> tuple[int, ...]:
-    """Include the active UTC season, never a fixed calendar end year."""
-    return tuple(range(2010, _utc(as_of).year + 1))
+    """Use a rolling recent window; do not reload obsolete 2022 results."""
+    year = _utc(as_of).year
+    return tuple(range(max(2023, year - 3), year + 1))
 
 
 def _dated_inputs(frame, column, tour, cutoff):
@@ -58,7 +59,7 @@ def build_tour_state(tour: str, *, as_of: datetime,
                      diagnostics: dict | None = None) -> ModelState:
     """Build one namespace using sport-only, cutoff-bounded training inputs.
 
-    The fixed 2022/2023/2024 calibration-year policy is intentionally retained.
+    Calibration uses completed seasons after a recent-year warm-up.
     Price availability is no longer a calibration sample-selection criterion.
     This population change is not evidence of improved predictive performance.
     """
@@ -102,7 +103,7 @@ def build_tour_state(tour: str, *, as_of: datetime,
         consumed.append(row[column])
     if not consumed:
         raise ValueError("no dated completed training results before cutoff")
-    calibration_years = tuple(year for year in (2022, 2023, 2024) if year <= cutoff.year)
+    calibration_years = tuple(year for year in years if 2024 <= year < cutoff.year)
     report = run_backtest(
         odds_years=calibration_years, stats_years=years, tours=(tour.lower(),),
         serve_weight=.3 if tour == "ATP" else 0., recalibrate=False,

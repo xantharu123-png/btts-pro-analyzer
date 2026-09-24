@@ -7,6 +7,7 @@ from datetime import date, datetime, timedelta, timezone
 import hashlib
 import math
 from pathlib import Path
+import re
 import time
 from typing import Any, Optional
 
@@ -130,6 +131,13 @@ SNAPSHOT_MAX_AGE_MINUTES = 40
 XG_MAX_NEW_CALLS_PER_SCAN = 12
 CONTINENTAL_LEAGUE_IDS = frozenset({2, 3, 848})
 DOMESTIC_HISTORY_LAST_FIXTURES = 60
+NATIONAL_TEAM_HISTORY_DAYS = 730
+NATIONAL_COMPETITIONS = frozenset({
+    "uefa nations league",
+    "world cup",
+    "euro championship",
+    "friendlies",
+})
 # Auto-Nachprüfung: Die App wartet selbst auf frischen Pflichtkontext
 # (Ausfälle und Wetter; H2H ergänzend), statt dass der Nutzer den ganzen Tag
 # manuell neu scannt. Aufstellungen werden später nur zur Anzeige ergänzt.
@@ -202,6 +210,36 @@ def _fixture_kickoff(fixture: dict[str, Any]) -> Optional[datetime]:
     if kickoff.tzinfo is None:
         return None
     return kickoff.astimezone(timezone.utc)
+
+
+def _senior_national_result(row: dict[str, Any]) -> bool:
+    """Accept only senior national-team competitions, never clubs/youth/women."""
+    league = row.get("league")
+    teams = row.get("teams")
+    if not isinstance(league, dict) or not isinstance(teams, dict):
+        return False
+    if str(league.get("country") or "").strip().casefold() != "world":
+        return False
+    name = str(league.get("name") or "").strip().casefold()
+    if name not in NATIONAL_COMPETITIONS and not name.startswith((
+        "world cup - qualification ",
+        "euro championship - qualification ",
+    )):
+        return False
+    for side in ("home", "away"):
+        team = teams.get(side)
+        if not isinstance(team, dict) or _positive_integer(team.get("id")) is None:
+            return False
+        team_name = str(team.get("name") or "")
+        if re.search(r"(?i)(?:\b(?:women|woman|female|olympic|u-?(?:17|18|19|20|21|23))\b|\(w\))", team_name):
+            return False
+    return True
+
+
+def _neutral_national_venue(row: dict[str, Any]) -> bool:
+    name = str(row["league"].get("name") or "").strip().casefold()
+    # Tournament brackets and friendlies have no reliable league home edge.
+    return name in {"world cup", "euro championship", "friendlies"}
 
 
 def _bounded_completed_history(
@@ -837,6 +875,59 @@ class ChallengeDataProvider:
         season: int,
         upcoming_fixtures: list[dict[str, Any]],
     ) -> Optional[list[dict[str, Any]]]:
+        if league_id == 5:
+            # One bounded request per distinct team, within the same daily
+            # scan. No old Nations League edition (or 2022 season) is fetched.
+            target_kickoffs = [
+                kickoff for row in upcoming_fixtures
+                if isinstance(row, dict)
+                and (kickoff := _fixture_kickoff(row)) is not None
+            ]
+            if not target_kickoffs:
+                return None
+            before = min(datetime.now(timezone.utc), min(target_kickoffs))
+            earliest = before - timedelta(days=NATIONAL_TEAM_HISTORY_DAYS)
+            team_ids = sorted({
+                team_id
+                for row in upcoming_fixtures if isinstance(row, dict)
+                for side in ("home", "away")
+                if isinstance(row.get("teams"), dict)
+                and isinstance(row["teams"].get(side), dict)
+                if (team_id := _positive_integer(row["teams"][side].get("id"))) is not None
+            })
+            if not team_ids:
+                return None
+            gathered: list[dict[str, Any]] = []
+            for team_id in team_ids:
+                recent = self._football_get(
+                    "fixtures",
+                    {
+                        "team": team_id,
+                        "from": earliest.date().isoformat(),
+                        "to": before.date().isoformat(),
+                        "status": "FT",
+                        "timezone": "Europe/Zurich",
+                    },
+                    f"Aktuelle Länderspiele Team {team_id}",
+                    priority=APIBudgetPriority.BACKGROUND,
+                )
+                if recent is None:
+                    return None
+                for row in recent:
+                    if not _senior_national_result(row):
+                        continue
+                    teams = row["teams"]
+                    if team_id not in {teams["home"]["id"], teams["away"]["id"]}:
+                        continue
+                    kickoff = _fixture_kickoff(row)
+                    if kickoff is None or not earliest <= kickoff < before:
+                        continue
+                    gathered.append(
+                        {**row, "challenge_neutral_venue": True}
+                        if _neutral_national_venue(row) else row
+                    )
+            return _bounded_completed_history(gathered, before=before) or None
+
         statistical_history = fetch_stat_history(
             league_id,
             season,
@@ -867,14 +958,7 @@ class ChallengeDataProvider:
             and not isinstance(season, bool)
             and season > 2020
         ):
-            # Nations League seasons start every second year. The two prior
-            # editions can supply the venue sample; 2025 is not a 2026
-            # Nations League season. The normal 35-day freshness rule is
-            # unchanged, so old results cannot become a current tip alone.
-            previous_seasons = (
-                (season - 4, season - 2)
-                if league_id == 5 else (season - 1,)
-            )
+            previous_seasons = (season - 1,)
             for previous_season in previous_seasons:
                 if previous_season < 2020:
                     continue
@@ -2319,7 +2403,7 @@ def scan_daily_challenge(
                     season,
                     valid_upcoming,
                 )
-                if history:
+                if history and league_id != 5:
                     try:
                         xg_stats = annotate_history_xg(
                             history,
@@ -2601,6 +2685,14 @@ def scan_daily_challenge(
             model_scope=(
                 MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST
                 if fixture_id in provisional_fixture_ids
+                or (
+                    competition is not None
+                    and competition[0] == 5
+                    and any(
+                        row.get("league", {}).get("id") != 5
+                        for row in histories.get(competition, [])
+                    )
+                )
                 else MODEL_SCOPE_CROSS_COMPETITION_UNVALIDATED
                 if fixture_id in fixture_team_histories
                 else MODEL_SCOPE_SAME_COMPETITION
@@ -2884,6 +2976,7 @@ def scan_daily_challenge(
                 for candidate in base_candidates
                 if candidate.model_scope
                 == MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST
+                and candidate.league_id in CONTINENTAL_LEAGUE_IDS
             }
         ),
         "base_candidates": len(base_candidates),

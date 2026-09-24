@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
+from datetime import datetime, timezone
 from typing import Dict, Optional
 
 from .backtest import _is_retired, stable_flip
@@ -51,7 +52,8 @@ def _parse_score(row) -> Optional[tuple]:
 
 def collect_calibration() -> Dict:
     """Walk forward through ATP box scores; return bucket stats per market."""
-    stats = load_atp_stats(range(2022, 2027))
+    current_year = datetime.now(timezone.utc).year
+    stats = load_atp_stats(range(max(2023, current_year - 3), current_year + 1))
     stats = add_normalized_names(stats, "winner_name", "loser_name")
     stats = stats.sort_values("tourney_date", kind="mergesort").reset_index(drop=True)
 

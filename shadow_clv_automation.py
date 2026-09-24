@@ -38,6 +38,7 @@ from betting_math import BettingMathError, evaluate_market_price  # noqa: E402
 from challenge_engine import (  # noqa: E402
     KELLY_REFERENCE_CAP,
     MIN_LEG_EXPECTED_ROI,
+    MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST,
     apply_candidate_context,
     build_fixture_candidates,
     candidate_is_credible,
@@ -508,8 +509,12 @@ def _meta_set(connection, key: str, value: str) -> None:
 
 def _cache_path(kind: str, league_id: int, season: int, day: str) -> Path:
     CACHE_DIR.mkdir(exist_ok=True)
+    version = (
+        f"{SHADOW_MODEL_VERSION}-national-recent-v2"
+        if league_id == 5 else SHADOW_MODEL_VERSION
+    )
     return CACHE_DIR / (
-        f"{kind}_{SHADOW_MODEL_VERSION}_{league_id}_{season}_{day}.pkl"
+        f"{kind}_{version}_{league_id}_{season}_{day}.pkl"
     )
 
 
@@ -527,6 +532,16 @@ def _cached_history(provider, league_id, season, fixture, day):
             ImportError,
         ):
             path.unlink(missing_ok=True)
+    if league_id == 5:
+        from challenge_15k import ChallengeDataProvider
+
+        adapter = ChallengeDataProvider("", None)
+        adapter._football_get = provider._get
+        history = adapter.completed_history(league_id, season, [fixture]) or []
+        atomic_write_bytes(
+            path, pickle.dumps(history, protocol=pickle.HIGHEST_PROTOCOL),
+        )
+        return history
     history = fetch_stat_history(league_id, season, [fixture])
     if history:
         try:
@@ -852,7 +867,16 @@ def step_evaluate(tracker: CLVTracker, provider: ShadowProvider, now: datetime,
         )
         validation = _cached_validation(league_id, season, history, zurich_today.isoformat())
         calibration = _cached_calibration(league_id, season, history, zurich_today.isoformat())
-        candidates = build_fixture_candidates(detail, history, validation, calibration)
+        national_transfer = league_id == 5 and any(
+            row.get("league", {}).get("id") != 5 for row in history
+        )
+        candidates = build_fixture_candidates(
+            detail, history, validation, calibration,
+            **(
+                {"model_scope": MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST}
+                if national_transfer else {}
+            ),
+        )
         coverage = provider.coverage(league_id, season)
         teams = detail.get("teams", {})
         home_id = teams.get("home", {}).get("id")

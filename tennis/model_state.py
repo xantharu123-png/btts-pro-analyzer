@@ -91,7 +91,7 @@ class ModelState:
 
 def build_state(
     stats_years: Optional[Iterable[int]] = None,
-    calibration_odds_years: Tuple[int, ...] = (2022, 2023, 2024),
+    calibration_odds_years: Optional[Tuple[int, ...]] = None,
     serve_weight: float = 0.3,
     verbose: bool = True,
     serve_half_life_days: Optional[float] = 365.0,
@@ -112,11 +112,16 @@ def build_state(
     publication. A failed refresh is fatal; it never silently downgrades a
     previously combined model to ATP-only. Cache-only callers retain their API.
     """
+    current_year = datetime.fromtimestamp(time.time(), timezone.utc).year
     if stats_years is None:
-        stats_years = range(2010, datetime.fromtimestamp(time.time(), timezone.utc).year + 1)
+        stats_years = range(max(2023, current_year - 3), current_year + 1)
+    stats_years = tuple(stats_years)
+    if calibration_odds_years is None:
+        calibration_odds_years = tuple(
+            year for year in stats_years if 2024 <= year < current_year
+        )
 
     build_cutoff = pd.Timestamp(time.time(), unit="s", tz="UTC")
-    stats_years = tuple(stats_years)
     refresh_options = {"refresh_current": True} if refresh_training_data else {}
     stats = load_atp_stats(stats_years, **refresh_options)
     stats = add_normalized_names(stats, "winner_name", "loser_name")
