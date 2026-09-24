@@ -2,7 +2,7 @@
 Description=Run BetBoy E-Sport daily discovery
 
 [Timer]
-OnCalendar=*-*-* 08:23:00
+OnCalendar=*-*-* 03:10:00 Europe/Zurich
 AccuracySec=1min
 Persistent=false
 

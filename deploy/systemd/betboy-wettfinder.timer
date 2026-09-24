@@ -2,7 +2,7 @@
 Description=Run BetBoy Wettfinder once daily
 
 [Timer]
-OnCalendar=*-*-* 09:37:00
+OnCalendar=*-*-* 03:35:00 Europe/Zurich
 AccuracySec=1min
 Persistent=false
 

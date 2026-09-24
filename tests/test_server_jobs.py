@@ -73,7 +73,7 @@ def test_wettfinder_timer_is_installed_and_enabled_by_deploy_scripts():
     )
 
     assert "wettfinder_automation.py" in service
-    assert "OnCalendar=*-*-* 09:37:00" in timer
+    assert "OnCalendar=*-*-* 03:35:00 Europe/Zurich" in timer
     for expected in EXPECTED_TIMERS:
         assert update.count(f"    {expected}\n") == 1
         assert bootstrap.count(f"    {expected}\n") == 1
@@ -90,10 +90,10 @@ def test_automatic_sport_timers_run_once_daily_without_catchup():
     root = Path(__file__).resolve().parents[1]
     systemd = root / "deploy" / "systemd"
     schedules = {
-        "betboy-wettfinder.timer": "*-*-* 09:37:00",
+        "betboy-wettfinder.timer": "*-*-* 03:35:00 Europe/Zurich",
         "betboy-football-shadow.timer": "*-*-* 17:02:00",
-        "betboy-tennis.timer": "*-*-* 07:17:00",
-        "betboy-esports.timer": "*-*-* 08:23:00",
+        "betboy-tennis.timer": "*-*-* 00:05:00 Europe/Zurich",
+        "betboy-esports.timer": "*-*-* 03:10:00 Europe/Zurich",
         "betboy-redcard-history.timer": "*-*-* 05:41:00",
         "betboy-redcard-settlement.timer": "*-*-* 06:05:00",
     }
@@ -125,7 +125,7 @@ def test_tennis_timer_has_only_one_local_calendar_trigger_without_catchup():
     timer = (root / "deploy" / "systemd" / "betboy-tennis.timer").read_text(
         encoding="utf-8"
     )
-    assert timer.splitlines().count("OnCalendar=*-*-* 07:17:00") == 1
+    assert timer.splitlines().count("OnCalendar=*-*-* 00:05:00 Europe/Zurich") == 1
     assert timer.count("OnCalendar=") == 1
     assert "Persistent=false" in timer
     assert "Persistent=true" not in timer
@@ -2262,7 +2262,7 @@ def test_esports_broad_discovery_runs_once_daily():
     ).read_text(encoding="utf-8")
 
     assert timer.count("OnCalendar=") == 1
-    assert "OnCalendar=*-*-* 08:23:00" in timer
+    assert "OnCalendar=*-*-* 03:10:00 Europe/Zurich" in timer
 
 
 def test_football_job_skips_when_no_work_is_due(monkeypatch, capsys):

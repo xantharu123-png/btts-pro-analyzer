@@ -1,6 +1,6 @@
 """Standalone Tages-Pipeline fuer Windows-Aufgabenplanung und Linux-systemd.
 
-Ablauf (taeglich 07:17 lokal):
+Ablauf (taeglich 00:05 lokal):
   1) Model-State neu bauen, wenn aelter als 7 Tage (rebuild_state.py --if-stale-days 7)
   2) Tages-Scan (tennis_daily.py) - idempotent, Doppel-Scan am selben Tag ist harmlos
   3) Montags: Kalibrierungs-Waechter (calibration_watch_runner.py)

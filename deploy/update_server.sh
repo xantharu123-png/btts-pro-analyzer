@@ -388,7 +388,7 @@ expected_unit_sha256() {
         deploy/systemd/betboy-backup.service) printf '%s\n' 922352a5d3c883cc671da419c5d3fa589cbe9cd025f32d4c4d9f7b6a9648edb8 ;;
         deploy/systemd/betboy-backup.timer) printf '%s\n' 918fd587a63dd57eb538c0e49d3f1dc13ffe1db9c99e46eeb2e4144605596aaa ;;
         deploy/systemd/betboy-esports.service) printf '%s\n' 1df7e7c001c093c211ce03ae3c0ac57ce8030f9c3da008e1ee04e431ca9cfd8b ;;
-        deploy/systemd/betboy-esports.timer) printf '%s\n' 996685c3d4cb893ce7d71e1b43ba120c1796c85b6a178905c32c708b96edf10f ;;
+        deploy/systemd/betboy-esports.timer) printf '%s\n' d436a79258ab1aa4a4dd31697f9fb7cdb9d93b64d8a58b66c0b98f2cd3921832 ;;
         deploy/systemd/betboy-football-shadow.service) printf '%s\n' 0e9bf4d73bc8db2b2dee201b116d63f86c0dcd953a5458e0f6c8ea00df33a149 ;;
         deploy/systemd/betboy-football-shadow.timer) printf '%s\n' d6d5d1b48e42328194293637c5083b9bee88dcbe08a2f80e52a0f33c5790ba70 ;;
         deploy/systemd/betboy-redcard-history.service) printf '%s\n' a063bd88657bfbcffe804732c48c5302b98c3fd869864383a62f6b2f1daa8795 ;;
@@ -396,9 +396,9 @@ expected_unit_sha256() {
         deploy/systemd/betboy-redcard-settlement.service) printf '%s\n' f2bdb5ed768012258ecec20f3ba91c0f8290853218f26842524a210aa1ba767a ;;
         deploy/systemd/betboy-redcard-settlement.timer) printf '%s\n' d5bcfcd0962ffc3587ad7590c5d91b49ce6c4cc26b00967c528c2693879ac4cc ;;
         deploy/systemd/betboy-tennis.service) printf '%s\n' 8f0239135e214f1ffe2cdf1adeda62d2852b5a9ff36ebdf5a1d347850cbef146 ;;
-        deploy/systemd/betboy-tennis.timer) printf '%s\n' 645cea3f9883018f7909f3e3c9fac798170df27a345b1a819af3f6f46ec59888 ;;
+        deploy/systemd/betboy-tennis.timer) printf '%s\n' ccab53f62d2683b8cc2290362ff901c8b10f2c14905f436e0b21fa25bb1ee287 ;;
         deploy/systemd/betboy-wettfinder.service) printf '%s\n' 698cbda1b157603f735e079c9f30b25bdfb1d78b74d693b8a05036b811d36d1b ;;
-        deploy/systemd/betboy-wettfinder.timer) printf '%s\n' 939eed081499d7f5db16a00513bd376305798063e6294b3cba424cac25a73d2a ;;
+        deploy/systemd/betboy-wettfinder.timer) printf '%s\n' 1fa5808a0b659477285a35bdb2f348539b5620cacc148cd9b53266e55fb9c839 ;;
         *) die "Unit is not byte-allowlisted: $1" ;;
     esac
 }
