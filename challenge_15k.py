@@ -876,8 +876,10 @@ class ChallengeDataProvider:
         upcoming_fixtures: list[dict[str, Any]],
     ) -> Optional[list[dict[str, Any]]]:
         if league_id == 5:
-            # One bounded request per distinct team, within the same daily
-            # scan. No old Nations League edition (or 2022 season) is fetched.
+            # API-Football requires season alongside team + from/to. A match
+            # played in 2025 may belong to a 2024 or 2026 competition season,
+            # so query each season intersecting the recent date window and
+            # deduplicate the returned fixtures below. Never request 2022.
             target_kickoffs = [
                 kickoff for row in upcoming_fixtures
                 if isinstance(row, dict)
@@ -899,33 +901,35 @@ class ChallengeDataProvider:
                 return None
             gathered: list[dict[str, Any]] = []
             for team_id in team_ids:
-                recent = self._football_get(
-                    "fixtures",
-                    {
-                        "team": team_id,
-                        "from": earliest.date().isoformat(),
-                        "to": before.date().isoformat(),
-                        "status": "FT",
-                        "timezone": "Europe/Zurich",
-                    },
-                    f"Aktuelle Länderspiele Team {team_id}",
-                    priority=APIBudgetPriority.BACKGROUND,
-                )
-                if recent is None:
-                    return None
-                for row in recent:
-                    if not _senior_national_result(row):
-                        continue
-                    teams = row["teams"]
-                    if team_id not in {teams["home"]["id"], teams["away"]["id"]}:
-                        continue
-                    kickoff = _fixture_kickoff(row)
-                    if kickoff is None or not earliest <= kickoff < before:
-                        continue
-                    gathered.append(
-                        {**row, "challenge_neutral_venue": True}
-                        if _neutral_national_venue(row) else row
+                for history_season in range(earliest.year, before.year + 1):
+                    recent = self._football_get(
+                        "fixtures",
+                        {
+                            "team": team_id,
+                            "season": history_season,
+                            "from": earliest.date().isoformat(),
+                            "to": before.date().isoformat(),
+                            "status": "FT",
+                            "timezone": "Europe/Zurich",
+                        },
+                        f"Aktuelle Länderspiele Team {team_id} Saison {history_season}",
+                        priority=APIBudgetPriority.BACKGROUND,
                     )
+                    if recent is None:
+                        return None
+                    for row in recent:
+                        if not _senior_national_result(row):
+                            continue
+                        teams = row["teams"]
+                        if team_id not in {teams["home"]["id"], teams["away"]["id"]}:
+                            continue
+                        kickoff = _fixture_kickoff(row)
+                        if kickoff is None or not earliest <= kickoff < before:
+                            continue
+                        gathered.append(
+                            {**row, "challenge_neutral_venue": True}
+                            if _neutral_national_venue(row) else row
+                        )
             return _bounded_completed_history(gathered, before=before) or None
 
         statistical_history = fetch_stat_history(

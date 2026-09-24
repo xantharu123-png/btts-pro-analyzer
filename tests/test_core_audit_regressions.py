@@ -161,7 +161,10 @@ def test_nations_league_uses_recent_cross_competition_team_results_not_2022():
         "challenge_neutral_venue"
     ] is True
     assert {call["team"] for call in calls} == {10, 11}
-    assert all("season" not in call and call["from"] > "2022-12-31" for call in calls)
+    assert {call["season"] for call in calls} == set(
+        range((now - timedelta(days=730)).year, now.year + 1)
+    )
+    assert all(call["from"] > "2022-12-31" for call in calls)
 
 
 def test_neutral_international_results_count_as_form_not_home_advantage():
