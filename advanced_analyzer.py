@@ -20,7 +20,7 @@ import math
 from collections import defaultdict
 
 from config_loader import load_app_config
-from data_engine import DataEngine
+from data_engine import DataEngine, recent_match_cutoff
 from season_utils import current_season_start_year_for_id
 
 
@@ -500,8 +500,9 @@ class AdvancedBTTSAnalyzer:
     def prepare_training_data(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Build chronological features using only information available pre-match."""
         conn, is_postgres = _get_db_connection(self.db_path)
+        placeholder = "%s" if is_postgres else "?"
 
-        query = '''
+        query = f'''
             SELECT
                 id,
                 date,
@@ -513,6 +514,7 @@ class AdvancedBTTSAnalyzer:
                 league_code
             FROM matches
             WHERE btts IS NOT NULL
+                AND date >= {placeholder}
                 AND home_goals IS NOT NULL
                 AND away_goals IS NOT NULL
                 AND home_team_id IS NOT NULL
@@ -521,7 +523,7 @@ class AdvancedBTTSAnalyzer:
         '''
 
         try:
-            df = pd.read_sql_query(query, conn)
+            df = pd.read_sql_query(query, conn, params=(recent_match_cutoff(),))
         except Exception as e:
             print(f"WARNING: SQL error: {e}")
             df = pd.DataFrame()

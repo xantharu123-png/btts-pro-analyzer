@@ -10,7 +10,7 @@ Season is selected dynamically per competition.
 import os
 import time
 import requests
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 import sqlite3
 
@@ -18,6 +18,11 @@ from api_budget import APIBudgetPriority, api_football_get
 from config_loader import load_app_config
 from season_utils import current_season_start_year
 from league_catalog import ANALYZER_LEAGUE_IDS
+
+
+def recent_match_cutoff() -> str:
+    """Rolling input horizon for the legacy BTTS statistics, not data deletion."""
+    return (datetime.now(timezone.utc) - timedelta(days=3 * 365)).date().isoformat()
 
 
 def _load_supabase_url() -> Optional[str]:
@@ -433,16 +438,20 @@ class DataEngine:
             return 0
     
     def get_match_count(self, league_code: str = None) -> int:
-        """Get total matches in database"""
+        """Get matches in the current statistical window."""
         try:
             conn = self._get_connection()
             c = conn.cursor()
             ph = self._get_placeholder()
+            cutoff = recent_match_cutoff()
             
             if league_code:
-                c.execute(f'SELECT COUNT(*) FROM matches WHERE league_code = {ph}', (league_code,))
+                c.execute(
+                    f'SELECT COUNT(*) FROM matches WHERE league_code = {ph} AND date >= {ph}',
+                    (league_code, cutoff),
+                )
             else:
-                c.execute('SELECT COUNT(*) FROM matches')
+                c.execute(f'SELECT COUNT(*) FROM matches WHERE date >= {ph}', (cutoff,))
             
             count = c.fetchone()[0]
             conn.close()
@@ -456,6 +465,7 @@ class DataEngine:
             conn = self._get_connection()
             c = conn.cursor()
             ph = self._get_placeholder()
+            cutoff = recent_match_cutoff()
             
             if venue == 'home':
                 c.execute(f'''
@@ -465,10 +475,10 @@ class DataEngine:
                         AVG(away_goals) as avg_conceded,
                         SUM(btts) * 100.0 / COUNT(*) as btts_rate
                     FROM matches
-                    WHERE home_team_id = {ph} AND league_code = {ph}
+                    WHERE home_team_id = {ph} AND league_code = {ph} AND date >= {ph}
                       AND home_goals IS NOT NULL AND away_goals IS NOT NULL
                       AND btts IS NOT NULL
-                ''', (team_id, league_code))
+                ''', (team_id, league_code, cutoff))
             elif venue == 'away':
                 c.execute(f'''
                     SELECT 
@@ -477,10 +487,10 @@ class DataEngine:
                         AVG(home_goals) as avg_conceded,
                         SUM(btts) * 100.0 / COUNT(*) as btts_rate
                     FROM matches
-                    WHERE away_team_id = {ph} AND league_code = {ph}
+                    WHERE away_team_id = {ph} AND league_code = {ph} AND date >= {ph}
                       AND home_goals IS NOT NULL AND away_goals IS NOT NULL
                       AND btts IS NOT NULL
-                ''', (team_id, league_code))
+                ''', (team_id, league_code, cutoff))
             else:
                 c.execute(f'''
                     SELECT 
@@ -490,9 +500,10 @@ class DataEngine:
                         SUM(btts) * 100.0 / COUNT(*) as btts_rate
                     FROM matches
                     WHERE (home_team_id = {ph} OR away_team_id = {ph}) AND league_code = {ph}
+                      AND date >= {ph}
                       AND home_goals IS NOT NULL AND away_goals IS NOT NULL
                       AND btts IS NOT NULL
-                ''', (team_id, team_id, team_id, team_id, league_code))
+                ''', (team_id, team_id, team_id, team_id, league_code, cutoff))
             
             row = c.fetchone()
             conn.close()
@@ -528,23 +539,24 @@ class DataEngine:
             conn = self._get_connection()
             c = conn.cursor()
             ph = self._get_placeholder()
+            cutoff = recent_match_cutoff()
             
             if venue == 'home':
                 c.execute(f'''
                     SELECT home_goals, away_goals, btts
                     FROM matches
-                    WHERE home_team_id = {ph} AND league_code = {ph}
+                    WHERE home_team_id = {ph} AND league_code = {ph} AND date >= {ph}
                     ORDER BY date DESC
                     LIMIT {ph}
-                ''', (team_id, league_code, last_n))
+                ''', (team_id, league_code, cutoff, last_n))
             elif venue == 'away':
                 c.execute(f'''
                     SELECT away_goals, home_goals, btts
                     FROM matches
-                    WHERE away_team_id = {ph} AND league_code = {ph}
+                    WHERE away_team_id = {ph} AND league_code = {ph} AND date >= {ph}
                     ORDER BY date DESC
                     LIMIT {ph}
-                ''', (team_id, league_code, last_n))
+                ''', (team_id, league_code, cutoff, last_n))
             else:
                 c.execute(f'''
                     SELECT 
@@ -553,9 +565,10 @@ class DataEngine:
                         btts
                     FROM matches
                     WHERE (home_team_id = {ph} OR away_team_id = {ph}) AND league_code = {ph}
+                      AND date >= {ph}
                     ORDER BY date DESC
                     LIMIT {ph}
-                ''', (team_id, team_id, team_id, team_id, league_code, last_n))
+                ''', (team_id, team_id, team_id, team_id, league_code, cutoff, last_n))
             
             rows = c.fetchall()
             conn.close()
@@ -595,15 +608,17 @@ class DataEngine:
             conn = self._get_connection()
             c = conn.cursor()
             ph = self._get_placeholder()
+            cutoff = recent_match_cutoff()
             
             c.execute(f'''
                 SELECT home_goals, away_goals, btts, home_team_id
                 FROM matches
-                WHERE (home_team_id = {ph} AND away_team_id = {ph})
-                   OR (home_team_id = {ph} AND away_team_id = {ph})
+                WHERE ((home_team_id = {ph} AND away_team_id = {ph})
+                   OR (home_team_id = {ph} AND away_team_id = {ph}))
+                  AND date >= {ph}
                 ORDER BY date DESC
                 LIMIT {ph}
-            ''', (team1_id, team2_id, team2_id, team1_id, last_n))
+            ''', (team1_id, team2_id, team2_id, team1_id, cutoff, last_n))
             
             rows = c.fetchall()
             conn.close()
@@ -630,6 +645,7 @@ class DataEngine:
             conn = self._get_connection()
             c = conn.cursor()
             ph = self._get_placeholder()
+            cutoff = recent_match_cutoff()
             
             c.execute(f'''
                 SELECT 
@@ -639,8 +655,8 @@ class DataEngine:
                     AVG(total_goals) as avg_total,
                     SUM(btts) * 100.0 / COUNT(*) as btts_rate
                 FROM matches
-                WHERE league_code = {ph}
-            ''', (league_code,))
+                WHERE league_code = {ph} AND date >= {ph}
+            ''', (league_code, cutoff))
             
             row = c.fetchone()
             conn.close()
