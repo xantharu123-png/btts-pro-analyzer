@@ -1602,6 +1602,7 @@ def test_football_discovery_runs_only_once_for_current_target_date():
     previous = {
         "status": "completed",
         "search_date": search_date.isoformat(),
+        "discovery_league_ids": sorted(ALTERNATIVE_MARKET_LEAGUES),
         "last_attempt_at": "2030-01-01T06:00:00+00:00",
         "fixture_kickoffs": ["2030-01-01T20:00:00+00:00"],
     }
@@ -1621,6 +1622,42 @@ def test_football_discovery_runs_only_once_for_current_target_date():
     assert far.reason == "daily_discovery_current"
     assert near.due is False
     assert near.reason == "daily_discovery_current"
+
+
+def test_completed_empty_discovery_rescans_when_league_scope_changes():
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    previous = {
+        "status": "completed",
+        "search_date": "2030-01-01",
+        "last_attempt_at": "2030-01-01T06:00:00+00:00",
+        "fixtures_found": 0,
+        "discovery_league_ids": sorted(set(ALTERNATIVE_MARKET_LEAGUES) - {5}),
+    }
+
+    changed = football_due(previous, now=now, search_date=now.date())
+    assert changed.due is True
+    assert changed.reason == "league_scope_changed"
+
+    # Older daily artifacts had no scope marker. They also need one rescan.
+    previous.pop("discovery_league_ids")
+    legacy = football_due(previous, now=now, search_date=now.date())
+    assert legacy.due is True
+    assert legacy.reason == "league_scope_changed"
+
+    previous["discovery_league_ids"] = sorted(ALTERNATIVE_MARKET_LEAGUES)
+    current = football_due(previous, now=now, search_date=now.date())
+    assert current.due is False
+    assert current.reason == "daily_discovery_current"
+
+    rescan_state = _football_state_from_snapshot(
+        {"scanned_at": now.isoformat(), "fixtures_found": 0, "errors": []},
+        attempted_at=now,
+        search_date=now.date(),
+    )
+    assert rescan_state["discovery_league_ids"] == sorted(ALTERNATIVE_MARKET_LEAGUES)
+    assert football_due(
+        rescan_state, now=now + timedelta(minutes=30), search_date=now.date()
+    ).due is False
 
 
 def test_context_due_includes_unchecked_far_persisted_fixture_ids():
@@ -4041,6 +4078,7 @@ def test_failed_research_attempt_is_retried_without_new_football_discovery(
                 "football": {
                     "status": "completed",
                     "search_date": now.date().isoformat(),
+                    "discovery_league_ids": sorted(ALTERNATIVE_MARKET_LEAGUES),
                     "last_attempt_at": (now - timedelta(minutes=5)).isoformat(),
                     "context_checks": {},
                     "discovery_candidates": [],

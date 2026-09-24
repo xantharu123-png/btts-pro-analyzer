@@ -246,6 +246,12 @@ def football_due(
             minimum_gap=ERROR_RETRY,
         )
 
+    # A completed daily scan only covers the leagues configured when it ran.
+    # Releasing a new league later that day must not reuse the old result.
+    # Legacy states have no scope marker and get one fresh discovery.
+    if previous.get("discovery_league_ids") != sorted(ALTERNATIVE_MARKET_LEAGUES):
+        return FootballDueDecision(True, "league_scope_changed")
+
     return FootballDueDecision(
         False,
         "daily_discovery_current",
@@ -1114,6 +1120,7 @@ def _football_state_from_snapshot(
     return {
         "status": "degraded" if degraded else "completed",
         "search_date": search_date.isoformat(),
+        "discovery_league_ids": sorted(ALTERNATIVE_MARKET_LEAGUES),
         "last_attempt_at": attempted_at.isoformat(),
         "last_discovery_at": scanned_at.isoformat() if not degraded else None,
         "last_success_at": scanned_at.isoformat() if not degraded else None,
