@@ -867,19 +867,29 @@ class ChallengeDataProvider:
             and not isinstance(season, bool)
             and season > 2020
         ):
-            # Always retain the same two-season source window. A completed
-            # fixture must not discard the previous season at an arbitrary
-            # count threshold and destroy the walk-forward sample overnight.
-            previous = fetch_stat_history(league_id, season - 1, upcoming_fixtures)
-            if not previous:
-                previous = self._football_get(
-                    "fixtures",
-                    {"league": league_id, "season": season - 1, "status": "FT"},
-                    f"Vorsaison Liga {league_id}",
-                    priority=APIBudgetPriority.BACKGROUND,
+            # Nations League seasons start every second year. The two prior
+            # editions can supply the venue sample; 2025 is not a 2026
+            # Nations League season. The normal 35-day freshness rule is
+            # unchanged, so old results cannot become a current tip alone.
+            previous_seasons = (
+                (season - 4, season - 2)
+                if league_id == 5 else (season - 1,)
+            )
+            for previous_season in previous_seasons:
+                if previous_season < 2020:
+                    continue
+                previous = fetch_stat_history(
+                    league_id, previous_season, upcoming_fixtures,
                 )
-            if previous:
-                history = list(previous) + list(history)
+                if not previous:
+                    previous = self._football_get(
+                        "fixtures",
+                        {"league": league_id, "season": previous_season, "status": "FT"},
+                        f"Vorsaison Liga {league_id}",
+                        priority=APIBudgetPriority.BACKGROUND,
+                    )
+                if previous:
+                    history = list(previous) + list(history)
         cutoff = datetime.now(timezone.utc)
         target_kickoffs = [
             kickoff

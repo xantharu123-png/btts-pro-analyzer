@@ -122,6 +122,29 @@ def test_completed_history_keeps_previous_season_across_220_boundary():
     }
 
 
+def test_nations_league_history_uses_prior_editions_not_empty_2025():
+    target = [fixture(9999, NOW + timedelta(hours=3), 10, 11, league_id=5)]
+    provider = ChallengeDataProvider("test", None)
+    editions = {
+        2026: [fixture(2601, NOW - timedelta(days=1), 10, 11, 1, 0, league_id=5)],
+        2024: [fixture(2401, NOW - timedelta(days=400), 10, 11, 2, 1, league_id=5)],
+        2022: [fixture(2201, NOW - timedelta(days=1400), 11, 10, 0, 1, league_id=5)],
+    }
+    requested = []
+
+    def get_history(endpoint, params, _label, **_kwargs):
+        assert endpoint == "fixtures" and params["status"] == "FT"
+        requested.append(params["season"])
+        return editions.get(params["season"], [])
+
+    provider._football_get = Mock(side_effect=get_history)
+    with patch("challenge_15k.fetch_stat_history", return_value=None):
+        result = provider.completed_history(5, 2026, target)
+
+    assert requested == [2026, 2022, 2024]
+    assert [row["fixture"]["id"] for row in result] == [2201, 2401, 2601]
+
+
 def test_completed_history_is_causal_unique_and_bounded():
     before = NOW
     rows = _history(1000, challenge_15k.MAX_HISTORY_GAMES + 5, days_ago=1)

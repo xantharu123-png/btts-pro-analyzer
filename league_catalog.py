@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 
-CATALOG_VERSION = 4
+CATALOG_VERSION = 5
 
 
 @dataclass(frozen=True)
@@ -38,6 +38,7 @@ LEAGUES = (
     LeagueDefinition(2, "UEFA Champions League", "World", "CL"),
     LeagueDefinition(3, "UEFA Europa League", "World", "EL"),
     LeagueDefinition(848, "UEFA Europa Conference League", "World", "ECL"),
+    LeagueDefinition(5, "UEFA Nations League", "World", "UNL"),
     LeagueDefinition(179, "Premiership", "Scotland", "SC1"),
     LeagueDefinition(144, "Jupiler Pro League", "Belgium", "BE1"),
     LeagueDefinition(207, "Super League", "Switzerland", "SL1"),

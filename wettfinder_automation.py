@@ -238,7 +238,7 @@ def football_due(
         if (_parse_iso(previous.get("last_discovery_at")) is not None
                 and previous.get("discovery_operational_error_count") == 0):
             # A failed fixture refresh must retry that bounded pool, not turn
-            # a successfully discovered day into another 51-league discovery.
+            # a successfully discovered day into another full-league discovery.
             return FootballDueDecision(False, "daily_discovery_current")
         return FootballDueDecision(
             age >= ERROR_RETRY,

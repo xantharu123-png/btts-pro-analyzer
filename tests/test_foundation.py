@@ -541,7 +541,7 @@ class SeasonUtilsTests(unittest.TestCase):
         added_codes = (
             "ENG3", "ENG4", "DEN1", "NOR1", "GRE1", "CZE1", "ROU1", "SRB1",
             "CRO1", "UKR1", "POL1", "SVK1", "ARG1", "COL1", "IDN1", "ECU1",
-            "SWE2", "NOR2", "DEN2", "IS1", "FIN1", "FIN2", "HUN1",
+            "SWE2", "NOR2", "DEN2", "IS1", "FIN1", "FIN2", "HUN1", "UNL",
         )
         for code in added_codes:
             mapping_reference.pop(code)
@@ -552,15 +552,15 @@ class SeasonUtilsTests(unittest.TestCase):
             reloaded_catalog = importlib.reload(league_catalog)
 
         self.assertIs(reloaded_catalog.ANALYZER_LEAGUE_IDS, mapping_reference)
-        self.assertEqual(len(mapping_reference), 51)
+        self.assertEqual(len(mapping_reference), 52)
 
-    def test_all_football_workspaces_share_the_same_51_leagues(self):
+    def test_all_football_workspaces_share_the_same_52_leagues(self):
         canonical_ids = {league.league_id for league in LEAGUES}
 
-        self.assertEqual(len(LEAGUES), 51)
-        self.assertEqual(len(LEAGUE_BY_CODE), 51)
-        self.assertEqual(len(ANALYZER_LEAGUE_IDS), 51)
-        self.assertEqual(len(ALTERNATIVE_MARKET_LEAGUES), 51)
+        self.assertEqual(len(LEAGUES), 52)
+        self.assertEqual(len(LEAGUE_BY_CODE), 52)
+        self.assertEqual(len(ANALYZER_LEAGUE_IDS), 52)
+        self.assertEqual(len(ALTERNATIVE_MARKET_LEAGUES), 52)
         self.assertSetEqual(set(ANALYZER_LEAGUE_IDS.values()), canonical_ids)
         self.assertSetEqual(set(ALTERNATIVE_MARKET_LEAGUES), canonical_ids)
         self.assertSetEqual(
@@ -573,6 +573,10 @@ class SeasonUtilsTests(unittest.TestCase):
         self.assertEqual(ANALYZER_LEAGUE_IDS["ARG1"], 128)
         self.assertEqual(league_label_for_code("NOR1"), "Norway: Eliteserien")
         self.assertEqual(current_season_start_year("NOR1", date(2026, 2, 1)), 2026)
+        self.assertEqual(ANALYZER_LEAGUE_IDS["UNL"], 5)
+        self.assertEqual(league_label_for_code("UNL"), "World: UEFA Nations League")
+        self.assertEqual(current_season_start_year_for_id(5, date(2026, 9, 24)), 2026)
+        self.assertEqual(current_season_start_year_for_id(5, date(2027, 3, 1)), 2026)
 
     def test_nordic_second_tiers_have_verified_ids_and_season_modes(self):
         self.assertEqual(ANALYZER_LEAGUE_IDS["SWE2"], 114)

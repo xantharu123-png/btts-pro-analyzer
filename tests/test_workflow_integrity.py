@@ -1786,7 +1786,7 @@ def test_full_league_scans_have_no_confirmation_or_provider_warning():
 
 
 def test_red_card_monitor_uses_the_full_canonical_league_scope():
-    assert len(RED_CARD_MONITORED_LEAGUE_IDS) == 51
+    assert len(RED_CARD_MONITORED_LEAGUE_IDS) == 52
     assert set(RED_CARD_MONITORED_LEAGUE_IDS) == set(ALTERNATIVE_MARKET_LEAGUES)
 
 
