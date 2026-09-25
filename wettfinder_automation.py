@@ -803,11 +803,53 @@ def select_catalog_candidates(
         target_date=target_date,
         preserve_order=preserve_order,
     )
+    # Primary/"interesting" markets are displayed before simple markets, but
+    # that presentation tier must not decide an exact opposing direction.
+    # Compare only outcomes of the same model revision and the same settled
+    # market line; unrelated markets keep their original order.
+    direction_winners: dict[tuple[str, ...], dict[str, Any]] = {}
+    direction_groups: dict[int, tuple[str, ...]] = {}
+    for row in valid:
+        if row.get("source") != "football_challenge":
+            continue
+        spec = MARKET_BY_KEY.get(str(row.get("market_key") or ""))
+        if spec is None:
+            continue
+        if spec.kind in {"result", "btts"}:
+            axis = ""
+        elif spec.kind in {
+            "total", "team_total", "corner_total", "team_corners",
+            "yellow_total", "team_yellow",
+        }:
+            side = str(spec.side or "")
+            if side not in {"over", "under"} and not side.endswith(("_over", "_under")):
+                continue
+            axis = side.rsplit("_", 1)[0] if "_" in side else ""
+        else:
+            continue
+        group = (
+            str(row.get("event_identity") or row.get("key") or ""),
+            spec.kind,
+            str(spec.threshold),
+            axis,
+            str(row.get("model_version") or ""),
+            str(row.get("model_scope") or ""),
+            str(row.get("evidence_stage") or ""),
+            str(row.get("modeled_at") or ""),
+            str(row.get("input_cutoff_at") or ""),
+        )
+        direction_groups[id(row)] = group
+        previous = direction_winners.get(group)
+        if previous is None or float(row["probability"]) > float(previous["probability"]):
+            direction_winners[group] = row
     selected: list[dict[str, Any]] = []
     seen_keys: set[str] = set()
     seen_markets: set[tuple[str, str, str]] = set()
     football_markets_by_event: dict[str, list[str]] = {}
     for row in valid:
+        group = direction_groups.get(id(row))
+        if group is not None and direction_winners[group] is not row:
+            continue
         key = str(row.get("key") or "").strip()
         event = str(row.get("event_identity") or key).strip()
         market = str(row.get("market_key") or row.get("market") or "").strip()

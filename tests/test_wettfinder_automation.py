@@ -1984,6 +1984,83 @@ def test_daily_catalog_hides_opposite_football_selections_but_keeps_compatible_o
     ]
 
 
+def test_daily_catalog_does_not_let_unlikely_primary_direction_hide_likely_basic_direction():
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    primary = [
+        _football_model_row("away-over", fixture_id=1, market_key="AWAY_OVER_2_5",
+                            is_basic_forecast=False, probability=0.191),
+        _football_model_row("another-match", fixture_id=2, market_key="BTTS_YES",
+                            is_basic_forecast=False, probability=0.61),
+    ]
+    basis = [
+        _football_model_row("away-under", fixture_id=1, market_key="AWAY_UNDER_2_5",
+                            is_basic_forecast=True, probability=0.809),
+    ]
+
+    catalog = build_daily_forecast_catalog(
+        primary, [], football_basis_rows=basis, now=now, target_date=now.date(),
+    )
+
+    assert [row["key"] for row in catalog] == ["another-match", "away-under"]
+
+
+def test_daily_catalog_keeps_modal_result_even_when_weaker_result_arrives_first():
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    rows = [
+        _football_model_row("away", fixture_id=1, market_key="RESULT_AWAY",
+                            is_basic_forecast=False, probability=0.21),
+        _football_model_row("home", fixture_id=1, market_key="RESULT_HOME",
+                            is_basic_forecast=False, probability=0.46),
+        _football_model_row("draw", fixture_id=1, market_key="RESULT_DRAW",
+                            is_basic_forecast=False, probability=0.33),
+    ]
+
+    catalog = build_daily_forecast_catalog(rows, [], now=now, target_date=now.date())
+
+    assert [row["key"] for row in catalog] == ["home"]
+
+
+def test_daily_catalog_does_not_compare_opposite_directions_from_different_model_scopes():
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    primary = _football_model_row(
+        "same-competition-over", fixture_id=1, market_key="AWAY_OVER_2_5",
+        is_basic_forecast=False, probability=0.21,
+    )
+    primary["model_scope"] = "same_competition"
+    basis = _football_model_row(
+        "national-under", fixture_id=1, market_key="AWAY_UNDER_2_5",
+        is_basic_forecast=True, probability=0.79,
+    )
+    basis["model_scope"] = "senior_national_pooled"
+
+    catalog = build_daily_forecast_catalog(
+        [primary], [], football_basis_rows=[basis], now=now,
+        target_date=now.date(),
+    )
+
+    assert [row["key"] for row in catalog] == ["same-competition-over"]
+
+
+def test_daily_catalog_does_not_let_research_direction_displace_shadow_direction():
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    primary = _football_model_row(
+        "shadow-over", fixture_id=1, market_key="AWAY_OVER_2_5",
+        is_basic_forecast=False, probability=0.21,
+    )
+    basis = _football_model_row(
+        "research-under", fixture_id=1, market_key="AWAY_UNDER_2_5",
+        is_basic_forecast=True, probability=0.79,
+    )
+    basis["evidence_stage"] = "RESEARCH"
+
+    catalog = build_daily_forecast_catalog(
+        [primary], [], football_basis_rows=[basis], now=now,
+        target_date=now.date(),
+    )
+
+    assert [row["key"] for row in catalog] == ["shadow-over"]
+
+
 def test_runner_keeps_90_fixtures_and_rotates_prices_without_model_reordering(tmp_path):
     now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
     base = _challenge_candidate(now + timedelta(hours=5))
