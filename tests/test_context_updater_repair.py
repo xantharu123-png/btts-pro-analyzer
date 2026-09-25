@@ -802,19 +802,19 @@ def test_frozen_reviewed_preflight_algorithms_are_copied_without_drift():
     updater = ROOT / "deploy/update_server.sh"
     raw = updater.read_bytes().replace(b"\r\n", b"\n")
     assert hashlib.sha256(raw).hexdigest() == \
-        "426145e2352e5ec2f3198b6ea2d0e743989f5b2acfeab60da75c50a6cf480524"
+        "f07e296440ad1131405df39a6cfa69242b6f00f5aa864ded14f5a98d1e1da64f"
     # The approved operational check replaces historical replay at deployment.
     # Backup/actual restore and its independently reviewed helper stay pinned.
-    # 442b60f approved exactly one helper-pin replacement for streaming large
-    # archive members. Reconstruct the frozen predecessor to prove that no
-    # other preflight algorithm or supply-chain boundary drifted.
+    # The later reviewed changes to this script only refreshed six timer
+    # byte pins. Reconstruct the helper-pin predecessor under those pins;
+    # all preflight algorithms and the supply-chain boundary remain frozen.
     old_helper = b"65f28869e773fcaa5bcc186648f440e1f764ffafa656b92211180eb857f09646"
     new_helper = b"6a58f24766d84624c13c4a0fa1b4a01de0318aaa9899f9361550029e49cbe0dd"
     helper = (ROOT / "scripts/backup_runtime_databases.py").read_bytes().replace(b"\r\n", b"\n")
     assert hashlib.sha256(helper).hexdigest().encode("ascii") == new_helper
     assert raw.count(new_helper) == 1 and old_helper not in raw
     assert hashlib.sha256(raw.replace(new_helper, old_helper)).hexdigest() == \
-        "23c6359aaf6280c4633a3e8e84941434dd28861a18ce774a75b4c7c1c10b4b39"
+        "e760e30c1469232ff9c8634ed023b60fdbb2342792db3c1f86a902a657933065"
     assert b'"--sealed-file", "--deployment-check", "--database"' in raw
     assert b'value["historical_analysis_verified"] is False' in raw
     for name in SHARED_FUNCTIONS:

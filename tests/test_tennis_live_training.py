@@ -213,7 +213,7 @@ def test_builder_is_read_only_and_uses_complete_relevant_revisions(tmp_path):
 
 
 @pytest.mark.parametrize("source_manifest", _REVIEWED_PRIOR_SOURCE_MANIFESTS,
-                         ids=("locator", "pre-duration", "duration", "reconciled"))
+                         ids=("locator", "pre-duration", "duration", "reconciled", "results"))
 @pytest.mark.parametrize("newline", ["LF", "CRLF"])
 def test_exact_historical_original_replays_through_training_verifier(
         tmp_path, source_manifest, newline):
@@ -251,7 +251,7 @@ def test_prior_reviewed_duration_manifest_remains_training_compatible(tmp_path):
 
 
 @pytest.mark.parametrize("source_manifest", _REVIEWED_PRIOR_SOURCE_MANIFESTS,
-                         ids=("locator", "pre-duration", "duration", "reconciled"))
+                         ids=("locator", "pre-duration", "duration", "reconciled", "results"))
 def test_historical_training_replay_rejects_another_owner_change(tmp_path, source_manifest):
     from context_models.training_contracts import validate_resolved_case
     _, cases, config, _ = cases_for(tmp_path)

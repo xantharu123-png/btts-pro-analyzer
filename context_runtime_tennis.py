@@ -60,6 +60,14 @@ _REVIEWED_RESULTS_PLACEHOLDER_MANIFEST = {
        if name != "tennis/data_loader.py"},
     "tennis/data_loader.py": frozenset({"88fb701b7462d08391a2f4bcd4e8e32525f9fa4afa6aa94af0e949eeeb986c93", "bf2abc8cdade308363f477b37fb15a6d16554fcf12d4b218bd0f033116ca32c4"}),
 }
+_REVIEWED_RECENT_TRAINING_MANIFEST = {
+    # 45d3744 changed only the default years used when BUILDING a new state.
+    # Historical live originals replay their sealed predecision tour state;
+    # neither the state builder nor a new source download runs during replay.
+    **{name: hashes for name, hashes in _REVIEWED_RESULTS_PLACEHOLDER_MANIFEST.items()
+       if name != "tennis/model_state.py"},
+    "tennis/model_state.py": frozenset({"e2725e19bcebc59251bcd6ded2ff94e4712f2da5d55ebcf3d0688c878dc5e7aa", "d51a407c13f6ea804cc1e7b96652597dfb9b14916a6d8ec436d36f89fae33a62"}),
+}
 
 
 def _same(actual, expected, label):
@@ -97,6 +105,9 @@ def _code_manifest_supported(recorded, running):
         (_REVIEWED_RECONCILED_DURATION_MANIFEST, duration_predecessors),
         (_REVIEWED_RESULTS_PLACEHOLDER_MANIFEST,
          (*duration_predecessors, _REVIEWED_RECONCILED_DURATION_MANIFEST)),
+        (_REVIEWED_RECENT_TRAINING_MANIFEST,
+         (*duration_predecessors, _REVIEWED_RECONCILED_DURATION_MANIFEST,
+          _REVIEWED_RESULTS_PLACEHOLDER_MANIFEST)),
     )
     return any(
         all(executor[name] <= running[name] for name in CODE_PATHS)

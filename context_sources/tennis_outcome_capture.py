@@ -212,6 +212,7 @@ def collect_outcomes(path, pending, sources, *, retired_events=None, native_unav
         if rows[0]["event_key"] in wanted:
             groups.setdefault((rows[0]["event_key"], canonical_timestamp(clock)), []).append(index)
     additions, issues = {}, set()
+    verified_replacement_scopes, ambiguous_replacement_rows = {}, []
     for (key, received), indices in groups.items():
         events = {}
         for created, event in originals.get(key, ()):
@@ -241,7 +242,15 @@ def collect_outcomes(path, pending, sources, *, retired_events=None, native_unav
             issues.add("native-outcome-conflicting")
             continue
         if missing or not scopes:
-            issues.add("native-outcome-unavailable")
+            # A feed can return the same completed replacement several times,
+            # with winner flags absent in one reception. Defer ONLY a single
+            # missing-winner row. A separately verified reception of the exact
+            # replacement pair may establish that the old original is
+            # unscorable; neither reception may manufacture its result.
+            if len(indices) == 1 and sources.get(indices[0]) is None:
+                ambiguous_replacement_rows.append((key, indices[0]))
+            else:
+                issues.add("native-outcome-unavailable")
             continue
         scope = next(iter(scopes))
         eligible = tuple(events.values())
@@ -253,6 +262,8 @@ def collect_outcomes(path, pending, sources, *, retired_events=None, native_unav
                     and _verified_replacement_without_prematch_original(
                     path, key, eligible, scope, pending, indices[0], sources.get(indices[0]))):
                 native_unavailable_events.add(key)
+                verified_replacement_scopes.setdefault(key, set()).add(
+                    (scope, pending[indices[0]][1][0]["schedule_revision"]))
             else:
                 issues.add("native-outcome-unavailable")
             continue
@@ -281,4 +292,22 @@ def collect_outcomes(path, pending, sources, *, retired_events=None, native_unav
                 bound.append(next(iter(answers.values())))
         if bound:
             additions[indices[0]] = tuple(sorted(bound, key=digest))
+    for key, index in ambiguous_replacement_rows:
+        scopes = verified_replacement_scopes.get(key, set())
+        if len(scopes) != 1:
+            issues.add("native-outcome-unavailable")
+            continue
+        clock, rows = pending[index]
+        status = {**rows[0], "observed_at": canonical_timestamp(clock)}
+        validate_tennis_status_record(status)
+        payload = status["payload"]
+        (scope, schedule_revision), = scopes
+        if (payload["status"] != "completed" or payload["issues"]
+                or status["format"] != "singles" or payload["tour"] != scope[0]
+                or status["competition"] != scope[1] or status["event_key"] != scope[2]
+                or status["schedule_revision"] != schedule_revision
+                or len(payload["participant_ids"]) != 2
+                or frozenset(payload["participant_ids"]) != scope[3]
+                or status["observed_at"] <= payload["scheduled_start"]):
+            issues.add("native-outcome-unavailable")
     return additions, issues

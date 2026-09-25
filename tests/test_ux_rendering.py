@@ -417,7 +417,7 @@ def test_zero_ready_keeps_best_price_independent_forecast_visible():
     # Die Quote darf eine gesperrte Modellprognose nicht unsichtbar machen.
     assert len(at.selectbox) == 1
     assert any(
-        "Prognose vorhanden" in warning.value for warning in at.warning
+        "Prognosen bleiben sichtbar" in warning.value for warning in at.warning
     )
     # Keine nackte Auswahl-Überschrift wie "Ja"
     assert all(header.value.strip() not in {"Ja", "Nein"} for header in at.subheader)
@@ -429,9 +429,9 @@ def test_ready_candidate_renders_market_and_selection_as_heading():
     assert len(at.error) == 0
     assert len(at.success) >= 1
     assert "bestehen die Modellprüfung" in at.success[0].value
-    assert "automatische Marktvergleich" in at.success[0].value
+    assert "Marktvergleich" not in at.success[0].value
     headings = [header.value for header in at.subheader]
-    assert any(":" in heading for heading in headings)
+    assert "Alpha vs Beta" in headings
     assert all(heading.strip() != "Ja" for heading in headings)
 
 

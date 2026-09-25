@@ -14,7 +14,7 @@ from context_sources.tennis_status import normalize_tennis_status
 from model_artifacts import put_artifact
 from scripts import tennis_daily as daily
 from test_context_tennis_outcome_capture import (
-    completed, original_store, outcomes, record,
+    RECEIVED, completed, original_store, outcomes, record,
 )
 from test_tennis_forecast_retirements import originals
 from test_tennis_live_worker import NOW, competition, response
@@ -125,6 +125,65 @@ def test_missing_winner_flag_is_not_hidden_by_a_valid_replacement(monkeypatch, t
     assert outcomes(db) == ()
 
 
+@pytest.mark.parametrize("missing_first", [False, True])
+def test_repeated_new_pair_with_one_ambiguous_winner_keeps_verified_replacement_partial(
+        monkeypatch, tmp_path, missing_first):
+    db, predictions, _, origin = original_store(monkeypatch, tmp_path, tour="WTA")
+    event_id = origin["event"]["event_key"].rsplit(":", 1)[-1]
+    _scheduled_replacement(db, event_id)
+    normal, ambiguous = _final(event_id), _final(event_id)
+    ambiguous["competitors"][0].pop("winner")
+    receptions = (ambiguous, normal) if missing_first else (normal, ambiguous)
+    before_originals, before_predictions = originals(db), predictions.read_bytes()
+    with capture.capture_tennis_worker(path=db) as observer:
+        for minute, raw in enumerate(receptions):
+            record(observer, raw, tour="WTA", clock=RECEIVED + timedelta(minutes=minute))
+    assert observer.report()["issues"] == []
+    assert observer.report()["native_unavailable_outcome_events"] == [origin["event"]["event_key"]]
+    assert outcomes(db) == ()
+    assert originals(db) == before_originals and predictions.read_bytes() == before_predictions
+
+
+def test_ambiguous_winner_for_different_new_pair_remains_an_issue(monkeypatch, tmp_path):
+    db, _, _, origin = original_store(monkeypatch, tmp_path, tour="WTA")
+    event_id = origin["event"]["event_key"].rsplit(":", 1)[-1]
+    _scheduled_replacement(db, event_id)
+    ambiguous = _final(event_id, player="4")
+    ambiguous["competitors"][0].pop("winner")
+    with capture.capture_tennis_worker(path=db) as observer:
+        record(observer, _final(event_id), tour="WTA")
+        record(observer, ambiguous, tour="WTA", clock=RECEIVED + timedelta(minutes=1))
+    assert observer.report()["issues"] == ["native-outcome-unavailable"]
+    assert outcomes(db) == ()
+
+
+def test_ambiguous_winner_at_different_final_schedule_remains_an_issue(monkeypatch, tmp_path):
+    db, _, _, origin = original_store(monkeypatch, tmp_path, tour="WTA")
+    event_id = origin["event"]["event_key"].rsplit(":", 1)[-1]
+    _scheduled_replacement(db, event_id)
+    ambiguous = _final(event_id)
+    ambiguous["competitors"][0].pop("winner")
+    ambiguous["date"] = "2026-09-09T13:16Z"
+    with capture.capture_tennis_worker(path=db) as observer:
+        record(observer, _final(event_id), tour="WTA")
+        record(observer, ambiguous, tour="WTA", clock=RECEIVED + timedelta(minutes=1))
+    assert observer.report()["issues"] == ["native-outcome-unavailable"]
+    assert outcomes(db) == ()
+
+
+def test_ambiguous_winner_for_original_pair_still_fails_even_with_clean_result(
+        monkeypatch, tmp_path):
+    db, _, _, origin = original_store(monkeypatch, tmp_path, tour="WTA")
+    event_id = origin["event"]["event_key"].rsplit(":", 1)[-1]
+    ambiguous = completed(event_id=event_id)
+    ambiguous["competitors"][0].pop("winner")
+    with capture.capture_tennis_worker(path=db) as observer:
+        record(observer, completed(event_id=event_id), tour="WTA")
+        record(observer, ambiguous, tour="WTA", clock=RECEIVED + timedelta(minutes=1))
+    assert observer.report()["issues"] == ["native-outcome-unavailable"]
+    assert observer.report()["native_unavailable_outcome_events"] == []
+
+
 def test_direct_collector_without_reporter_cannot_silently_drop_issue(monkeypatch, tmp_path):
     db, _, _, origin = original_store(monkeypatch, tmp_path, tour="WTA")
     event_id = origin["event"]["event_key"].rsplit(":", 1)[-1]
@@ -148,6 +207,29 @@ def test_daily_cli_exits_zero_but_reports_partial_native_gap(monkeypatch, tmp_pa
     assert daily.main() == 0
     printed = capsys.readouterr().out
     assert "Kontext-Capture: partial" in printed
+    assert '"issues": []' in printed
+    assert '"native_unavailable_outcome_events": ["' + origin["event"]["event_key"] + '"]' in printed
+    assert outcomes(db) == ()
+
+
+def test_daily_cli_succeeds_with_duplicate_new_pair_and_one_missing_winner(
+        monkeypatch, tmp_path, capsys):
+    db, _, _, origin = original_store(monkeypatch, tmp_path, tour="WTA")
+    event_id = origin["event"]["event_key"].rsplit(":", 1)[-1]
+    _scheduled_replacement(db, event_id)
+    ambiguous = _final(event_id)
+    ambiguous["competitors"][0].pop("winner")
+    clocks = iter((RECEIVED, RECEIVED + timedelta(minutes=1)))
+    monkeypatch.setattr(capture, "_receipt_now", lambda: next(clocks))
+
+    def scan(_):
+        capture.observe_espn_response("wta", response(_final(event_id), "WTA"))
+        capture.observe_espn_response("wta", response(ambiguous, "WTA"))
+        return 0
+    monkeypatch.setattr(daily, "_run_daily", scan)
+    monkeypatch.setattr(daily.sys, "argv", ["tennis_daily.py", "2026-09-09"])
+    assert daily.main() == 0
+    printed = capsys.readouterr().out
     assert '"issues": []' in printed
     assert '"native_unavailable_outcome_events": ["' + origin["event"]["event_key"] + '"]' in printed
     assert outcomes(db) == ()

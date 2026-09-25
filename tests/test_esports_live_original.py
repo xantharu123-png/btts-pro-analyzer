@@ -305,6 +305,15 @@ def test_unchanged_elo_candidate_math_and_sql_ast(old_modules):
     new = ast.parse((root / "multi_sport_recommendations.py").read_text(encoding="utf-8"))
     for name in ("_candidate", "_series_win_probability", "_map_probability_from_series_probability", "build_candidate"):
         nodes = [next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == name) for tree in (old, new)]
+        if name == "_candidate":
+            # Only the price-free UI wording changed; the candidate math and
+            # every other statement must still match the frozen source.
+            old_message = "Die konservative Modellwahrscheinlichkeit ist für eine Preisfreigabe zu niedrig."
+            new_message = "Die konservative Modellwahrscheinlichkeit reicht für diese Preisrechnung nicht aus."
+            messages = [node for node in ast.walk(nodes[0])
+                        if isinstance(node, ast.Constant) and node.value == old_message]
+            assert len(messages) == 1
+            messages[0].value = new_message
         assert ast.dump(nodes[0]) == ast.dump(nodes[1])
     def numerical_body(tree):
         function = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "esports_match_winner_candidate")

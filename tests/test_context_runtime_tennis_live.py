@@ -72,11 +72,20 @@ _REVIEWED_RECONCILED_SOURCE_MANIFEST = {
         "CRLF": "2fc405c199b5ce7f0bd8d0e3aae4524234cdc07671e754584ba06eaeb4d6649d",
     },
 }
+_REVIEWED_RESULTS_SOURCE_MANIFEST = {
+    **{name: variants for name, variants in _REVIEWED_OLD_SOURCE_MANIFEST.items()
+       if name != "tennis/data_loader.py"},
+    "tennis/data_loader.py": {
+        "LF": "88fb701b7462d08391a2f4bcd4e8e32525f9fa4afa6aa94af0e949eeeb986c93",
+        "CRLF": "bf2abc8cdade308363f477b37fb15a6d16554fcf12d4b218bd0f033116ca32c4",
+    },
+}
 _REVIEWED_PRIOR_SOURCE_MANIFESTS = (
     _REVIEWED_OLD_SOURCE_MANIFEST,
     _REVIEWED_PRE_DURATION_SOURCE_MANIFEST,
     _REVIEWED_DURATION_SOURCE_MANIFEST,
     _REVIEWED_RECONCILED_SOURCE_MANIFEST,
+    _REVIEWED_RESULTS_SOURCE_MANIFEST,
 )
 
 # Canonical ORIGINALs emitted by the unmodified predecessor commits in an
@@ -367,21 +376,40 @@ def test_results_loader_transition_is_exact_and_not_reverse_compatible():
         _REVIEWED_RESULTS_PLACEHOLDER_MANIFEST,
     )
     running = _code_variants()
-    assert all(hashes <= running[name]
-               for name, hashes in _REVIEWED_RESULTS_PLACEHOLDER_MANIFEST.items())
+    assert all(hashes <= running[name] for name, hashes in
+               _REVIEWED_RESULTS_PLACEHOLDER_MANIFEST.items() if name != "tennis/model_state.py")
+    assert not (_REVIEWED_RESULTS_PLACEHOLDER_MANIFEST["tennis/model_state.py"]
+                <= running["tennis/model_state.py"])
     previous = {name: variants["LF"]
                 for name, variants in _REVIEWED_RECONCILED_SOURCE_MANIFEST.items()}
     current = {name: sorted(hashes)[0]
                for name, hashes in _REVIEWED_RESULTS_PLACEHOLDER_MANIFEST.items()}
-    assert _code_manifest_supported(previous, running)
+    assert _code_manifest_supported(previous, _REVIEWED_RESULTS_PLACEHOLDER_MANIFEST)
     assert not _code_manifest_supported(current, _REVIEWED_RECONCILED_DURATION_MANIFEST)
+
+
+def test_recent_training_window_transition_replays_old_state_but_not_reverse():
+    from context_runtime_tennis import (
+        _code_manifest_supported, _code_variants,
+        _REVIEWED_RECENT_TRAINING_MANIFEST,
+        _REVIEWED_RESULTS_PLACEHOLDER_MANIFEST,
+    )
+    running = _code_variants()
+    assert all(hashes <= running[name]
+               for name, hashes in _REVIEWED_RECENT_TRAINING_MANIFEST.items())
+    previous = {name: sorted(hashes)[0]
+                for name, hashes in _REVIEWED_RESULTS_PLACEHOLDER_MANIFEST.items()}
+    current = {name: sorted(hashes)[0]
+               for name, hashes in _REVIEWED_RECENT_TRAINING_MANIFEST.items()}
+    assert _code_manifest_supported(previous, running)
+    assert not _code_manifest_supported(current, _REVIEWED_RESULTS_PLACEHOLDER_MANIFEST)
 
 
 @pytest.mark.parametrize("tour", ["ATP", "WTA"])
 @pytest.mark.parametrize("newline", ["LF", "CRLF"])
 @pytest.mark.parametrize("keep_snapshot", [False, True])
 @pytest.mark.parametrize("source_manifest", _REVIEWED_PRIOR_SOURCE_MANIFESTS,
-                         ids=("locator", "pre-duration", "duration", "reconciled"))
+                         ids=("locator", "pre-duration", "duration", "reconciled", "results"))
 def test_reviewed_additive_loader_transition_preserves_exact_historical_original(
         monkeypatch, tmp_path, tour, newline, keep_snapshot, source_manifest):
     db, _ = _stored(monkeypatch, tmp_path, tours=(tour,))
@@ -411,7 +439,7 @@ def test_reviewed_additive_loader_transition_preserves_exact_historical_original
 
 
 @pytest.mark.parametrize("source_manifest", _REVIEWED_PRIOR_SOURCE_MANIFESTS,
-                         ids=("locator", "pre-duration", "duration", "reconciled"))
+                         ids=("locator", "pre-duration", "duration", "reconciled", "results"))
 @pytest.mark.parametrize("source_name", sorted(_REVIEWED_OLD_SOURCE_MANIFEST))
 def test_reviewed_historical_manifest_rejects_unknown_source_digest_read_only(
         monkeypatch, tmp_path, source_name, source_manifest):
@@ -430,7 +458,7 @@ def test_reviewed_historical_manifest_rejects_unknown_source_digest_read_only(
 
 
 @pytest.mark.parametrize("source_manifest", _REVIEWED_PRIOR_SOURCE_MANIFESTS,
-                         ids=("locator", "pre-duration", "duration", "reconciled"))
+                         ids=("locator", "pre-duration", "duration", "reconciled", "results"))
 @pytest.mark.parametrize("drift_name", sorted(_REVIEWED_OLD_SOURCE_MANIFEST))
 def test_unreviewed_running_source_cannot_borrow_historical_transition(
         monkeypatch, tmp_path, drift_name, source_manifest):
@@ -444,7 +472,11 @@ def test_unreviewed_running_source_cannot_borrow_historical_transition(
         origin["code_hashes"] = {
             name: variants["LF"] for name, variants in source_manifest.items()
         }
-        if drift_name != "tennis/data_loader.py":
+        # The immediate predecessor differs from the running owner only in
+        # model_state.py. Replacing its recorded digest with the same drifted
+        # running digest would create a genuinely current original, not a
+        # historical-transition test. Keep the predecessor's recorded bytes.
+        if drift_name not in {"tennis/data_loader.py", "tennis/model_state.py"}:
             origin["code_hashes"][drift_name] = drifted_lf_hash
 
     _replace_origin(db, mixed_manifest)
