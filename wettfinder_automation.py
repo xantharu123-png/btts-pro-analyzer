@@ -804,51 +804,83 @@ def select_catalog_candidates(
         preserve_order=preserve_order,
     )
     # Primary/"interesting" markets are displayed before simple markets, but
-    # that presentation tier must not decide an exact opposing direction.
-    # Compare only outcomes of the same model revision and the same settled
-    # market line; unrelated markets keep their original order.
-    direction_winners: dict[tuple[str, ...], dict[str, Any]] = {}
-    direction_groups: dict[int, tuple[str, ...]] = {}
+    # that presentation tier must not decide mutually exclusive directions.
+    # Compare probabilities only with complete, identical fixture and model
+    # bindings. A missing revision must never masquerade as a matching one.
+    comparable_groups: dict[tuple[object, ...], list[dict[str, Any]]] = {}
     for row in valid:
         if row.get("source") != "football_challenge":
             continue
-        spec = MARKET_BY_KEY.get(str(row.get("market_key") or ""))
-        if spec is None:
+        if str(row.get("market_key") or "") not in MARKET_BY_KEY:
             continue
-        if spec.kind in {"result", "btts"}:
-            axis = ""
-        elif spec.kind in {
-            "total", "team_total", "corner_total", "team_corners",
-            "yellow_total", "team_yellow",
-        }:
-            side = str(spec.side or "")
-            if side not in {"over", "under"} and not side.endswith(("_over", "_under")):
-                continue
-            axis = side.rsplit("_", 1)[0] if "_" in side else ""
-        else:
+        identifiers = tuple(row.get(field) for field in ("fixture_id", "home_id", "away_id"))
+        if any(type(value) is not int or value <= 0 for value in identifiers):
+            continue
+        if identifiers[1] == identifiers[2]:
+            continue
+        revision_fields = tuple(
+            row.get(field) for field in (
+                "event_identity", "model_version", "policy_version",
+                "model_scope", "evidence_stage",
+            )
+        )
+        if any(not isinstance(value, str) or not value.strip() for value in revision_fields):
+            continue
+        clocks = tuple(
+            _parse_iso(row.get(field)) for field in (
+                "scheduled_start", "modeled_at", "input_cutoff_at",
+            )
+        )
+        if any(clock is None for clock in clocks):
             continue
         group = (
-            str(row.get("event_identity") or row.get("key") or ""),
-            spec.kind,
-            str(spec.threshold),
-            axis,
-            str(row.get("model_version") or ""),
-            str(row.get("model_scope") or ""),
-            str(row.get("evidence_stage") or ""),
-            str(row.get("modeled_at") or ""),
-            str(row.get("input_cutoff_at") or ""),
+            *identifiers, *revision_fields, *clocks,
         )
-        direction_groups[id(row)] = group
-        previous = direction_winners.get(group)
-        if previous is None or float(row["probability"]) > float(previous["probability"]):
-            direction_winners[group] = row
+        comparable_groups.setdefault(group, []).append(row)
+    suppressed: set[int] = set()
+    for group_rows in comparable_groups.values():
+        ranked = sorted(group_rows, key=lambda row: -float(row["probability"]))
+        accepted: list[str] = []
+        ambiguous: list[str] = []
+        position = 0
+        while position < len(ranked):
+            probability = ranked[position]["probability"]
+            end = position + 1
+            while end < len(ranked) and ranked[end]["probability"] == probability:
+                end += 1
+            available: list[dict[str, Any]] = []
+            for row in ranked[position:end]:
+                market_key = str(row["market_key"])
+                if any(
+                    markets_mutually_exclusive(market_key, prior)
+                    for prior in (*accepted, *ambiguous)
+                ):
+                    suppressed.add(id(row))
+                else:
+                    available.append(row)
+            tied_conflicts: set[int] = set()
+            for index, left in enumerate(available):
+                for right in available[index + 1:]:
+                    if markets_mutually_exclusive(
+                        str(left["market_key"]), str(right["market_key"])
+                    ):
+                        tied_conflicts.update((id(left), id(right)))
+            for row in available:
+                market_key = str(row["market_key"])
+                if id(row) in tied_conflicts:
+                    suppressed.add(id(row))
+                    # An ambiguous modal tie must not promote a weaker third
+                    # result merely because both leading directions vanished.
+                    ambiguous.append(market_key)
+                else:
+                    accepted.append(market_key)
+            position = end
     selected: list[dict[str, Any]] = []
     seen_keys: set[str] = set()
     seen_markets: set[tuple[str, str, str]] = set()
     football_markets_by_event: dict[str, list[str]] = {}
     for row in valid:
-        group = direction_groups.get(id(row))
-        if group is not None and direction_winners[group] is not row:
+        if id(row) in suppressed:
             continue
         key = str(row.get("key") or "").strip()
         event = str(row.get("event_identity") or key).strip()
