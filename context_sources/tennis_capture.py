@@ -55,15 +55,17 @@ class _Capture:
     def __init__(self):
         self.pending, self.issues, self.refs = [], set(), set()
         self.exclusions = Counter()
+        self.coverage_gaps = set()
         self.retired_outcome_events = set()
         self.native_unavailable_outcome_events = set()
         self._outcome_sources = {}
 
     def report(self):
         return {"schema": 1, "scope": "existing-espn-tennis-responses",
-            "status": "partial" if self.issues or self.native_unavailable_outcome_events
+            "status": "partial" if self.issues or self.coverage_gaps or self.native_unavailable_outcome_events
                 else "captured" if self.refs else "no_receipts",
             "receipt_refs": sorted(self.refs), "issues": sorted(self.issues),
+            "coverage_gaps": sorted(self.coverage_gaps),
             "excluded_competitions": dict(sorted(self.exclusions.items())),
             "retired_outcome_events": sorted(self.retired_outcome_events),
             "native_unavailable_outcome_events": sorted(self.native_unavailable_outcome_events)}
@@ -101,12 +103,22 @@ class _Capture:
                     eligible, source = source_for_normal_winner(rows[0], competition)
                     if eligible:
                         self._outcome_sources[index] = source
+                    elif (rows[0]["format"] == "singles"
+                            and rows[0]["payload"]["status"] == "completed"
+                            and rows[0]["payload"]["issues"] == ["terminal-workload-unavailable"]
+                            and not any(rows[0]["payload"]["native_status"][flag]
+                                for flag in ("retired", "walkover", "unsupported"))):
+                        # Keep a possible original outcome on the collector's
+                        # watch list; missing workload must not hide its label.
+                        self._outcome_sources[index] = None
                     exclusion = _expected_exclusion(rows[0], competition)
                     if exclusion is not None:
                         self.exclusions[exclusion] += 1
                     else:
                         for issue in rows[0]["payload"]["issues"]:
-                            if issue not in {"unsupported-format", "unsupported-terminal"}:
+                            if issue == "terminal-workload-unavailable":
+                                self.coverage_gaps.add(rows[0]["event_key"])
+                            elif issue not in {"unsupported-format", "unsupported-terminal"}:
                                 self.issues.add(issue)
 
     def persist(self, path):

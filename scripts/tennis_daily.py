@@ -1036,6 +1036,7 @@ def main() -> int:
     print(f"Kontext-Capture: {report['status']}")
     print("Kontext-Aufnahme: " + json.dumps({
         "issues": report["issues"],
+        "coverage_gaps": report.get("coverage_gaps", []),
         "excluded_competitions": report.get("excluded_competitions", {}),
         "retired_outcome_events": report.get("retired_outcome_events", []),
         "native_unavailable_outcome_events": report.get("native_unavailable_outcome_events", []),

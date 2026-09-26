@@ -1,5 +1,29 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 26.09.2026 – Tennis-Tageslauf, belegter Status und verbleibende Abnahme
+
+- Der Stand `7a75ab3` war lokal, auf GitHub und auf dem VPS identisch, aber der
+  automatische Tennis-Lauf vom 26.09. endete trotzdem mit Exit 1. Vorhandene
+  Beobachtungen und Prognosen wurden gespeichert; die Capture-Diagnose meldete
+  `native-outcome-unavailable` und `terminal-workload-unavailable`.
+- Die erste Meldung betrifft WTA 183992: vor dem Beginn wurde eine neue
+  Spielerpaarung erfasst. Die vor dem Beginn publizierten alten Prognosen
+  dürfen **kein** Ergebnis dieser Ersatzpaarung bekommen. Der Collector
+  erkennt diese nachgewiesene Ersetzung nun auch bei mehrfachen Finalmeldungen
+  ohne eindeutige Sieger-Flags als sichtbare Nichtauswertbarkeit, statt den
+  gesamten Lauf abzubrechen. Unbelegte Paarungswechsel bleiben Fehler.
+- Bei WTA 184101 fehlten Satz-/Belastungsdaten, aber es existiert keine
+  zugehörige ursprüngliche Tennis-Prognose. Der Statusbeleg bleibt mit seiner
+  Datenlücke gespeichert; die Lücke wird gesondert gemeldet. Liegt eine
+  ursprüngliche Prognose vor, bleibt ein fehlendes Ergebnis ein Lauf-Fehler.
+- Dieser Eintrag beschreibt eine lokale Korrektur. Test-, GitHub-, VPS- und
+  nächste automatische Laufbestätigung müssen getrennt nachgetragen werden.
+  Kein zusätzlicher API-Scan und keine neue Sicherung für die Prüfung.
+- Weiterhin offen: empirisch belegte Verletzungs-, Wetter- und
+  Belastungseffekte, sportartenübergreifende Daily3-Qualitätsvergleiche und
+  ein unabhängiger Nachweis besserer Wettqualität. Softwaretests allein
+  belegen keinen Wettvorteil.
+
 ## 24.09.2026 – Tagesmodell versus kurzlebige Ausführungsquote
 
 - Der tägliche automatische Modell-Snapshot ist für Auswahlen bis zu 24 Stunden

@@ -133,7 +133,8 @@ def _verified_replacement_without_prematch_original(path, key, entries, scope, p
     unbroken same-event status sequence after the last old publication.
     """
     from context_sources.tennis import _espn
-    if type(source) is not dict or type(source.get("competition")) is not dict or not entries:
+    if (source is not None and
+            (type(source) is not dict or type(source.get("competition")) is not dict)) or not entries:
         return False
     old_scopes = {(event["tour"], event["competition"], event["event_key"],
         frozenset((event["home_id"], event["away_id"]))) for _, event in entries}
@@ -143,23 +144,23 @@ def _verified_replacement_without_prematch_original(path, key, entries, scope, p
     clock, rows = pending[index]
     status = {**rows[0], "observed_at": canonical_timestamp(clock)}
     validate_tennis_status_record(status)
-    try:
-        valid, projected = source_for_normal_winner(status, source["competition"])
-    except (ContextContractError, TypeError, ValueError, KeyError):
-        return False
-    if not valid or projected != source or status["payload"]["issues"]:
-        return False
-    try:
-        native = _espn(source)
-    except (ContextContractError, TypeError, ValueError, KeyError):
-        return False
     data = status["payload"]
     current_scope = (data["tour"], status["competition"], status["event_key"],
         frozenset(data["participant_ids"]))
-    if (native is None or native["status"] != "completed" or current_scope != scope
-            or data["status"] != "completed" or status["format"] != "singles"
+    native_status = data["native_status"]
+    if (current_scope != scope or len(scope[3]) != 2 or None in scope[3]
+            or data["issues"] or data["status"] != "completed" or status["format"] != "singles"
+            or any(native_status[flag] for flag in ("retired", "walkover", "unsupported"))
             or status["observed_at"] <= data["scheduled_start"]):
         return False
+    if source is not None:
+        try:
+            valid, projected = source_for_normal_winner(status, source["competition"])
+            native = _espn(source)
+        except (ContextContractError, TypeError, ValueError, KeyError):
+            return False
+        if not valid or projected != source or native is None or native["status"] != "completed":
+            return False
     last_old_publication = max(datetime.fromisoformat(created) for created, _ in entries)
     with _reader(path) as connection:
         stored = connection.execute(_SELECT + " WHERE r.event_key=? AND r.kind=? AND r.observed_at<?"
@@ -191,6 +192,8 @@ def _verified_replacement_without_prematch_original(path, key, entries, scope, p
                 and None in payload["participant_ids"]):
             continue
         elif (replacement_seen and pair == scope[3] and payload["status"] == "completed"
+                and selected["schedule_revision"] == status["schedule_revision"]
+                and payload["scheduled_start"] == data["scheduled_start"]
                 and not payload["issues"] and observed > datetime.fromisoformat(payload["scheduled_start"])):
             continue
         else:
@@ -242,13 +245,25 @@ def collect_outcomes(path, pending, sources, *, retired_events=None, native_unav
             issues.add("native-outcome-conflicting")
             continue
         if missing or not scopes:
-            # A feed can return the same completed replacement several times,
-            # with winner flags absent in one reception. Defer ONLY a single
-            # missing-winner row. A separately verified reception of the exact
-            # replacement pair may establish that the old original is
-            # unscorable; neither reception may manufacture its result.
+            # A feed may repeat a completed replacement without winner flags.
+            # A single reception needs the stored timely pair revision to prove
+            # that the old original is unscorable. Never infer a winner.
             if len(indices) == 1 and sources.get(indices[0]) is None:
-                ambiguous_replacement_rows.append((key, indices[0]))
+                index = indices[0]
+                clock, rows = pending[index]
+                status = {**rows[0], "observed_at": canonical_timestamp(clock)}
+                validate_tennis_status_record(status)
+                payload = status["payload"]
+                scope = (payload["tour"], status["competition"], status["event_key"],
+                    frozenset(payload["participant_ids"]))
+                if (native_unavailable_events is not None
+                        and _verified_replacement_without_prematch_original(
+                            path, key, tuple(events.values()), scope, pending, index, None)):
+                    native_unavailable_events.add(key)
+                    verified_replacement_scopes.setdefault(key, set()).add(
+                        (scope, status["schedule_revision"]))
+                else:
+                    ambiguous_replacement_rows.append((key, index))
             else:
                 issues.add("native-outcome-unavailable")
             continue
@@ -292,6 +307,11 @@ def collect_outcomes(path, pending, sources, *, retired_events=None, native_unav
                 bound.append(next(iter(answers.values())))
         if bound:
             additions[indices[0]] = tuple(sorted(bound, key=digest))
+    for key, scopes in verified_replacement_scopes.items():
+        if len(scopes) > 1:
+            issues.add("native-outcome-unavailable")
+            if native_unavailable_events is not None:
+                native_unavailable_events.discard(key)
     for key, index in ambiguous_replacement_rows:
         scopes = verified_replacement_scopes.get(key, set())
         if len(scopes) != 1:

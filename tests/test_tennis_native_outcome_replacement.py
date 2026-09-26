@@ -112,7 +112,7 @@ def test_conflicting_same_clock_native_revisions_are_not_suppressed(monkeypatch,
     assert outcomes(db) == ()
 
 
-def test_missing_winner_flag_is_not_hidden_by_a_valid_replacement(monkeypatch, tmp_path):
+def test_missing_winner_flag_for_verified_replacement_cannot_score_old_pair(monkeypatch, tmp_path):
     db, _, _, origin = original_store(monkeypatch, tmp_path, tour="WTA")
     event_id = origin["event"]["event_key"].rsplit(":", 1)[-1]
     _scheduled_replacement(db, event_id)
@@ -120,9 +120,24 @@ def test_missing_winner_flag_is_not_hidden_by_a_valid_replacement(monkeypatch, t
     raw["competitors"][0].pop("winner")
     with capture.capture_tennis_worker(path=db) as observer:
         record(observer, raw, tour="WTA")
-    assert observer.report()["issues"] == ["native-outcome-unavailable"]
-    assert observer.report()["native_unavailable_outcome_events"] == []
+    assert observer.report()["issues"] == []
+    assert observer.report()["native_unavailable_outcome_events"] == [origin["event"]["event_key"]]
     assert outcomes(db) == ()
+
+
+def test_repeated_missing_winner_flags_for_verified_replacement_are_nonfatal(monkeypatch, tmp_path):
+    db, predictions, _, origin = original_store(monkeypatch, tmp_path, tour="WTA")
+    event_id = origin["event"]["event_key"].rsplit(":", 1)[-1]
+    _scheduled_replacement(db, event_id)
+    ambiguous = _final(event_id)
+    ambiguous["competitors"][0].pop("winner")
+    before_predictions = predictions.read_bytes()
+    with capture.capture_tennis_worker(path=db) as observer:
+        for minute in range(3):
+            record(observer, ambiguous, tour="WTA", clock=RECEIVED + timedelta(minutes=minute))
+    assert observer.report()["issues"] == []
+    assert observer.report()["native_unavailable_outcome_events"] == [origin["event"]["event_key"]]
+    assert outcomes(db) == () and predictions.read_bytes() == before_predictions
 
 
 @pytest.mark.parametrize("missing_first", [False, True])
@@ -193,6 +208,48 @@ def test_direct_collector_without_reporter_cannot_silently_drop_issue(monkeypatc
     additions, issues = collect_outcomes(db, observer.pending, observer._outcome_sources)
     assert additions == {}
     assert issues == {"native-outcome-unavailable"}
+
+
+def test_missing_workload_without_original_is_reported_but_not_fatal(tmp_path):
+    db = tmp_path / "no-original.db"
+    raw = completed(event_id="777")
+    raw["competitors"][0]["linescores"] = "bad native set data"
+    with capture.capture_tennis_worker(path=db) as observer:
+        record(observer, raw, tour="WTA")
+    report = observer.report()
+    assert report["issues"] == []
+    assert report["coverage_gaps"] == ["espn:tennis:WTA:match:777"]
+    assert report["status"] == "partial"
+    assert outcomes(db) == ()
+
+
+def test_missing_workload_with_original_still_fails_outcome_capture(monkeypatch, tmp_path):
+    db, predictions, _, origin = original_store(monkeypatch, tmp_path, tour="WTA")
+    event_id = origin["event"]["event_key"].rsplit(":", 1)[-1]
+    raw = completed(event_id=event_id)
+    raw["competitors"][0]["linescores"] = "bad native set data"
+    before_predictions = predictions.read_bytes()
+    with capture.capture_tennis_worker(path=db) as observer:
+        record(observer, raw, tour="WTA")
+    report = observer.report()
+    assert "native-outcome-unavailable" in report["issues"]
+    assert report["coverage_gaps"] == [origin["event"]["event_key"]]
+    assert outcomes(db) == () and predictions.read_bytes() == before_predictions
+
+
+def test_daily_cli_succeeds_with_reported_unwatched_workload_gap(monkeypatch, tmp_path, capsys):
+    db, _, _, _ = original_store(monkeypatch, tmp_path, tour="WTA")
+    raw = completed(event_id="777")
+    raw["competitors"][0]["linescores"] = "bad native set data"
+    monkeypatch.setattr(capture, "_receipt_now", lambda: RECEIVED)
+    monkeypatch.setattr(daily, "_run_daily",
+        lambda args: capture.observe_espn_response("wta", response(raw, "WTA")) or 0)
+    monkeypatch.setattr(daily.sys, "argv", ["tennis_daily.py", "2026-09-09"])
+    assert daily.main() == 0
+    printed = capsys.readouterr().out
+    assert '"coverage_gaps": ["espn:tennis:WTA:match:777"]' in printed
+    assert '"issues": []' in printed
+    assert outcomes(db) == ()
 
 
 def test_daily_cli_exits_zero_but_reports_partial_native_gap(monkeypatch, tmp_path, capsys):
