@@ -12,17 +12,21 @@
   zugeordnet werden. Das ist **kein** erfolgreicher Produktionslauf. Die
   bisherigen Logs nannten nur `native-outcome-unavailable`, nicht die
   konkrete Event-ID. Alte Prognosen und Geldbuchungen wurden nicht umgeschrieben.
-- Die nächste lokale Korrektur führt die unaufgelösten Event-IDs getrennt im
+- Die zweite Korrektur führt die unaufgelösten Event-IDs getrennt im
   Admin-Bericht. Fehlende Sieger bleiben ausdrücklich unbelegt und werden
   nicht abgerechnet; solche Datenlücken allein machen den gesamten Tageslauf
   nicht mehr zu einem technischen Fehlstatus. Konkurrierende native Antworten,
   widersprüchliche Ersatzrevisionen, Speicherintegritätsfehler und echte
   Modell-/Publikationsfehler bleiben hart fehlerhaft. Bei Modellfehlern werden
   künftig Event-ID, Grund und Fehlertyp im Dienstlog angezeigt.
-- Kein zusätzlicher API-Lauf am 27.09. Der reale Nachweis dieser zweiten
-  Korrektur steht erst mit dem regulären Lauf am 28.09. um 00:05 CEST an.
-  Release-Hashes und Tests separat prüfen. Keine neue Sicherung oder
-  Datenbankmigration vorgesehen.
+- Die zweite Korrektur wurde als `d2a76e1` auf GitHub und den VPS gebracht;
+  lokal, GitHub `main` und VPS waren nach dem Code-only-Deploy identisch.
+  11.063 Tests und 111 Untertests bestanden, 96 Tests wurden übersprungen;
+  App, Timer und beide Healthchecks meldeten `ok`. Kein zusätzlicher API-Lauf,
+  keine neue Sicherung und keine Datenbankmigration am 27.09.
+- Der reale Nachweis dieser zweiten Korrektur steht erst mit dem regulären
+  Lauf am 28.09. um 00:05 CEST an. Eine Nachprüfung ist für 02:00 CEST in
+  diesem Chat eingeplant; sie darf keinen zusätzlichen Sportscan starten.
 - Die fehlenden unabhängigen Outcome-/Kontextbelege verhindern weiterhin
   eine Freigabe numerischer Verletzungs-, Wetter- oder Müdigkeitseffekte sowie
   eine Behauptung besserer Wettqualität.
