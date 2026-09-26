@@ -168,7 +168,7 @@ def test_ambiguous_winner_for_different_new_pair_remains_an_issue(monkeypatch, t
     with capture.capture_tennis_worker(path=db) as observer:
         record(observer, _final(event_id), tour="WTA")
         record(observer, ambiguous, tour="WTA", clock=RECEIVED + timedelta(minutes=1))
-    assert observer.report()["issues"] == ["native-outcome-unavailable"]
+    assert observer.report()["issues"] == ["native-outcome-conflicting"]
     assert outcomes(db) == ()
 
 
@@ -182,7 +182,7 @@ def test_ambiguous_winner_at_different_final_schedule_remains_an_issue(monkeypat
     with capture.capture_tennis_worker(path=db) as observer:
         record(observer, _final(event_id), tour="WTA")
         record(observer, ambiguous, tour="WTA", clock=RECEIVED + timedelta(minutes=1))
-    assert observer.report()["issues"] == ["native-outcome-unavailable"]
+    assert observer.report()["issues"] == ["native-outcome-conflicting"]
     assert outcomes(db) == ()
 
 
@@ -250,6 +250,57 @@ def test_daily_cli_succeeds_with_reported_unwatched_workload_gap(monkeypatch, tm
     assert '"coverage_gaps": ["espn:tennis:WTA:match:777"]' in printed
     assert '"issues": []' in printed
     assert outcomes(db) == ()
+
+
+def test_daily_cli_reports_unresolved_winner_without_failing_entire_scan(
+        monkeypatch, tmp_path, capsys):
+    db, predictions, _, origin = original_store(monkeypatch, tmp_path, tour="WTA")
+    event_id = origin["event"]["event_key"].rsplit(":", 1)[-1]
+    ambiguous = completed(event_id=event_id)
+    ambiguous["competitors"][0].pop("winner")
+    before_predictions = predictions.read_bytes()
+    monkeypatch.setattr(capture, "_receipt_now", lambda: RECEIVED)
+    monkeypatch.setattr(daily, "_run_daily",
+        lambda args: capture.observe_espn_response("wta", response(ambiguous, "WTA")) or 0)
+    monkeypatch.setattr(daily.sys, "argv", ["tennis_daily.py", "2026-09-09"])
+    assert daily.main() == 0
+    printed = capsys.readouterr().out
+    assert '"issues": ["native-outcome-unavailable"]' in printed
+    assert '"unresolved_outcome_events": ["' + origin["event"]["event_key"] + '"]' in printed
+    assert outcomes(db) == () and predictions.read_bytes() == before_predictions
+
+
+def test_daily_cli_still_fails_for_conflicting_native_winners(monkeypatch, tmp_path, capsys):
+    db, _, _, origin = original_store(monkeypatch, tmp_path, tour="WTA")
+    event_id = origin["event"]["event_key"].rsplit(":", 1)[-1]
+    monkeypatch.setattr(capture, "_receipt_now", lambda: RECEIVED)
+
+    def scan(_):
+        capture.observe_espn_response("wta", response(completed(event_id=event_id, winner=0), "WTA"))
+        capture.observe_espn_response("wta", response(completed(event_id=event_id, winner=1), "WTA"))
+        return 0
+
+    monkeypatch.setattr(daily, "_run_daily", scan)
+    monkeypatch.setattr(daily.sys, "argv", ["tennis_daily.py", "2026-09-09"])
+    assert daily.main() == 1
+    assert '"native-outcome-conflicting"' in capsys.readouterr().out
+    assert outcomes(db) == ()
+
+
+def test_daily_scan_logs_model_errors_by_event_without_losing_failure(monkeypatch, capsys):
+    from types import SimpleNamespace
+    monkeypatch.setattr(daily, "auto_settle_completed", lambda: 0)
+    monkeypatch.setattr(daily, "tournament_surface_map", lambda year: {})
+    monkeypatch.setattr(daily, "fetch_fixtures", lambda *args, **kwargs: [])
+    monkeypatch.setattr(daily, "scan_fixtures", lambda *args, **kwargs: {
+        "models": {}, "errors": [{"tour": "WTA", "provider_event_id": "777",
+            "reason": "prediction_scan_failed", "error_type": "ValueError"}], "prepared": 0,
+    })
+    args = SimpleNamespace(date="2026-09-09", allow_legacy_model=False)
+    assert daily._run_daily(args) == 1
+    printed = capsys.readouterr().out
+    assert "Scan-Fehler:" in printed
+    assert '"provider_event_id": "777"' in printed
 
 
 def test_daily_cli_exits_zero_but_reports_partial_native_gap(monkeypatch, tmp_path, capsys):

@@ -1,5 +1,32 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 27.09.2026 – täglicher Tennis-Scan und Ergebnislücken
+
+- Der planmäßige Lauf um 00:05 CEST nutzte `ed27f7a`, bereitete 15
+  Prognosen vor und speicherte 11 neu. Der zuvor behobene WTA-Paarungswechsel
+  183992 blieb korrekt ohne fremdes Ergebnis; eine neue fehlende
+  Satz-/Belastungsangabe für WTA 186197 hat keine zugehörige rechtzeitige
+  ursprüngliche Prognose und wurde als Datenlücke ausgewiesen.
+- Trotzdem endete der Lauf um 00:22 mit Exit 1: mindestens ein anderer
+  vorhandener Originalbeleg konnte keinem belastbaren nativen Siegerbeleg
+  zugeordnet werden. Das ist **kein** erfolgreicher Produktionslauf. Die
+  bisherigen Logs nannten nur `native-outcome-unavailable`, nicht die
+  konkrete Event-ID. Alte Prognosen und Geldbuchungen wurden nicht umgeschrieben.
+- Die nächste lokale Korrektur führt die unaufgelösten Event-IDs getrennt im
+  Admin-Bericht. Fehlende Sieger bleiben ausdrücklich unbelegt und werden
+  nicht abgerechnet; solche Datenlücken allein machen den gesamten Tageslauf
+  nicht mehr zu einem technischen Fehlstatus. Konkurrierende native Antworten,
+  widersprüchliche Ersatzrevisionen, Speicherintegritätsfehler und echte
+  Modell-/Publikationsfehler bleiben hart fehlerhaft. Bei Modellfehlern werden
+  künftig Event-ID, Grund und Fehlertyp im Dienstlog angezeigt.
+- Kein zusätzlicher API-Lauf am 27.09. Der reale Nachweis dieser zweiten
+  Korrektur steht erst mit dem regulären Lauf am 28.09. um 00:05 CEST an.
+  Release-Hashes und Tests separat prüfen. Keine neue Sicherung oder
+  Datenbankmigration vorgesehen.
+- Die fehlenden unabhängigen Outcome-/Kontextbelege verhindern weiterhin
+  eine Freigabe numerischer Verletzungs-, Wetter- oder Müdigkeitseffekte sowie
+  eine Behauptung besserer Wettqualität.
+
 ## 26.09.2026 – Tennis-Tageslauf, belegter Status und verbleibende Abnahme
 
 - Der Stand `7a75ab3` war lokal, auf GitHub und auf dem VPS identisch, aber der
@@ -16,9 +43,11 @@
   zugehörige ursprüngliche Tennis-Prognose. Der Statusbeleg bleibt mit seiner
   Datenlücke gespeichert; die Lücke wird gesondert gemeldet. Liegt eine
   ursprüngliche Prognose vor, bleibt ein fehlendes Ergebnis ein Lauf-Fehler.
-- Dieser Eintrag beschreibt eine lokale Korrektur. Test-, GitHub-, VPS- und
-  nächste automatische Laufbestätigung müssen getrennt nachgetragen werden.
-  Kein zusätzlicher API-Scan und keine neue Sicherung für die Prüfung.
+- Die Korrektur wurde als `ed27f7a` auf GitHub und den VPS gebracht;
+  11.060 Tests, 111 Untertests und die gespeicherten Problemfälle wurden
+  geprüft. Der nächste automatische Lauf am 27.09. blieb dennoch aus einem
+  anderen Ergebnisdaten-Grund fehlerhaft (siehe oben). Kein zusätzlicher
+  API-Scan und keine neue Sicherung für die Prüfung.
 - Weiterhin offen: empirisch belegte Verletzungs-, Wetter- und
   Belastungseffekte, sportartenübergreifende Daily3-Qualitätsvergleiche und
   ein unabhängiger Nachweis besserer Wettqualität. Softwaretests allein

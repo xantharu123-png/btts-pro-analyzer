@@ -201,7 +201,8 @@ def _verified_replacement_without_prematch_original(path, key, entries, scope, p
     return replacement_seen
 
 
-def collect_outcomes(path, pending, sources, *, retired_events=None, native_unavailable_events=None):
+def collect_outcomes(path, pending, sources, *, retired_events=None, native_unavailable_events=None,
+                     unresolved_events=None):
     """Return additions by batch position, preserving all actual receive clocks.
 
     Repeated persistence is B1-idempotent. Multiple forecasts of the exact same
@@ -215,6 +216,11 @@ def collect_outcomes(path, pending, sources, *, retired_events=None, native_unav
         if rows[0]["event_key"] in wanted:
             groups.setdefault((rows[0]["event_key"], canonical_timestamp(clock)), []).append(index)
     additions, issues = {}, set()
+    def unresolved(key):
+        issues.add("native-outcome-unavailable")
+        if unresolved_events is not None:
+            unresolved_events.add(key)
+
     verified_replacement_scopes, ambiguous_replacement_rows = {}, []
     for (key, received), indices in groups.items():
         events = {}
@@ -265,7 +271,7 @@ def collect_outcomes(path, pending, sources, *, retired_events=None, native_unav
                 else:
                     ambiguous_replacement_rows.append((key, index))
             else:
-                issues.add("native-outcome-unavailable")
+                unresolved(key)
             continue
         scope = next(iter(scopes))
         eligible = tuple(events.values())
@@ -280,7 +286,7 @@ def collect_outcomes(path, pending, sources, *, retired_events=None, native_unav
                 verified_replacement_scopes.setdefault(key, set()).add(
                     (scope, pending[indices[0]][1][0]["schedule_revision"]))
             else:
-                issues.add("native-outcome-unavailable")
+                unresolved(key)
             continue
         bound = []
         for created, event in events.values():
@@ -302,20 +308,23 @@ def collect_outcomes(path, pending, sources, *, retired_events=None, native_unav
             if len(answers) > 1 or unavailable and len(indices) > 1:
                 issues.add("native-outcome-conflicting")
             elif unavailable:
-                issues.add("native-outcome-unavailable")
+                unresolved(key)
             elif answers:
                 bound.append(next(iter(answers.values())))
         if bound:
             additions[indices[0]] = tuple(sorted(bound, key=digest))
     for key, scopes in verified_replacement_scopes.items():
         if len(scopes) > 1:
-            issues.add("native-outcome-unavailable")
+            issues.add("native-outcome-conflicting")
             if native_unavailable_events is not None:
                 native_unavailable_events.discard(key)
     for key, index in ambiguous_replacement_rows:
         scopes = verified_replacement_scopes.get(key, set())
-        if len(scopes) != 1:
-            issues.add("native-outcome-unavailable")
+        if len(scopes) > 1:
+            issues.add("native-outcome-conflicting")
+            continue
+        if not scopes:
+            unresolved(key)
             continue
         clock, rows = pending[index]
         status = {**rows[0], "observed_at": canonical_timestamp(clock)}
@@ -329,5 +338,5 @@ def collect_outcomes(path, pending, sources, *, retired_events=None, native_unav
                 or len(payload["participant_ids"]) != 2
                 or frozenset(payload["participant_ids"]) != scope[3]
                 or status["observed_at"] <= payload["scheduled_start"]):
-            issues.add("native-outcome-unavailable")
+            issues.add("native-outcome-conflicting")
     return additions, issues

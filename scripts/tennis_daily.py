@@ -1040,6 +1040,7 @@ def main() -> int:
         "excluded_competitions": report.get("excluded_competitions", {}),
         "retired_outcome_events": report.get("retired_outcome_events", []),
         "native_unavailable_outcome_events": report.get("native_unavailable_outcome_events", []),
+        "unresolved_outcome_events": report.get("unresolved_outcome_events", []),
     }, ensure_ascii=True, sort_keys=True))
     final_errors = []
     if batch.pending:
@@ -1049,7 +1050,9 @@ def main() -> int:
         if final_errors:
             print("Prognose-Abschluss mit Teildaten: " + json.dumps(final_errors, ensure_ascii=True))
         print("Shadow-Stand:", shadow.summary())
-    return 1 if report["issues"] or final_errors else result
+    fatal_issues = [issue for issue in report["issues"]
+        if issue != "native-outcome-unavailable" or not report["unresolved_outcome_events"]]
+    return 1 if fatal_issues or final_errors else result
 
 
 def _run_daily(args) -> int:
@@ -1076,6 +1079,8 @@ def _run_daily(args) -> int:
             f"artifact_hash={record.get('artifact_hash')}; "
             f"error_type={record.get('error_type')}"
         )
+    if result["errors"]:
+        print("Scan-Fehler: " + json.dumps(result["errors"], ensure_ascii=True, sort_keys=True))
     if "prepared" in result:
         print(f"\nVorbereitet: {result['prepared']} Predictions; Speicherung nach Datenempfang")
     else:

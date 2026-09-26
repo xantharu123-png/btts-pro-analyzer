@@ -58,6 +58,7 @@ class _Capture:
         self.coverage_gaps = set()
         self.retired_outcome_events = set()
         self.native_unavailable_outcome_events = set()
+        self.unresolved_outcome_events = set()
         self._outcome_sources = {}
 
     def report(self):
@@ -68,7 +69,8 @@ class _Capture:
             "coverage_gaps": sorted(self.coverage_gaps),
             "excluded_competitions": dict(sorted(self.exclusions.items())),
             "retired_outcome_events": sorted(self.retired_outcome_events),
-            "native_unavailable_outcome_events": sorted(self.native_unavailable_outcome_events)}
+            "native_unavailable_outcome_events": sorted(self.native_unavailable_outcome_events),
+            "unresolved_outcome_events": sorted(self.unresolved_outcome_events)}
 
     def record(self, tour, payload, *, observed_at):
         if type(tour) is not str or tour not in {"atp", "wta"}:
@@ -125,7 +127,8 @@ class _Capture:
         from context_sources.tennis_outcome_capture import collect_outcomes
         outcomes, issues = collect_outcomes(path, self.pending, self._outcome_sources,
             retired_events=self.retired_outcome_events,
-            native_unavailable_events=self.native_unavailable_outcome_events)
+            native_unavailable_events=self.native_unavailable_outcome_events,
+            unresolved_events=self.unresolved_outcome_events)
         self.issues.update(issues)
         chunk = []
         for index, (observed, rows) in enumerate(self.pending):
