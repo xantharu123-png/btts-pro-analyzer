@@ -1,5 +1,29 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 27.09.2026 – Fortsetzung: gemeinsames Fußballmodell an Training und Auswertung angeschlossen
+
+- Die kalibrierte gemeinsame Torverteilung kann jetzt aus gespeicherten,
+  quellgebundenen Originalen in den **bestehenden** Trainings-/Auswertungspfad
+  überführt werden. Kein zweites Datensystem, keine duplizierten Originalpakete.
+- Gekoppeltes Training, getrennte Abstimmung und spätere Testspiele verwenden
+  dieselbe Verteilung; der CPU-Worker kann denselben Vergleich berechnen.
+  Ohne belegte Effektfreigabe bleibt seine verwendete Prognose das Original.
+- Später empfangenes Wetter benötigt einen späteren Vor-Spiel-Vergleich;
+  Originalmodell und tatsächliche Empfangszeit bleiben erhalten. Fehlende
+  Merkmale werden nicht mit null oder „gesund“ ersetzt. Spielabstände sind
+  ausdrücklich nur Terminabstände, keine gemessene körperliche Erholung.
+- Rein lesende VPS-Probe: Zwei vollständige Quellenbindungen ausgewertet.
+  Jeweils drei Terminabstandsmerkmale verfügbar, zwölf Kadermerkmale und sechs
+  Wettermerkmale fehlend. Dritte Probe durch das gesetzte Zeitbudget beendet.
+  Keine Vollbestandsaussage und kein belegter Verletzungs-/Wettereinfluss.
+- **Weiter offen:** produktiver Anschluss neuer Vergleichs-Snapshots samt
+  vollständigem Quellen-Replay, ausreichende echte Trainings-/Testfälle sowie
+  deren empirische Prüfung. Tennis und die anderen Sportarten dadurch nicht
+  als fertig melden. Keine Live-Effektaktivierung, kein zusätzlicher API-Scan,
+  keine neue Sicherung und keine Datenbankmigration.
+- Einzelheiten und Test-/Veröffentlichungsgrenzen stehen im bestehenden
+  [Kontextbericht](docs/audits/2026-09-27-kontexteffekte.md#fortsetzung-quellgebundenes-training-am-2709).
+
 ## 27.09.2026 – konkrete Kontextlücken repariert; Wirkungsnachweis bleibt offen
 
 - Tatsächliche Wetterantworten werden nun im vorhandenen Fußballworker mit

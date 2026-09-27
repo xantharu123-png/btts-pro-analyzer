@@ -254,7 +254,11 @@ def _fit_cohort(rows, cases, config, *, exclusions):
         return report
     for alpha in config["alpha_grid"]:
         try:
-            heads = _fit_heads(training_rows, config, alpha)
+            if config['model_variant'] == 'football-joint-log-tilt-v1':
+                from context_models.football_joint_context import fit_heads
+                heads = fit_heads(train_cases, config, alpha)
+            else:
+                heads = _fit_heads(training_rows, config, alpha)
             artifact = validate_effect_artifact({"schema": 1, "sport": config["sport"], "family": config["family"],
                 "feature_version": config["feature_version"], "feature_names": config["feature_names"], "heads": heads,
                 "preprocessing_artifacts": config["preprocessing_artifacts"], "joint_calibration": config["joint_calibration"],

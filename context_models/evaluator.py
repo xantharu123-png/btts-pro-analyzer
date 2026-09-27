@@ -37,6 +37,9 @@ REPORT_FIELDS = {"schema", "evaluator_version", "implementation_hashes", "experi
 def implementation_hashes():
     root = Path(__file__).resolve().parents[1]
     names = set(replay_code_hashes("football")) | {
+        'context_models/football_training.py', 'context_models/football_joint_context.py',
+        'context_models/football_joint_effect.py', 'context_models/football_city_weather.py',
+        'context_sources/openweather.py', 'xg_backfill.py',
         "context_models/dataset.py", "context_models/evaluator.py", "context_models/activation.py",
         "context_models/evaluation.py", "context_models/validation.py", "context_models/distribution_losses.py",
         "context_models/training.py", "context_models/training_cases.py", "context_models/experiments.py",

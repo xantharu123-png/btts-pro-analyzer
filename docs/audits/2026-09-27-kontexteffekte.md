@@ -120,3 +120,81 @@ Produktionsdaten-Test, keine empirische Kontextqualifikation.
 
 Die separate Tennis-Dienstnachprüfung am 28.09. um 02:00 CEST bleibt bestehen;
 sie ist weder Modelltraining noch ein automatischer Wirkungsnachweis.
+
+## Fortsetzung: quellgebundenes Training am 27.09.
+
+Ausgangscommit dieser Fortsetzung: `5a445235d1aa17cae9491c6d4ce983d69c23d2bc`.
+Die Arbeit schließt einen Teil der obigen Restpunkte 1 und 2; nicht den
+empirischen Nachweis und nicht den vollständigen Produktivanschluss.
+
+### Implementiert
+
+- `football_training.build_joint_training_case` rekonstruiert einen Fall aus
+  vorhandener Originalbindung, Originalfragmenten, nativen Quellrevisionen,
+  passendem Endergebnis und nativer Spielidentität. Das erweiterte Original
+  entsteht nur im Speicher; kein weiteres Vollpaket wird gespeichert.
+- Die Originalberechnung wird einschließlich Kalibrierung, Torverteilung,
+  ausgewählter Historie und Quellenzuordnung nachgerechnet. Vertauschte
+  Beleglisten zwischen Spielen werden abgelehnt. Verwendete xG brauchen ihre
+  tatsächlichen Statistikbelege; eine Zahl aus einem alten Zusatzcache allein
+  erhält nicht nachträglich einen zeitlich passenden nativen Beleg.
+- Neue Modell-/Merkmalsversionen benutzen den bestehenden D1-/D2-Ablauf:
+  gekoppelte Likelihood, feste fünf Regularisierungswerte, Auswahl nur auf
+  Abstimmungsdaten, endgültige Testspiele außerhalb des Trainings. Alte
+  unabhängige Poisson-Fälle bleiben bei ihrem bisherigen Modellvertrag.
+- Marktvergleich und Verteilungsverlust verwenden dieselbe gemeinsame
+  Torverteilung. Das vorhandene 25+-Restfach wird als solches bewertet,
+  nicht als exaktes Ergebnis 25. Ohne Effekt bleiben alle Torwetten exakt
+  identisch; Ecken/Karten werden nicht durch einen Toreffekt verändert.
+- Kader-, Stadtwetter- und Terminabstandsmerkmale haben getrennte Gruppen.
+  Terminabstände beschreiben nur den beobachteten ursprünglichen Spielpool;
+  sie behaupten weder eine vollständige Belastungshistorie noch tatsächliche
+  Matchdauer oder Erholung. Fehlende Wetter-/Kaderdaten bleiben fehlend.
+- Der vorhandene CPU-Transport berechnet den neuen Vergleich. Ein ungeprüfter
+  Effekt bleibt ein Vergleich und ersetzt nicht die benutzte Originalprognose.
+  Der neue Pfad ist noch nicht in den regulären Scanner zur Veröffentlichung
+  neuer Vergleichs-Snapshots samt vollständigem D4-Quellen-Replay eingebaut.
+
+### Tatsächliche Produktionsprobe
+
+Zwei der drei bisherigen vollständigen Fußballbindungen wurden ohne
+Provideranfrage oder Öffnen ihrer Zielergebnisse im Speicher geprüft:
+
+| Native Spiel-ID | Vorhandene Quellrevisionen | Kader | Stadtwetter | Terminabstände |
+| --- | ---: | --- | --- | --- |
+| 1550978 | 36.111 | 12 fehlend | 6 fehlend | 3 verfügbar |
+| 1550979 | 36.105 | 12 fehlend | 6 fehlend | 3 verfügbar |
+
+Die dritte Prüfung wurde von der SQL-Zeitbegrenzung unterbrochen. Die äußere
+Leserfunktion meldete dafür generisch `ContextIntegrityError`; die tatsächliche
+Ursache war `sqlite3.OperationalError: interrupted`, kein nachgewiesener
+Datenbankdefekt. Der SQL-Abbruch begrenzt keine laufende Python-Berechnung;
+die Probe dauerte deshalb länger als die eingestellten 180 Sekunden.
+Rund 750 MB Spitzen-RSS wurden beim Prüfprozess beobachtet. Dieser vollständige
+Offline-Quellenlauf gehört deshalb nicht in den Seitenaufruf oder ungeprüft in
+jede Live-Berechnung. Keine neuen Hintergrundjobs oder Speicherbudgets angelegt.
+
+### Lokale Verifikation und verbleibende Abnahme
+
+- Erste Kontext-/Datensatz-/Tennis-/Wetterregression: **589 bestanden**.
+- Weitere Modellvertrags-/Transport-/Trainingsregression: **278 bestanden**,
+  einschließlich des neuen Ende-zu-Ende-Tests mit sechs ausdrücklich
+  synthetischen Quellfällen. Zwei Trainingsspiele, ein Abstimmungsspiel und
+  drei getrennte Testspiele führen erwartungsgemäß zu **keiner** Freigabe.
+- Ein zusätzlicher Quellen-Gegentest war vor der Korrektur rot: Vertauschte
+  Verbrauchslisten konnten trotz unveränderter Gesamtquellenmenge passieren.
+  Nach der spielweisen Bindungsprüfung besteht dieser Test.
+- Abschließender Lauf des neuen Quell-/Trainingspfads nach den letzten
+  Quellen-/xG-Korrekturen: **15 bestanden**; zusätzlich **117 Modellvertragstests**
+  nach der Importbegrenzung bestanden. Die Läufe überschneiden sich; ihre
+  Testzahlen sind keine Anzahl verschiedener Tests. Keine vollständige
+  Repository-Suite oder verbesserte Wettqualität daraus ableiten.
+- Veröffentlichung erfolgt separat per Code-only-Deploy ohne neue Sicherung,
+  Migration oder Sportabfrage; Commitabgleich und Healthchecks müssen den
+  tatsächlich übernommenen Stand bestätigen.
+
+Offen bleiben die vollständige produktive Integration, ausreichend tatsächlich
+verfügbare Kader-/Wetter-/Belastungsfälle, eine zeitlich getrennte empirische
+Auswertung und die Tennis-/weiteren Sportpfade. Die zwei geprüften Fälle
+reichen dafür nicht. Weder zusätzliche Datenabrufe noch Fantasie-Koeffizienten
+wurden verwendet, um diese Lücke zu überdecken.

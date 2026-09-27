@@ -34,10 +34,10 @@ def _membership(row, inventory):
         raise ContextContractError("loss decision or block differs from the frozen event")
 
 
-def _distributions(values, inventory, *, family, contract):
+def _distributions(values, inventory, *, family, contract, joint=False):
     if type(values) is not tuple:
         raise ContextContractError("distribution inventory must be an explicit tuple")
-    owning_contract, policy = distribution_policy(family)
+    owning_contract, policy = distribution_policy(family, joint=joint)
     if owning_contract != contract:
         raise ContextContractError("frozen contract differs from the owning distribution")
     by_event = {}
@@ -121,7 +121,8 @@ def compare_registered_losses(plan: dict, *, results: dict, distribution_losses:
         for row in rows:
             _membership(row, inventory)
         distributions, policy = _distributions(losses, inventory, family=config["family"],
-                                               contract=config["outcome_contract"])
+                                               contract=config["outcome_contract"],
+                                               joint=config['model_variant'] == 'football-joint-log-tilt-v1')
         if status == "baseline_control" and (
                 any(r["p_base"] != r["p_context"] for r in rows)
                 or any(r["base_logloss"] != r["context_logloss"] for r in losses)):

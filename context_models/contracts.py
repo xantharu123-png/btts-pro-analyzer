@@ -335,6 +335,14 @@ def _family(value: object) -> str:
 
 def validate_parameters(value: dict, family: str) -> dict:
     family = _family(family)
+    if family == 'football:goals:90min' and type(value) is dict and 'joint_cells' in value:
+        from context_models.football_joint_context import joint_params
+        require_object(value, {'home_lambda', 'away_lambda', 'joint_cells'}, label='joint parameters')
+        for key in ('home_lambda', 'away_lambda'):
+            require_number(value[key], key, minimum=0)
+        if value != joint_params(value['joint_cells']):
+            raise ContextContractError('joint means and distribution differ')
+        return _sport_json(value, label='joint parameters')
     if family == "ice_hockey:regulation_goals":
         require_object(value, {"home_lambda", "away_lambda", "overtime_home_probability"}, label="hockey parameters")
         for name in ("home_lambda", "away_lambda"):
@@ -544,6 +552,12 @@ def validate_base_distribution(value: dict) -> dict:
         raise ContextContractError("winner parameter and market probability mismatch")
     row["history_refs"] = validate_history_refs(row["history_refs"])
     row["reference_weights"] = validate_reference_weights(row["reference_weights"], row["history_refs"], family=family)
+    if family == 'football:goals:90min' and ('joint_cells' in row['params'] or row['version'] in {
+            'football-goals-captured-joint-v1', 'football-goals-context-joint-v1'}):
+        from context_models.football_joint_context import validate_joint_base
+        if 'joint_cells' not in row['params']:
+            raise ContextContractError('joint baseline is missing its actual distribution')
+        validate_joint_base(row)
     if row["reference_weights"].get("kind") in ("basketball-live-margin-origin-v1", "hockey-live-poisson-origin-v1"):
         from context_models.team_sports_live import validate_team_sport_live_origin
         # These new captured originals bind exact bytes, including their
@@ -583,7 +597,7 @@ def validate_offset_fit(value: dict) -> dict:
     supplies the additional artifact-level ordered features and family scope.
     """
     require_object(value, {"link", "scale", "coef", "alpha", "n_rows"}, label="offset fit")
-    _enum(value["link"], {"log_rate", "logit", "identity"}, "offset link")
+    _enum(value["link"], {"log_rate", "logit", "identity", "log_joint_tilt"}, "offset link")
     scales = require_list(value["scale"], "offset scales")
     coefficients = require_list(value["coef"], "offset coefficients")
     if not scales or len(scales) != len(coefficients):
@@ -616,6 +630,9 @@ def validate_effect_artifact(value: dict) -> dict:
         require_text(row[name], name, code=True)
     row["feature_names"] = _names(row["feature_names"], "effect feature names")
     expected_heads, link = _HEADS[family]
+    joint = family == 'football:goals:90min' and row['model_variant'] == 'football-joint-log-tilt-v1'
+    if joint:
+        link = 'log_joint_tilt'
     require_object(row["heads"], expected_heads, label="effect named heads")
     for head in row["heads"].values():
         head = validate_offset_fit(head)
@@ -623,6 +640,8 @@ def validate_effect_artifact(value: dict) -> dict:
             raise ContextContractError("effect head link/family mismatch")
         if len(head["scale"]) != len(row["feature_names"]):
             raise ContextContractError("head dimensions must match the exact feature order")
+    if joint and any(row['heads']['home'][key] != row['heads']['away'][key] for key in ('scale', 'alpha', 'n_rows')):
+        raise ContextContractError('joint heads must retain one coupled fit and training scale')
     if type(row["preprocessing_artifacts"]) is not dict:
         raise ContextContractError("preprocessing artifacts must map names to immutable hashes")
     for name, artifact_hash in row["preprocessing_artifacts"].items():

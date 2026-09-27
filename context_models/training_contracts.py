@@ -101,7 +101,20 @@ def validate_family_config(config: dict) -> dict:
     if family == "football:goals:90min":
         from challenge_engine import MARKET_SPECS
         from context_models.football_effect import GOAL_KINDS
-        if (row["feature_version"] != "football-roster-components-v2"
+        joint = row['model_variant'] == 'football-joint-log-tilt-v1'
+        if joint:
+            from context_models.football_joint_context import BASE_VERSION, FEATURE_VERSION, COVERAGE, LINK, feature_group
+            if (row['feature_version'] != FEATURE_VERSION or row['base_versions'] != [BASE_VERSION]
+                    or row['reference_version'] != 'football-context-reference-v2' or row['coverage'] != COVERAGE
+                    or row['head_links'] != {'home': LINK, 'away': LINK} or row['preprocessing_artifacts']
+                    or row['outcome_contract'] != 'football-regulation-ft-v1' or row['population']['formats'] != ['90min']):
+                raise ContextContractError('unreviewed captured-joint training law')
+            groups = {}
+            for name in row['feature_names']:
+                groups.setdefault(feature_group(name), []).append(name)
+            if row['groups'] != groups:
+                raise ContextContractError('joint factor groups differ from their source vocabulary')
+        elif (row["feature_version"] != "football-roster-components-v2"
                 or row["reference_version"] != "football-context-reference-v2"
                 or row["model_variant"] != FOOTBALL_MODEL
                 or row["base_versions"] != [FOOTBALL_RAW_BASE]
@@ -112,7 +125,7 @@ def validate_family_config(config: dict) -> dict:
                 or row["coverage"]["case"] not in {"reported_players", "incomplete", "conflicting",
                                                       "doubtful_scenarios", "reference_unavailable"}):
             raise ContextContractError("unreviewed football fitting/replay law")
-        if any(_FOOTBALL_FEATURE.fullmatch(name) is None for name in row["feature_names"]):
+        if not joint and any(_FOOTBALL_FEATURE.fullmatch(name) is None for name in row["feature_names"]):
             raise ContextContractError("football training consumes only actual B4 component/player columns")
         catalog = {spec.key for spec in MARKET_SPECS if spec.kind in GOAL_KINDS}
     else:

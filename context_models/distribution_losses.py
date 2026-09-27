@@ -29,10 +29,15 @@ class DistributionScoringError(ContextContractError):
     """The declared law cannot score this observation without inventing a floor."""
 
 
-def distribution_policy(family: str) -> tuple[str, str]:
+def distribution_policy(family: str, *, joint=False) -> tuple[str, str]:
     """Fixed code-versioned outcome/tail policy, never caller-selected epsilon."""
     if type(family) is not str or family not in _POLICIES:
         raise ContextContractError("no owning distribution scorer for this family")
+    if joint:
+        from context_models.football_joint_context import TAIL_POLICY
+        if family != 'football:goals:90min':
+            raise ContextContractError('joint goal policy belongs only to football')
+        return _POLICIES[family][0], TAIL_POLICY
     return _POLICIES[family]
 
 
@@ -44,6 +49,12 @@ def _log_positive(probability):
 
 
 def _goal_logloss(params, result):
+    if 'joint_cells' in params:
+        from context_models.football_joint_context import cell_matrix
+        matrix = cell_matrix(params['joint_cells'])
+        # Declared censored score categories; do not call 25+ an exact score25.
+        cell = tuple(min(result['goals_'+side], 25) for side in ('home', 'away'))
+        return -_log_positive(matrix.get(cell, 0.))
     # The original engine's finite rate domain remains authoritative. Its
     # market matrix folds a negligible tail into cell25; the declared LOG
     # outcome is instead the exact underlying unbounded independent-Poisson
@@ -120,7 +131,10 @@ def paired_distribution_losses(base: dict, comparison: dict, outcome: dict, *, e
             or base["event_key"] != event["event_key"] or base["family"].split(":")[0] != event["sport"]
             or any(comparison[key] != base[key] for key in ("event_key", "cutoff", "family"))):
         raise ContextIntegrityError("paired distribution event, decision or family differs")
-    contract, policy = distribution_policy(base["family"])
+    joint = 'joint_cells' in base['params']
+    if joint != ('joint_cells' in comparison['params']):
+        raise ContextIntegrityError('paired score distributions use different laws')
+    contract, policy = distribution_policy(base["family"], joint=joint)
     outcome = validate_outcome_record(outcome, event=event)
     if outcome["payload"]["outcome_contract"] != contract:
         raise ContextIntegrityError("native outcome does not match the declared distribution contract")

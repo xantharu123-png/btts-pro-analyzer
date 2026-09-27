@@ -51,6 +51,10 @@ def _market_contracts(base):
 
 
 def _checked(base, features, artifact, event):
+    if base.get('version') == 'football-goals-captured-joint-v1':
+        from context_models.football_joint_context import checked_joint_inputs
+        checked = checked_joint_inputs(base, features, artifact, event)
+        return (*checked, _market_contracts(checked[0]))
     base, features, event = validate_base_distribution(base), validate_feature_vector(features), validate_event(event)
     effect = validate_effect_artifact(artifact)
     if canonical_bytes(effect) != canonical_bytes(artifact):
@@ -120,6 +124,9 @@ def apply_football_effect(base: dict, features: dict, artifact: dict, *, event: 
     Any invalid input/distribution raises a typed contract/model error before
     returning; the caller retains the unchanged original baseline.
     """
+    if base.get('version') == 'football-goals-captured-joint-v1':
+        from context_models.football_joint_context import apply_joint_effect
+        return apply_joint_effect(base, features, artifact, event=event)
     base, features, effect, event, specs = _checked(base, features, artifact, event)
     try:
         x = _numeric_array([features["values"][name] for name in effect["feature_names"]]).reshape(1, -1)

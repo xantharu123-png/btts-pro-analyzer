@@ -56,7 +56,12 @@ def _feature_binding(ev, original, feats, preprocessing_refs):
         # This does not load/re-fit the tour state or replay source history.
         validate_live_winner_origin(original, ev)
     pair = original["family"], feats["version"]
-    if pair == ("football:goals:90min", "football-roster-components-v2"):
+    if pair == ("football:goals:90min", "football-native-context-v1"):
+        if original['version'] != 'football-goals-captured-joint-v1' or preprocessing_refs:
+            raise ContextContractError('joint worker needs its captured original and no preprocessing')
+        expected = digest({"version": "football-context-reference-v2", "base_hash": digest(original),
+            "event_hash": digest(ev), "preprocessing": []})
+    elif pair == ("football:goals:90min", "football-roster-components-v2"):
         expected = digest({"version": "football-context-reference-v2", "base_hash": digest(original),
             "event_hash": digest(ev), "preprocessing": preprocessing_refs})
     elif pair in {(family, "tennis-performed-load-v2") for family in ("tennis:winner", "tennis:serve")}:
