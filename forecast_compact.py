@@ -139,21 +139,21 @@ def build_compact_analysis(signal, analysis, *, now):
     elif sport == 'tennis' and analysis.supported:
         inputs = _tennis_inputs(signal)
         surface = {'hard': 'Hartplatz', 'clay': 'Sand', 'grass': 'Rasen', 'carpet': 'Teppich'}.get(str(inputs.get('surface')).casefold())
-        summary = f'Belag: {surface}' if surface else 'Belagspezifisches Modell'
-        if inputs.get('serve_in_model') is True:
-            summary += ' · Aufschlagdaten berücksichtigt'
+        summary = f'Belag: {surface}' if surface else 'Belag nicht bekannt'
+        from tennis.customer_facts import customer_record_facts
+        records = customer_record_facts(signal.context_evidence, signal.competitor_a,
+            signal.competitor_b, modeled_at=signal.modeled_at)
+        facts.extend(Fact(player, value, (scope,)) for player, value, scope in records)
         surface_evidence = _mapping(_mapping(signal.context_evidence).get('surface_evidence'))
         surface_text = format_surface_evidence(
             surface_evidence, signal.competitor_a, signal.competitor_b
         )
-        if surface_text and surface_evidence.get('surface') == inputs.get('surface'):
+        if not records and surface_text and surface_evidence.get('surface') == inputs.get('surface'):
             players = surface_evidence['players']
             a, b = players['a']['matches'], players['b']['matches']
             facts.append(Fact(
                 'Belagspiele', f'{a} / {b}', (surface_text,),
-                warning=surface_evidence['surface_elo_applied'] is False,
             ))
-        warnings.append('Verletzungs-/Müdigkeitseffekte nicht belegt')
     elif sport in {'e-sport', 'esports'} and analysis.supported:
         warnings.append('Kader-/Belastungseffekte nicht belegt')
     elif not analysis.supported:
@@ -184,7 +184,7 @@ def render_compact_analysis_html(compact, *, supporting_fact=''):
     facts = ''.join(_fact_html(fact) for fact in compact.facts)
     warnings = ' · '.join(escape(text) for text in compact.warnings)
     warning_html = f'<p class="wf-analysis-alert">{warnings}</p>' if warnings else ''
-    explanation = _fact_html(Fact('Berechnung & Daten', '', compact.explanation))
+    explanation = _fact_html(Fact('Statistik & Details', '', compact.explanation))
     support = f'<p class="wf-analysis-support">{escape(supporting_fact)}</p>' if supporting_fact else ''
     return ('<section class="wf-analysis" aria-label="Kurzcheck">'
             f'<p class="wf-analysis-short">{escape(compact.summary)}</p>'

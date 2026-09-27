@@ -195,8 +195,8 @@ def test_frozen_surface_evidence_is_visible_on_tennis_card():
     at.run(timeout=60)
     assert len(at.exception) == 0
     captions = " ".join(item.value for item in at.caption)
-    assert "Hartplatz: Alpha A. 1.634 Elo (23 Spiele)" in captions
-    assert "Belag-Elo berücksichtigt" in captions
+    assert "Hartplatz: Alpha A. 23 erfasste Spiele" in captions
+    assert "Elo" not in captions
 
 
 def test_tennis_model_card_never_requires_a_price_check():

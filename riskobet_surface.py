@@ -264,6 +264,12 @@ def format_riskobet_public_detail(value: object) -> str:
     raw_text = _clean_text(value, "")
     if not raw_text:
         return ""
+    # Already published snapshots retain their immutable original text. Render
+    # the known old surface template as sample sizes without internal ratings.
+    if re.match(r"^(Hartplatz|Sand|Rasen|Teppich): ", raw_text):
+        raw_text = re.sub(r"[\d.,]+ Elo \((\d+) Spiele\)", r"\1 erfasste Spiele", raw_text)
+        raw_text = re.sub(r" · (Belag-Elo berücksichtigt|Gesamt-Elo verwendet)(?: · Daten bis .*\Z)?", "", raw_text)
+        raw_text = raw_text.replace("keine Belagspiele", "keine erfassten Spiele")
     if _UNSAFE_TECHNICAL_DETAIL_RE.search(raw_text):
         return _TECHNICAL_DETAIL_FALLBACK
     text = raw_text

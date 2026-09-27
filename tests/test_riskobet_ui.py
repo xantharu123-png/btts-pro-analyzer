@@ -568,9 +568,10 @@ def test_tennis_surface_evidence_is_visible_without_opening_analysis(monkeypatch
     ui._render_detail(candidate, snapshot)
     mentions = [
         item for item in fake.messages
-        if "Belag-Elo berücksichtigt" in str(item[1])
+        if "A 25 erfasste Spiele" in str(item[1])
     ]
     assert len(mentions) == 1, fake.messages
+    assert not any('Elo' in str(item[1]) for item in fake.messages)
     assert mentions[0][0] == "caption"
     assert not any(kind == "expander" for kind, _ in mentions[0][2])
 

@@ -1,5 +1,34 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 27.09.2026 – verständliche Tennis-Statistik statt Modelljargon
+
+- Kundenansicht in Wettfinder/Daily3, Tennis und RisikoBet: keine Belag-Elo-
+  Erläuterung, kein Trainingsstichtag/Modellaufbau und kein langer Standardabsatz
+  über numerisch nicht belegte Vorteile. Der gemeinsame Detailknopf heißt
+  **„Statistik & Details“**. Sportdatenstand und Berechnungszeit bleiben getrennt;
+  ein Turnierstart wird nicht als Datum des letzten Matches ausgegeben.
+- Der reguläre Tennislauf speichert kleine Ergebnisbilanzen für beide Spieler:
+  höchstens zehn erfasste Spiele der letzten 90 Tage, bevorzugt auf dem Belag.
+  Der Kunde sieht z. B. `7/10 Siege`; Zeitraum/Stichprobe stehen bei den Details.
+  Fehlende Belagergebnisse werden ausdrücklich als „alle Beläge“ bezeichnet.
+- Keine aus Elo abgeleiteten Siegesserien: ohne gespeicherte Bilanz nur die
+  belegte Spielzahl. Keine pauschale „ungeschlagen“-Behauptung. Doppelte,
+  widersprüchliche, abgebrochene und nach der Prognose bekannte Ergebnisse
+  werden nicht als Siege gezählt. ATP und WTA bleiben getrennt.
+- Bestehende Prognosen werden **nicht rückwirkend mit späteren Ergebnissen
+  angereichert**. Neue Bilanzen entstehen erst beim regulären Lauf aus den
+  ohnehin geladenen Ergebnissen. Keine neue API-Abfrage/Datenbankmigration.
+- Modellkern/Quoten/Einsatzlogik unverändert. Der erste Integrationsversuch
+  berührte den versiegelten Modellcode; die Replaytests erkannten dies. Er wurde
+  verworfen und die Erfassung in den nachgelagerten Speicherablauf verschoben.
+- Verifiziert: **508 Tests** einschließlich historischer Tennis-Replays;
+  zusätzlich **148 Karten-/Integrationsprüfungen und 26 Untertests** (teilweise
+  überlappend). Kein vollständiger 11k-Lauf, kein neuer Sportscan/Backup.
+- Diese Textarbeit belegt weder bessere Wettqualität noch neue Verletzungs-,
+  Wetter- oder Müdigkeitseffekte. Die offenen Modellarbeiten bleiben offen.
+- Veröffentlichung ist ein Code-only-Pull; Kundenportal/Paywall bleiben
+  deaktiviert, native Apps und Zahlungsanbieter werden nicht live geschaltet.
+
 ## 27.09.2026 – Kundenportal, Abos und englische Landingpage
 
 - Nutzer hat **Starter CHF 9.90 / Plus CHF 19.90 / Pro CHF 29.90 monatlich**

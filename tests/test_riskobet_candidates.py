@@ -543,7 +543,8 @@ def test_tennis_surface_evidence_is_display_only_and_price_neutral(tmp_path: Pat
         if f.factor_key == "tennis_surface_evidence"
     )
     assert factor.role is FactorRole.DISPLAY_ONLY
-    assert "Belag-Elo berücksichtigt" in factor.summary
+    assert "25 erfasste Spiele" in factor.summary
+    assert "Elo" not in factor.summary
     p_before = [c.model_probability for c in output[0].candidates]
     with sqlite3.connect(path) as connection:
         connection.execute("UPDATE predictions SET odds_a=99, odds_b=101 WHERE id=1")

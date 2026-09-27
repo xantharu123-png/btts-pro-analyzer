@@ -1214,7 +1214,7 @@ def workload_history(db_path: str | Path | None = None) -> List[Dict]:
         required = {"settled", "player_a", "player_b", "provider_event_id", "fixture_source", "scheduled_start_utc", "result_observed_at", "termination", "player_a_sets", "player_b_sets"}
         if not required.issubset(columns):
             return []
-        selected = sorted(required | ({"match_duration_minutes"} & columns))
+        selected = sorted(required | ({"match_duration_minutes", "surface", "tour", "best_of"} & columns))
         return [dict(row) for row in conn.execute(
             f"SELECT {','.join(selected)} FROM predictions WHERE settled=1 AND result_observed_at IS NOT NULL"
         )]

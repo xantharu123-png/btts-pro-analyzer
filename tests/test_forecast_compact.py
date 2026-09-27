@@ -212,15 +212,16 @@ def test_missing_or_stale_model_clock_warning_stays_visible(model_age):
     assert ('Modellstand nicht aktuell belegt' if model_age else 'Modellzeit unbekannt') in visible
 
 
-def test_tennis_retains_actual_data_age_in_details_and_limitations_in_view():
+def test_tennis_retains_actual_data_age_without_internal_model_explanations():
     from test_daily3_selection import tennis
     signal = tennis()
     analysis = build_forecast_analysis(signal, now=NOW)
     result = build_compact_analysis(signal, analysis, now=NOW)
     markup = render_compact_analysis_html(result)
     visible = InitialText(markup).visible
-    assert 'Sand' in visible and 'Aufschlagdaten berücksichtigt' in visible
-    assert 'Verletzungs-/Müdigkeitseffekte nicht belegt' in visible
+    assert 'Sand' in visible
+    assert 'Aufschlagdaten berücksichtigt' not in markup
+    assert 'numerischer Vorteil' not in markup and 'Müdigkeitseffekte' not in markup
     assert analysis.data_age in ' '.join(result.explanation)
 
 
@@ -242,12 +243,12 @@ def test_tennis_belag_sample_is_a_compact_optional_fact_not_a_new_probability():
     result = build_compact_analysis(signal, analysis, now=NOW)
     fact = next(f for f in result.facts if f.label == 'Belagspiele')
     assert fact.value == '18 / 12'
-    assert 'Belag-Elo berücksichtigt' in fact.details[0]
+    assert 'Spieler A 18 erfasste Spiele' in fact.details[0]
     visible = InitialText(render_compact_analysis_html(result)).visible
     assert 'Belagspiele' in visible and '18 / 12' in visible
     assert '1.598 Elo' not in visible
     assert signal.probability == original.probability
-    assert 'Belag-Elo auf Sand wurde berücksichtigt' in analysis.basis
+    assert 'Sieg-/Niederlagenbilanz nicht verfügbar' in analysis.basis
 
 
 def test_tennis_small_surface_sample_never_claims_surface_elo_use():
@@ -266,9 +267,9 @@ def test_tennis_small_surface_sample_never_claims_surface_elo_use():
     analysis = build_forecast_analysis(signal, now=NOW)
     result = build_compact_analysis(signal, analysis, now=NOW)
     fact = next(f for f in result.facts if f.label == 'Belagspiele')
-    assert fact.value == '7 / 0' and fact.warning
-    assert 'Gesamt-Elo verwendet' in fact.details[0]
-    assert 'Elo verwendet die Gesamtstärke' in analysis.basis
+    assert fact.value == '7 / 0'
+    assert 'Spieler B keine erfassten Spiele' in fact.details[0]
+    assert 'Elo' not in analysis.basis and '0 Siege' not in analysis.basis
 
 
 def test_legacy_tennis_prediction_does_not_invent_surface_sample():
@@ -277,7 +278,7 @@ def test_legacy_tennis_prediction_does_not_invent_surface_sample():
     analysis = build_forecast_analysis(signal, now=NOW)
     result = build_compact_analysis(signal, analysis, now=NOW)
     assert all(f.label != 'Belagspiele' for f in result.facts)
-    assert 'Belag-Elo-Stichprobe ist nicht belegt' in analysis.basis
+    assert 'Eine aktuelle Spielbilanz liegt nicht vor' in analysis.basis
 
 
 def test_absence_metadata_deduplicates_players_without_changing_model_decisions():

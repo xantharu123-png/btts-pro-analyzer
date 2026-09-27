@@ -229,7 +229,7 @@ def test_public_detail_maps_known_model_terms_and_fails_safe_for_debug_copy():
         "Hartplatz: A 1.611 Elo (25 Spiele) · B 1.489 Elo (21 Spiele) · "
         "Belag-Elo berücksichtigt"
     )
-    assert surface.format_riskobet_public_detail(surface_text) == surface_text
+    assert surface.format_riskobet_public_detail(surface_text) == "Hartplatz: A 25 erfasste Spiele · B 21 erfasste Spiele"
     assert surface.format_riskobet_public_detail(
         "RESEARCH: Lineups sind noch nicht kausal validiert."
     ) == (

@@ -65,7 +65,7 @@ def test_exact_esports_explanation_is_shared_and_rejects_foreign_evidence():
         assert not compose_wettfinder_catalog(cards([changed])).featured
 
 
-@pytest.mark.parametrize('kind,label', [('result_date', 'Ergebnisdatum'), ('tournament_start_proxy', 'Turnierstart-Proxy')])
+@pytest.mark.parametrize('kind,label', [('result_date', 'Ergebnisse bis'), ('tournament_start_proxy', 'Erfasste Turniere bis')])
 def test_tennis_data_age_is_not_replaced_by_recalculation_time(kind, label):
     signal = tennis()
     context = {**signal.context_evidence, 'model_inputs': {**signal.context_evidence['model_inputs'],
@@ -78,7 +78,7 @@ def test_tennis_data_age_is_not_replaced_by_recalculation_time(kind, label):
     markup = render_compact_row_html(catalog.additional[0])
     assert '01.01.2000' in markup and label in markup
     assert 'Berechnet' in markup and '2030' in markup
-    assert '31.12.2029' in markup  # build date is independent too
+    assert '31.12.2029' not in markup  # internal build date is not a sports fact
     assert 'operative' not in markup and '14 Tage' not in markup
 
 
@@ -210,7 +210,8 @@ def test_tennis_future_provenance_cannot_be_hidden_by_current_calculation(field)
     signal = replace(signal, context_evidence=context)
     catalog = compose_wettfinder_catalog(cards([signal]))
     assert not catalog.featured and not daily3_choices([signal], now=NOW)
-    assert '02.01.2030' in render_compact_row_html(catalog.additional[0])
+    assert not build_forecast_analysis(signal, now=NOW).data_current
+    assert 'Datenstand nicht aktuell belegt' in render_compact_row_html(catalog.additional[0])
 
 
 def test_tennis_foreign_players_or_observation_clock_are_not_explanatory_evidence():
@@ -227,8 +228,9 @@ def test_model_dates_are_readable_local_dates_not_raw_internal_diagnostics():
     card = cards([tennis()])[0]
     markup = render_compact_row_html(card)
     assert 'Berechnet: 01.01.2030 13:00' in markup
-    assert 'Modellaufbau: 01.01.2030 13:00' in markup
-    assert 'Trainingsstichtag: 01.01.2030 13:00' in markup
+    assert 'Ergebnisse bis 01.01.2030' in markup
+    assert 'Modellaufbau' not in markup
+    assert 'Trainingsstichtag' not in markup
     assert '2030-01-01T' not in markup
 
 

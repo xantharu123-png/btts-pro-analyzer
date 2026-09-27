@@ -13,9 +13,7 @@ def test_surface_evidence_shows_real_sample_and_actual_model_use():
     }
     text = format_surface_evidence(evidence, "Spieler A", "Spieler B")
     assert text == (
-        "Hartplatz: Spieler A 1.634 Elo (23 Spiele) · "
-        "Spieler B 1.491 Elo (19 Spiele) · "
-        "Belag-Elo berücksichtigt · Daten bis 23.09.2026"
+        "Hartplatz: Spieler A 23 erfasste Spiele · Spieler B 19 erfasste Spiele"
     )
 
 
@@ -29,8 +27,9 @@ def test_surface_evidence_marks_too_small_sample_without_default_rating():
         "surface_elo_applied": False,
     }
     text = format_surface_evidence(evidence, "A", "B")
-    assert "A keine Belagspiele" in text
-    assert "Gesamt-Elo verwendet" in text
+    assert "A keine erfassten Spiele" in text
+    assert "B 7 erfasste Spiele" in text
+    assert "Elo" not in text and "Siege" not in text
     assert "1.500" not in text
 
 

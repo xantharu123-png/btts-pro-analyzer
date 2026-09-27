@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import date
 import math
 from typing import Mapping
 
@@ -49,7 +48,7 @@ def build_surface_evidence(state: object, prediction: object) -> dict | None:
 def format_surface_evidence(
     evidence: object, player_a: str, player_b: str,
 ) -> str | None:
-    """Describe frozen model inputs, never infer a win rate from Elo."""
+    """Show the real surface sample, not internal ratings or an invented record."""
 
     if not isinstance(evidence, Mapping):
         return None
@@ -84,20 +83,12 @@ def format_surface_evidence(
                 or not math.isfinite(rating)
             ):
                 return None
-            parts.append(f"{name} {rating:,.0f} Elo ({count} Spiele)".replace(",", "."))
+            parts.append(f"{name} {count} erfasste Spiele")
         elif rating is None:
-            parts.append(f"{name} keine Belagspiele")
+            parts.append(f"{name} keine erfassten Spiele")
         else:
             return None
         counts.append(count)
     if applied != (min(counts) >= MIN_SURFACE_ELO_MATCHES):
         return None
-    use = "Belag-Elo berücksichtigt" if applied else "Gesamt-Elo verwendet"
-    through = evidence.get("stats_through")
-    date_note = ""
-    if isinstance(through, str):
-        try:
-            date_note = f" · Daten bis {date.fromisoformat(through):%d.%m.%Y}"
-        except ValueError:
-            pass
-    return f"{_SURFACE_NAMES[surface]}: {' · '.join(parts)} · {use}{date_note}"
+    return f"{_SURFACE_NAMES[surface]}: {' · '.join(parts)}"

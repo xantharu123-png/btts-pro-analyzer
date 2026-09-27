@@ -1149,7 +1149,7 @@ def adapt_tennis_shadow(
         ) or TENNIS_FALLBACK_MODEL_VERSION
         event_key = stable_event_key("tennis", provider, provider_id)
         input_payload = {
-            "adapter_revision": "tennis-observed-context-copy-v2",
+            "adapter_revision": "tennis-customer-facts-v3",
             "prediction_id": prediction_id,
             "provider_event_id": provider_id,
             "created_utc": observed_at.isoformat(),
@@ -1195,9 +1195,13 @@ def adapt_tennis_shadow(
             starts_at=starts_at,
         )
         workload = _load_json_object(row.get("context_json"))
+        from tennis.customer_facts import format_customer_records
+        records = format_customer_records(workload, player_a, player_b, modeled_at=observed_at)
         surface_text = format_surface_evidence(
             workload.get("surface_evidence"), player_a, player_b
         )
+        if records:
+            surface_text = ' '.join(records)
         surface_factors = (
             (FactorEvidence(
                 factor_key="tennis_surface_evidence",

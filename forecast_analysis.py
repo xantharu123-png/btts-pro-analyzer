@@ -379,20 +379,18 @@ def _tennis_inputs(signal):
 
 
 def _tennis_data_age(inputs, now):
-    kinds = {'result_date': 'Ergebnisdatum', 'tournament_start_proxy': 'Turnierstart-Proxy (kein letzter Spielzeitpunkt)'}
+    kinds = {'result_date': 'Ergebnisse bis', 'tournament_start_proxy': 'Erfasste Turniere bis'}
     kind = kinds.get(inputs.get('stats_through_kind'))
     try:
         through = date.fromisoformat(inputs.get('stats_through'))
     except (TypeError, ValueError):
         through = None
     current = bool(through and kind and 0 <= (now.date()-through).days <= TENNIS_COVERAGE_REVIEW_DAYS)
-    text = f'Datenstand: {through:%d.%m.%Y} · {kind}' if through and kind else 'Datenstand unbekannt'
+    text = f'{kind} {through:%d.%m.%Y}' if through and kind else 'Datenstand unbekannt'
     model_clock = _clock(inputs.get('model_built_at'))
     cutoff = _clock(inputs.get('training_cutoff'))
-    for label, clock in (('Modellaufbau', model_clock), ('Trainingsstichtag', cutoff)):
-        text += f'; {label}: {format_model_clock(clock.isoformat()) if clock else "unbekannt"}'
+    for field, clock in (('model_built_at', model_clock), ('training_cutoff', cutoff)):
         # An explicitly malformed/future provenance clock is not current proof.
-        field = 'model_built_at' if label == 'Modellaufbau' else 'training_cutoff'
         if inputs.get(field) is not None and (clock is None or clock > now):
             current = False
     if cutoff and through and through > cutoff.date():
@@ -416,23 +414,21 @@ def _sport_analysis(signal, sport, now):
         surfaces = {'hard': 'Hartplatz', 'clay': 'Sand', 'grass': 'Rasen', 'carpet': 'Teppich'}
         surface = surfaces.get(str(inputs.get('surface', '')).casefold())
         if inputs.get('surface_in_model') is True and surface:
+            from tennis.customer_facts import format_customer_records
             from tennis.surface_evidence import format_surface_evidence
             surface_evidence = _mapping(_mapping(signal.context_evidence).get('surface_evidence'))
             surface_text = format_surface_evidence(
                 surface_evidence, signal.competitor_a, signal.competitor_b
             )
-            if surface_text and surface_evidence.get('surface') == inputs.get('surface'):
-                elo_basis = (
-                    f'Das Belag-Elo auf {surface} wurde berücksichtigt.'
-                    if surface_evidence['surface_elo_applied']
-                    else f'Für {surface} reichen die Belagspiele noch nicht; das Elo verwendet die Gesamtstärke.'
-                )
-            else:
-                elo_basis = f'Der Belag ist {surface}; die tatsächlich verwendete Belag-Elo-Stichprobe ist nicht belegt.'
-            serve = ' und Aufschlagdaten' if inputs.get('serve_in_model') is True else ''
+            records = format_customer_records(signal.context_evidence,
+                signal.competitor_a, signal.competitor_b, modeled_at=signal.modeled_at)
+            basis = ' '.join(records)
+            if not basis:
+                basis = (surface_text + '. Sieg-/Niederlagenbilanz nicht verfügbar.'
+                    if surface_text and surface_evidence.get('surface') == inputs.get('surface')
+                    else f'Gespielt wird auf {surface}. Eine aktuelle Spielbilanz liegt nicht vor.')
             return ForecastAnalysis(
-                f'{elo_basis} Das Modell verwendet Elo{serve} für die Auswahl {signal.selection}.',
-                'Eine Modellschätzung, keine sichere Wette. Verletzungen und Müdigkeit sind in diesem Beleg nicht als numerischer Vorteil nachgewiesen.',
+                basis, '',
                 supported=True, data_age=age, data_current=current)
     if sport in {'e-sport', 'esports'}:
         evidence = _mapping(signal.context_evidence)

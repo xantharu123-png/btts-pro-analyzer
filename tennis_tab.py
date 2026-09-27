@@ -653,10 +653,21 @@ def _render_match_card(row: dict) -> None:
         except (TypeError, ValueError):
             context = {}
         if isinstance(context, dict):
+            from tennis.customer_facts import format_customer_records
+            from tennis.prediction_revisions import utc_epoch
+            try:
+                modeled_at = datetime.fromtimestamp(utc_epoch(row.get("created_utc")), timezone.utc)
+            except (TypeError, ValueError, OverflowError):
+                modeled_at = None
+            records = format_customer_records(context, row["player_a"], row["player_b"],
+                modeled_at=modeled_at)
             surface_text = format_surface_evidence(
                 context.get("surface_evidence"), row["player_a"], row["player_b"]
             )
-            if surface_text:
+            if records:
+                for record in records:
+                    st.caption(record)
+            elif surface_text:
                 st.caption(surface_text)
 
         if not model_gates_ok:
