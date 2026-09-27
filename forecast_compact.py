@@ -32,6 +32,21 @@ class CompactAnalysis:
     model_clock: str
 
 
+# Model-method limitations belong in optional details, not as repeated alerts.
+# Keep this at the render boundary too, so older in-session card objects follow
+# the same presentation rule without rewriting stored forecasts.
+_DETAIL_ONLY_NOTES = {
+    'Verletzungs-/Müdigkeitseffekte nicht belegt':
+        'Verletzungen und Belastung: kein geprüfter Einfluss auf diese Prognose hinterlegt.',
+    'Kader-/Belastungseffekte nicht belegt':
+        'Kader und Belastung: kein geprüfter Einfluss auf diese Prognose hinterlegt.',
+    'Ausfallwirkung nicht eingerechnet':
+        'Die gemeldeten Ausfälle sind in der angezeigten Chance nicht eingerechnet.',
+    'Ausfallwirkung nicht vollständig belegt':
+        'Nicht alle gemeldeten Ausfälle konnten für diese Prognose bewertet werden.',
+}
+
+
 def _names_line(injuries, side, bucket, count):
     names = injuries.get(side + '_' + bucket + '_names')
     # Legacy mixed lists are exact absences only if no doubtful player was
@@ -116,15 +131,10 @@ def build_compact_analysis(signal, analysis, *, now):
         def fresh(axis):
             clock = _clock(axis.get('checked_at'))
             return clock is not None and context.get('stale') is not True and timedelta(0) <= now - clock <= timedelta(minutes=75)
-        injuries = _mapping(context.get('injuries'))
         injury_fact = football_injury_fact(context, home, away, now=now)
         facts.append(injury_fact)
-        if not injury_fact.warning:
-            applied = _mapping(context.get('probability_integration')).get('applied')
-            if applied is False:
-                warnings.append('Ausfallwirkung nicht eingerechnet')
-            elif applied is not True or injuries.get('impact_assessment_complete') is False:
-                warnings.append('Ausfallwirkung nicht vollständig belegt')
+        # The actual injury limitation is already in analysis.caution below;
+        # do not repeat it as a standalone alert on every card.
         lineups = _mapping(context.get('lineups'))
         status = lineups.get('status') if fresh(lineups) else None
         lineup_label = {'passed': 'bestätigt', 'pending': 'offen', 'confirmation_due': 'offen',
@@ -154,13 +164,9 @@ def build_compact_analysis(signal, analysis, *, now):
             facts.append(Fact(
                 'Belagspiele', f'{a} / {b}', (surface_text,),
             ))
-    elif sport in {'e-sport', 'esports'} and analysis.supported:
-        warnings.append('Kader-/Belastungseffekte nicht belegt')
     elif not analysis.supported:
         summary = 'Modellgrundlagen unvollständig'
         warnings.append('Keine vollständige Begründung verfügbar')
-    else:
-        warnings.append(analysis.caution)
     if not analysis.data_current:
         warnings.append('Datenstand nicht aktuell belegt')
     freshness = forecast_highlight_reason(signal, now=now, analysis=analysis)
@@ -182,9 +188,18 @@ def _fact_html(fact):
 
 def render_compact_analysis_html(compact, *, supporting_fact=''):
     facts = ''.join(_fact_html(fact) for fact in compact.facts)
-    warnings = ' · '.join(escape(text) for text in compact.warnings)
+    notes = list(compact.explanation)
+    alerts = []
+    for text in compact.warnings:
+        note = _DETAIL_ONLY_NOTES.get(text)
+        if note:
+            if note not in notes:
+                notes.append(note)
+        else:
+            alerts.append(text)
+    warnings = ' · '.join(escape(text) for text in alerts)
     warning_html = f'<p class="wf-analysis-alert">{warnings}</p>' if warnings else ''
-    explanation = _fact_html(Fact('Statistik & Details', '', compact.explanation))
+    explanation = _fact_html(Fact('Statistik & Details', '', tuple(notes)))
     support = f'<p class="wf-analysis-support">{escape(supporting_fact)}</p>' if supporting_fact else ''
     return ('<section class="wf-analysis" aria-label="Kurzcheck">'
             f'<p class="wf-analysis-short">{escape(compact.summary)}</p>'

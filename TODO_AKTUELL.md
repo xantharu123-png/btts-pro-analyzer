@@ -1,5 +1,16 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 27.09.2026 – Kontext-Einschränkungen nur in aufklappbaren Details
+
+- Methodische Standardhinweise zu Verletzungen/Kader/Belastung stehen nicht
+  mehr als eigene Warnzeile auf jeder Karte. Die konkrete Einschränkung bleibt
+  unter „Statistik & Details“; kein zusätzlicher pauschaler Satz ohne Beleg.
+- Auch alte Kartenobjekte mit den früheren Kurztexten folgen beim Rendern
+  dieser Regel. Gespeicherte Daily3-Wetten zeigen ihre damalige Einschränkung
+  ebenfalls aufklappbar; historische Prognosen/Geldbuchungen bleiben unverändert.
+- Echte Aktualitäts-/Datenprobleme und Ausfallzahlen bleiben sichtbar. Keine
+  neue Effektfreigabe, Modelländerung, API-Abfrage oder Sicherung.
+
 ## 27.09.2026 – verständliche Tennis-Statistik statt Modelljargon
 
 - Kundenansicht in Wettfinder/Daily3, Tennis und RisikoBet: keine Belag-Elo-

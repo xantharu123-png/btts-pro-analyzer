@@ -56,14 +56,16 @@ def compact(row=None):
     return build_compact_analysis(signal, build_forecast_analysis(signal, now=NOW), now=NOW)
 
 
-def test_short_visible_facts_keep_material_warning_and_full_optional_details():
+def test_short_visible_facts_keep_context_limitations_in_optional_details():
     result = compact()
     markup = render_compact_analysis_html(result)
     visible = InitialText(markup).visible
     assert 'Torprognose: 1,53 : 1,13 (Heim : Gast)' in visible
     for text in ('Ausfälle', '3 Heim · 7 Gast', 'Aufstellung', 'offen', 'Gegenrisiko',
-                 '22,4 %', 'Basis', '12 Heim · 12 Gast', 'Ausfallwirkung nicht eingerechnet'):
+                 '22,4 %', 'Basis', '12 Heim · 12 Gast'):
         assert text in visible
+    assert 'Ausfallwirkung nicht eingerechnet' not in visible
+    assert 'ihre Wirkung ist in dieser Wahrscheinlichkeit nicht eingerechnet' in markup
     assert 'Heim A' not in visible and 'Das Modell erwartet' not in visible
     assert len(visible.split()) < 65
     assert 'Alpha · 3 Ausfälle: Heim A, Heim B, Heim C' in markup
@@ -74,6 +76,53 @@ def test_short_visible_facts_keep_material_warning_and_full_optional_details():
     assert 'Kaderstand: 01.01.2030 12:30' in markup
     assert '<details class="wf-fact"><summary>' in markup
     assert ' onclick' not in markup and '<button' not in markup
+
+
+@pytest.mark.parametrize('legacy_note', [
+    'Verletzungs-/Müdigkeitseffekte nicht belegt',
+    'Kader-/Belastungseffekte nicht belegt',
+    'Ausfallwirkung nicht eingerechnet',
+    'Ausfallwirkung nicht vollständig belegt',
+])
+def test_legacy_method_notes_are_optional_without_hiding_time_sensitive_alerts(legacy_note):
+    from forecast_compact import CompactAnalysis
+    original = CompactAnalysis('Belegte Statistik', (),
+        (legacy_note, 'Datenstand nicht aktuell belegt'), (), '01.01.2030 13:00')
+    before = deepcopy(original)
+    markup = render_compact_analysis_html(original)
+    visible = InitialText(markup).visible
+    assert legacy_note not in markup
+    assert 'Prognose' not in visible and 'Chance nicht eingerechnet' not in visible
+    assert 'Datenstand nicht aktuell belegt' in visible
+    assert 'Statistik & Details' in visible
+    assert ('Prognose' in markup or 'Chance nicht eingerechnet' in markup)
+    assert original == before
+
+
+def test_no_generic_context_limitation_is_added_without_an_actual_note():
+    from forecast_compact import CompactAnalysis
+    markup = render_compact_analysis_html(CompactAnalysis('Belegte Statistik', (), (), (), 'heute'))
+    for word in ('Verletzung', 'Müdigkeit', 'Belastung', 'Ausfallwirkung'):
+        assert word not in markup
+
+
+def test_existing_context_explanation_is_not_repeated_as_an_extra_detail():
+    from forecast_compact import CompactAnalysis
+    explanation = 'Verletzungen und Belastung: kein geprüfter Einfluss auf diese Prognose hinterlegt.'
+    markup = render_compact_analysis_html(CompactAnalysis('Belag: Sand', (),
+        ('Verletzungs-/Müdigkeitseffekte nicht belegt',), (explanation,), 'heute'))
+    assert markup.count(explanation) == 1
+    assert explanation not in InitialText(markup).visible
+
+
+def test_esports_caution_is_retained_only_in_optional_details():
+    from test_forecast_selection import esports
+    signal = esports()
+    analysis = build_forecast_analysis(signal, now=NOW)
+    markup = render_compact_analysis_html(build_compact_analysis(signal, analysis, now=NOW))
+    assert analysis.caution in markup
+    assert analysis.caution not in InitialText(markup).visible
+    assert 'Kader-/Belastungseffekte nicht belegt' not in markup
 
 
 @pytest.mark.parametrize('legacy', [False, True])

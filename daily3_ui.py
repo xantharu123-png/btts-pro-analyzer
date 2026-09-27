@@ -64,7 +64,9 @@ def _saved_bet(st, store, scope, day, bet):
         st.write(f'{format_chf(bet["stake_cents"])} Einsatz · angenommene Quote {bet["odds"]}')
         st.caption(status)
         st.write(snap['analysis_basis'])
-        st.write(snap['analysis_caution'])
+        if snap.get('analysis_caution'):
+            with st.expander('Statistik & Details'):
+                st.write(snap['analysis_caution'])
         if bet['external_deviation']:
             st.warning('Nachträglich erfasste externe Wette. Die App dokumentiert diesen Einsatz nur.')
         if bet['under_review']:
