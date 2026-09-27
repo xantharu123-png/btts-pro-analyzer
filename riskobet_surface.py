@@ -492,6 +492,8 @@ def _cap_scenarios_per_event(
         if card.candidate_id in candidate_ids:
             raise ValueError("duplicate RisikoBet candidate identity")
         candidate_ids.add(card.candidate_id)
+        if card.quote_floor_excluded:
+            continue
         event = _event_identity(card)
         count = counts.get(event, 0)
         if count >= 2:
@@ -609,7 +611,7 @@ def compose_riskobet_catalog(
     sport_filter: str = "Alle",
     max_featured: int = 3,
 ) -> RiskBetCatalog:
-    """Build the visible catalog using model fields only.
+    """Build the model-ordered catalog, excluding known offers below 1.20.
 
     ``Alle`` is composed round-robin across the six fixed sports.  Within a
     sport, the upstream model order remains stable apart from the contractual

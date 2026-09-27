@@ -22,6 +22,7 @@ from riskobet_domain import (
     RiskCandidate,
 )
 from riskobet_store import DEFAULT_DB_PATH, DEFAULT_LATEST_PATH, RiskBetStore
+from riskobet_prices import load_shared_price_overlays
 from riskobet_surface import (
     SPORT_FILTERS,
     RiskBetCard,
@@ -553,8 +554,11 @@ def render_riskobet(path: str | Path | None = None) -> None:
             )
         if sport_filter not in SPORT_FILTERS:
             sport_filter = "Alle"
+        # Reuse only already stored, exactly bound prices. No provider call.
+        overlays = load_shared_price_overlays(view.candidates, view.snapshots.values())
         cards = tuple(
-            build_riskobet_card(candidate)
+            _display_card(candidate, manual) if (manual := _stored_manual_quote(candidate)) is not None
+            else build_riskobet_card(candidate, overlays.get(candidate.candidate_id))
             for candidate in view.candidates
         )
         catalog = compose_riskobet_catalog(

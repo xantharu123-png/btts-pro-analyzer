@@ -438,7 +438,7 @@ def stress_safe_ticket_candidates():
     ]
 
 
-def test_15k_model_selection_ignores_missing_or_low_bookmaker_quotes():
+def test_15k_model_selection_ignores_unbound_price_numbers():
     first, second = stress_safe_ticket_candidates()
     snapshot = {
         "search_date": datetime.now(timezone.utc).date().isoformat(),
@@ -450,7 +450,6 @@ def test_15k_model_selection_ignores_missing_or_low_bookmaker_quotes():
     with (
         patch("challenge_15k.st", fake_streamlit),
         patch("challenge_15k._render_candidate_context"),
-        patch("challenge_15k.quote_below_publication_floor", side_effect=AssertionError("quote read")),
     ):
         challenge_15k._render_model_challenge(snapshot, Mock(), {})
     visible = " ".join(str(call.args[0]) for call in fake_streamlit.markdown.call_args_list)

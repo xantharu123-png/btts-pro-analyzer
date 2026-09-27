@@ -5101,8 +5101,13 @@ def _render_model_challenge(
     if raw_pool is None:
         raw_pool = snapshot.get("base_shortlist") or snapshot.get("price_candidates") or []
     pool = _challenge_model_candidate_pool(list(raw_pool))
-    selections = _challenge_display_selections(pool)
     now = datetime.now(timezone.utc)
+    quotes = deserialize_consensus_map(snapshot.get('reference_quotes'))
+    # Resolve the model direction before the floor; never flip it for a price.
+    pool = [candidate for candidate in coherent_consumer_forecasts(pool)
+            if not quote_below_publication_floor(
+                quotes.get(candidate.candidate_id), candidate=candidate, now=now)]
+    selections = _challenge_display_selections(pool)
     selections = [
         candidate for candidate in selections
         if (kickoff := _candidate_kickoff(candidate)) is not None and kickoff > now
@@ -5112,7 +5117,7 @@ def _render_model_challenge(
         return
 
     st.subheader("15K-Modellauswahl")
-    st.caption("Ohne Quoten ausgewählt. Eine tatsächliche Quote brauchst du erst beim Erfassen einer Wette.")
+    st.caption("Nach Modell ausgewählt · bekannte Quoten ab 1,20. Deine tatsächliche Quote erfasst du mit der Wette.")
     for game_index, (label, rows) in enumerate(group_consumer_markets_by_fixture(selections)):
         safe_label = label.replace("\\", "\\\\")
         for char in "[]()*_`":

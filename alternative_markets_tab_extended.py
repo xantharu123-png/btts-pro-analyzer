@@ -808,6 +808,11 @@ def create_alternative_markets_tab_extended(
     displayed_rows = _merge_consumer_market_rows(
         shortlist, model_shortlist, coherent=True,
     )
+    reference_quotes = deserialize_consensus_map(snapshot.get('reference_quotes'))
+    price_now = datetime.now(timezone.utc)
+    displayed_rows = [row for row in displayed_rows
+                      if not quote_below_publication_floor(
+                          reference_quotes.get(row.candidate_id), candidate=row, now=price_now)]
     primary_rows = displayed_rows
     featured_rows, more_rows = partition_consumer_featured_forecasts(
         primary_rows,

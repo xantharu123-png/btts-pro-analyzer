@@ -111,13 +111,13 @@ def build_compact_analysis(signal, analysis, *, now):
         if spec and analysis.supported:
             count_market = spec.kind in {'corner_total', 'team_corners', 'yellow_total', 'team_yellow'}
             unit = basis.get('expected_unit') if count_market else 'Tore'
-            heading = 'Torprognose' if unit == 'Tore' else f'{unit}-Prognose'
+            heading = f'Erwartete {unit}'
             left = basis.get('expected_market_home' if count_market else 'expected_home_goals')
             right = basis.get('expected_market_away' if count_market else 'expected_away_goals')
             if left is not None and right is not None:
                 if spec.kind in {'team_total', 'team_range', 'team_corners', 'team_yellow'}:
                     is_home = spec.side.startswith('home')
-                    summary = f'{heading} {home if is_home else away}: {_decimal(left if is_home else right)}'
+                    summary = f'{home if is_home else away}: {_decimal(left if is_home else right)} erwartete {unit}'
                 else:
                     summary = f'{heading}: {_decimal(left)} : {_decimal(right)} (Heim : Gast)'
                 if spec.kind == 'result' and ((spec.side == 'home' and left < right) or (spec.side == 'away' and right < left)):

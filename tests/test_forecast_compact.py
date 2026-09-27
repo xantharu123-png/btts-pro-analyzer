@@ -60,7 +60,7 @@ def test_short_visible_facts_keep_context_limitations_in_optional_details():
     result = compact()
     markup = render_compact_analysis_html(result)
     visible = InitialText(markup).visible
-    assert 'Torprognose: 1,53 : 1,13 (Heim : Gast)' in visible
+    assert 'Erwartete Tore: 1,53 : 1,13 (Heim : Gast)' in visible
     for text in ('Ausfälle', '3 Heim · 7 Gast', 'Aufstellung', 'offen', 'Gegenrisiko',
                  '22,4 %', 'Basis', '12 Heim · 12 Gast'):
         assert text in visible
@@ -76,6 +76,11 @@ def test_short_visible_facts_keep_context_limitations_in_optional_details():
     assert 'Kaderstand: 01.01.2030 12:30' in markup
     assert '<details class="wf-fact"><summary>' in markup
     assert ' onclick' not in markup and '<button' not in markup
+
+
+def test_team_goal_estimate_has_explicit_unit_not_ambiguous_decimal():
+    result = compact(_row('AWAY_UNDER_2_5', .896))
+    assert result.summary == 'Beta: 1,13 erwartete Tore'
 
 
 @pytest.mark.parametrize('legacy_note', [

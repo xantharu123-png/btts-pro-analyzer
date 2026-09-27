@@ -4710,7 +4710,7 @@ def _render_automated_daily_selection() -> None:
     signals = list(snapshot.forecasts)
     rows = []
     for signal in signals:
-        card = build_wettfinder_card(signal, now=evaluation_now)
+        card = build_wettfinder_card(signal, quote=signal.reference_quote, now=evaluation_now)
         rows.append((signal, card))
 
     target_label = _automatic_target_label(status.target_search_date)

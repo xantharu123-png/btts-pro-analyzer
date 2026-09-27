@@ -107,14 +107,14 @@ def test_riskobet_shared_native_quote_and_floor_are_reused_without_model_mutatio
     overlay = overlays[candidate.candidate_id]
     assert overlay.observed_odds == 1.12 and overlay.below_floor
     card = build_riskobet_card(candidate, overlay)
-    assert compose_riskobet_catalog([card]).cards == (card,)
+    assert compose_riskobet_catalog([card]).cards == ()
     assert candidate.to_dict() == before
     assert not shared_price_overlays([replace(candidate, starts_at=candidate.starts_at+timedelta(days=1))], [row], now=NOW)
     assert not shared_price_overlays([candidate], [{**row,'fixture_id':888888}], now=NOW)
 
 
 @pytest.mark.parametrize('sport', ['football','tennis','basketball','ice_hockey','esports'])
-def test_riskobet_manual_quote_does_not_filter_any_sport(monkeypatch,sport):
+def test_riskobet_manual_quote_floor_applies_to_every_sport(monkeypatch,sport):
     bundle = _bundle('manual', sport=sport)
     view = _view(bundle)
     candidate = bundle[1]
@@ -123,7 +123,7 @@ def test_riskobet_manual_quote_does_not_filter_any_sport(monkeypatch,sport):
     monkeypatch.setattr(ui,'st',fake)
     monkeypatch.setattr(ui,'load_riskobet_view',lambda *a: view)
     ui.render_riskobet()
-    assert _rendered_candidate_ids(fake) == [candidate.candidate_id]
+    assert _rendered_candidate_ids(fake) == []
     assert ('Eigene Dezimalquote',key) not in fake.text_inputs
     fake.session_state[key] = '1.20'
     ui.render_riskobet()
@@ -159,6 +159,40 @@ def test_15k_removes_low_offer_before_rendering_and_ticket_selection(monkeypatch
     fake.info.assert_called_once_with('Aktuell keine passende 15K-Auswahl.')
     ticket.assert_not_called()
     assert not ledger.mock_calls
+
+
+@pytest.mark.parametrize('price,visible', [(1.12, False), (1.199999999, False), (1.20, True)])
+def test_active_15k_model_surface_obeys_bound_floor_before_slot_selection(monkeypatch, price, visible):
+    import challenge_15k as challenge
+    from test_challenge_15k import candidate
+    item = candidate('123:BTTS_YES', 123, .75)
+    now = datetime.now(tz=NOW.tzinfo)
+    payload = _payload(now, values={'Book': str(price)}, provider_ids=True)
+    payload['response'][0]['fixture'].update(id=item.fixture_id, date=item.kickoff)
+    quotes = mc.parse_fixture_consensus(payload, [item], fetched_at=now)
+    assert item.candidate_id in quotes
+    fake, ledger = MagicMock(), Mock()
+    fake.multiselect.return_value = []
+    monkeypatch.setattr(challenge, 'st', fake)
+    challenge._render_model_challenge(dict(challenge_model_candidates=[item],
+        reference_quotes=mc.serialize_consensus_map(quotes)), ledger, {})
+    assert fake.multiselect.called is visible
+    assert fake.markdown.called is visible
+    assert not ledger.mock_calls
+
+
+def test_riskobet_page_reuses_bound_shared_prices_without_new_fetch(monkeypatch):
+    bundle = _bundle('shared-floor')
+    view = _view(bundle)
+    candidate = view.candidates[0]
+    fake = RecordingStreamlit()
+    monkeypatch.setattr(ui, 'st', fake)
+    monkeypatch.setattr(ui, 'load_riskobet_view', lambda *a: view)
+    monkeypatch.setattr(ui, 'load_shared_price_overlays', lambda *a: {
+        candidate.candidate_id: RiskBetPriceOverlay(candidate_id=candidate.candidate_id,
+            status='AVAILABLE', observed_odds=1.12, below_floor=True)})
+    ui.render_riskobet()
+    assert not _rendered_candidate_ids(fake)
 
 
 @pytest.mark.parametrize('sport', ['Fussball','Tennis','Basketball','Eishockey','E-Sport'])

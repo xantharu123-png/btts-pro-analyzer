@@ -40,6 +40,22 @@ def reserve(store, amount=2000, event='football:fixture:1', **kwargs):
     return bet_id
 
 
+@pytest.mark.parametrize('caution', ['', None, 0, ' ', 'bad\ntext'])
+def test_caution_can_be_empty_but_not_malformed(store, caution):
+    command(store, 'start')
+    item = snapshot()
+    item['analysis_caution'] = caution
+    if caution == '':
+        bet_id = ident()
+        command(store, 'reserve', bet_id=bet_id, stake_cents=1000, odds='1.2', snapshot=item)
+        assert store.history(SCOPE)[DAY]['bets'][bet_id]['snapshot']['analysis_caution'] == ''
+    else:
+        before = store.history(SCOPE)
+        with pytest.raises(Daily3Error):
+            command(store, 'reserve', bet_id=ident(), stake_cents=1000, odds='1.2', snapshot=item)
+        assert store.history(SCOPE) == before
+
+
 def placed(store, amount=2000, event='football:fixture:1'):
     bet_id = reserve(store, amount, event)
     command(store, 'place', bet_id=bet_id, revision=1, reference='Buchmacher / Beleg 123')

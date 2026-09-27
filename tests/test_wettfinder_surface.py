@@ -563,7 +563,7 @@ def test_featured_and_compact_analysis_is_visible_once_and_escapes_all_copy():
         markup = renderer(card)
         assert markup.count('class="wf-analysis"') == 1
         assert markup.count('class="wf-analysis-short"') == 1
-        assert 'Torprognose: 1,53 : 1,13' in markup
+        assert 'Erwartete Tore: 1,53 : 1,13' in markup
         assert "&lt;Alpha &amp; &quot;home&quot;&gt;" in markup
         assert '<Alpha' not in markup
         assert "H2H geprüft" not in markup and "kein Veto" not in markup
@@ -896,8 +896,10 @@ def test_sixteenth_different_market_survives_repeated_markets_and_90_event_catal
                 quote_floor_excluded=bool(index % 2))
         for index, card in enumerate(cards)
     ])
-    assert [card.key for card in repriced.featured] == [card.key for card in catalog.featured]
-    assert [card.key for card in repriced.additional] == [card.key for card in catalog.additional]
+    assert {card.key for card in repriced.featured + repriced.additional} == {
+        card.key for index, card in enumerate(cards) if not index % 2
+    }
+    assert 'later-17' in {card.key for card in repriced.featured}
 
 
 def test_production_renderer_pages_20_complete_games_without_splitting_markets(monkeypatch):

@@ -138,16 +138,16 @@ def test_real_user_flow_start_reserve_place_settle_is_flat_and_persistent(tmp_pa
     assert any(m.label == 'Netto abgerechnet' and m.value == 'CHF 4.00' for m in app.metric)
 
 
-def test_observed_quote_below_floor_does_not_hide_model_selection(tmp_path):
+def test_observed_quote_below_floor_hides_daily3_proposal(tmp_path):
     app = AppTest.from_function(
         _render, args=(str(tmp_path/'daily3.db'), False, 'too_low')
     ).run(timeout=30)
     assert not app.exception
     assert app.session_state['fixture_price_code'] == 'TOO_LOW'
-    assert any('Heimteam 1' in item.value for item in app.subheader)
+    assert not any('Heimteam 1' in item.value for item in app.subheader)
     _button(app, 'CHF 50 Tagesbudget bestätigen').click().run()
     assert not app.exception
-    assert any(button.label == 'Einsatz vormerken' for button in app.button)
+    assert not any(button.label == 'Einsatz vormerken' for button in app.button)
 
 
 def test_manually_entered_quote_below_floor_is_rejected_without_budget_debit(tmp_path):

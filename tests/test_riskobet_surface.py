@@ -340,7 +340,7 @@ def test_price_changes_neither_visibility_nor_order():
             price_label="Beliebiger neuer Preisstatus",
             observed_odds=9.99 - index,
             bookmaker="Anderer Anbieter",
-            quote_floor_excluded=bool(index % 2),
+            quote_floor_excluded=False,
         )
         for index, card in enumerate(cards)
     ]

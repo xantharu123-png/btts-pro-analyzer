@@ -176,6 +176,19 @@ def test_actual_manual_surface_filters_before_every_group_and_counts_survivors(
         "reference_quotes": {}, "context_scope_complete": True,
         "operational_error_count": 0,
     }
+    from market_consensus import parse_fixture_consensus, serialize_consensus_map
+    from test_market_consensus import _payload
+    low_row = primary if short_key == 'RESULT_HOME' else opposing
+    payload = _payload(now, values={'Book': '1.12'}, provider_ids=True)
+    entry = payload['response'][0]
+    entry['fixture']['id'] = low_row.fixture_id
+    entry['fixture']['date'] = low_row.kickoff
+    for book in entry['bookmakers']:
+        book['bets'] = [{'id': 1, 'name': 'Match Winner', 'values': [
+            {'value': 'Home' if short_key == 'RESULT_HOME' else 'Away', 'odd': '1.12'}]}]
+    quotes = parse_fixture_consensus(payload, [low_row], fetched_at=now)
+    assert low_row.candidate_id in quotes
+    snapshot['reference_quotes'] = serialize_consensus_map(quotes)
     original_snapshot = deepcopy(snapshot)
     surface = _Surface(snapshot)
     rendered = []
@@ -198,9 +211,10 @@ def test_actual_manual_surface_filters_before_every_group_and_counts_survivors(
         search_date=now.date(), search_end_date=now.date(), embedded=True,
     )
 
-    assert {key for _, key in rendered} == {
-        primary.candidate_id, compatible.candidate_id, second_game.candidate_id,
-    }
+    expected = {compatible.candidate_id, second_game.candidate_id}
+    if short_key != 'RESULT_HOME':
+        expected.add(primary.candidate_id)
+    assert {key for _, key in rendered} == expected
     assert opposing.candidate_id not in {key for _, key in rendered}
     assert snapshot == original_snapshot
     public_text = " ".join(surface.messages)

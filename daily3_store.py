@@ -80,6 +80,8 @@ def _snapshot(value, *, external=False):
     unmodeled = external and value.get('model_probability') is None
     optional = {'modeled_at', 'model_version'} if unmodeled else set()
     for name in fields-{'model_probability', 'event_guard'}-optional:
+        if name == 'analysis_caution' and value[name] == '':
+            continue  # No mandatory filler when a forecast has no caution text.
         _text(value[name], 1500 if name.startswith('analysis_') else 1024)
     _require(value['sport'] in ('football', 'tennis', 'basketball', 'hockey', 'esports'), 'Diese Sportart gehört nicht zu Daily3.')
     _require(not value['event_id'].startswith('unresolved:'), 'Das Spiel ist nicht eindeutig zugeordnet.')

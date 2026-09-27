@@ -1,5 +1,30 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 27.09.2026 – Mindestquote bei Vorschlägen wiederhergestellt
+
+- Die Ausnahme **bekannte exakt passende Quote unter 1,20 ausblenden** gilt
+  wieder für Wettfinder, Daily3, manuelle Fußballsuche, RisikoBet und den aktiven
+  15K-Modellpfad. Genau 1,20 bleibt zulässig. Kein pauschales Wettartenverbot,
+  keine Änderung der berechneten Wahrscheinlichkeiten oder Modellreihenfolge.
+- Erst widerspruchsfreie Modellauswahl, dann Preisuntergrenze, dann Plätze:
+  Eine ausgeblendete Auswahl darf nicht durch ihren Gegentipp ersetzt werden.
+  Fehlende, fremde oder außerhalb der bestehenden Gültigkeit liegende Quoten
+  bleiben unbekannt. Modellchance/Torprognose sind keine Buchmacherquote.
+- Bereits gespeicherte, identitäts- und zeitgebundene Quoten werden wieder
+  gelesen; kein Quotenrefresh, zusätzlicher API-/Sportscan oder neue Sicherung.
+  Wo keine verwendbare Quote gespeichert ist, kann der Filter nichts erkennen.
+- Fußballkarten zeigen z. B. **Azerbaijan: 1,12 erwartete Tore**; die Torzahl
+  wird nicht mehr als freistehende Dezimalzahl hinter „Torprognose“ dargestellt.
+- Nur Auswahl-/Anzeigekorrektur. Historische Wetten, Einsätze und Auszahlungen
+  bleiben unverändert; kein neuer Verletzungs-/Müdigkeits- oder Qualitätsnachweis.
+- Integrationsfund: Daily3 verlangte nach dem Entfernen pauschaler Tennis-
+  Warntexte weiterhin einen nichtleeren Warnsatz beim Speichern. Ein leerer
+  Hinweistext ist jetzt zulässig; fehlende/falsch typisierte Felder und andere
+  Buchungsprüfungen bleiben strikt. Keine Fülltexte, Migration oder Altumschreibung.
+- Verifiziert: **1.141 Tests und 58 Untertests** in 24 betroffenen Testdateien.
+  Kein vollständiger 11k-Lauf. Veröffentlichung per bestehendem Code-only-Pull;
+  VPS-Hash, Healthchecks und gerenderte Torbeschriftung separat prüfen.
+
 ## 27.09.2026 – Kontext-Einschränkungen nur in aufklappbaren Details
 
 - Methodische Standardhinweise zu Verletzungen/Kader/Belastung stehen nicht

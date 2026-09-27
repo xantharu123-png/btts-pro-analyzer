@@ -1441,8 +1441,12 @@ def automated_wettfinder_forecasts(
     rows = document.get("model_candidates")
     if not isinstance(rows, list):
         return []
-    # Consumer forecasts are model-only. Cached bookmaker prices are never
-    # needed to select or display them.
+    # Read-only reuse for the downstream 1.20 display floor, not model ranking.
+    # Missing caches are optional; this path never refreshes provider prices.
+    from team_sport_prices import attach_cached_team_prices
+    rows = attach_cached_team_prices(rows, now=current, path=Path(path).parent / 'team_sport_quotes.json')
+    from esports_prices import attach_cached_esports_prices
+    rows = attach_cached_esports_prices(rows, now=current, path=Path(path).parent / 'esports_quotes.json')
     football = document.get("football")
     football = football if isinstance(football, dict) else {}
     football_statuses = _validated_football_context_statuses(football)

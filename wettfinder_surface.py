@@ -594,11 +594,11 @@ def compose_wettfinder_catalog(
     sport_filter: str = "Alle",
     max_featured: int = 3,
 ) -> WettfinderCatalog:
-    """Compose a coherent, price-neutral visible selection across all pages.
+    """Compose coherent selections, then apply the known-offer minimum.
 
     Shared canonical coherence precedes every sport/section/page filter.
     Highlight qualification is retained from the common card-build clock;
-    neutral descriptive rows stay visible in the additional section.
+    Unknown prices remain visible. The floor cannot select another direction.
     """
 
     if (
@@ -607,7 +607,8 @@ def compose_wettfinder_catalog(
         or max_featured < 1
     ):
         raise ValueError("max_featured must be a positive integer")
-    original = list(select_consumer_forecasts(cards))
+    original = [card for card in select_consumer_forecasts(cards)
+                if not card.quote_floor_excluded]
     requested = _token(sport_filter)
     if requested in _ALL_SPORT_FILTERS:
         ordered = _round_robin_by_sport(original)

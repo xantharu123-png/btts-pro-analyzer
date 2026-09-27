@@ -149,6 +149,8 @@ def attach_cached_esports_prices(rows, *, now=None, path=CACHE_PATH):
             output.append(row)
             continue
         quote = load_cached_quote(row, now=now, document=doc)
+        if quote is None:
+            quote = observed_consensus(row.get('reference_quote'), candidate=row, now=now)
         binding = _binding(row)
         if binding is not None:
             game, start, a, b, _ = binding

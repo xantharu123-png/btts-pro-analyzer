@@ -697,12 +697,12 @@ def test_manual_surface_filters_known_short_odds_but_keeps_exact_floor_and_order
         embedded=True,
     )
 
-    assert [key for _group, key in rendered] == [
-        extreme.candidate_id, "primary-a", "primary-b", "primary-c",
-    ]
+    assert [key for _group, key in rendered] == (
+        [extreme.candidate_id] if at_floor else []
+    ) + ["primary-a", "primary-b", "primary-c"]
     assert snapshot['model_shortlist'] == forecasts  # Stored analyses are untouched.
     assert not any(label.startswith('Sehr kurze Quoten') for label, _ in recording_st.expanders)
-    assert len({key for _group, key in rendered}) == len(forecasts)
+    assert len({key for _group, key in rendered}) == len(forecasts) - (not at_floor)
 
 
 def test_manual_surface_promotes_useful_market_and_keeps_all_others(
