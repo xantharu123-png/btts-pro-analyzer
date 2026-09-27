@@ -32,6 +32,7 @@ from challenge_engine import (
     TARGET_ODDS_MAX,
     TARGET_ODDS_MIN,
     USER_RECORDED_QUOTE_SOURCE,
+    candidate_is_15k_model_eligible,
     candidate_is_credible,
     dependence_floor_probability,
     risk_managed_ticket_stake,
@@ -3858,7 +3859,14 @@ class ChallengeLedger:
         )
         if quote_age < -60 or quote_age > quote_age_limit:
             raise ValueError("The verified quote is stale or from the future")
-        if any(not candidate_is_credible(leg.candidate) for leg in ticket.legs):
+        if any(
+            not (
+                candidate_is_15k_model_eligible(leg.candidate)
+                if leg.quote_source == USER_RECORDED_QUOTE_SOURCE
+                else candidate_is_credible(leg.candidate)
+            )
+            for leg in ticket.legs
+        ):
             raise ValueError("Ticket contains an unverified candidate")
         for leg in ticket.legs:
             _market_definition(leg.candidate)

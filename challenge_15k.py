@@ -58,6 +58,7 @@ from challenge_engine import (
     build_fixture_candidates,
     build_market_model_artifact,
     candidate_is_forecast_credible,
+    candidate_is_15k_model_eligible,
     candidate_is_credible,
     candidate_selection_rank,
     challenge_stake_cap,
@@ -1735,7 +1736,7 @@ def _challenge_model_candidate_pool(
     candidates: list[ChallengeCandidate],
 ) -> list[ChallengeCandidate]:
     """15K model candidates; quote coverage does not affect inclusion."""
-    return [candidate for candidate in candidates if candidate_is_credible(candidate)]
+    return [candidate for candidate in candidates if candidate_is_15k_model_eligible(candidate)]
 
 
 def _ranked_fixture_ids(
@@ -5022,6 +5023,7 @@ def _user_recorded_challenge_ticket(
             for candidate in candidates
         },
         now=now,
+        allow_user_model_context=True,
     )
     if ticket is None or {
         leg.candidate.candidate_id for leg in ticket.legs
@@ -5060,7 +5062,7 @@ def _challenge_display_selections(
     pool: list[ChallengeCandidate],
 ) -> list[ChallengeCandidate]:
     """Keep a few broad options visible without letting them dominate 15K."""
-    focused = select_shortlist(pool, max_candidates=MAX_PUBLIC_FORECASTS)
+    focused = select_forecast_shortlist(pool, max_candidates=MAX_PUBLIC_FORECASTS)
     broad = select_basis_forecasts(pool, max_candidates=3)
     chosen = focused[: max(0, MAX_PUBLIC_FORECASTS - len(broad))]
     seen_fixtures = {candidate.fixture_id for candidate in chosen}

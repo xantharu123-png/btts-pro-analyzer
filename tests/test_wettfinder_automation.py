@@ -1167,6 +1167,40 @@ def test_scheduled_15k_never_promotes_a_model_quote_without_release_execution(
     ]
 
 
+def test_scheduled_15k_uses_validated_model_when_lineups_are_not_yet_confirmed(tmp_path):
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    snapshot = _football_snapshot(now)
+    candidate = snapshot["shortlist"][0]
+    candidate.context.update(
+        forecast_passed=True,
+        release_context_complete=False,
+        release_eligible=False,
+        lineups={"status": "pending", "required": False},
+        injuries={"status": "unavailable"},
+        weather={"status": "unavailable"},
+    )
+    snapshot["shortlist"] = []
+    snapshot["forecast_shortlist"] = [candidate]
+    snapshot["discovery_candidates"] = [candidate]
+    document = run_wettfinder(
+        now=now,
+        state_path=tmp_path / "wettfinder.json",
+        config=AppConfig(api_football_key="test"),
+        football_scanner=lambda _day: snapshot,
+        football_context_refresher=lambda *_args: {},
+        football_quote_loader=lambda _rows: ({}, []),
+        tennis_loader=lambda **_kwargs: [],
+        esports_loader=lambda **_kwargs: [],
+    )
+
+    automatic = build_scheduled_challenge_snapshot(document)
+    assert automatic is not None
+    assert automatic["shortlist"] == []
+    assert [item.candidate_id for item in automatic["challenge_model_candidates"]] == [
+        candidate.candidate_id
+    ]
+
+
 def test_scheduled_artifact_keeps_forecast_but_blocks_release_on_degraded_source(
     tmp_path,
 ):

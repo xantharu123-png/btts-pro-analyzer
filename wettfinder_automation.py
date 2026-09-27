@@ -47,6 +47,7 @@ from challenge_engine import (
     ValidationMetrics,
     candidate_context_summary,
     candidate_is_forecast_credible,
+    candidate_is_15k_model_eligible,
     candidate_is_credible,
     candidate_selection_rank,
     markets_mutually_exclusive,
@@ -2260,7 +2261,7 @@ def build_scheduled_challenge_snapshot(
         "price_candidates": release_candidates,
         "challenge_model_candidates": [
             candidate for candidate in forecast_candidates
-            if candidate_is_credible(candidate)
+            if candidate_is_15k_model_eligible(candidate)
         ],
         "base_shortlist": forecast_candidates,
         "reference_quotes": reference_quotes,

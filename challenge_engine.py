@@ -3867,6 +3867,31 @@ def candidate_is_credible(candidate: ChallengeCandidate) -> bool:
     )
 
 
+def candidate_is_15k_model_eligible(candidate: ChallengeCandidate) -> bool:
+    """Validate the 15K model without requiring pre-match lineup coverage.
+
+    A known context veto still excludes the selection. Missing lineups, injury
+    coverage or weather do not change the model probability or erase a
+    statistically validated forecast from the user's model-only selection.
+    """
+    return (
+        candidate_is_forecast_credible(candidate)
+        and candidate.prediction_version == CHALLENGE_PREDICTION_VERSION
+        and candidate.validation is not None
+        and candidate.validation.prediction_version == CHALLENGE_PREDICTION_VERSION
+        and _credible_statistical_release_validation(candidate.validation)
+        and candidate.model_scope == MODEL_SCOPE_SAME_COMPETITION
+        and 0.58 <= candidate.probability <= 0.92
+        and (
+            candidate.conservative_probability >= 0.55
+            or math.isclose(
+                candidate.conservative_probability, 0.55,
+                rel_tol=0.0, abs_tol=1e-12,
+            )
+        )
+    )
+
+
 def candidate_is_wettfinder_release_credible(
     candidate: ChallengeCandidate,
 ) -> bool:
@@ -4022,6 +4047,7 @@ def select_quoted_ticket(
     minimum_ticket_roi: float = MIN_LEG_EXPECTED_ROI,
     minimum_leg_roi: float = MIN_LEG_EXPECTED_ROI,
     now: Optional[datetime] = None,
+    allow_user_model_context: bool = False,
 ) -> Optional[QuotedTicket]:
     """Return the strongest valid 1-3 leg ticket after a price observation."""
     try:
@@ -4068,7 +4094,17 @@ def select_quoted_ticket(
         ]
     ] = []
     for candidate in candidates:
-        if not candidate_is_credible(candidate) or not _future_candidate(candidate, now_utc):
+        candidate_metadata = quote_metadata.get(candidate.candidate_id) or {}
+        user_model_context = (
+            allow_user_model_context
+            and isinstance(candidate_metadata, dict)
+            and candidate_metadata.get("source") == USER_RECORDED_QUOTE_SOURCE
+        )
+        credible = (
+            candidate_is_15k_model_eligible(candidate)
+            if user_model_context else candidate_is_credible(candidate)
+        )
+        if not credible or not _future_candidate(candidate, now_utc):
             continue
         raw_odds = odds_by_candidate.get(candidate.candidate_id)
         if raw_odds in (None, 0, 0.0):
@@ -4470,6 +4506,7 @@ __all__ = [
     "build_fixture_candidates",
     "build_market_model_artifact",
     "candidate_is_forecast_credible",
+    "candidate_is_15k_model_eligible",
     "candidate_is_credible",
     "candidate_is_wettfinder_release_credible",
     "candidate_context_summary",

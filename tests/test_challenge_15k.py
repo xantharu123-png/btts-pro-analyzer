@@ -56,6 +56,7 @@ from challenge_engine import (
     build_fixture_candidates,
     candidate_context_summary,
     candidate_is_forecast_credible,
+    candidate_is_15k_model_eligible,
     candidate_is_credible,
     challenge_stake_cap,
     consecutive_wins_to_target,
@@ -455,6 +456,82 @@ def test_15k_model_selection_ignores_missing_or_low_bookmaker_quotes():
     visible = " ".join(str(call.args[0]) for call in fake_streamlit.markdown.call_args_list)
     assert "Beide Teams treffen" in visible
     fake_streamlit.multiselect.assert_called_once()
+
+
+def test_15k_model_keeps_validated_selection_without_confirmed_lineups():
+    item = candidate("1:BTTS", 1, 0.80)
+    item.context.update(
+        release_context_complete=False,
+        release_eligible=False,
+        lineups={"status": "pending", "required": False},
+        injuries={"status": "unavailable"},
+        weather={"status": "unavailable"},
+    )
+    assert candidate_is_forecast_credible(item)
+    assert not candidate_is_credible(item)
+    assert candidate_is_15k_model_eligible(item)
+    assert challenge_15k._challenge_model_candidate_pool([item]) == [item]
+    assert challenge_15k._challenge_display_selections([item]) == [item]
+    second_market = candidate("1:SECOND", 1, 0.78)
+    second_market.context = deepcopy(item.context)
+    assert len(challenge_15k._challenge_display_selections([item, second_market])) == 1
+
+    item.context["blocked_reasons"] = ["Bekanntes H2H-Veto"]
+    item.context["passed"] = False
+    item.context["forecast_passed"] = False
+    assert not candidate_is_15k_model_eligible(item)
+
+    item.context["blocked_reasons"] = []
+    item.context["passed"] = True
+    item.context["forecast_passed"] = True
+    item.model_scope = MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST
+    item.context["model_transfer"] = {"status": "provisional"}
+    assert not candidate_is_15k_model_eligible(item)
+
+    item.model_scope = "same_competition"
+    item.context["model_transfer"] = {"status": "passed"}
+    item.validation = replace(item.validation, statistical_release_passed=False)
+    assert not candidate_is_15k_model_eligible(item)
+
+
+def test_15k_manual_ticket_uses_model_with_open_lineups_but_auto_gate_stays_strict():
+    now = datetime.now(timezone.utc)
+    candidates = stress_safe_ticket_candidates()
+    for item in candidates:
+        item.context.update(
+            release_context_complete=False,
+            release_eligible=False,
+            lineups={"status": "pending", "required": False},
+        )
+    odds = {item.candidate_id: 1.50 for item in candidates}
+    assert all(candidate_is_15k_model_eligible(item) for item in candidates)
+    assert all(not candidate_is_credible(item) for item in candidates)
+    assert select_quoted_ticket(candidates, odds, now=now) is None
+    assert select_quoted_ticket(
+        candidates, odds, now=now,
+        allow_user_model_context=True,
+        quote_metadata_by_candidate={
+            item.candidate_id: {"source": "N1Bet"} for item in candidates
+        },
+    ) is None
+
+    ticket = challenge_15k._user_recorded_challenge_ticket(candidates, odds, now=now)
+    assert ticket is not None
+    evidence = challenge_15k._user_recorded_quote_evidence(
+        ticket, "Mein Buchmacher", recorded_at=now,
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = Path(tmp) / "challenge.db"
+        ledger = ChallengeLedger(db_path)
+        ticket_id = ledger.place_ticket(
+            now.date().isoformat(), ticket, ticket_stake(ticket, 100.0),
+            now.isoformat(), played_odds=ticket.total_odds,
+            played_leg_odds=[leg.odds for leg in ticket.legs],
+            reference_quote_evidence=evidence,
+        )
+        assert ledger.get_ticket(ticket_id)["entry_source"] == "MODEL"
+        reopened = ChallengeLedger(db_path)
+        assert reopened.get_ticket(ticket_id)["status"] == "PENDING"
 
 
 def test_15k_records_actual_user_quote_only_at_ticket_entry():

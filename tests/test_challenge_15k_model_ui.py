@@ -11,6 +11,12 @@ def _render_model_candidates() -> None:
     from test_challenge_15k import stress_safe_ticket_candidates
 
     candidates = stress_safe_ticket_candidates()
+    for candidate in candidates:
+        candidate.context.update(
+            release_context_complete=False,
+            release_eligible=False,
+            lineups={"status": "pending", "required": False},
+        )
     _render_model_challenge(
         {
             "search_date": datetime.now(timezone.utc).date().isoformat(),
@@ -35,6 +41,7 @@ def test_15k_model_cards_render_without_quote_or_nested_expander():
     assert "Beide Teams treffen" in visible
     assert "Quote 1.05" not in visible + captions
     assert "Preisfreigabe" not in visible + captions
+    assert "vorläufig" not in visible + captions
 
 
 def test_15k_asks_for_actual_odds_only_after_user_selects_models():
