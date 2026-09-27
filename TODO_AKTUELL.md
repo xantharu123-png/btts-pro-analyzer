@@ -1,5 +1,29 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 27.09.2026 – 15K-Modellauswahl ohne Aufstellungs-Pflicht
+
+- Der heutige gespeicherte Fußballlauf fand und modellierte 14 Spiele. Alle
+  114 Kontextkandidaten hatten noch keine bestätigten Startaufstellungen;
+  die bisherige 15K-Freigabebedingung machte daraus trotz vorhandener
+  Modellwerte 0 Auswahlen. Eine fehlende Quote war nicht der Grund.
+- Der neue 15K-Modellpfad verlangt weiterhin die bestehende statistische
+  Marktvalidierung, den 15K-Wahrscheinlichkeitskorridor und kein bekanntes
+  Kontextveto. Fehlende Startaufstellungen, Wetter- oder Ausfallabdeckung
+  sperren die Modellauswahl nicht mehr. Die Prognose wird nicht wegen einer
+  Buchmacherquote geändert oder sortiert; tatsächliche Quoten werden erst
+  beim Erfassen der gespielten Wette benötigt. Automatische Preis-/Release-
+  und andere Wettfinder-Verträge bleiben unverändert.
+- Produktionsnachweis: Code-Commit `12614bf` ist auf GitHub `main` und dem
+  VPS identisch; App und sechs Rechentimer sind aktiv, interner Healthcheck
+  `ok`. Die Vollsuite ergab 11.066 bestandene Tests, 96 erwartete Skips und
+  111 bestandene Untertests. Der bereits gespeicherte Tagesstand enthält
+  zwei nach den 15K-Modellregeln zulässige Märkte für **dasselbe** Spiel;
+  nach Spiel-Deduplikation ist genau eine aktuelle 15K-Auswahl sichtbar.
+  Kein neuer Sportscan und keine neue Sicherung.
+- Nicht behaupten, dass fehlende Kontextdaten numerisch eingerechnet oder
+  eine höhere Trefferquote nachgewiesen wurden. Der nächste reguläre Lauf
+  muss die Veröffentlichung neuer Tagesdaten weiterhin separat bestätigen.
+
 ## 27.09.2026 – täglicher Tennis-Scan und Ergebnislücken
 
 - Der planmäßige Lauf um 00:05 CEST nutzte `ed27f7a`, bereitete 15
