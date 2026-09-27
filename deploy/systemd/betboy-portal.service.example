@@ -1,0 +1,27 @@
+[Unit]
+Description=BetBoy customer portal (enable only after reviewed cutover)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=betboy
+Group=betboy
+WorkingDirectory=/opt/betboy/app/portal
+EnvironmentFile=/etc/betboy/portal.env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+StateDirectory=betboy-portal
+StateDirectoryMode=0700
+UMask=0077
+ExecStart=/opt/betboy/portal-venv/bin/gunicorn siteconfig.wsgi:application --bind 127.0.0.1:8010 --workers 2 --timeout 45 --error-logfile -
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/betboy-portal
+
+[Install]
+WantedBy=multi-user.target

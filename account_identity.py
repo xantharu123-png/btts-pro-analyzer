@@ -72,6 +72,12 @@ def storage_scope(session_state: Any) -> str:
     except AttributeError:
         account_scope = None
     if account_scope is not None:
+        # Opt-in customer deployments must also recheck ownership at the data
+        # boundary, including widget callbacks executed before the main rerun.
+        from customer_access import enabled, assert_current_scope
+        if enabled():
+            import streamlit as st
+            assert_current_scope(st.context.cookies, account_scope)
         return account_scope
     raise AccountScopeUnavailable(
         "Die dauerhafte Browser-ID ist noch nicht verfügbar."

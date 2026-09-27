@@ -2066,6 +2066,8 @@ def _auto_recheck_eligible(snapshot: Any, search_date: date) -> bool:
 @st.fragment(run_every=AUTO_RECHECK_POLL_SECONDS)
 def _scheduled_challenge_refresh_fragment(scope: dict[str, Any]) -> None:
     """Reflect a newer systemd result while the 15K page remains open."""
+    from customer_access import require_feature
+    require_feature(st, "15k")
     scheduled = _load_scheduled_challenge_snapshot(scope)
     current = st.session_state.get("challenge_snapshot")
     preferred = _prefer_scheduled_snapshot(
@@ -3697,6 +3699,10 @@ def _render_pending_ticket_actions(
 
 @st.dialog("Vergangene 15K-Wette nachtragen")
 def _render_manual_result_dialog(ledger: ChallengeLedger) -> None:
+    from customer_access import enabled, require_feature
+    if enabled():
+        require_feature(st, "15k")
+        ledger = _challenge_ledger(storage_scope(st.session_state))
     settings = ledger.settings()
     if ledger.pending_tickets():
         st.warning("Zuerst die offene 15K-Wette abrechnen.")

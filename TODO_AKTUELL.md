@@ -1,5 +1,36 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 27.09.2026 – Kundenportal, Abos und englische Landingpage
+
+- Nutzer hat **Starter CHF 9.90 / Plus CHF 19.90 / Pro CHF 29.90 monatlich**
+  bestätigt und Stripe gewählt. Internationaler Vertrieb und eine englische
+  Website sind gewünscht; ein Stripe-Händlerkonto besteht noch nicht.
+- Neu implementiert: deutsche/englische responsive Landingpage, Preisübersicht,
+  Registrierung mit E-Mail-Bestätigung, Login, Passwort-Reset, Kundenbereich und
+  Stripe-Checkout-/Webhook-Code. Eine Zahlungsrückkehr allein gibt keine Rechte.
+- Separate kleine Kundendatenbank. Optionaler serverseitiger Streamlit-Zugang
+  samt Funktionsrechten; alte browserlokale Wettkonten werden nicht übernommen.
+  Logout/anderes Konto/Aboablauf dürfen keine alten Daily3-Callbacks weiter nutzen.
+- Lokal: **28 Portaltests plus 300 Bestands-/Integrationstests und 32 Untertests**
+  bestanden. Stripe-Antworten sind simuliert (einschließlich echter SDK-Typen),
+  kein echter Zahlungs- oder E-Mail-Zustellnachweis. Kein kompletter 11k-Testlauf.
+- Browser: DE/EN-Landingpage, Abo-Auswahl, Registrierung, Sprachwechsel und
+  Formularvalidierung im internen Browser geprüft; 320-/390-px-Ansichten ohne
+  horizontalen Überlauf. Lokale Vorschau: `http://127.0.0.1:8010/de/`.
+- **Nicht live geschaltet:** neuer Kundenbetrieb/Paywall, Stripe, E-Mail-Versand,
+  Domain-/Proxy-Umstellung. VPS rein lesend geprüft: bisheriger Stand `5251c00`,
+  App aktiv, interner Healthcheck `ok`. Keine neue Sicherung und kein Sportscan.
+- **Native iOS-/Android-Apps sind noch nicht implementiert.** Responsive Webansicht
+  nicht als native App oder Store-Release melden. Gemeinsame Konten sind vorgesehen;
+  Store-Verifikation, native Projekte, Geräte-/Storetests und Einreichung fehlen.
+- Vor Verkauf: Nutzer-Domain und öffentlicher Anbietername (asynchron gefragt),
+  SMTP, rechtliche Texte/Vertriebsländer/Steuern und Stripe-Aktivierung; echte
+  Sandbox-Kauf-/Kündigungsnachweise, Abgleich verpasster Zahlungsereignisse sowie
+  veröffentlichte Mehrkonten-/Zugriffsprüfung. Keine allgemeinen Store-Zusagen.
+- [Bestätigte Spezifikation](docs/specs/2026-09-27-kundenportal.md) und
+  [Start-/Test-/Cutover-Anleitung](portal/README.md) enthalten die Liefergrenzen.
+  Die bisherigen Modell-/Kontextrestarbeiten darunter bleiben offen.
+
 ## 27.09.2026 – Fortsetzung: gemeinsames Fußballmodell an Training und Auswertung angeschlossen
 
 - Die kalibrierte gemeinsame Torverteilung kann jetzt aus gespeicherten,

@@ -1,0 +1,3 @@
+{% extends 'base.html' %}
+{% block title %}{{ heading }} · BetBoy{% endblock %}
+{% block content %}<section class="message-page shell"><span class="message-icon" aria-hidden="true">↗</span><h1>{{ heading }}</h1><p>{{ body }}</p><div class="hero-actions"><a class="button button-dark" href="{% if user.is_authenticated %}{% url 'account' lang=lang %}{% else %}{% url 'login' lang=lang %}{% endif %}">{% if user.is_authenticated %}{{ t.account }}{% else %}{{ t.login }}{% endif %}</a><a class="text-link" href="{% url 'home' lang=lang %}">{{ t.back }}</a></div></section>{% endblock %}

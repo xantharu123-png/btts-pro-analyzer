@@ -1,0 +1,56 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="hero shell">
+  <div class="hero-copy">
+    <p class="eyebrow"><span class="status-dot"></span>{{ t.eyebrow }}</p>
+    <h1>{{ t.hero_a }}<br><span>{{ t.hero_b }}</span></h1>
+    <p class="hero-text">{{ t.hero_text }}</p>
+    <div class="hero-actions"><a class="button button-dark" href="#plans">{{ t.hero_cta }} <span aria-hidden="true">↗</span></a><a class="text-link" href="#inside">{{ t.hero_secondary }} <span aria-hidden="true">↓</span></a></div>
+    <p class="hero-note">{{ t.hero_note }}</p>
+  </div>
+  <div class="hero-visual" aria-label="{{ t.preview }}">
+    <div class="court-lines" aria-hidden="true"><div></div></div>
+    <div class="preview-window">
+      <div class="preview-bar"><span class="mini-brand">B<span>.</span></span><span>{{ t.workspace }}</span><span class="preview-label">{{ t.preview }}</span></div>
+      <div class="preview-body">
+        <div class="preview-heading"><p>{{ t.today }}</p><span class="green-pill">{{ t.sport_football }}</span></div>
+        <div class="teams"><div class="team-avatar">H</div><div><strong>{{ t.example_home }}</strong><span>vs {{ t.example_away }}</span></div><span class="match-tag">01</span></div>
+        <div class="market-tile"><div><span>{{ t.match }}</span><h3>{{ t.example_market }}</h3></div><span class="market-arrow" aria-hidden="true">↗</span></div>
+        <p class="preview-reason">{{ t.example_reason }}</p>
+        <div class="comparison" aria-hidden="true"><span></span><span></span></div>
+        <div class="mini-facts"><div><span class="fact-icon" aria-hidden="true">↗</span>{{ t.form }}</div><div><span class="fact-icon" aria-hidden="true">≡</span>{{ t.statistics }}</div><div><span class="fact-icon" aria-hidden="true">◉</span>{{ t.context }}</div></div>
+        <div class="preview-caption">{{ t.illustration }}</div>
+      </div>
+    </div>
+    <div class="visual-caption"><span aria-hidden="true">＋</span>{{ t.detail }}</div>
+  </div>
+</section>
+<div class="sports-strip"><div class="shell"><span>{{ t.sport_football }}</span><i aria-hidden="true">/</i><span>{{ t.sport_tennis }}</span><i aria-hidden="true">/</i><span>{{ t.sport_basketball }}</span><i aria-hidden="true">/</i><span>{{ t.sport_hockey }}</span><i aria-hidden="true">/</i><span>{{ t.sport_esports }}</span></div></div>
+<section id="inside" class="inside shell section">
+  <div class="section-heading"><p class="eyebrow">{{ t.approach_label }}</p><h2>{{ t.approach_title|linebreaksbr }}</h2></div>
+  <div class="feature-grid">
+    <article class="feature"><span class="feature-number">01</span><div class="feature-art feature-art-one" aria-hidden="true"><span></span><span></span><span></span></div><h3>{{ t.feature1_title }}</h3><p>{{ t.feature1_text }}</p></article>
+    <article class="feature"><span class="feature-number">02</span><div class="feature-art feature-art-two" aria-hidden="true"><span>↗</span><span>↘</span></div><h3>{{ t.feature2_title }}</h3><p>{{ t.feature2_text }}</p></article>
+    <article class="feature"><span class="feature-number">03</span><div class="feature-art feature-art-three" aria-hidden="true"><span>✓</span><span>≡</span></div><h3>{{ t.feature3_title }}</h3><p>{{ t.feature3_text }}</p></article>
+  </div>
+</section>
+<section id="plans" class="pricing-section section">
+  <div class="shell"><div class="section-heading centered"><p class="eyebrow">{{ t.pricing_label }}</p><h2>{{ t.pricing_title }}</h2><p>{{ t.pricing_text }}</p></div>
+    <div class="pricing-grid">{% for plan in plans %}
+      <article class="price-card {% if plan.key == 'plus' %}featured{% endif %}">
+        <div class="plan-label"><h3>{{ plan.name }}</h3>{% if plan.key == 'plus' %}<span>{{ t.recommended }}</span>{% endif %}</div>
+        <p class="plan-desc">{{ plan.description }}</p>
+        <div class="price"><span>CHF</span><strong>{{ plan.price }}</strong><small>{{ t.per_month }}</small></div>
+        <a class="button {% if plan.key == 'plus' %}button-lime{% else %}button-outline{% endif %} full-width" href="{% if user.is_authenticated %}{% url 'account' lang=lang %}{% else %}{% url 'register' lang=lang %}?plan={{ plan.key }}{% endif %}">{% if lang == 'en' %}{{ t.choose }} {{ plan.name }}{% else %}{{ plan.name }} {{ t.choose }}{% endif %}<span aria-hidden="true">↗</span></a>
+        <ul>{% if plan.included %}<li class="includes">{{ plan.included }}</li>{% endif %}{% for label in plan.labels %}<li><span aria-hidden="true">✓</span>{{ label }}</li>{% endfor %}</ul>
+      </article>{% endfor %}
+    </div>
+    <p class="pricing-note">{{ t.pricing_note }}</p><p class="availability">{{ t.availability }}</p>
+  </div>
+</section>
+<section id="mobile" class="mobile-section shell section">
+  <div class="mobile-copy"><p class="eyebrow">{{ t.mobile_label }}</p><h2>{{ t.mobile_title|linebreaksbr }}</h2><p>{{ t.mobile_text }}</p><span class="green-pill">{{ t.mobile_badge }}</span><div class="store-status"><div><strong>iOS</strong><span>{{ t.coming }}</span></div><div><strong>Android</strong><span>{{ t.coming }}</span></div></div></div>
+  <div class="phone-stage" aria-hidden="true"><div class="phone"><div class="phone-island"></div><div class="phone-brand">BetBoy<span>.</span></div><p>{{ t.workspace }}</p><div class="phone-card"><small>{{ t.sport_football }}</small><strong>{{ t.example_home }}<br>{{ t.example_away }}</strong><span>{{ t.example_market }}</span><div class="phone-chart"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div><div class="phone-card compact"><small>{{ t.sport_tennis }}</small><strong>{{ t.form }} & {{ t.statistics }}</strong></div><div class="phone-bottom">⌂<span>◎</span>≡</div></div><div class="phone-orbit"></div></div>
+</section>
+<section class="faq shell section"><h2>{{ t.faq_title }}</h2><div><details><summary>{{ t.faq1_q }}<span aria-hidden="true">＋</span></summary><p>{{ t.faq1_a }}</p></details><details><summary>{{ t.faq2_q }}<span aria-hidden="true">＋</span></summary><p>{{ t.faq2_a }}</p></details><details><summary>{{ t.faq3_q }}<span aria-hidden="true">＋</span></summary><p>{{ t.faq3_a }}</p></details></div></section>
+{% endblock %}

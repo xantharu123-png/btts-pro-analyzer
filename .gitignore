@@ -11,6 +11,9 @@ __pycache__/
 .pytest_cache/
 .pytest_tmp/
 .venv/
+.portal-venv/
+portal/.runtime/
+portal/static-collected/
 .codex_test_venv/
 .worktrees/
 .mypy_cache/

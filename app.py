@@ -19,6 +19,7 @@ import streamlit as st
 
 import league_catalog as _league_catalog
 from account_identity import account_scope_ready, ensure_account_scope
+from customer_access import PAGE_FEATURES, bind_customer, require_feature
 from api_budget import APIBudgetPriority, api_football_get
 
 
@@ -4791,6 +4792,7 @@ def render_wettfinder() -> None:
             )
         st.caption("Auswahl nach Sportdaten · deine Mindestquote für eigene Wetten: 1,20")
         if mode == "3 a day":
+            require_feature(st, "daily3")
             from daily3_ui import render_daily3
 
             render_daily3(st)
@@ -4800,6 +4802,7 @@ def render_wettfinder() -> None:
             return
 
         with st.container(key="wettfinder_v2_custom"):
+            require_feature(st, "search")
             st.subheader("Eigene Suche")
             controls = st.columns(3)
             with controls[0]:
@@ -4979,7 +4982,8 @@ def main() -> None:
         initial_sidebar_state="auto",
     )
     _apply_app_styles()
-    ensure_account_scope(st)
+    if not bind_customer(st):
+        ensure_account_scope(st)
     session_scope_id = _session_scope_id()
 
     try:
@@ -4993,6 +4997,7 @@ def main() -> None:
         st.session_state["analyzer_error"] = str(exc)
 
     workspace = _render_sidebar(analyzer)
+    require_feature(st, PAGE_FEATURES[workspace])
     title, caption = PAGE_INFO[workspace]
     st.markdown(f'<div class="bb-context">BetBoy / {workspace}</div>', unsafe_allow_html=True)
     st.title(title)

@@ -28,6 +28,9 @@ def _token(st, key):
 def _submit(st, store, scope, key, kind, day, build_args):
     """Run as a widget callback, before the next render reads its snapshot."""
     try:
+        from customer_access import enabled, assert_current_scope
+        if enabled():
+            assert_current_scope(st.context.cookies, scope, "daily3")
         store.command(scope, action_id=_token(st, key), kind=kind, day=day() if callable(day) else day, **build_args())
     except Daily3Error as exc:
         st.session_state['_daily3_notice'] = ('error', str(exc))

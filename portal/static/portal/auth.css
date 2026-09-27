@@ -1,0 +1,6 @@
+/* Keep the form title the semantic page heading, including on mobile. */
+.auth-brand-heading{font-size:43px;font-weight:650;line-height:1.08;letter-spacing:-.045em;margin-top:27px}
+.auth-brand-heading span{color:var(--green)}
+.auth-panel h1{font-size:31px;line-height:1.12;font-weight:620}
+@media(max-width:1000px){.auth-brand-heading{font-size:37px}}
+@media(max-width:380px){.auth-panel h1{font-size:28px}}

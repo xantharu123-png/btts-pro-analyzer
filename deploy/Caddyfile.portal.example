@@ -1,0 +1,28 @@
+# Explicit cutover template, NOT a replacement for the running Caddyfile yet.
+# Streamlit must use --server.baseUrlPath=app, only bind to 127.0.0.1:8501,
+# and enable BETBOY_CUSTOMER_ACCESS_REQUIRED with the matching internal token.
+betboy.example.com {
+    encode zstd gzip
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "same-origin"
+        -Server
+    }
+
+    # The authenticated introspection service is loopback-only, never public.
+    handle /internal/* {
+        respond 404
+    }
+    handle_path /portal-static/* {
+        root * /opt/betboy/app/portal/static-collected
+        file_server
+    }
+    redir /app /app/ 308
+    handle /app/* {
+        reverse_proxy 127.0.0.1:8501
+    }
+    handle {
+        reverse_proxy 127.0.0.1:8010
+    }
+}
