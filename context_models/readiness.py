@@ -20,7 +20,9 @@ from context_sources.tennis_status import STATUS_SCHEMA, validate_selected_tenni
 from context_sources.tennis import SOURCE_SCHEMA
 
 
-def audit_tennis_readiness(path, *, as_of, sample_limit=25, seconds=120, progress=None):
+def audit_tennis_readiness(path, *, as_of, sample_limit=25, seconds=120, progress=None, inventory_only=False):
+    if type(inventory_only) is not bool:
+        raise ValueError('inventory_only must be boolean')
     if type(sample_limit) is not int or not 1 <= sample_limit <= 100:
         raise ValueError('sample_limit must be between 1 and 100')
     if type(seconds) not in (int, float) or not 1 <= seconds <= 600:
@@ -83,8 +85,27 @@ def audit_tennis_readiness(path, *, as_of, sample_limit=25, seconds=120, progres
         count = min(sample_limit, len(matched))
         positions = ([0] if count == 1 else [i*(len(matched)-1)//(count-1) for i in range(count)])
         sample = [matched[i] for i in positions]
+        tours = {}
+        for ref, origin in matched:
+            tour = origin['event']['tour']
+            cohort = tours.setdefault(tour, {'matching_final_events': 0, 'decision_days': {}})
+            cohort['matching_final_events'] += 1
+            day = origin['cutoff'][:10]
+            cohort['decision_days'][day] = cohort['decision_days'].get(day, 0) + 1
+        for cohort in tours.values():
+            cohort['meets_test_count_floor_only'] = cohort['matching_final_events'] >= 200
+        inventory = {'schema': 1, 'as_of': clock, 'kind': 'native-readiness-not-empirical-qualification',
+            'original_publications': publications, 'unique_original_events': len(originals),
+            'late_original_publications': late, 'matching_final_events': len(matched),
+            'outcome_exclusions': dict(exclusions), 'artifact_kinds': kinds, 'tour_cohorts': tours,
+            'minimum_untouched_test_events': 200, 'total_events_meet_test_count_floor_only': len(matched) >= 200,
+            'qualified': False, 'reason': 'inventory_only_no_train_tune_test_improvement_evaluation'}
         if progress:
             progress({'phase':'inventory', 'unique_original_events':len(originals), 'matching_final_events':len(matched), 'sample':len(sample)})
+        if inventory_only:
+            return {**inventory, 'sample': [], 'sample_limited': bool(matched),
+                'sample_policy': 'inventory-only-no-feature-or-score-evaluation',
+                'elapsed_seconds': round(monotonic()-started, 3)}
         # Index DISTINCT source content once, rather than parse an unchanged
         # JSON body again for each of its many receipt revisions and each card.
         players = {p for _, origin in sample for p in (origin['event']['home_id'], origin['event']['away_id'])}
@@ -135,11 +156,6 @@ def audit_tennis_readiness(path, *, as_of, sample_limit=25, seconds=120, progres
                 'measured':measured, 'complete_observed_subset':complete})
             if progress:
                 progress({'phase':'features', 'completed':len(results), 'total':len(sample)})
-        return {'schema':1, 'as_of':clock, 'kind':'native-readiness-not-empirical-qualification',
-            'original_publications':publications, 'unique_original_events':len(originals),
-            'late_original_publications':late, 'matching_final_events':len(matched),
-            'outcome_exclusions':dict(exclusions), 'artifact_kinds':kinds, 'sample':results,
+        return {**inventory, 'sample':results,
             'sample_limited':len(matched)>len(sample), 'sample_policy':'evenly-spaced-earliest-original-time-order',
-            'elapsed_seconds':round(monotonic()-started,3),
-            'minimum_untouched_test_events':200, 'total_events_meet_test_count_floor_only':len(matched)>=200,
-            'qualified':False, 'reason':'inventory_only_no_train_tune_test_improvement_evaluation'}
+            'elapsed_seconds':round(monotonic()-started,3)}

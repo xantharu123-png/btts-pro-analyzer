@@ -1,5 +1,24 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 27.09.2026 – konkrete Kontextlücken repariert; Wirkungsnachweis bleibt offen
+
+- Tatsächliche Wetterantworten werden nun im vorhandenen Fußballworker mit
+  originaler Empfangszeit gespeichert. Keine zusätzlichen API-Anfragen, keine
+  neue Sicherung. Stadtprognose bleibt von exaktem Stadionwetter getrennt.
+- Neuer numerischer Fußball-Kontextpfad erhält die aktive kalibrierte gemeinsame
+  Torverteilung. Nulleffekt ist exakt identisch; alle Torwetten werden konsistent
+  berechnet. Gekoppelte Likelihood statt Wiederverwendung alter Poisson-Fits.
+  Fünf echte gespeicherte Originale auf dem VPS exakt numerisch reproduziert.
+- **Nicht abgeschlossen:** Dieser Rechenweg ist noch kein vollständig
+  quellgebundener Trainings-/Aktivierungspfad. Keine numerischen Verletzungs-,
+  Wetter- oder Müdigkeitseffekte als empirisch belegt oder live aktiviert melden.
+- Frische Bestandsprüfung: 64 ATP- und 282 WTA-Spiele mit passendem Ergebnis;
+  nur 3 von 45 Fußballpaketen vollständig quellgebunden, bislang 0 Wetterbelege.
+  Zwölf untersuchte Tennisfälle ohne nutzbare Minutendifferenzen. Keine Aussage
+  über den gesamten WTA-Merkmalsbestand aus dieser kleinen Stichprobe ableiten.
+- [Belege, Änderungen und konkrete Restarbeiten](docs/audits/2026-09-27-kontexteffekte.md).
+  Die nächste Tennis-Dienstnachprüfung ersetzt diese fachliche Arbeit nicht.
+
 ## 27.09.2026 – 15K-Modellauswahl ohne Aufstellungs-Pflicht
 
 - Der heutige gespeicherte Fußballlauf fand und modellierte 14 Spiele. Alle

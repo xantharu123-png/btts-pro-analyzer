@@ -747,6 +747,7 @@ class ChallengeDataProvider:
         self.errors: list[str] = []
         self._last_request = 0.0
         self._weather_cache: dict[tuple[str, str], Optional[dict[str, Any]]] = {}
+        self._weather_receipts: dict[tuple[str, str], dict[str, Any]] = {}
         self._domestic_history_cache: dict[
             tuple[int, str], Optional[dict[str, Any]]
         ] = {}
@@ -1411,6 +1412,8 @@ class ChallengeDataProvider:
             return None
         cache_key = (f"{city},{country}", kickoff.strftime("%Y-%m-%dT%H"))
         if cache_key in self._weather_cache:
+            if self._context_capture is not None and cache_key in self._weather_receipts:
+                self._context_capture.record_weather(fixture, **self._weather_receipts[cache_key])
             return self._weather_cache[cache_key]
 
         try:
@@ -1455,6 +1458,7 @@ class ChallengeDataProvider:
             )
             forecast_response.raise_for_status()
             forecast_payload = forecast_response.json()
+            forecast_received_at = self._context_received_at() if self._context_capture is not None else None
             forecasts = (
                 forecast_payload.get("list")
                 if isinstance(forecast_payload, dict)
@@ -1519,6 +1523,11 @@ class ChallengeDataProvider:
             "snow_3h_mm": snow_data.get("3h", 0.0),
             "description": weather_item.get("description"),
         }
+        if self._context_capture is not None and forecast_received_at is not None:
+            receipt = {"point": deepcopy(nearest), "latitude": latitude, "longitude": longitude,
+                       "observed_at": forecast_received_at}
+            self._weather_receipts[cache_key] = receipt
+            self._context_capture.record_weather(fixture, **receipt)
         self._weather_cache[cache_key] = result
         return result
 

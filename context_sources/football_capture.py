@@ -111,6 +111,7 @@ def _previous_prematch_observations(path, event_keys):
 class _Capture:
     def __init__(self, path=None, *, baseline_enabled=False):
         self.errors, self.receipts, self.wanted, self.refs = [], [], set(), set()
+        self.weather_receipts = {}
         self.path = path
         self.baseline_processed = set()
         self.baseline_refs = {}
@@ -198,6 +199,35 @@ class _Capture:
         return {"schema": 1, "scope": "existing-football-context-requests",
                 "status": "partial" if self.errors else "captured" if self.refs else "no_receipts",
                 "receipt_refs": sorted(self.refs), "issues": sorted(set(self.errors))}
+
+    def record_weather(self, fixture, *, point, latitude, longitude, observed_at):
+        """Retain the existing GET, including cache hits at their ORIGINAL clock."""
+        from context_sources.openweather import forecast_payload, normalize_forecast
+        from context_models.contracts import digest
+        try:
+            event = _detail_event(fixture)
+            clock = canonical_timestamp(observed_at)
+            known = [(item["observed_at"], raw) for item in self.receipts
+                if item["endpoint"] == "fixtures" and item["observed_at"] <= clock
+                for raw in item["rows"] if raw["fixture"]["id"] == fixture["fixture"]["id"]]
+            if not known:
+                raise ContextContractError("native-event-binding-unavailable")
+            latest = max(at for at, _ in known)
+            city = str((fixture["fixture"].get("venue") or {}).get("city") or "").strip()
+            country = str(fixture["league"].get("country") or "").strip()
+            if any(_detail_event(raw) != event
+                    or str((raw["fixture"].get("venue") or {}).get("city") or "").strip() != city
+                    or str(raw["league"].get("country") or "").strip() != country
+                    for at, raw in known if at == latest):
+                raise ContextContractError("native-event-binding-unavailable")
+            data = forecast_payload(event, city=city, country=country, latitude=latitude,
+                                    longitude=longitude, point=point)
+            row = normalize_forecast(data, observed_at=observed_at)
+            self.weather_receipts[(digest(row), clock)] = (row, datetime.fromisoformat(clock))
+        except (ContextContractError, KeyError, TypeError, ValueError, OverflowError) as exc:
+            reason = ("native-event-binding-unavailable" if str(exc) == "native-event-binding-unavailable"
+                      else "native-projection-unavailable")
+            self.errors.append("Kontext-Capture: " + reason)
 
     def record(self, endpoint, params, payload, *, observed_at, status):
         if endpoint not in {"fixtures", "injuries"}:
@@ -332,6 +362,9 @@ class _Capture:
             for start in range(0, len(additions), 512):
                 self.refs.update(append_observation_batch(path,
                     tuple((record, observed) for record in additions[start:start+512])))
+        weather = tuple(self.weather_receipts.values())
+        for start in range(0, len(weather), 512):
+            self.refs.update(append_observation_batch(path, weather[start:start+512]))
 
 
 @contextmanager
