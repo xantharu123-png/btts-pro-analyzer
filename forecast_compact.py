@@ -128,6 +128,12 @@ def build_compact_analysis(signal, analysis, *, now):
         counter = _contract(spec, home, away)[1] if spec else 'Auswahl tritt nicht ein'
         facts.insert(0, Fact('Gegenrisiko', _percent(1 - signal.probability),
                              (counter, 'Modellschätzung, keine gesicherte Wahrscheinlichkeit.')))
+        if analysis.supported:
+            from football_customer_facts import football_customer_analysis
+            customer = football_customer_analysis(signal, now=now)
+            if customer:
+                facts.append(Fact('Gegenargument', 'Spielvergleich', (customer.counterargument,)))
+                facts.extend(Fact(label, value, customer.details) for label, value in customer.facts)
         def fresh(axis):
             clock = _clock(axis.get('checked_at'))
             return clock is not None and context.get('stale') is not True and timedelta(0) <= now - clock <= timedelta(minutes=75)
@@ -149,11 +155,19 @@ def build_compact_analysis(signal, analysis, *, now):
     elif sport == 'tennis' and analysis.supported:
         inputs = _tennis_inputs(signal)
         surface = {'hard': 'Hartplatz', 'clay': 'Sand', 'grass': 'Rasen', 'carpet': 'Teppich'}.get(str(inputs.get('surface')).casefold())
-        summary = f'Belag: {surface}' if surface else 'Belag nicht bekannt'
-        from tennis.customer_facts import customer_record_facts
+        from tennis.surface_evidence import tennis_choice_reason
+        reason, counter = tennis_choice_reason(signal.context_evidence,
+            signal.competitor_a, signal.competitor_b, signal.selected_competitor,
+            signal.probability, modeled_at=signal.modeled_at, market_key=signal.market_key)
+        summary = reason or (f'Belag: {surface}' if surface else 'Belag nicht bekannt')
+        if reason and surface:
+            facts.append(Fact('Belag', surface))
+        from tennis.customer_facts import customer_record_facts, customer_record_details
         records = customer_record_facts(signal.context_evidence, signal.competitor_a,
             signal.competitor_b, modeled_at=signal.modeled_at)
-        facts.extend(Fact(player, value, (scope,)) for player, value, scope in records)
+        details = customer_record_details(signal.context_evidence, signal.competitor_a,
+            signal.competitor_b, modeled_at=signal.modeled_at)
+        facts.extend(Fact(player, value, (scope, *details.get(player, ()))) for player, value, scope in records)
         surface_evidence = _mapping(_mapping(signal.context_evidence).get('surface_evidence'))
         surface_text = format_surface_evidence(
             surface_evidence, signal.competitor_a, signal.competitor_b
@@ -164,6 +178,15 @@ def build_compact_analysis(signal, analysis, *, now):
             facts.append(Fact(
                 'Belagspiele', f'{a} / {b}', (surface_text,),
             ))
+        if counter:
+            facts.append(Fact('Gegenargument', 'Kurzform & Vergleich', (counter,)))
+    elif sport in {'e-sport', 'esports', 'basketball', 'eishockey', 'ice_hockey'} and analysis.supported:
+        from team_customer_facts import team_customer_explanation
+        customer = team_customer_explanation(signal)
+        facts.extend(Fact('Letzte Spiele', text.split(': ', 1)[0], (text,))
+                     for text in customer['recent'])
+        if customer['counterpoint']:
+            facts.append(Fact('Gegenargument', 'Gegenseite', (customer['counterpoint'],)))
     elif not analysis.supported:
         summary = 'Modellgrundlagen unvollständig'
         warnings.append('Keine vollständige Begründung verfügbar')

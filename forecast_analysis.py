@@ -403,9 +403,11 @@ def _sport_analysis(signal, sport, now):
     from team_sport_forecasts import SOURCE, valid_research_row, research_signal_row
     if signal.source == SOURCE and valid_research_row(research_signal_row(signal), now=now):
         basis = signal.team_sport_snapshot['team_sport_forecast']
+        from team_customer_facts import team_customer_explanation
+        facts = team_customer_explanation(signal)
         return ForecastAnalysis(
-            f'Das sportspezifische Modell bewertet {signal.selection} mit {_percent(signal.probability)}. {signal.market}.',
-            'Modell noch nicht unabhängig bestätigt. Verletzungen und Müdigkeit sind nicht als numerische Effekte angewendet.',
+            (f'{signal.selected_competitor} ist die Außenseiter-Auswahl. ' if signal.probability < .5 else '')+f'Bewertung für {signal.selected_competitor}: '+(' '.join(facts['reasons']) or f'Das sportspezifische Modell bewertet {signal.selection} mit {_percent(signal.probability)}. {signal.market}.'),
+            (facts['counterpoint'] or '')+' Modell noch nicht unabhängig bestätigt. Verletzungen und Müdigkeit sind nicht als numerische Effekte angewendet.',
             f"Basis: {basis['training_games']} abgeschlossene Spiele; Heimteam {basis['home_games']}, Auswärtsteam {basis['away_games']}. Zeitlich getrennte Auswertung: {basis['evaluation']['count']} Spiele.",
             supported=True)
     if sport == 'tennis':
@@ -415,20 +417,24 @@ def _sport_analysis(signal, sport, now):
         surface = surfaces.get(str(inputs.get('surface', '')).casefold())
         if inputs.get('surface_in_model') is True and surface:
             from tennis.customer_facts import format_customer_records
-            from tennis.surface_evidence import format_surface_evidence
+            from tennis.surface_evidence import format_surface_evidence, tennis_choice_reason
             surface_evidence = _mapping(_mapping(signal.context_evidence).get('surface_evidence'))
             surface_text = format_surface_evidence(
                 surface_evidence, signal.competitor_a, signal.competitor_b
             )
             records = format_customer_records(signal.context_evidence,
                 signal.competitor_a, signal.competitor_b, modeled_at=signal.modeled_at)
-            basis = ' '.join(records)
-            if not basis:
-                basis = (surface_text + '. Sieg-/Niederlagenbilanz nicht verfügbar.'
+            reason, counter = tennis_choice_reason(signal.context_evidence,
+                signal.competitor_a, signal.competitor_b, signal.selected_competitor,
+                signal.probability, modeled_at=signal.modeled_at, market_key=signal.market_key)
+            basis = ' '.join(part for part in (reason, *records) if part)
+            if not records:
+                fallback = (surface_text + '. Sieg-/Niederlagenbilanz nicht verfügbar.'
                     if surface_text and surface_evidence.get('surface') == inputs.get('surface')
                     else f'Gespielt wird auf {surface}. Eine aktuelle Spielbilanz liegt nicht vor.')
+                basis = ' '.join(part for part in (reason, fallback) if part)
             return ForecastAnalysis(
-                basis, '',
+                basis, counter,
                 supported=True, data_age=age, data_current=current)
     if sport in {'e-sport', 'esports'}:
         evidence = _mapping(signal.context_evidence)
@@ -445,10 +451,12 @@ def _sport_analysis(signal, sport, now):
         if (not all(_number(n) and 0 < n < 10000 for n in (left, right))
                 or signal.selected_competitor not in (signal.competitor_a, signal.competitor_b)):
             return None
-        own, opponent = (left, right) if signal.selected_competitor == signal.competitor_a else (right, left)
+        from team_customer_facts import team_customer_explanation
+        facts = team_customer_explanation(signal)
         return ForecastAnalysis(
-            f'Modellbasis für {signal.selected_competitor}: Elo {own:.0f}, Gegner {opponent:.0f}. Diese gespeicherten Spielstärken fließen in das Siegmodell ein.',
-            'Kaderwechsel, Ersatzspieler und aktuelle Serienbelastung sind damit nicht als zusätzlicher Vorteil belegt.',
+            ' '.join(facts['reasons']) or f'{signal.selected_competitor} ist die Außenseiter-Auswahl in diesem Spielstärkenvergleich.',
+            facts['counterpoint'] or '',
+            samples=' '.join(facts['recent']),
             supported=True)
     return None
 
@@ -507,4 +515,13 @@ def build_forecast_analysis(signal, *, now: datetime | None = None) -> ForecastA
         caution += " " + _context_caution(_mapping(evidence.get("context")) if evidence else {}, current)
     age, data_current = _tennis_data_age(_tennis_inputs(signal), current) if sport == 'tennis' else ('', True)
     samples = _sample_copy(basis) if rates else ""
+    if football and rates:
+        from football_customer_facts import football_customer_analysis
+        customer = football_customer_analysis(signal, now=current)
+        if customer:
+            explanation = customer.summary
+            caution = customer.counterargument + ' ' + _context_caution(
+                _mapping(evidence.get('context')) if evidence else {}, current)
+            if signal.model_scope in ('cross_competition_provisional_forecast', 'cross_competition_unvalidated'):
+                caution += ' Die unterschiedliche Stärke ihrer Ligen ist noch nicht zuverlässig berücksichtigt.'
     return ForecastAnalysis(explanation, caution, samples, bool(rates and samples), age, data_current)

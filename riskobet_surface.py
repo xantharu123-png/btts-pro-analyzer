@@ -119,6 +119,10 @@ _INTERNAL_FACTOR_STATUS_TOKEN_RE = re.compile(
     flags=re.IGNORECASE,
 )
 _PUBLIC_DETAIL_REPLACEMENTS = (
+    (re.compile(r'\bSubgraph-Elo\s+\d+(?:[.,]\d+)?\s*/\s*\d+(?:[.,]\d+)?', re.IGNORECASE),
+     'Längerfristiger Spielstärkenvergleich'),
+    (re.compile(r'Spielstärke-Abstand:\s*\d+(?:[.,]\d+)?\s+Elo-Punkte', re.IGNORECASE),
+     'Längerfristiger Spielstärkenvergleich'),
     (re.compile(r"\bRESEARCH\s*:\s*", re.IGNORECASE),
      "Frühe Analyse · noch nicht historisch geprüft: "),
     (

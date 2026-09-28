@@ -1149,7 +1149,7 @@ def adapt_tennis_shadow(
         ) or TENNIS_FALLBACK_MODEL_VERSION
         event_key = stable_event_key("tennis", provider, provider_id)
         input_payload = {
-            "adapter_revision": "tennis-customer-facts-v3",
+            "adapter_revision": "tennis-customer-facts-v4",
             "prediction_id": prediction_id,
             "provider_event_id": provider_id,
             "created_utc": observed_at.isoformat(),
@@ -1291,16 +1291,19 @@ def adapt_tennis_shadow(
         chosen_side = max(options, key=lambda item: (item[0], item[1]), default=None)
         base_specs: list[tuple[str, str, float, float, str, str]] = []
         if not winner_tied and winner_probability >= TENNIS_WIN_MIN_PROBABILITY:
+            from tennis.surface_evidence import tennis_choice_reason
+            choice_reason, choice_counter = tennis_choice_reason(workload, player_a, player_b,
+                winner_underdog, winner_probability, modeled_at=observed_at, market_key='match_winner')
             base_specs.append((
                 "match_winner",
                 "Außenseitersieg",
                 winner_probability,
                 0.15,
-                (f"Grundmodell: Spielstärke auf "
+                choice_reason or (f"Grundmodell: Spielstärke auf "
                  f"{ {'Hard': 'Hartplatz', 'Clay': 'Sand', 'Grass': 'Rasen', 'Carpet': 'Teppich'}[input_payload['surface']]}."
                  if input_payload['surface'] in ("Hard", "Clay", "Grass", "Carpet") else
                  "Grundmodell: Spielstärke; aktueller Belag nicht eindeutig zugeordnet."),
-                (shared["summaries"]["A" if winner_side == "home" else "B"] if shared is not None else
+                choice_counter or (shared["summaries"]["A" if winner_side == "home" else "B"] if shared is not None else
                  "Belag ist modelliert. Akute Fitness, Verletzungen und Belastung sind noch nicht als numerischer Effekt validiert."),
             ))
         if chosen_side is not None:
@@ -1889,8 +1892,20 @@ def adapt_research_matchwinner(
         event.get("competition", event.get("league", event.get("tournament")))
     ) or sport
     from sports_prematch import predict_prematch
+    customer_results, customer_counters = [], {}
+    def capture(original):
+        if sport in {'basketball', 'ice_hockey'}:
+            from team_customer_facts import team_recent_facts, team_recent_counters, _recent_lines
+            recent = team_recent_facts(original)
+            if recent:
+                for side in ('a', 'b'):
+                    one_side = {**recent, ('b_results' if side == 'a' else 'a_results'): []}
+                    customer_results.extend((side, line) for line in _recent_lines(one_side, team=True))
+                customer_counters.update(team_recent_counters(recent))
+        if original_capture is not None:
+            original_capture(original)
     prediction = predict_prematch(sport, event, history, as_of=model_time,
-        **({"original_capture": original_capture} if original_capture is not None else {}))
+        **({"original_capture": capture} if sport in {'basketball', 'ice_hockey'} or original_capture is not None else {}))
     full_forecast = None
     if sport in {'basketball', 'ice_hockey'}:
         from team_sport_forecasts import TeamSportForecast, SCHEMA, SCOPES
@@ -1947,8 +1962,18 @@ def adapt_research_matchwinner(
         for index, summary in enumerate(prediction.factors)
         if prediction.latest_result_observed_at is not None
     )
+    factors += tuple(FactorEvidence(
+        factor_key='customer_recent_'+side, summary=text if len(text) <= 600 else text.split(';', 1)[0],
+        source='customer-results:'+prediction.input_hash, observed_at=model_time,
+        imported_at=model_time, fresh_until=starts_at, role=FactorRole.DISPLAY_ONLY)
+        for side, text in customer_results)
+    factors += tuple(FactorEvidence(factor_key='customer_counter_'+side, summary=text,
+        source='customer-results:'+prediction.input_hash, observed_at=model_time,
+        imported_at=model_time, fresh_until=starts_at, role=FactorRole.DISPLAY_ONLY)
+        for side, text in customer_counters.items())
     input_hash = canonical_input_hash(
         {
+            **({"adapter_revision": "team-customer-facts-v2"} if sport in {'basketball', 'ice_hockey'} else {}),
             "sport": sport,
             "provider": provider,
             "provider_event_id": provider_event_id,

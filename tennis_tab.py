@@ -653,7 +653,8 @@ def _render_match_card(row: dict) -> None:
         except (TypeError, ValueError):
             context = {}
         if isinstance(context, dict):
-            from tennis.customer_facts import format_customer_records
+            from tennis.customer_facts import format_customer_records, customer_record_details
+            from tennis.surface_evidence import tennis_choice_reason
             from tennis.prediction_revisions import utc_epoch
             try:
                 modeled_at = datetime.fromtimestamp(utc_epoch(row.get("created_utc")), timezone.utc)
@@ -664,11 +665,24 @@ def _render_match_card(row: dict) -> None:
             surface_text = format_surface_evidence(
                 context.get("surface_evidence"), row["player_a"], row["player_b"]
             )
+            reason, counter = tennis_choice_reason(context, row['player_a'], row['player_b'],
+                likely_player, likely_probability, modeled_at=modeled_at)
+            if reason:
+                st.write(reason)
             if records:
                 for record in records:
                     st.caption(record)
             elif surface_text:
                 st.caption(surface_text)
+            details = customer_record_details(context, row['player_a'], row['player_b'], modeled_at=modeled_at)
+            if details or counter:
+                with st.expander('Statistik & Details', expanded=False):
+                    if counter:
+                        st.write(counter)
+                    for name, rows in details.items():
+                        st.write(name)
+                        for result in rows:
+                            st.caption(result)
 
         if not model_gates_ok:
             st.warning("AKTUELL KEINE BELASTBARE TENNIS-AUSWAHL.")

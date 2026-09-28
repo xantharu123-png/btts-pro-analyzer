@@ -21,6 +21,7 @@ Two disciplines keep the metric honest:
 from __future__ import annotations
 
 import sqlite3
+import json
 from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
@@ -34,6 +35,7 @@ from multi_sport_recommendations import (
     esports_match_winner_candidate,
 )
 from scanners.esports_scanner import EsportsScanner
+from team_customer_facts import esports_recent_facts
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parent / "esports_shadow.db"
 MAX_SETTLE_CALLS_PER_RUN = 15
@@ -94,6 +96,15 @@ CREATE TABLE IF NOT EXISTS esports_shadow_form (
     source_input_hash TEXT NOT NULL,
     team1_last5_wins INTEGER NOT NULL CHECK (team1_last5_wins BETWEEN 0 AND 5),
     team2_last5_wins INTEGER NOT NULL CHECK (team2_last5_wins BETWEEN 0 AND 5)
+)
+"""
+
+_CUSTOMER_FACTS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS esports_shadow_customer_facts (
+    match_id INTEGER PRIMARY KEY,
+    logged_at TEXT NOT NULL,
+    source_input_hash TEXT NOT NULL,
+    facts_json TEXT NOT NULL
 )
 """
 
@@ -173,6 +184,7 @@ class EsportsShadowLog:
         logged = 0
         with closing(self._connect()) as connection:
             connection.execute(_FORM_SCHEMA)
+            connection.execute(_CUSTOMER_FACTS_SCHEMA)
             for match in matches or []:
                 if not isinstance(match, dict):
                     continue
@@ -263,6 +275,12 @@ class EsportsShadowLog:
                         "INSERT INTO esports_shadow_form VALUES (?, ?, ?, ?, ?)",
                         (match_id, now, last_five[2], last_five[0], last_five[1]),
                     )
+                    recent = esports_recent_facts(match, original)
+                    if recent is not None:
+                        connection.execute(
+                            "INSERT OR IGNORE INTO esports_shadow_customer_facts VALUES (?, ?, ?, ?)",
+                            (match_id, now, last_five[2], json.dumps(recent, ensure_ascii=False)),
+                        )
                 logged += cursor.rowcount
             connection.commit()
         return logged

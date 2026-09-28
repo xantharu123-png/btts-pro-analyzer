@@ -551,6 +551,36 @@ def esports_signals(
            WHERE status = 'upcoming' AND settled = 0
            ORDER BY logged_at DESC""",
     )
+    # Optional same-call display sidecar. Legacy rows stay unchanged; no
+    # current provider history is substituted for the frozen observation.
+    recent_by_identity = {}
+    recent_rows = _read_rows(db_path, """
+        SELECT c.match_id, c.logged_at, c.source_input_hash, c.facts_json
+        FROM esports_shadow_customer_facts c
+        JOIN esports_shadow_form f ON f.match_id = c.match_id
+          AND f.logged_at = c.logged_at AND f.source_input_hash = c.source_input_hash
+        JOIN esports_shadow_predictions p ON p.match_id = c.match_id
+          AND p.logged_at = c.logged_at
+    """)
+    for recent_row in recent_rows:
+        raw = recent_row['facts_json']
+        if not isinstance(raw, str) or len(raw) > 8000:
+            continue
+        try:
+            facts = json.loads(raw)
+        except (TypeError, ValueError):
+            continue
+        source_hash = recent_row['source_input_hash']
+        if (not isinstance(facts, dict) or facts.get('schema') != 'esports-recent-results-v1'
+                or not isinstance(source_hash, str) or len(source_hash) != 64
+                or any(c not in '0123456789abcdef' for c in source_hash)
+                or facts.get('source_input_hash') != source_hash
+                or facts.get('provider_event_id') != str(recent_row['match_id'])
+                or any(not isinstance(facts.get(field), list) or not 5 <= len(facts[field]) <= 10
+                       or any(type(value) is not bool for value in facts[field])
+                       for field in ('a_results', 'b_results'))):
+            continue
+        recent_by_identity[(str(recent_row['match_id']), recent_row['logged_at'])] = facts
     signals: List[ModelSignal] = []
     for row in rows:
         row = dict(row)
@@ -572,6 +602,17 @@ def esports_signals(
         minimum_odds = _minimum_odds(probability, max(0.0, haircut))
         if minimum_odds is None:
             continue
+        card_context = {
+            "schema": "esports-card-basis-v1", "provider_event_id": str(row["match_id"]),
+            "modeled_at": row["logged_at"], "competitor_a": str(row["team1"]),
+            "competitor_b": str(row["team2"]), "elo_a": row.get("elo1"),
+            "elo_b": row.get("elo2"), "series_type": row.get("series_type"),
+        }
+        recent = recent_by_identity.get((str(row['match_id']), row['logged_at']))
+        if (recent is not None and recent.get('competitor_a') == card_context['competitor_a']
+                and recent.get('competitor_b') == card_context['competitor_b']):
+            card_context['recent_results'] = recent
+            card_context['source_input_hash'] = recent['source_input_hash']
         signals.append(
             ModelSignal(
                 key=f"esports-{row['match_id']}",
@@ -608,15 +649,7 @@ def esports_signals(
                 provider_event_id=str(row["match_id"]),
                 competitor_a_id=str(row["team1_id"]) if row.get("team1_id") else None,
                 competitor_b_id=str(row["team2_id"]) if row.get("team2_id") else None,
-                context_evidence={
-                    "schema": "esports-card-basis-v1",
-                    "provider_event_id": str(row["match_id"]),
-                    "modeled_at": row["logged_at"],
-                    "competitor_a": str(row["team1"]),
-                    "competitor_b": str(row["team2"]),
-                    "elo_a": row.get("elo1"), "elo_b": row.get("elo2"),
-                    "series_type": row.get("series_type"),
-                },
+                context_evidence=card_context,
             )
         )
     return signals

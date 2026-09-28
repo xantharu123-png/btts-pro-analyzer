@@ -1,5 +1,40 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 28.09.2026 – Auswahlbegründung und echte Fünfer-/Zehnerbilanzen
+
+- Tennis: tatsächlichen längerfristigen Vergleich und gegebenenfalls verwendete
+  Aufschlag-/Rückschlagkomponente erklären, nicht eine kleine Ergebnisbilanz als
+  angebliche Begründung einsetzen. Bessere gegnerische Kurzform ist Gegenargument;
+  die letzten fünf und zehn erfassten Belagsspiele werden getrennt gezeigt.
+- Bereits vorhandene ATP-/WTA-Trainingsdateien rein lesend nutzen, keine
+  zusätzlichen Sport-/API-Abfragen. Maximal zehn kleine Ergebniszeilen pro
+  Spieler, höchstens 365 Tage; keine neuen Trainings-/Prognosekopien. Gegner und
+  Ergebnis aufklappbar, historische Weltranglistenplätze nur wenn tatsächlich
+  vorhanden. ATP bleibt ausdrücklich Turnierdatum, nicht exakter Spieltag.
+- Cache muss vor der Prognose bestanden haben. Keine Anreicherung alter Karten
+  mit später geladenen Ergebnissen, keine Änderung historischer Prognosen.
+  Umfang der Cache-Bilanz: abgeschlossene K.-o.-Runden inklusive Qualifikation;
+  ungeordnetes Round-Robin wird nicht als erfundene jüngste Reihenfolge gezeigt.
+- Fußball: markt- und seitenrichtige Tor-/Zählprognose plus konkretes
+  Gegenargument. Die gespeicherten Formspielzahlen sind keine S/U/N-Bilanzen;
+  fehlende Gegnerlisten werden nicht erfunden. Für vollständige Fußball-5/10-
+  Listen fehlt weiterhin eine gespeicherte historische Detailprojektion.
+- Basketball/Eishockey: echte zuletzt konsumierte Ergebnisse in bestehenden
+  reinen Anzeigefaktoren; Gegenargument bei besserer gegnerischer Kurzform.
+  Hockey-Endstände inklusive Verlängerung/Penaltyschießen bleiben von den
+  erwarteten Toren der regulären Spielzeit getrennt. E-Sport: echte zuletzt
+  konsumierte fünf/zehn Serien, keine aus IDs erfundene Gegnerstärke.
+- Gemeinsame Karten (Wettfinder/Daily3), Tennis und RisikoBet angeschlossen.
+  Alte RisikoBet-Elo-Zahlen am öffentlichen Formatter bereinigt. Neue Adapter-
+  Darstellungen getrennt versioniert, historische Inhalte nicht überschreiben.
+- Cricket, Modellwahrscheinlichkeiten, Auswahlreihenfolge, Quote und Geldregeln
+  bleiben unverändert. Keine neue Verletzungs-/Müdigkeitsfreigabe oder behauptete
+  bessere Wettqualität. Kundenportal/Paywall weiterhin nicht aktiviert.
+- Vor Veröffentlichung: **354 betroffene Tests, 26 Untertests bestanden**;
+  unabhängiges Read-only-Review ohne offene Codebefunde. Breite Suite läuft noch;
+  keinen abgeschlossenen Volltestlauf oder Live-Nachweis daraus ableiten.
+- [Audit und Abnahmegrenzen](docs/audits/2026-09-28-kundenbegruendungen.md).
+
 ## 27.09.2026 – Mindestquote bei Vorschlägen wiederhergestellt
 
 - Die Ausnahme **bekannte exakt passende Quote unter 1,20 ausblenden** gilt

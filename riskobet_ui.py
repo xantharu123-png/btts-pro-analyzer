@@ -452,6 +452,12 @@ def _render_detail(
         )
         if surface_text:
             st.caption(surface_text)
+        for factor in snapshot.factors:
+            if factor.role is FactorRole.DISPLAY_ONLY and factor.factor_key.startswith('customer_recent_'):
+                st.caption(format_riskobet_public_detail(factor.summary))
+            elif (factor.role is FactorRole.DISPLAY_ONLY
+                    and factor.factor_key == 'customer_counter_'+candidate.selection_key):
+                st.caption('Gegenargument: '+format_riskobet_public_detail(factor.summary))
         visible_context = tuple(
             format_riskobet_public_detail(factor.summary)
             for factor in snapshot.factors

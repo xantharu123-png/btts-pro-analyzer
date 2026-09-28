@@ -20,13 +20,82 @@ MAX_MATCHES = 10
 
 def attach_customer_statistics(prediction, history, *, tour):
     """Freeze presentation facts after prediction, outside the sealed model."""
-    if (not history or _instant(getattr(prediction, "modeled_at", None)) is None
+    if (_instant(getattr(prediction, "modeled_at", None)) is None
             or not isinstance(getattr(prediction, "context_evidence", None), dict)):
+        return
+    from .cached_results import cached_match_statistics
+    cached = cached_match_statistics(prediction.player_a, prediction.player_b,
+        surface=prediction.surface, tour=tour, as_of=prediction.modeled_at)
+    if cached:
+        prediction.context_evidence['match_statistics'] = cached
         return
     statistics = build_match_statistics(prediction.player_a, prediction.player_b, history,
         surface=prediction.surface, tour=tour, as_of=prediction.modeled_at)
     if any(item.get("recent") for item in statistics["players"].values()):
         prediction.context_evidence["match_statistics"] = statistics
+
+
+def customer_statistics_context(context, player_a, player_b, *, modeled_at):
+    """Optional old-card projection using only a cache predating that forecast."""
+    if not isinstance(context, Mapping):
+        return context
+    raw, inputs = context.get('match_statistics'), context.get('model_inputs')
+    if isinstance(raw, Mapping) and raw.get('schema') == 'tennis-customer-results-v2':
+        return context
+    cutoff = _instant(modeled_at)
+    players = context.get('players')
+    if (cutoff is None or _instant(context.get('observed_at')) != cutoff
+            or not isinstance(inputs, Mapping) or not isinstance(players, Mapping)
+            or any(not isinstance(players.get(side), Mapping) or players[side].get('player') != name
+                   for side, name in (('a', player_a), ('b', player_b)))):
+        return context
+    from .cached_results import cached_match_statistics
+    cached = cached_match_statistics(player_a, player_b, surface=inputs.get('surface'),
+        tour=inputs.get('model_tour_scope') or (raw.get('tour') if isinstance(raw, Mapping) else None), as_of=cutoff)
+    # Do not replace a fuller live-result sample with a smaller cached one.
+    prior_counts = {}
+    if isinstance(raw, Mapping):
+        old_players = raw.get('players', {})
+        if not isinstance(old_players, Mapping):
+            return context
+        for side in ('a', 'b'):
+            entry = old_players.get(side, {})
+            if not isinstance(entry, Mapping) or not isinstance(entry.get('surface', {}), Mapping):
+                return context
+            count = entry.get('surface', {}).get('matches', 0)
+            if type(count) is not int or not 0 <= count <= MAX_MATCHES:
+                return context
+            prior_counts[side] = count
+    if cached and all(len(cached['players'][side]['surface_results']) >= prior_counts.get(side, 0) for side in ('a', 'b')):
+        return {**context, 'match_statistics': cached}
+    return context
+
+
+def _result_details(sample, *, cutoff):
+    if not isinstance(sample, list) or not 1 <= len(sample) <= MAX_MATCHES:
+        return ()
+    details, previous = [], cutoff.date()
+    for row in sample:
+        if not isinstance(row, Mapping) or type(row.get('won')) is not bool:
+            return ()
+        try:
+            day = date.fromisoformat(row['date'])
+        except (KeyError, TypeError, ValueError):
+            return ()
+        if not cutoff.date()-timedelta(days=365) <= day <= previous:
+            return ()
+        opponent, score, rank = row.get('opponent'), row.get('score'), row.get('opponent_rank')
+        if (not isinstance(opponent, str) or not 0 < len(opponent) <= 120
+                or any(ord(c) < 32 for c in opponent) or not isinstance(score, str)
+                or score not in {'2:0', '2:1', '3:0', '3:1', '3:2', '0:2', '1:2', '0:3', '1:3', '2:3'}
+                or (rank is not None and (type(rank) is not int or not 1 <= rank <= 3000))
+                or row.get('date_kind') not in ('tournament_date', 'result_date')):
+            return ()
+        label = 'Turnierdatum' if row['date_kind'] == 'tournament_date' else 'Ergebnisdatum'
+        quality = f' · damaliger Rang {rank}' if rank is not None else ''
+        details.append(f'{label} {day:%d.%m.%Y}: {"Sieg" if row["won"] else "Niederlage"} {score} gegen {opponent}{quality}')
+        previous = day
+    return tuple(details)
 
 
 def build_match_statistics(player_a, player_b, history, *, surface, tour, as_of):
@@ -89,11 +158,12 @@ def customer_record_facts(context, player_a, player_b, *, modeled_at):
     """Return (player, compact value, scoped description), or no claim at all."""
     if not isinstance(context, Mapping):
         return ()
+    context = customer_statistics_context(context, player_a, player_b, modeled_at=modeled_at)
     inputs, raw = context.get("model_inputs"), context.get("match_statistics")
     cutoff = _instant(modeled_at)
     if (not isinstance(inputs, Mapping) or not isinstance(raw, Mapping) or cutoff is None
             or _instant(context.get("observed_at")) != cutoff
-            or raw.get("schema") != "tennis-customer-results-v1"
+            or raw.get("schema") not in ("tennis-customer-results-v1", "tennis-customer-results-v2")
             or _instant(raw.get("observed_at")) != cutoff
             or raw.get("surface") != inputs.get("surface")
             or raw.get("tour") not in ("ATP", "WTA")
@@ -120,7 +190,8 @@ def customer_record_facts(context, player_a, player_b, *, modeled_at):
             first, last = date.fromisoformat(sample["from"]), date.fromisoformat(sample["through"])
         except (KeyError, TypeError, ValueError):
             continue
-        if not cutoff.date() - timedelta(days=WINDOW_DAYS) <= first <= last <= cutoff.date():
+        v2 = raw['schema'] == 'tennis-customer-results-v2'
+        if not cutoff.date() - timedelta(days=365 if v2 else WINDOW_DAYS) <= first <= last <= cutoff.date():
             continue
         surface = raw.get("surface")
         if group == "surface" and (not isinstance(surface, str) or surface not in SURFACE_NAMES):
@@ -128,8 +199,30 @@ def customer_record_facts(context, player_a, player_b, *, modeled_at):
         label = SURFACE_NAMES[surface] if group == "surface" else "Alle Beläge"
         scope = f"{label} · {count} erfasste Spiele · {first:%d.%m.%Y}–{last:%d.%m.%Y}"
         value = f"{wins}/{count} Siege" + (" · alle Beläge" if group == "recent" else "")
+        if v2:
+            results = entry.get('surface_results')
+            if (not _result_details(results, cutoff=cutoff) or len(results) != count
+                    or sum(row['won'] for row in results) != wins
+                    or results[-1]['date'] != sample['from'] or results[0]['date'] != sample['through']):
+                continue
+            windows = [f'{sum(row["won"] for row in results[:n])}/{n}' for n in (5, 10) if count >= n]
+            value = ' · '.join(windows)+' Siege' if windows else f'{wins}/{count} Siege'
+            scope = f'{label} · letzte {"5 / 10" if count >= 10 else str(count)} erfasste Spiele · {first:%d.%m.%Y}–{last:%d.%m.%Y}'
+            if raw.get('coverage') == 'completed_knockout_rounds':
+                scope += ' · K.-o.-Runden einschließlich Qualifikation'
         facts.append((player, value, scope))
     return tuple(facts)
+
+
+def customer_record_details(context, player_a, player_b, *, modeled_at):
+    context = customer_statistics_context(context, player_a, player_b, modeled_at=modeled_at)
+    facts = customer_record_facts(context, player_a, player_b, modeled_at=modeled_at)
+    raw = context.get('match_statistics') if isinstance(context, Mapping) else None
+    if not isinstance(raw, Mapping) or raw.get('schema') != 'tennis-customer-results-v2' or not isinstance(raw.get('players'), Mapping):
+        return {}
+    allowed = {row[0] for row in facts}
+    return {entry['player']: _result_details(entry.get('surface_results'), cutoff=_instant(modeled_at))
+            for entry in raw['players'].values() if isinstance(entry, Mapping) and entry.get('player') in allowed}
 
 
 def format_customer_records(context, player_a, player_b, *, modeled_at):
