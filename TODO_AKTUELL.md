@@ -30,9 +30,22 @@
 - Cricket, Modellwahrscheinlichkeiten, Auswahlreihenfolge, Quote und Geldregeln
   bleiben unverändert. Keine neue Verletzungs-/Müdigkeitsfreigabe oder behauptete
   bessere Wettqualität. Kundenportal/Paywall weiterhin nicht aktiviert.
-- Vor Veröffentlichung: **354 betroffene Tests, 26 Untertests bestanden**;
-  unabhängiges Read-only-Review ohne offene Codebefunde. Breite Suite läuft noch;
-  keinen abgeschlossenen Volltestlauf oder Live-Nachweis daraus ableiten.
+- Veröffentlicht: Code-Commits `e7d2205` und `00ef419` auf `main` gepusht und
+  auf dem VPS per Fast-forward gezogen, ohne neue Sicherung oder zusätzlichen
+  Sport-/API-Scan. App aktiv; interner und öffentlicher Healthcheck `ok`.
+- **356 betroffene Tests, 26 Untertests bestanden**; unabhängige Reviews des
+  Anzeigen- und abschließenden Cache-Diffs ohne offene Befunde. Die zusätzliche
+  Vollsuite wurde nach rund 32 Minuten unterbrochen; kein Vollsuite-PASS behauptet.
+- Live Rublev/Jacquet: Rublev 3/5 und 4/10, Jacquet 4/5 und 6/10 echte erfasste
+  Hartplatzsiege. Längerfristiger Vergleich als Begründung, bessere gegnerische
+  Kurzform als Gegenargument; Gegner und Ergebnisse aufklappbar.
+- Wiederholte Statistikabfragen auf dem VPS: vorher 0,353 s, jetzt 0,0003–0,0005 s;
+  einmaliger Tagesindex im Arbeitsspeicher, keine zusätzliche Datenbankhistorie.
+  Desktop und 390×844 Mobil geprüft; kein horizontaler Überlauf.
+- Bereits gespeicherte RisikoBet-Anzeigefaktoren bleiben historisch unverändert;
+  die neuen Fünfer-/Zehnerfakten entstehen dort beim nächsten regulären Lauf.
+  Basket-/Hockey-Anbindungen sind regressionsgeprüft, mangels heutiger Karten
+  nicht als echte aktuelle Produktionsspiele bestätigt.
 - [Audit und Abnahmegrenzen](docs/audits/2026-09-28-kundenbegruendungen.md).
 
 ## 27.09.2026 – Mindestquote bei Vorschlägen wiederhergestellt
