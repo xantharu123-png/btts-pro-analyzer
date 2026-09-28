@@ -357,6 +357,7 @@ def _football_candidate_record(
     *,
     context_checked_at: Optional[datetime] = None,
     allow_basic: bool = False,
+    customer_recent_results=None,
 ) -> Optional[dict[str, Any]]:
     if not isinstance(candidate, ChallengeCandidate):
         return None
@@ -461,7 +462,7 @@ def _football_candidate_record(
         ),
     }
     record["analysis_evidence"] = project_football_analysis(
-        record, model_basis=vars(candidate),
+        record, model_basis={**vars(candidate), "customer_recent_results": customer_recent_results},
     )
     return record
 
@@ -1073,6 +1074,8 @@ def _football_state_from_snapshot(
     search_date: date,
 ) -> dict[str, Any]:
     scanned_at = _parse_iso(snapshot.get("scanned_at")) or attempted_at
+    recent_results = snapshot.get('football_recent_results')
+    recent_results = recent_results if isinstance(recent_results, dict) else {}
     discovery_values = _first_present_candidate_list(
         snapshot,
         "discovery_candidates",
@@ -1101,12 +1104,17 @@ def _football_state_from_snapshot(
         )
         if payload is not None
     ]
+    from football_customer_facts import validated_football_recent_map
+    recent_results = validated_football_recent_map(recent_results,
+        (*riskobet_payloads, *_wettfinder_candidates_from_snapshot(snapshot),
+         *_first_present_candidate_list(snapshot, 'basis_forecasts')), model_clock=scanned_at)
     records = [
         record
         for record in (
             _football_candidate_record(
                 candidate,
                 context_checked_at=scanned_at,
+                customer_recent_results=recent_results.get(str(candidate.fixture_id)),
             )
             for candidate in _wettfinder_candidates_from_snapshot(snapshot)
         )
@@ -1127,6 +1135,7 @@ def _football_state_from_snapshot(
                 candidate,
                 context_checked_at=scanned_at,
                 allow_basic=True,
+                customer_recent_results=recent_results.get(str(candidate.fixture_id)),
             )
             for candidate in _first_present_candidate_list(
                 snapshot,
@@ -1268,6 +1277,7 @@ def _football_state_from_snapshot(
         "discovery_candidates": discovery_payloads,
         "discovery_candidate_count": len(discovery_payloads),
         "riskobet_source_candidates": riskobet_payloads,
+        "football_recent_results": recent_results,
         "riskobet_source_candidate_count": len(riskobet_payloads),
         "riskobet_context_checked_fixture_ids": (
             riskobet_checked_fixture_ids
@@ -1585,12 +1595,26 @@ def _merge_context_refresh(
         row for row in (state.get("candidates") or []) if isinstance(row, dict)
     ]
     refreshed_candidates = _wettfinder_candidates_from_snapshot(result)
+    recent_results = result.get('football_recent_results')
+    recent_results = recent_results if isinstance(recent_results, dict) else {}
+    if recomputed:
+        from football_customer_facts import validated_football_recent_map
+        updated_recent = validated_football_recent_map(recent_results,
+            (*refreshed_candidates, *result.get('riskobet_source_candidates', ()),
+             *result.get('basis_forecasts', ())), model_clock=model_refresh['input_cutoff_at'])
+        prior_recent = state.get('football_recent_results')
+        prior_recent = prior_recent if isinstance(prior_recent, dict) else {}
+        refreshed['football_recent_results'] = {
+            **{key: value for key, value in prior_recent.items() if str(key) not in {str(i) for i in allowed}},
+            **{key: value for key, value in updated_recent.items() if key in {str(i) for i in recomputed}},
+        }
     new_records = [
         record
         for record in (
             _football_candidate_record(
                 candidate,
                 context_checked_at=checked_at,
+                customer_recent_results=recent_results.get(str(candidate.fixture_id)),
             )
             for candidate in refreshed_candidates
         )
@@ -1612,6 +1636,7 @@ def _merge_context_refresh(
                 candidate,
                 context_checked_at=checked_at,
                 allow_basic=True,
+                customer_recent_results=recent_results.get(str(candidate.fixture_id)),
             )
             for candidate in refreshed_basis_candidates
         )
@@ -1631,8 +1656,14 @@ def _merge_context_refresh(
                                  else previous_record.get(field) or state.get("last_discovery_at"))
             evidence = record.get("analysis_evidence")
             if evidence is not None:
+                basis = evidence['basis']
+                if record.get('fixture_id') not in recomputed:
+                    from forecast_analysis import read_football_analysis
+                    prior = read_football_analysis(previous_record)
+                    basis = {**basis, 'customer_recent_results':
+                             prior['basis'].get('customer_recent_results') if prior else None}
                 record["analysis_evidence"] = project_football_analysis(
-                    record, model_basis={**record, **evidence["basis"]},
+                    record, model_basis={**record, **basis},
                 )
     new_by_fixture: dict[int, list[dict[str, Any]]] = {}
     for record in new_records:
@@ -2592,6 +2623,7 @@ def _riskobet_football_source(
                 fixture_pool,
                 modeled_at=source_time,
                 input_cutoff_at=source_time,
+                recent_results_by_fixture=football_state.get('football_recent_results'),
             )
         )
     return tuple(results)

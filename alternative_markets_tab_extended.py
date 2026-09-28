@@ -756,6 +756,7 @@ def create_alternative_markets_tab_extended(
                 challenge_snapshot.get("operational_errors") or []
             ),
             "errors": challenge_snapshot.get("errors", []),
+            "football_recent_results": challenge_snapshot.get('football_recent_results', {}),
         }
         scan_jobs.clear_job(job_key)
     elif job["state"] == "error":
@@ -838,6 +839,22 @@ def create_alternative_markets_tab_extended(
                 index = start_index + offset
                 st.caption(f"Auswahl {index}")
                 render_model_selection(candidate, presentation="fixture_first")
+                from football_customer_facts import manual_football_customer_analysis
+                from forecast_compact import CompactAnalysis, Fact, render_compact_analysis_html
+                from forecast_analysis import format_model_clock
+                recent = snapshot.get('football_recent_results')
+                recent = recent if isinstance(recent, dict) else {}
+                customer = manual_football_customer_analysis(raw_candidate,
+                    recent_results=recent.get(str(raw_candidate.fixture_id)),
+                    model_clock=snapshot.get('scanned_at'), now=price_now)
+                if customer:
+                    fact_details = dict(customer.fact_details)
+                    compact = CompactAnalysis(customer.summary,
+                        tuple(Fact(label, value, fact_details.get(label, customer.details))
+                              for label, value in customer.facts),
+                        (), (customer.counterargument, *customer.details),
+                        format_model_clock(snapshot.get('scanned_at')))
+                    st.markdown(render_compact_analysis_html(compact), unsafe_allow_html=True)
                 with st.popover("Kontextdaten"):
                     st.caption(candidate_context_summary(raw_candidate))
                 if offset < len(candidates) - 1:

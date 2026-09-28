@@ -789,6 +789,7 @@ def football_risk_bundle(
     provider: str = "api-football",
     model_version: str = FOOTBALL_MODEL_VERSION,
     policy_version: str = RISKOBET_POLICY_VERSION,
+    recent_results=None,
 ) -> RiskAdapterResult:
     """Freeze one fixture's selected, optionally contextualised candidates."""
 
@@ -890,6 +891,31 @@ def football_risk_bundle(
     context_factors, context_state, context_pros, context_cons, context_payload = (
         _football_context_parts(selected, model_time, starts_at)
     )
+    from football_customer_facts import validated_football_recent_results, recent_football_result_facts
+    recent = validated_football_recent_results(recent_results, identity={
+        'fixture_id': fixture_id, 'home_id': _get(selected[0], 'home_team_id'),
+        'away_id': _get(selected[0], 'away_team_id'), 'scheduled_start': starts_at.isoformat(),
+        'model_scope': _get(selected[0], 'model_scope'), 'input_cutoff_at': cutoff.isoformat()})
+    recent_factors = []
+    if recent:
+        facts, details = recent_football_result_facts(recent, home=home, away=away)
+        for side, team in (('home', home), ('away', away)):
+            label = dict(facts).get('Form '+team)
+            if not label:
+                continue
+            text = team+': '+label
+            for count in (10, 5, 1):
+                rows = recent[side][:count]
+                opponents = '; '.join(f'{r["opponent"]} {r["scored"]}:{r["conceded"]}' for r in rows)
+                expanded = text + f'; Gegner ({len(rows)}): ' + opponents
+                if len(expanded) <= 600:
+                    text = expanded
+                    break
+            recent_factors.append(FactorEvidence(factor_key='customer_recent_'+side,
+                summary=text,
+                source='loaded-football-results:'+canonical_input_hash(recent),
+                observed_at=_parse_datetime(recent['as_of']), imported_at=model_time,
+                fresh_until=starts_at, sample_size=len(recent[side]), role=FactorRole.DISPLAY_ONLY))
     minimum_venue = min(
         (
             min(tuple(_get(candidate, "venue_samples", ()) or (0,)))
@@ -932,6 +958,7 @@ def football_risk_bundle(
                 _clean_text(_get(candidate, "candidate_id")) for candidate in selected
             ),
             "context": context_payload,
+            **({'customer_recent_results': recent} if recent is not None else {}),
         }
     )
     snapshot = EventModelSnapshot(
@@ -944,7 +971,7 @@ def football_risk_bundle(
         input_cutoff_at=cutoff,
         model_version=model_version,
         input_hash=input_hash,
-        factors=(model_factor, *context_factors),
+        factors=(model_factor, *context_factors, *recent_factors),
         missing_core_data=(),
     )
     candidates = tuple(
@@ -981,6 +1008,7 @@ def adapt_football_candidates(
     provider: str = "api-football",
     model_version: str = FOOTBALL_MODEL_VERSION,
     policy_version: str = RISKOBET_POLICY_VERSION,
+    recent_results_by_fixture=None,
 ) -> tuple[RiskAdapterResult, ...]:
     """Convenience adapter for pools that need no separate context roundtrip."""
 
@@ -1004,6 +1032,7 @@ def adapt_football_candidates(
             provider=provider,
             model_version=model_version,
             policy_version=policy_version,
+            recent_results=(recent_results_by_fixture or {}).get(str(key[0])),
         )
         for key in sorted(selected_groups, key=lambda item: (item[1], item[0]))
     )

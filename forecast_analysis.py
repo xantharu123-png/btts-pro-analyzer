@@ -123,6 +123,10 @@ def _basis_projection(raw: Mapping, *, identity=None) -> dict:
         comparison = validated_comparison(raw.get('market_comparison'), identity=identity)
         if comparison is not None:
             result['market_comparison'] = comparison
+        from football_customer_facts import validated_football_recent_results
+        recent = validated_football_recent_results(raw.get('customer_recent_results'), identity=identity)
+        if recent is not None:
+            result['customer_recent_results'] = recent
     return result
 
 

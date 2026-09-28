@@ -133,7 +133,9 @@ def build_compact_analysis(signal, analysis, *, now):
             customer = football_customer_analysis(signal, now=now)
             if customer:
                 facts.append(Fact('Gegenargument', 'Spielvergleich', (customer.counterargument,)))
-                facts.extend(Fact(label, value, customer.details) for label, value in customer.facts)
+                fact_details = dict(customer.fact_details)
+                facts.extend(Fact(label, value, fact_details.get(label, customer.details))
+                             for label, value in customer.facts)
         def fresh(axis):
             clock = _clock(axis.get('checked_at'))
             return clock is not None and context.get('stale') is not True and timedelta(0) <= now - clock <= timedelta(minutes=75)

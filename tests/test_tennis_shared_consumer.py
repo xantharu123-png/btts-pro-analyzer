@@ -177,7 +177,7 @@ def test_no_link_keeps_legacy_models_with_only_versioned_risk_explanation_change
     # and derived IDs rather than deleting those fields from the comparison.
     def expected_revision_hash(payload):
         assert 'adapter_revision' not in payload
-        return risk.canonical_input_hash({**payload, 'adapter_revision': 'tennis-observed-context-copy-v2'})
+        return risk.canonical_input_hash({**payload, 'adapter_revision': 'tennis-customer-facts-v4'})
     old_risk['canonical_input_hash'] = expected_revision_hash
     monkeypatch.setattr("context_consumers._reader", lambda *a, **k: pytest.fail("legacy read context"))
     current = NOW+timedelta(seconds=3)
@@ -194,11 +194,11 @@ def test_no_link_keeps_legacy_models_with_only_versioned_risk_explanation_change
         for factor in snapshot.factors:
             if factor.factor_key == 'tennis_prediction_id:1':
                 factors.append(factor)
-                # The new surface explanation is display-only: it must not
-                # alter the frozen model, snapshot ID, or candidate IDs.
+                # These are display-only facts. The versioned hash above
+                # independently predicts the new snapshot/candidate IDs;
+                # the underlying frozen model remains unchanged.
                 factors.append(replace(factor, factor_key='tennis_surface_evidence',
-                    summary='Hartplatz: Alpha A 1.666 Elo (5 Spiele) · Beta B 1.334 Elo '
-                            '(5 Spiele) · Gesamt-Elo verwendet · Daten bis 08.09.2026',
+                    summary='Hartplatz: Alpha A 5 erfasste Spiele · Beta B 5 erfasste Spiele',
                     source='tennis-shadow-surface-elo'))
                 continue
             if factor.factor_key in names:

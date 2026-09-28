@@ -4012,7 +4012,10 @@ def test_research_batch_uses_injected_completed_causal_history_once():
     assert len(batch.candidates) == 1
     assert batch.candidates[0].model_probability is not None
     assert batch.snapshots[0].modeled_at == now
-    assert sorted(factor.sample_size for factor in batch.snapshots[0].factors) == [40, 40]
+    model_factors = [factor for factor in batch.snapshots[0].factors
+                     if not factor.factor_key.startswith('customer_')]
+    assert sorted(factor.sample_size for factor in model_factors) == [40, 40]
+    assert any(factor.factor_key == 'customer_recent_a' for factor in batch.snapshots[0].factors)
 
 
 def test_research_without_completed_history_stays_open_without_probability():

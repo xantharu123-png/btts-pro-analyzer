@@ -1,5 +1,39 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 28.09.2026 – Fortsetzung: Fußballform und vollständiger Kontextbestand
+
+- Fußball-Fünfer-/Zehnerlisten implementiert: kleine Anzeigeprojektion aus der
+  bereits geladenen Modellhistorie, keine weitere Datenabfrage. Ergebnisse,
+  Gegner, Heim/Gast und Wettbewerb je Team einzeln aufklappbar. Weniger als fünf
+  oder zehn vorhandene Spiele werden nicht zu einer vollständigen Bilanz erklärt.
+- Wettfinder/Daily3, manuelle Suche und RisikoBet erhalten dieselben exakt an
+  Spiel, Teilnehmer, Termin und Berechnungszeit gebundenen Fakten. Bereits
+  gespeicherte Prognosen werden nicht rückwirkend mit neueren Spielen ergänzt.
+  Gleichnamige Teams werden in der normalen Karte nach Heim/Gast unterschieden.
+- Keine Formdaten als neue Ranking-/Modellmerkmale; RisikoBet-Faktoren sind
+  `DISPLAY_ONLY`. Quotenuntergrenze, Geldregeln und Cricket bleiben unverändert.
+- 752 betroffene Tests und 85 Untertests sowie 120 abschließende Text-/Hash-/
+  Installerprüfungen bestanden (überlappende Läufe). Unabhängiges Abschlussreview
+  ohne offenen Befund. Die erste unveränderte Vollsuite fand zwei Altformat-
+  Abstürze der manuellen Zusatzstatistik (11.272 bestanden, 96 Skips, 111 Untertests).
+  Fehlende native Team-IDs oder Termine lassen nun nur diese Zusatzstatistik
+  aus; die Karte bleibt erhalten. Fünf Fälle vorher rot, danach 115 betroffene
+  Tests bestanden. Die erneute Vollsuite ist grün: 11.277 bestanden, 96 Skips,
+  111 Untertests bestanden. Alle 11.373 gesammelten Tests in zwei disjunkten
+  Gruppen erfasst; 15 Produkt-/Testdateien währenddessen per SHA-256 unverändert.
+  Veröffentlichung erst nach dem getrennten Git-/VPS-Nachweis als live bezeichnen.
+- Reale Tennis-Vollbestandsprüfung: 72 ATP- und 289 WTA-Ereignisse mit passend
+  gebundenem Endergebnis. Kein ATP-Fall mit gemessener Dauer; WTA nur zwei Fälle
+  mit vollständiger beidseitiger Drei-Tage-Satzabdeckung. Keine nutzbare akute
+  Verletzungswirkung. 250 WTA-Fälle haben eine beobachtungsgebundene Erholungs-
+  untergrenze; daraus weder vollständige Fitness noch einen geprüften Effekt
+  ableiten. ATP/WTA nicht zusammenzählen, um die Abnahmegrenze zu erreichen.
+- Fußball: 26 verschiedene native Ereignisse, vier vollständig quellgebundene
+  Originale; neun tatsächlich gespeicherte Wetterantworten. Keine freigegebenen
+  Effekt-/Experimentartefakte. Der vollständige numerische Wirkungsnachweis und
+  verbleibende Trainings-/Aktivierungsanbindungen bleiben offen.
+- [Prüfbericht, Datenzahlen und Abnahmegrenzen](docs/audits/2026-09-28-fussball-form-kontextbestand.md).
+
 ## 28.09.2026 – Auswahlbegründung und echte Fünfer-/Zehnerbilanzen
 
 - Tennis: tatsächlichen längerfristigen Vergleich und gegebenenfalls verwendete

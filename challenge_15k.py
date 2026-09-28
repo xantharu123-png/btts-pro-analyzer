@@ -2650,6 +2650,7 @@ def scan_daily_challenge(
             f"{len(fixtures)} Spiele werden mathematisch modelliert",
         )
     all_candidates: list[ChallengeCandidate] = []
+    football_recent_results = {}
     if original_publication is not None:
         original_publication.freeze(tuple([*fixtures,
             *(row for rows in histories.values() for row in rows),
@@ -2703,6 +2704,13 @@ def scan_daily_challenge(
             **(original_publication.model_kwargs(decision_at=datetime.now(timezone.utc))
                if original_publication is not None else {}),
         )
+        if fixture_candidates:
+            from football_customer_facts import build_football_recent_results
+            recent = build_football_recent_results(fixture,
+                fixture_team_histories.get(fixture_id, histories.get(competition, [])),
+                as_of=datetime.now(timezone.utc), model_scope=fixture_candidates[0].model_scope)
+            if recent is not None:
+                football_recent_results[str(fixture_id)] = recent
         if fixture_id in fixture_team_histories:
             for candidate in fixture_candidates:
                 candidate.reasons.append(
@@ -2939,6 +2947,7 @@ def scan_daily_challenge(
     return {
         "version": CHALLENGE_SNAPSHOT_VERSION,
         "invalidated_fixture_ids": sorted(invalidated_fixture_ids),
+        "football_recent_results": football_recent_results,
         **({"football_original_capture": original_publication.report()} if original_publication is not None else {}),
         "scanned_at": datetime.now(timezone.utc).isoformat(),
         "scope": _scope_signature(

@@ -20,9 +20,17 @@ from context_sources.tennis_status import STATUS_SCHEMA, validate_selected_tenni
 from context_sources.tennis import SOURCE_SCHEMA
 
 
-def audit_tennis_readiness(path, *, as_of, sample_limit=25, seconds=120, progress=None, inventory_only=False):
-    if type(inventory_only) is not bool:
-        raise ValueError('inventory_only must be boolean')
+def audit_tennis_readiness(path, *, as_of, sample_limit=25, seconds=120, progress=None,
+                           inventory_only=False, all_features=False, event_offset=0, event_count=None):
+    if type(inventory_only) is not bool or type(all_features) is not bool:
+        raise ValueError('inventory_only and all_features must be boolean')
+    if inventory_only and all_features:
+        raise ValueError('inventory_only and all_features are mutually exclusive')
+    if type(event_offset) is not int or event_offset < 0 or (
+            event_count is not None and (type(event_count) is not int or not 1 <= event_count <= 100)):
+        raise ValueError('feature inventory range requires a nonnegative offset and 1 to 100 events')
+    if not all_features and (event_offset != 0 or event_count is not None):
+        raise ValueError('feature inventory ranges require all_features')
     if type(sample_limit) is not int or not 1 <= sample_limit <= 100:
         raise ValueError('sample_limit must be between 1 and 100')
     if type(seconds) not in (int, float) or not 1 <= seconds <= 600:
@@ -82,8 +90,11 @@ def audit_tennis_readiness(path, *, as_of, sample_limit=25, seconds=120, progres
             matched.append((ref, origin))
         # Spread the bounded diagnostic across the whole time-ordered inventory;
         # selection does not inspect winners, probabilities or feature values.
+        range_start = min(event_offset, len(matched))
+        range_stop = min(range_start+(event_count or len(matched)), len(matched))
         count = min(sample_limit, len(matched))
-        positions = ([0] if count == 1 else [i*(len(matched)-1)//(count-1) for i in range(count)])
+        positions = (range(range_start, range_stop) if all_features else
+                     [0] if count == 1 else [i*(len(matched)-1)//(count-1) for i in range(count)])
         sample = [matched[i] for i in positions]
         tours = {}
         for ref, origin in matched:
@@ -110,39 +121,61 @@ def audit_tennis_readiness(path, *, as_of, sample_limit=25, seconds=120, progres
         # JSON body again for each of its many receipt revisions and each card.
         players = {p for _, origin in sample for p in (origin['event']['home_id'], origin['event']['away_id'])}
         player_events = {p:set() for p in players}
-        for (raw,) in conn.execute('SELECT payload FROM context_contents'):
+        for key, schema, a, b, player, opponent in conn.execute("""
+            SELECT DISTINCT json_extract(payload,'$.event_key'),
+                json_extract(payload,'$.source_schema'),
+                json_extract(payload,'$.payload.participant_ids[0]'),
+                json_extract(payload,'$.payload.participant_ids[1]'),
+                json_extract(payload,'$.payload.player_id'),
+                json_extract(payload,'$.payload.opponent_id')
+            FROM context_contents
+            WHERE json_extract(payload,'$.source_schema') IN (?,?)
+            """, (STATUS_SCHEMA, SOURCE_SCHEMA)):
             budget()
-            row = json.loads(raw)
-            if row.get('source_schema') not in {STATUS_SCHEMA, SOURCE_SCHEMA}:
-                continue
-            p = row['payload']
-            participants = p['participant_ids'] if row['source_schema'] == STATUS_SCHEMA else (p['player_id'], p['opponent_id'])
+            participants = (a, b) if schema == STATUS_SCHEMA else (player, opponent)
             for player in players.intersection(participants):
-                player_events[player].add(row['event_key'])
-        results = []
+                player_events[player].add(key)
+        results, feature_cohorts = [], {}
         for ref, origin in sample:
             budget()
             event = origin['event']
             keys = {event['event_key']} | player_events[event['home_id']] | player_events[event['away_id']]
-            history = []
-            for key in sorted(keys):
-                for raw in conn.execute(_SELECT+" WHERE r.event_key=? AND r.observed_at<=? AND r.source='espn' AND r.kind IN ('event_status','workload') ORDER BY r.observed_at,r.digest",
-                        (key, origin['cutoff'])):
-                    budget()
-                    row = _decode_receipt(raw)
-                    row.update(evidence_class='prospective', effective_at=row['observed_at'], publication_resolution=None)
-                    validate_selected_tennis_receipt(row)
-                    if row['payload']['tour'] != event['tour']:
-                        raise ContextContractError('native event crosses tennis tours')
-                    history.append(row)
-            history = tuple(sorted(history, key=lambda row: (row['observed_at'], row['digest'])))
+            def selected_rows():
+                for key in sorted(keys):
+                    for raw in conn.execute(_SELECT+" WHERE r.event_key=? AND r.observed_at<=? AND r.source='espn' AND r.kind IN ('event_status','workload') ORDER BY r.observed_at,r.digest",
+                            (key, origin['cutoff'])):
+                        budget()
+                        row = _decode_receipt(raw)
+                        row.update(evidence_class='prospective', effective_at=row['observed_at'], publication_resolution=None)
+                        if row['payload']['tour'] != event['tour']:
+                            raise ContextContractError('native event crosses tennis tours')
+                        yield row
             # A content index is only a coarse query aid, not native evidence.
             # Rows actually used above have all passed physical/source checks.
             from tennis.history_projection import PreparedTennisHistory
-            owner = PreparedTennisHistory(history)
+            # This existing owner validates EVERY selected native row once,
+            # retains all revisions and sorts the small clock/hash records.
+            owner = PreparedTennisHistory.from_selected_rows(selected_rows())
             with owner.feature_scope(event) as observations:
                 features = tennis_features_v4(event, observations, original_base(origin),
                     cutoff=datetime.fromisoformat(origin['cutoff']))
+            cohort = feature_cohorts.setdefault(event['tour'], {
+                'evaluated_events': 0, 'available': Counter(), 'nonzero': Counter(),
+                'both_players_complete_sets_3d': 0, 'coverage': Counter(),
+                'decision_days': Counter(),
+            })
+            cohort['evaluated_events'] += 1
+            cohort['coverage'][json.dumps(features['coverage'], sort_keys=True, separators=(',', ':'))] += 1
+            cohort['decision_days'][origin['cutoff'][:10]] += 1
+            for name, value in features['values'].items():
+                cohort['available'].setdefault(name, 0)
+                cohort['nonzero'].setdefault(name, 0)
+                if value is not None and features['states'][name] == 'available' and features['refs'][name]:
+                    cohort['available'][name] += 1
+                    cohort['nonzero'][name] += int(value != 0)
+            cohort['both_players_complete_sets_3d'] += int(all(
+                features['values'][name] == 1 and features['states'][name] == 'available'
+                for name in ('bounded_sets_complete_3d_a', 'bounded_sets_complete_3d_b')))
             measured = {}
             for name in ('bounded_sets_1d_delta', 'bounded_sets_3d_delta', 'bounded_games_3d_delta',
                          'bounded_minutes_3d_delta', 'observed_recovery_minimum_hours_delta',
@@ -152,10 +185,14 @@ def audit_tennis_readiness(path, *, as_of, sample_limit=25, seconds=120, progres
                 'bounded_sets_complete_1d_a', 'bounded_sets_complete_1d_b',
                 'bounded_sets_complete_3d_a', 'bounded_sets_complete_3d_b')}
             results.append({'event_key':event['event_key'], 'tour':event['tour'], 'original_ref':ref,
-                'cutoff':origin['cutoff'], 'references':len(history), 'coverage':features['coverage'],
+                'cutoff':origin['cutoff'], 'references':len(owner.observation_refs), 'coverage':features['coverage'],
                 'measured':measured, 'complete_observed_subset':complete})
             if progress:
                 progress({'phase':'features', 'completed':len(results), 'total':len(sample)})
-        return {**inventory, 'sample':results,
-            'sample_limited':len(matched)>len(sample), 'sample_policy':'evenly-spaced-earliest-original-time-order',
+        return {**inventory, 'sample':results, 'feature_cohorts': feature_cohorts,
+            'sample_limited':len(matched)>len(sample),
+            **({'feature_inventory_range': {'start': range_start, 'stop': range_stop}} if all_features else {}),
+            'sample_policy': ('consecutive-range-earliest-original-time-order' if all_features and event_count is not None
+                              else 'all-earliest-original-events-no-outcome-scoring' if all_features
+                              else 'evenly-spaced-earliest-original-time-order'),
             'elapsed_seconds':round(monotonic()-started,3)}

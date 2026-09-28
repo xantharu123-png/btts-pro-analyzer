@@ -2156,7 +2156,14 @@ def test_root_installers_pin_every_systemd_unit_to_reviewed_bytes():
     pattern = re.compile(
         r"deploy/systemd/([^\)]+)\) printf '%s\\n' ([0-9a-f]{64})"
     )
-    expected_names = {path.name for path in systemd.glob("betboy-*")}
+    expected_names = {
+        path.name for path in systemd.glob("betboy-*")
+        if path.is_file() and path.suffix in {".service", ".timer"}
+    }
+    # The unapproved customer-portal example is deliberately not installed.
+    # Hash pins must still cover every actual unit, without enabling a template.
+    assert (systemd / "betboy-portal.service.example").is_file()
+    assert "betboy-portal.service.example" not in expected_names
 
     mappings = []
     previous_backup_unit_hash = (
