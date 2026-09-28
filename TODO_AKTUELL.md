@@ -1,5 +1,77 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## Accountwechsel 28.09.2026, 20:29 CEST – hier fortsetzen
+
+Diese Aktualisierung betrifft nur die Übergabe, nicht Programmcode oder Modelle.
+Die datierten Abschnitte darunter sind Historie; deren damalige offene Punkte
+nicht ungeprüft wieder als aktuell ausgeben.
+
+### Erledigt und verifiziert
+
+- Codepatch `42054e35d8ce855ef80c6c74cc9bdccb8467e451` live; anschließender
+  Nachweiscommit `2155d06cd8d741300cbdec8be72c2aa0c60a3281` am 28.09. um
+  20:29 CEST erneut identisch lokal, auf GitHub `main` und auf dem VPS bestätigt.
+  Die folgende reine Übergabefortschreibung verändert diesen Programmstand nicht.
+- Vollsuite des unveränderten Codepatches: **11.277 bestanden, 96 Skips,
+  111 Untertests bestanden**. Beide disjunkten JUnit-Berichte stehen unter
+  `output/playwright/customer-final-a-20260928.xml` und `customer-final-b-20260928.xml`.
+  Keine erneute Vollsuite nur wegen dieser Dokumentationsänderung nötig.
+- Fußball-Fünfer-/Zehnerbilanzen aus bereits geladener Historie, je Team echte
+  Gegner/Ergebnisse aufklappbar; Wettfinder, Daily3, manuelle Suche und RisikoBet
+  verbunden. Tennis und die vorhandenen weiteren Sportadapter sind im Code
+  enthalten. Kurzform nicht als erfundenen Grund für die gewählte Seite verkaufen.
+- App/Caddy jetzt aktiv, öffentlicher Healthcheck `ok`; letzter Tennisdienst
+  `Result=success`, Exit 0. Tagesbackup weiterhin deaktiviert. Keine neue Sicherung,
+  zusätzliche Sportabfrage oder Speicherbereinigung für diese Übergabe.
+- UI-Nachweis im Bericht: interne Browserprüfung, lokale 1280-/390-/320-px-Karten,
+  Live-Spielblock per Tastatur auf/zu. Mausbedienung des nativen Streamlit-
+  Expanders und echte Mobilgeräte nicht als erfolgreich getestet behaupten.
+
+### Offen – nächste konkrete Arbeiten
+
+1. **Kontextwirkung fertig verbinden:** produktive Fußball-Vergleichs-Snapshots
+   mit vollständigem Quellen-Replay an den vorhandenen gemeinsamen Trainings-/
+   Auswertungs-/Aktivierungspfad anschließen; bestehende freigegebene Spezifikation
+   und Pläne weiterverwenden, keinen neuen Modellneubau beginnen.
+2. **Echte Daten und Wirkungsprüfung:** Verletzungen, Wetter und Müdigkeit sind
+   weiterhin nicht vollständig numerisch belegt oder aktiviert. Bestandsprüfung
+   vom 28.09.: 72 ATP-/289 WTA-Endresultat-Ereignisse, keine nutzbaren akuten
+   Verletzungsmerkmale oder gemessenen Matchdauern; nur zwei vollständige WTA-
+   Drei-Tage-Satzpaare. Fußball: vier vollständig quellgebundene Originale,
+   neun Wetterantworten. 250 WTA-Erholungsuntergrenzen sind eine mögliche eng
+   abgegrenzte Studie, keine bestätigten Fitnesswerte. Tours/Kohorten nicht
+   zusammenzählen; mindestens 200 unabhängige Testevents zusätzlich zu Training/
+   Abstimmung und drei Zeitblöcke bleiben Voraussetzung. Erst den vorhandenen
+   Vollbestandsbericht nutzen, nicht dieselbe teure Inventur nochmals wiederholen.
+3. **Veröffentlichte Formkarten nachprüfen:** beim nächsten regulären Modelllauf
+   kontrollieren, ob neue Fußball-5/10-Fakten wirklich gespeichert und gerendert
+   werden. Alte Karten nicht mit späteren Ergebnissen anreichern; keinen extra
+   API-/Sportscan nur für diese Prüfung starten. Basketball-/Hockey-/E-Sport-
+   Produktionsbelege und verbleibende Daily3-Sportvergleiche separat nachweisen.
+4. **UI-Restprüfung:** native Mausbedienung der Spielgruppen und echte Mobilgeräte
+   prüfen. Lokale Darstellungstests nicht als Geräte-/Storefreigabe melden.
+5. **Kundenbetrieb bleibt separat offen:** DE/EN-Portalcode vorhanden, Paywall
+   nicht aktiv; echte Stripe-/SMTP-/Kauf-/Kündigungs- und Mehrkontentests sowie
+   rechtliche/Domainangaben fehlen. Native iOS-/Android-Apps und Storeeinreichung
+   fehlen. Bestätigte Monatsabos: CHF 9.90 / 19.90 / 29.90; kein Händlerkonto
+   oder Live-Verkauf ohne nötige Einrichtung/Freigaben aktivieren.
+
+### Für die Fortsetzung beibehalten
+
+- Repository `C:\Projekt\BetBoy\betboy-app`, `main`; SSH `betboy-vps`, Apprepo
+  `/opt/betboy/app`. Test-Python `.codex_test_venv\Scripts\python.exe`.
+- Kein neues Backup, zusätzlicher Sport-/API-Scan oder ungefragte Bereinigung.
+  Cricket ausgenommen; internen Browser statt persönlichem Browser verwenden.
+- Quote verändert weder Prognose noch Reihenfolge. Nur bekannte exakt passende
+  gültige Quote unter 1,20 ausblenden, ohne Gegentipp nachzufüllen. Historische
+  Prognosen, Wetten und Geldbuchungen unverändert; Daily3 CHF 50 ohne Nachschuss.
+- Nur eigene, geprüfte Änderungen committen/pushen und ausdrücklich auf den VPS
+  ziehen. Timer berechnen Daten, deployen keinen Code. Bekannte ungetrackte
+  Audit-/Browser-/Output-Dateien und vorhandene Worktrees erhalten.
+- Maßgebliche Belege: [Kundenbegründungen](docs/audits/2026-09-28-kundenbegruendungen.md),
+  [Fußballform und vollständiger Kontextbestand](docs/audits/2026-09-28-fussball-form-kontextbestand.md),
+  [Kontextanbindung](docs/audits/2026-09-27-kontexteffekte.md).
+
 ## 28.09.2026 – Fortsetzung: Fußballform und vollständiger Kontextbestand
 
 - Fußball-Fünfer-/Zehnerlisten implementiert: kleine Anzeigeprojektion aus der

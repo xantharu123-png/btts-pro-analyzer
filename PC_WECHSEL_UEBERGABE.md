@@ -1,5 +1,16 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg – Accountwechsel 28.09.2026
+
+Zuerst den obersten Accountwechsel-Block in [TODO_AKTUELL.md](TODO_AKTUELL.md)
+lesen; darunterstehende Stände sind Historie. Codepatch `42054e3` live, letzte
+Statusfortschreibung `2155d06` am 28.09. um 20:29 CEST identisch lokal/GitHub/VPS
+bestätigt. 11.277 Tests und 111 Untertests bestanden, 96 Skips. App/Caddy aktiv,
+Healthcheck `ok`, Tennis Exit 0. Kein neues Backup oder zusätzlicher Sportscan.
+Numerisch belegte Kontexteffekte, reale UI-/Geräteabnahme und Kunden-/Storebetrieb
+bleiben offen; konkrete Schritte und Grenzen stehen im neuen To-do-Einstieg.
+Diese Übergabefortschreibung ändert keinen Produktivcode.
+
 ## Aktueller Einstieg — Kontext-/Daily3-Fortsetzung 21.09.2026
 
 Zuerst den obersten Block in [TODO_AKTUELL.md](TODO_AKTUELL.md) und den
