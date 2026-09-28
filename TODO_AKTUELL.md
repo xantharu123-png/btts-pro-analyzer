@@ -21,7 +21,17 @@
   Tests bestanden. Die erneute Vollsuite ist grün: 11.277 bestanden, 96 Skips,
   111 Untertests bestanden. Alle 11.373 gesammelten Tests in zwei disjunkten
   Gruppen erfasst; 15 Produkt-/Testdateien währenddessen per SHA-256 unverändert.
-  Veröffentlichung erst nach dem getrennten Git-/VPS-Nachweis als live bezeichnen.
+  Codecommit `42054e35d8ce855ef80c6c74cc9bdccb8467e451` auf `main` gepusht und
+  per geprüftem Fast-forward auf dem VPS deployed. App/Caddy aktiv, beide
+  Healthchecks `ok`; kein Serverbackup und kein zusätzlicher Sport-/API-Scan.
+  Die folgende Dokumentationsfortschreibung ändert den getesteten Code nicht.
+- Live-Seite frisch geladen: richtige URL/Titel, vollständiger Wettfinder,
+  kein Fehleroverlay und keine neuen Konsolenfehler nach dem Neustart. Spielblock
+  Georgia/Ukraine per Tastatur geöffnet und geschlossen. Neue Fußball-5/10-
+  Listen entstehen beim nächsten regulären Modelllauf; heutige alte Karten
+  behalten ihre originalen Belege. Mausbedienung der nativen Streamlit-Expander
+  im internen Browser nicht zuverlässig bestätigt; lokale Kartenbedienung und
+  responsive Darstellung separat geprüft, keine Behauptung echter Gerätetests.
 - Reale Tennis-Vollbestandsprüfung: 72 ATP- und 289 WTA-Ereignisse mit passend
   gebundenem Endergebnis. Kein ATP-Fall mit gemessener Dauer; WTA nur zwei Fälle
   mit vollständiger beidseitiger Drei-Tage-Satzabdeckung. Keine nutzbare akute

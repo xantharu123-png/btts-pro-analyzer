@@ -77,7 +77,7 @@ Die Korrekturen sind im unabhängigen Abschlussreview ohne offenen Befund.
 - Der unabhängige Abschlussreview bestätigt auch den letzten Altformat-Guard:
   drei Missing-field-Fälle, beide ursprünglichen Oberflächenfälle, gültige Karte
   und elf ungültige Identitäts-/Uhrzeitwerte separat ohne offenen Befund geprüft.
-  Veröffentlichung erst mit getrenntem Git-/VPS-Nachweis bestätigen.
+  Veröffentlichung mit dem untenstehenden getrennten Git-/VPS-Nachweis bestätigt.
 
 Interner Browser: echtes Kartenrendering mit klar gekennzeichneten Testspielen,
 keine vermeintlichen aktuellen Tipps. 1280 px, 390×844 und 320×740 geprüft;
@@ -97,6 +97,36 @@ die separate QA-Fixture wurde korrigiert. Produktcode und Regressionstestdaten
 während der finalen Vollsuite blieben unverändert. Die Escape-Probe erfolgte mit
 einem HTML-artigen Gegnernamen; der finale lesbare Screenshot enthält diesen
 Prüfstring nicht. Frühere Bilder wurden nicht überschrieben.
+
+## Veröffentlichung und Produktions-Smoke
+
+Codecommit `42054e35d8ce855ef80c6c74cc9bdccb8467e451` ist auf GitHub `main`
+gepusht und am 28.09.2026 per Fast-forward auf den VPS gezogen. Vorher:
+sauberer Checkout, vertrauenswürdiger Remote, erwarteter Ausgangscommit,
+identische Abhängigkeiten/Deploymentdateien und alle sechs Sport-/Abrechnungs-
+dienste inaktiv; mehr als zwei Minuten Abstand zum nächsten Shadow-Termin.
+Nur die App kurz neu gestartet. Kein Updater mit Sicherungsroutine, keine
+Migration, keine neue Sicherung, kein zusätzlich gestarteter Sport-/API-Scan.
+Interner und öffentlicher Healthcheck `ok`; App und Caddy aktiv.
+
+Produktions-URL `https://vps-a30a123f.vps.ovh.net/`, Titel `BetBoy`.
+Nach frischem Reload vollständige Wettfinder-Ansicht, kein Fehleroverlay,
+keine neuen Warnungen/Fehler nach dem Reload. Die vorherigen WebSocket-
+Abbruchmeldungen gehören zum absichtlichen Appneustart, nicht zum neuen Reload.
+Georgia/Ukraine per `summary` + Enter geöffnet (sechs vorhandene Karten)
+und geschlossen; final geschlossener DOM-Zustand bestätigt. Die Mausaktionen
+des internen Browsers bestätigten den nativen Streamlit-Expander nicht
+zuverlässig; kein Mouse-PASS daraus ableiten. Lokal wurden die neuen einzelnen
+Formdetails mit Öffnen/Schließen sowie 1280, 390 und 320 px separat geprüft.
+Live bei 1304 px kein horizontaler Überlauf. Kein echter Apple-/Android-
+Gerätetest und kein laufender Neuerfassungs-/Zahlungsfluss behauptet.
+
+Live-Screenshot außerhalb von Git:
+`C:/Users/miros/.codex/visualizations/2026/08/11/019fef37-33e4-76c0-9b0e-3f9017bd9162/football-customer-live-42054e3-20260928.png`.
+Die neuen Fußball-Ergebnislisten entstehen im nächsten regulären Modelllauf;
+der Browser-Smoke ist kein Beleg einer heute neu berechneten Fußballliste.
+Die abschließende Dokumentationsfortschreibung verändert die 15 vollständig
+getesteten Produkt-/Testdateien nicht.
 
 ## Echte Kontextdaten – Vollbestand, kein Wirkungsnachweis
 
