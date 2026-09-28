@@ -90,6 +90,24 @@ def _read_tables(tour, fingerprints):
     return tuple(record for identity, record in records.items() if identity not in conflicts), digest.hexdigest()
 
 
+@lru_cache(maxsize=4)
+def _player_results(tour, fingerprints, cutoff_day):
+    """Index one immutable cached day once, not once per card or detail field."""
+    records, source_hash = _read_tables(tour, fingerprints)
+    records = sorted((record for record in records if cutoff_day-timedelta(days=365) <= record[0] < cutoff_day),
+                     key=lambda record: record[:3], reverse=True)
+    players = {}
+    for record in records:
+        seen = set()
+        for index, name in enumerate(record[3:5]):
+            key = normalize_player_name(name)
+            if key in seen:
+                continue
+            seen.add(key)
+            players.setdefault(key, []).append((record, index == 0))
+    return {key: tuple(rows) for key, rows in players.items()}, source_hash
+
+
 def cached_match_statistics(player_a, player_b, *, surface, tour, as_of, cache_dir=DEFAULT_CACHE_DIR):
     cutoff = _instant(as_of)
     if cutoff is None or tour not in ('ATP', 'WTA'):
@@ -104,23 +122,18 @@ def cached_match_statistics(player_a, player_b, *, surface, tour, as_of, cache_d
             return None
         if any(stamp/1e9 > cutoff.timestamp() for _, stamp, _ in fingerprints):
             return None
-        records, source_hash = _read_tables(tour, fingerprints)
+        roster, source_hash = _player_results(tour, fingerprints, cutoff.date())
     except (OSError, ValueError, ImportError):
         return None
-    records = sorted((record for record in records if cutoff.date()-timedelta(days=365) <= record[0] < cutoff.date()),
-                     key=lambda record: record[:3], reverse=True)
-    roster = {normalize_player_name(name) for record in records for name in record[3:5]}
     keys = [resolve_player_name_key(name, roster) for name in (player_a, player_b)]
     if not all(keys) or keys[0] == keys[1]:
         return None
     players = {}
     for side, name, key in zip(('a', 'b'), (player_a, player_b), keys):
         results = []
-        for date, _, _, winner, loser, played_surface, sets, ranks, date_kind in records:
-            names_keys = (normalize_player_name(winner), normalize_player_name(loser))
-            if key not in names_keys or played_surface != surface:
+        for (date, _, _, winner, loser, played_surface, sets, ranks, date_kind), won in roster.get(key, ()):
+            if played_surface != surface:
                 continue
-            won = key == names_keys[0]
             results.append(dict(date=date.isoformat(), date_kind=date_kind, won=won,
                 opponent=loser if won else winner, score=f'{sets[0]}:{sets[1]}' if won else f'{sets[1]}:{sets[0]}',
                 opponent_rank=ranks[1 if won else 0]))

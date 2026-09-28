@@ -97,3 +97,32 @@ def test_malformed_optional_statistics_do_not_break_details():
         context = deepcopy(tennis().context_evidence)
         context['match_statistics'] = malformed
         assert customer_record_details(context, 'Spieler A', 'Spieler B', modeled_at=NOW) == {}
+
+
+def test_repeated_card_facts_do_not_rescan_the_same_history(tmp_path, monkeypatch):
+    import tennis.cached_results as cached
+    cache(tmp_path)
+    normalizations = []
+    original = cached.normalize_player_name
+    def counted(name):
+        normalizations.append(name)
+        return original(name)
+    monkeypatch.setattr(cached, 'normalize_player_name', counted)
+    first = cached.cached_match_statistics('Spieler A', 'Spieler B', surface='Clay',
+        tour='ATP', as_of=NOW, cache_dir=tmp_path)
+    count = len(normalizations)
+    second = cached.cached_match_statistics('Spieler A', 'Gegner G', surface='Clay',
+        tour='ATP', as_of=NOW, cache_dir=tmp_path)
+    assert first['players']['a']['surface_results'] == second['players']['a']['surface_results']
+    assert len(normalizations) - count <= 4
+
+
+def test_normalized_name_collision_does_not_count_one_match_twice(tmp_path):
+    from tennis.cached_results import cached_match_statistics
+    rows, write = cache(tmp_path)
+    write('atp_matches_2029.csv', [dict(rows[0], winner_name='Alex Smith', loser_name='Arthur Smith')])
+    stats = cached_match_statistics('Alex Smith', 'Gegner G', surface='Clay',
+        tour='ATP', as_of=NOW, cache_dir=tmp_path)
+    result = stats['players']['a']
+    assert len(result['surface_results']) == result['surface']['matches'] == 1
+    assert result['surface_results'][0]['won'] is True
