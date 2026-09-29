@@ -142,20 +142,34 @@ def _result_html(result):
         f'<div class="form-result-detail">{body}</div></details>')
 
 
+def _opponent_line(result):
+    name = result.opponent or 'Gegner nicht hinterlegt'
+    mark = next((letter for letter in name if letter.isalnum()), '?').upper()
+    metadata = ' · '.join(x for x in (_date_label(result.date), result.competition,
+        result.venue, f'Weltrang {result.rank}' if result.rank is not None else '') if x)
+    return ('<li><details class="form-opponent-row"><summary>'
+        f'<span class="form-opponent-mark" aria-hidden="true">{escape(mark)}</span>'
+        f'<strong>{escape(name)}</strong><b>{escape(result.score or "–")}</b>'
+        f'<span class="form-outcome form-outcome-{result.outcome.lower()}">{result.outcome}</span>'
+        '</summary>' + (f'<p>{escape(metadata)}</p>' if metadata else
+            '<p>Keine weiteren Einzelspieldaten hinterlegt.</p>') + '</details></li>')
+
+
 def _window_html(forms, count):
     teams = []
     for form in forms:
         rows = form.results[:count]
         wins, draws, losses = (sum(r.outcome == mark for r in rows) for mark in ('S', 'U', 'N'))
         record = f'{wins}S · {draws}U · {losses}N' if any(r.outcome == 'U' for r in form.results) or 'Spielorte' in form.scope else f'{wins}S · {losses}N'
-        detail_rows = ''.join('<li><strong>' + escape(r.opponent or 'Gegner nicht hinterlegt') + '</strong><span>'
-            + escape(' · '.join(x for x in (r.score, _date_label(r.date), r.competition, r.venue,
-                f'Weltrang {r.rank}' if r.rank is not None else '') if x)) + '</span></li>' for r in rows)
+        preview = ''.join(_opponent_line(r) for r in rows[:3])
+        remainder = ''.join(_opponent_line(r) for r in rows[3:])
+        more = ('<details class="form-opponents"><summary>Alle ' + str(len(rows)) + ' Spiele</summary>'
+            f'<ol>{remainder}</ol></details>') if remainder else ''
         teams.append(f'<section class="form-team"><div class="form-team-heading"><strong>{escape(form.team)}</strong>'
             f'<span>{record} · {len(rows)} Spiele</span></div><small>{escape(form.scope)}</small>'
             f'<div class="form-results">{"".join(_result_html(r) for r in rows)}</div>'
-            '<details class="form-opponents"><summary>Gegner & Ergebnisse</summary>'
-            f'<ol>{detail_rows}</ol></details></section>')
+            '<div class="form-opponent-preview"><h5>Gegner & Ergebnisse</h5>'
+            f'<ol>{preview}</ol></div>{more}</section>')
     return f'<div class="form-window form-window-{count}">{"".join(teams)}</div>'
 
 
@@ -167,14 +181,14 @@ def render_form_html(forms, *, instance_key=''):
     # Ten is enabled only when every displayed side has ten actual results.
     can_ten = all(len(form.results) >= 10 for form in forms)
     ten = (f'<input id="{group}-10" type="radio" name="{group}" value="10">'
-        f'<label for="{group}-10">10</label>') if can_ten else '<span class="form-ten-unavailable" title="Weniger als zehn Ergebnisse erfasst">10</span>'
+        f'<label for="{group}-10">10 Spiele</label>') if can_ten else '<span class="form-ten-unavailable" title="Weniger als zehn Ergebnisse erfasst">10 Spiele</span>'
     chronology = 'Erfasste Reihenfolge' if any('erfasste Reihenfolge' in form.scope for form in forms) else 'Neueste zuerst'
     return (f'<section class="sports-form" aria-label="Letzte Ergebnisse">'
-        f'<div class="form-heading"><h4>Die Form</h4><span>{chronology}</span><div class="form-toggle" role="group" aria-label="Anzahl Spiele">'
+        f'<div class="form-heading"><h4>Aktuelle Form</h4><span>{chronology}</span><div class="form-toggle" role="group" aria-label="Anzahl Spiele">'
         # Do not supply a controlled `checked` prop through React Markdown:
         # React would restore it after the native label click. The initial
         # five-game view is CSS's default; both radios are genuine native
         # uncontrolled inputs once the user chooses a window.
         f'<input id="{group}-5" type="radio" name="{group}" value="5" aria-label="5 Spiele (Standardansicht)">'
-        f'<label for="{group}-5">5</label>{ten}</div></div>'
+        f'<label for="{group}-5">5 Spiele</label>{ten}</div></div>'
         f'{_window_html(forms, 5)}{_window_html(forms, 10) if can_ten else ""}</section>')

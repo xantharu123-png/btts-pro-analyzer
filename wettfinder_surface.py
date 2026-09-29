@@ -851,11 +851,10 @@ def render_match_header_html(card: WettfinderCard) -> str:
         + f'<span>{escape(card.scheduled_start_label)}</span></div>' + team(second) + '</div>')
 
 
-def render_editorial_card_html(card: WettfinderCard, *, grouped=False, featured=False, supporting_fact='', show_form=True) -> str:
+def render_editorial_card_html(card: WettfinderCard, *, grouped=False, featured=False, supporting_fact='', show_form=True, include_match=False) -> str:
     """The sport-first card retains method limits in reachable details."""
-    head = '' if grouped else (
-        f'<p class="se-meta">{escape(card.sport)} · {escape(card.scheduled_start_label)}</p>'
-        + render_match_header_html(card))
+    has_match = not grouped or include_match
+    head = render_match_header_html(card) if has_match else ''
     note = quote_display_note(card)
     quote_label = 'Letzte Quote' if card.price_code == 'STALE' else 'Quote'
     quote_html = f'<div class="se-number se-number-quote"><span>{quote_label}</span><strong>{escape(format_decimal_odds(card.observed_odds))}</strong></div>'
@@ -871,17 +870,28 @@ def render_editorial_card_html(card: WettfinderCard, *, grouped=False, featured=
         if not supporting_fact and featured and _can_feature(card) and card.highlight_comparison is not None:
             supporting_fact = card.highlight_comparison.summary
         analysis_html = render_compact_analysis_html(compact,
-            supporting_fact=supporting_fact, instance_key=card.key, show_form=show_form)
+            instance_key=card.key, show_form=show_form, show_summary=False)
+        reason = '<p class="wf-analysis-short">' + escape(compact.summary) + '</p>'
+        if supporting_fact:
+            reason += '<p class="se-reason-support">' + escape(supporting_fact) + '</p>'
     else:
         analysis_html = _analysis_markup(card, featured=featured)
+        reason = ''
+    reason_html = ('<div class="se-reason"><h4>Die Auswahl im Kurzcheck</h4>' + reason + '</div>') if reason else ''
+    secondary = grouped and not include_match
+    if secondary:
+        analysis_html = ('<details class="se-market-details"><summary>Analyse & Details</summary>'
+                         + reason_html + analysis_html + '</details>')
+        reason_html = ''
     return (
         f'<article class="wf-row se-card" data-key="{escape(card.key, quote=True)}"'
         + (' data-grouped="true"' if grouped else '')
-        + f' aria-label="Modellprognose für {escape(card.event_label, quote=True)}">{head}'
-        '<div class="se-pick"><div class="se-pick-label">'
+        + f' aria-label="Modellprognose für {escape(card.event_label, quote=True)}">'
+        + ('<div class="se-card-top">' + head if has_match else '<div class="se-card-top se-card-top-market">')
+        + '<div class="se-pick-and-reason"><div class="se-pick"><div class="se-pick-label">'
         f'<span>{escape(card.market)}</span><strong>{escape(card.selection)}</strong></div>'
-        f'<div class="se-number"><span>Modellchance</span><strong>{escape(format_probability(card.model_probability))}</strong></div>'
-        f'{quote_html}</div>{analysis_html}</article>'
+        f'<div class="se-number"><span aria-label="Modellchance">Modell</span><strong>{escape(format_probability(card.model_probability))}</strong></div>'
+        f'{quote_html}</div>{reason_html}</div></div>{analysis_html}</article>'
     )
 
 

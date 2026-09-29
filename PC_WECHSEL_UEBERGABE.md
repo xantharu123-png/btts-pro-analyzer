@@ -1,6 +1,20 @@
 # BetBoy - Übergabe auf einen neuen PC
 
-## Aktueller Einstieg – Sports Editorial, 30.09.2026
+## Aktueller Einstieg – Sports-Editorial-Korrektur, 30.09.2026
+
+Die erste Designumsetzung wurde vom Nutzer ausdrücklich als nicht vorlagentreu
+beanstandet. Sie war technisch geprüft, aber nicht visuell abgenommen. Jetzt
+Desktop-Aufbau, Form-/Gegnerlisten und bebilderte Daily3-/Tennisspalte korrigiert;
+Mobil-/Tablet-Stapelung und vorhandene fünfteilige Navigation erhalten.
+Zuerst den obersten Block in [TODO_AKTUELL.md](TODO_AKTUELL.md) und den
+[Korrekturbericht](docs/audits/2026-09-30-sports-editorial-korrektur.md) lesen.
+531 Tests, 35 wiederholte enthaltene UI-Tests und 31 Browserkombinationen grün.
+Veröffentlichungsstatus steht im Korrekturbericht; nicht aus alten Hashes ableiten.
+Keine Backups, zusätzlichen Sportscans, Modell- oder Finanzänderungen.
+Bekannte ungetrackte Output-/Audit-Dateien bewahrt. Keine native Store-App,
+physische Geräteprüfung oder bessere Wettqualität durch dieses UI-Paket behaupten.
+
+## Vorheriger Einstieg – Sports Editorial, 30.09.2026 (Historie)
 
 Desktop-Design 2 und Mobil-Mix 2+5 sind als responsive Streamlit-Oberfläche
 umgesetzt. Zuerst den obersten Block in [TODO_AKTUELL.md](TODO_AKTUELL.md) und

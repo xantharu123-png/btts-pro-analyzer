@@ -93,6 +93,7 @@ from wettfinder_surface import (
     render_top_card_html,
     render_editorial_card_html,
     render_match_header_html,
+    format_probability,
     wettfinder_quote_binding_candidate,
     wettfinder_recommendation_candidate,
 )
@@ -2249,11 +2250,12 @@ def _render_editorial_header(workspace: str) -> None:
         _commit_workspace_choice(key)
     if st.session_state.get(key) != workspace:
         st.session_state[key] = workspace
+    st.markdown('<div class="se-edition"><span>BETBOY · SPORT &amp; STATISTIK</span>'
+        '<span>DEIN SPIELTAG</span></div>', unsafe_allow_html=True)
     with st.container(key='bb_editorial_header'):
-        brand, navigation = st.columns([1, 3])
+        brand, navigation = st.columns([1, 4])
         with brand:
-            st.markdown('<p class="bb-brand">Bet<span>Boy</span></p>'
-                '<p class="bb-brand-note">SPORT · STATISTIK · AUSWAHL</p>', unsafe_allow_html=True)
+            st.markdown('<p class="bb-brand">BetBoy</p>', unsafe_allow_html=True)
         with navigation:
             with st.container(key='bb_desktop_nav'):
                 st.segmented_control('Hauptbereiche', MAIN_PAGES, key=key, required=True,
@@ -4701,9 +4703,8 @@ def _render_wettfinder_game(group, row_by_key, featured_keys) -> None:
         wettfinder_game_label(group), expanded=initially_open, key=key,
         on_change=_remember_wettfinder_game_state, args=(key,),
     ):
-        st.markdown(render_match_header_html(group.cards[0]), unsafe_allow_html=True)
         shown_forms = set()
-        for card in group.cards:
+        for index, card in enumerate(group.cards):
             signal, card = row_by_key[card.key]
             forms = card.compact_analysis.forms if card.compact_analysis else ()
             show_form = forms not in shown_forms
@@ -4711,7 +4712,7 @@ def _render_wettfinder_game(group, row_by_key, featured_keys) -> None:
             with st.container(key=f'wettfinder_v2_game_market_{card.manual_quote_key}'):
                 st.markdown(render_editorial_card_html(
                     card, grouped=True, featured=card.key in featured_keys,
-                    show_form=show_form,
+                    show_form=show_form, include_match=index == 0,
                 ), unsafe_allow_html=True)
 
 
@@ -4721,9 +4722,6 @@ def _render_wettfinder_games(catalog, row_by_key, *, sport_filter: str) -> None:
     featured = tuple(group for group in groups if any(card.key in featured_keys for card in group.cards))
     additional = tuple(group for group in groups if not any(card.key in featured_keys for card in group.cards))
     if featured:
-        with st.container(key='wettfinder_v2_section_header'):
-            st.markdown('<div class="wf-section-heading"><h2>Aktuelle Modell-Auswahlen</h2></div>',
-                        unsafe_allow_html=True)
         for group in featured:
             _render_wettfinder_game(group, row_by_key, featured_keys)
     if additional:
@@ -4746,9 +4744,6 @@ def _render_automated_daily_selection() -> None:
     evaluation_now = datetime.now(timezone.utc)
     snapshot = automated_wettfinder_snapshot(now=evaluation_now)
     status = snapshot.status
-    if status is None:
-        st.info("Aktuell ist noch kein automatisches Ergebnis verfügbar.")
-        return
 
     # Forecasts are the sole selection source; bookmaker prices cannot
     # replace their evidence stage or change their display order.
@@ -4758,67 +4753,72 @@ def _render_automated_daily_selection() -> None:
         card = build_wettfinder_card(signal, quote=signal.reference_quote, now=evaluation_now)
         rows.append((signal, card))
 
-    target_label = _automatic_target_label(status.target_search_date)
-    time_parts = [
-        f"{target_label}",
-        f"Ergebnisstand: {_format_stand(status.generated_at)}",
-    ]
-    if status.last_discovery_at is not None:
-        time_parts.append(f"Geprüft: {_format_stand(status.last_discovery_at)}")
-    st.caption(" · ".join(time_parts))
-
-    # Run counters/coverage belong to the stored operational status, not a
-    # second public banner. Keep data freshness and each card's limitations.
-    with st.container(key="wettfinder_v2_sports"):
-        sport_filter = _segmented(
-            "Sportart",
-            list(FINDER_SPORT_OPTIONS),
-            "wettfinder_automatic_sport_v2",
-            "Alle",
-        )
-    catalog = compose_wettfinder_catalog(
-        (card for _signal, card in rows),
-        sport_filter=sport_filter,
-    )
-    if not catalog.featured and not catalog.additional:
-        if sport_filter == "Alle":
-            message = "Für diesen Spieltag gibt es aktuell keine passende Auswahl."
-        else:
-            message = f"Für {sport_filter} gibt es aktuell keine passende Auswahl."
-        st.info(message)
-        return
-
-    row_by_key = {
-        card.key: (signal, card)
-        for signal, card in rows
-    }
-    # Reuse the same immutable pool; the rail causes no model/API rerun and
-    # does not open a money account or create any reservation.
+    target_label = _automatic_target_label(status.target_search_date) if status else 'Heute'
+    # Both columns exist even before the daily publication. No fictional
+    # selection is added merely to fill the magazine layout.
     from daily3_selection import daily3_choices
-    from html import escape
     daily3_allowed = _daily3_rail_allowed()
     choices = daily3_choices(snapshot.forecasts, now=evaluation_now) if daily3_allowed else ()
+    tennis_catalog = compose_wettfinder_catalog((card for _signal, card in rows), sport_filter='Tennis')
+    tennis_cards = tennis_catalog.featured + tennis_catalog.additional
     with st.container(key='editorial_auto_layout'):
-        main_column, rail = st.columns([3, 1], gap='large')
+        main_column, rail = st.columns([2.45, 1], gap='large')
         with main_column:
-            _render_wettfinder_games(catalog, row_by_key, sport_filter=sport_filter)
+            st.markdown('<h1 class="se-day-title"><span class="se-title-desktop">Der Spieltag auf einen Blick.</span>'
+                '<span class="se-title-mobile">Dein Spieltag.</span></h1>', unsafe_allow_html=True)
+            time_parts = [target_label]
+            if status:
+                time_parts.append('Ergebnisstand: ' + _format_stand(status.generated_at))
+            st.caption(' · '.join(time_parts))
+            with st.container(key='wettfinder_v2_sports'):
+                sport_filter = _segmented('Sportart', list(FINDER_SPORT_OPTIONS),
+                    'wettfinder_automatic_sport_v2', 'Alle')
+            catalog = compose_wettfinder_catalog((card for _signal, card in rows), sport_filter=sport_filter)
+            if not catalog.featured and not catalog.additional:
+                message = ('Aktuell ist noch kein automatisches Ergebnis verfügbar.' if status is None else
+                    'Für diesen Spieltag gibt es aktuell keine passende Auswahl.' if sport_filter == 'Alle' else
+                    f'Für {sport_filter} gibt es aktuell keine passende Auswahl.')
+                st.info(message)
+            else:
+                _render_wettfinder_games(catalog, {card.key: (signal, card) for signal, card in rows}, sport_filter=sport_filter)
         with rail:
-            with st.container(key='editorial_daily3_rail'):
-                st.markdown('<p class="se-rail-kicker">Dein Tagesplan</p>'
-                    '<p class="se-rail-title">3 a day keeps<br>the job away</p>'
-                    '<p class="se-rail-sub">CHF 50 Tagesbudget · bis zu 3 Einzelwetten</p>', unsafe_allow_html=True)
-                for choice in choices:
-                    signal = choice.signal
-                    st.markdown('<div class="se-rail-choice"><strong>' + escape(signal.event_label)
-                        + '</strong><span>' + escape(signal.market + ' · ' + signal.selection)
-                        + '</span><b>' + f'{signal.probability:.1%}' + ' Modellchance</b></div>', unsafe_allow_html=True)
-                if not daily3_allowed:
-                    st.caption('Daily3 ist im Pro-Abo enthalten.')
-                elif not choices:
-                    st.caption('Heute noch keine passende defensive Auswahl.')
-                def _open_daily3():
-                    st.session_state['wettfinder_mode_v2'] = '3 a day'
-                st.button('Daily3 öffnen', key='editorial_daily3_open', on_click=_open_daily3, use_container_width=True)
+            _render_editorial_rail(choices, tennis_cards, daily3_allowed=daily3_allowed, target_label=target_label)
+
+
+def _render_editorial_rail(choices, tennis_cards, *, daily3_allowed, target_label):
+    from html import escape
+    from pathlib import Path
+    assets = Path(__file__).parent / 'assets' / 'editorial'
+    with st.container(key='editorial_daily3_rail'):
+        with st.container(key='editorial_daily3_cover'):
+            st.image(str(assets / 'stadium-cover.png'), width='stretch', output_format='JPEG')
+            st.markdown('<div class="se-cover-content"><span class="se-cover-tag">DAILY3</span>'
+                '<h2>Deine Tagesauswahl.</h2><p>CHF 50 Tagesbudget<br>Bis zu drei Einzelwetten.</p></div>', unsafe_allow_html=True)
+        for index, choice in enumerate(choices, 1):
+            signal = choice.signal
+            st.markdown('<div class="se-rail-choice"><span class="se-choice-rank">' + str(index)
+                + '</span><div><strong>' + escape(signal.event_label) + '</strong><span>'
+                + escape(signal.market + ' · ' + signal.selection) + '</span></div></div>', unsafe_allow_html=True)
+        if not daily3_allowed:
+            st.caption('Daily3 ist im Pro-Abo enthalten.')
+        elif not choices:
+            st.caption('Heute noch keine passende defensive Auswahl.')
+        def _open_daily3():
+            st.session_state['wettfinder_mode_v2'] = '3 a day'
+        st.button('Daily3 öffnen', key='editorial_daily3_open', on_click=_open_daily3, use_container_width=True)
+    with st.container(key='editorial_tennis_rail'):
+        st.markdown('<p class="se-tennis-tag">TENNIS <span>' + escape(target_label) + '</span></p>', unsafe_allow_html=True)
+        st.image(str(assets / 'tennis-cover.png'), width='stretch', output_format='JPEG')
+        if tennis_cards:
+            card = tennis_cards[0]
+            st.markdown('<div class="se-tennis-copy"><h3>' + escape(card.event_label) + '</h3><p>'
+                + escape(card.selection) + ' · ' + escape(format_probability(card.model_probability))
+                + '</p></div>', unsafe_allow_html=True)
+        else:
+            st.markdown('<div class="se-tennis-copy"><h3>Auf dem Court.</h3><p>Aktuell keine Tennis-Auswahl.</p></div>', unsafe_allow_html=True)
+        def _open_tennis():
+            st.session_state['wettfinder_automatic_sport_v2'] = 'Tennis'
+        st.button('Tennis-Auswahlen', key='editorial_tennis_open', on_click=_open_tennis, use_container_width=True)
 
 
 def _render_selected_finder(
@@ -5070,8 +5070,9 @@ def main() -> None:
     require_feature(st, PAGE_FEATURES[workspace])
     title, caption = PAGE_INFO[workspace]
     st.markdown(f'<div class="bb-context">BetBoy / {workspace}</div>', unsafe_allow_html=True)
-    st.title('Dein Spieltag.' if workspace == 'Wettfinder' else title)
-    st.caption(caption)
+    if workspace != 'Wettfinder':
+        st.title(title)
+        st.caption(caption)
 
     if st.session_state.get("analyzer_error"):
         st.error("Die App konnte nicht vollständig gestartet werden.")

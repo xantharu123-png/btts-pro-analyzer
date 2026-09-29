@@ -80,6 +80,73 @@ def test_editorial_preserves_model_and_original_facts_but_renders_real_tiles():
     assert vars(signal) == before
 
 
+def test_reference_layout_keeps_match_and_pick_together_and_opponents_visible():
+    card = build_wettfinder_card(editorial_football(), now=NOW)
+    html = render_editorial_card_html(card, grouped=True, include_match=True)
+    top = html.split('class="se-card-top"', 1)[1].split('aria-label="Kurzcheck"', 1)[0]
+    assert 'class="se-match"' in top and 'class="se-pick"' in top
+    assert html.count('class="wf-analysis-short"') == 1
+    preview = html.split('class="form-opponent-preview"', 1)[1].split('class="form-opponents"', 1)[0]
+    assert all(f'Gegner {index}' in preview for index in (1, 2, 3))
+    assert 'Gegner 4' not in preview
+    assert 'Alle 5 Spiele' in html and 'Alle 10 Spiele' in html
+
+
+def test_second_market_stays_visible_without_repeating_the_whole_match():
+    card = build_wettfinder_card(editorial_football(key='TOTAL_OVER_2_5'), now=NOW)
+    html = render_editorial_card_html(card, grouped=True, show_form=False)
+    headline, details = html.split('<details class="se-market-details">', 1)
+    assert card.selection in headline and 'Modellchance' in headline and 'Quote' in headline
+    assert 'class="se-match"' not in html and 'class="sports-form"' not in html
+    assert 'class="wf-analysis-short"' in details and 'Statistik &amp; Details' in details
+
+
+@pytest.mark.parametrize('status_none', [True, False])
+def test_empty_day_keeps_sports_and_both_picture_panels_without_fake_tips(monkeypatch, status_none):
+    import app
+    from types import SimpleNamespace
+    from test_workflow_integrity import _RecordingStreamlit, _automatic_status
+    recording = _RecordingStreamlit()
+    monkeypatch.setattr(app, 'st', recording)
+    monkeypatch.setattr(app, 'automated_wettfinder_snapshot', lambda **_: SimpleNamespace(
+        status=None if status_none else _automatic_status(NOW), forecasts=()))
+    app._render_automated_daily_selection()
+    assert 'editorial_auto_layout' in recording.containers
+    assert 'wettfinder_v2_sports' in recording.containers
+    images = [path for kind, path in recording.event_log if kind == 'image']
+    assert len(images) == 2 and images[0].endswith('stadium-cover.png') and images[1].endswith('tennis-cover.png')
+    html = '\n'.join(value for value, _kwargs, _context in recording.markdown_calls)
+    assert 'se-rail-choice' not in html and 'data-key=' not in html
+
+
+def test_picture_rail_does_not_reintroduce_a_tennis_quote_below_the_known_floor(monkeypatch):
+    import app
+    from datetime import datetime
+    from types import SimpleNamespace
+    from market_consensus import ODDS_API_REFERENCE_SOURCE
+    from test_wettfinder_surface import _quote
+    from test_workflow_integrity import _RecordingStreamlit, _automatic_status
+    recording = _RecordingStreamlit()
+    signal = editorial_tennis()
+    quote = _quote(signal, (1.1,) * 3)
+    quote = replace(quote, source=ODDS_API_REFERENCE_SOURCE, provider_event_id='tennis-price-event',
+        bet_name='h2h', value_name=signal.selected_competitor,
+        event_home=signal.competitor_a, event_away=signal.competitor_b,
+        points=tuple(replace(point, bookmaker_id=f'odds-api:{index}') for index, point in enumerate(quote.points)))
+    signal = replace(signal, reference_quote=quote.to_dict())
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return NOW
+    monkeypatch.setattr(app, 'st', recording)
+    monkeypatch.setattr(app, 'datetime', Clock)
+    monkeypatch.setattr(app, 'automated_wettfinder_snapshot', lambda **_: SimpleNamespace(
+        status=_automatic_status(NOW), forecasts=(signal,)))
+    app._render_automated_daily_selection()
+    html = '\n'.join(value for value, _kwargs, _context in recording.markdown_calls)
+    assert signal.event_label not in html
+
+
 @pytest.mark.parametrize('count', [1, 3, 5, 9])
 def test_short_history_never_claims_or_enables_ten_games(count):
     card = build_wettfinder_card(editorial_football(count=count), now=NOW)

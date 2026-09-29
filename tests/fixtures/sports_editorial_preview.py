@@ -19,9 +19,10 @@ app._session_scope_id = lambda: 'editorial-visual-qa'
 workspace = app._render_sidebar(None)
 app._render_editorial_header(workspace)
 app._render_mobile_nav(workspace)
-st.title('RisikoBet' if workspace == 'RisikoBet' else 'Dein Spieltag.')
-st.caption('LOKALE DESIGNPRÜFUNG · Nur Beispieldaten · Kein Sport-/API-Scan')
-scenario = st.selectbox('Prüffall', ['Normal', 'Kurze Historie', 'Langer Teamname', 'Keine Auswahl', 'RisikoBet', 'Daily3', 'Abo-Hinweis'])
+if workspace == 'RisikoBet':
+    st.title('RisikoBet')
+st.markdown('<p class="se-qa-note">LOKALE DESIGNPRÜFUNG · BEISPIELDATEN · KEIN SPORTSCAN</p>', unsafe_allow_html=True)
+scenario = st.query_params.get('case', 'Normal')
 if scenario == 'Abo-Hinweis':
     st.info('Dieser Bereich ist in einem höheren Abo enthalten.')
     st.stop()

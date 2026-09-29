@@ -145,6 +145,9 @@ class _RecordingStreamlit:
     def button(self, _label, **_kwargs):
         return False
 
+    def image(self, path, **_kwargs):
+        self.event_log.append(('image', path))
+
     def caption(self, value, **_kwargs):
         self.messages.append(("caption", value))
 

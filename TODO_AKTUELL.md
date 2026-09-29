@@ -1,6 +1,25 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
-## 30.09.2026 – Sports Editorial umgesetzt und abgenommen
+## 30.09.2026 – Sports Editorial nach Nutzerbeanstandung korrigiert
+
+- Der Nutzer hat die erste Oberfläche als nicht vorlagentreu beanstandet.
+  Vorheriges „abgenommen“ war keine visuelle Nutzerabnahme. Design 2 Web / 2+5
+  Mobil bleibt der verbindliche Auftrag; Originalreferenzen unverändert erhalten.
+- Jetzt strukturell korrigiert: Begegnung und Auswahl nebeneinander, Formvergleich
+  mit drei sichtbaren Gegnerzeilen; weitere Märkte im selben Spielblock.
+  Lokale Stadion-/Tennisbilder und Daily3-/Tennisspalte auch bei leerem Spieltag.
+  Kompakter Kopf, Magazinfarben und native fünfteilige Mobilnavigation.
+- 531 betroffene Tests bestanden; 35 enthaltene UI-Tests nach dem letzten
+  CSS-Patch erneut bestanden. 31 Layout-/Randfallkombinationen geprüft,
+  einschließlich tatsächlicher Spalten-/Covergeometrie, 5/10 und Navigation.
+- [Korrekturbericht und aktueller Veröffentlichungsstatus](docs/audits/2026-09-30-sports-editorial-korrektur.md).
+  Kein neues Backup, zusätzlicher Scan, Finanzvorgang oder Modellumbau.
+  Native Apps, reale Geräte und numerische Kontexteffekte bleiben separat.
+  Finalen visuellen Zuspruch des Nutzers nicht aus Tests ableiten.
+- Veröffentlichungsstatus vor diesem Commit: noch nicht auf GitHub/VPS;
+  der tatsächliche Live-Nachweis folgt im Korrekturbericht.
+
+## 30.09.2026 – erste Sports-Editorial-Umsetzung (Historie, technisch geprüft)
 
 - Nutzerwahl: **Design 2 für Webbrowser; Mischung aus Design 2 und 5 für Mobil/App**.
 - Referenzbilder und knapper Umsetzungsvertrag:

@@ -1,5 +1,10 @@
 # Sports Editorial – Abnahme vom 30.09.2026
 
+**Historischer technischer Prüfbericht.** Der Nutzer beanstandete anschließend
+die mangelnde Nähe zu Design 2. Die hier dokumentierten Funktionsprüfungen
+bestätigten keine visuelle Nutzerabnahme. Der korrigierte Aufbau wird im
+[Folgebericht](2026-09-30-sports-editorial-korrektur.md) dokumentiert.
+
 ## Umfang
 
 Freigegeben: Design 2 im Web; Design 2 + 5 auf Mobil. Implementiert als

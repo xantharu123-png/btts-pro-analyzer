@@ -20,8 +20,8 @@ def test_daily3_does_not_round_a_non_certain_model_to_one_hundred_percent(tmp_pa
     app = AppTest.from_function(_render_pool, args=(str(tmp_path/'day.db'), 1, True)).run(timeout=30)
     assert not app.exception
     text = ' '.join(item.value for item in app.markdown)
-    assert 'Modellchance</span><strong>&gt;99.9 %' in text
-    assert 'Modellchance</span><strong>100.0' not in text
+    assert 'aria-label="Modellchance">Modell</span><strong>&gt;99.9 %' in text
+    assert 'aria-label="Modellchance">Modell</span><strong>100.0' not in text
 
 
 @pytest.mark.parametrize('count', [0, 1, 3])

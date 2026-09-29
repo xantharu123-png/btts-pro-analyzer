@@ -218,7 +218,7 @@ def _fact_html(fact):
             f'<div class="wf-fact-detail">{body}</div></details>')
 
 
-def render_compact_analysis_html(compact, *, supporting_fact='', instance_key='', show_form=True):
+def render_compact_analysis_html(compact, *, supporting_fact='', instance_key='', show_form=True, show_summary=True):
     form_labels = {label for form in compact.forms for label in (form.team, 'Form ' + form.team)}
     if compact.forms:
         form_labels.add('Letzte Spiele')
@@ -235,9 +235,10 @@ def render_compact_analysis_html(compact, *, supporting_fact='', instance_key=''
     warnings = ' · '.join(escape(text) for text in alerts)
     warning_html = f'<p class="wf-analysis-alert">{warnings}</p>' if warnings else ''
     explanation = _fact_html(Fact('Statistik & Details', '', tuple(notes)))
-    support = f'<p class="wf-analysis-support">{escape(supporting_fact)}</p>' if supporting_fact else ''
+    support = f'<p class="wf-analysis-support">{escape(supporting_fact)}</p>' if supporting_fact and show_summary else ''
+    summary = f'<p class="wf-analysis-short">{escape(compact.summary)}</p>' if show_summary else ''
     return ('<section class="wf-analysis" aria-label="Kurzcheck">'
-            f'<p class="wf-analysis-short">{escape(compact.summary)}</p>'
+            f'{summary}'
             f'{support}'
             f'{render_form_html(compact.forms, instance_key=instance_key) if show_form else ""}'
             f'<div class="wf-facts">{facts}</div>{warning_html}'

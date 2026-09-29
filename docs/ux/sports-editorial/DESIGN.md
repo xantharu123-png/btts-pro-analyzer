@@ -1,7 +1,11 @@
 # BetBoy – Sports Editorial
 
-Stand: 30.09.2026. Freigegebene responsive Weboberfläche umgesetzt, geprüft und live.
-Veröffentlichungsbeleg: [Abnahmebericht](../../audits/2026-09-30-sports-editorial.md).
+Stand: 30.09.2026. Die Gestaltungsrichtung ist freigegeben, nicht jede spätere
+Implementierung. Der Nutzer beanstandete die erste Umsetzung ausdrücklich als
+nicht vorlagentreu. Technische Tests waren keine visuelle Nutzerabnahme.
+Der korrigierte Aufbau und sein Veröffentlichungsstatus stehen im
+[Korrekturbericht](../../audits/2026-09-30-sports-editorial-korrektur.md).
+Der [erste Prüfbericht](../../audits/2026-09-30-sports-editorial.md) bleibt Historie.
 
 ## Verbindliche Auswahl
 
@@ -102,6 +106,27 @@ unbelegte Verbesserung der Trefferquote. Keine offene Nutzerentscheidung
 verhindert den Beginn des beschriebenen UI-Umbaus.
 
 ## Umsetzungsnachweis
+
+### Korrektur nach Nutzerbeanstandung
+
+- Desktop: Begegnung und Auswahl nebeneinander, Formvergleich darunter;
+  drei echte Gegner-/Ergebniszeilen sofort sichtbar, restliche 5/10-Spiele
+  erreichbar. Weitere Märkte bleiben im gemeinsamen schließbaren Spielblock.
+- Bebilderte Daily3- und Tennisspalte aus demselben gespeicherten Prognosepool;
+  auch bei leerem Spieltag erhalten, ohne künstliche Tipps. Generische lokale
+  Bildflächen sind Dekoration, keine Abbildungen der jeweiligen Begegnung.
+- Kompakter schwarzer Schriftzug, warme Magazinfläche, grüne Editionzeile,
+  Sportfilter, farbige Ergebnisfelder und die vorhandene fünfteilige Mobilnavigation.
+- Tablet und Mobil stapeln die Inhalte; Daily3-Karten werden bei schmaler Breite
+  ebenfalls untereinander dargestellt. Keine gekürzten Covertexte.
+- 531 betroffene Tests bestanden; 31 Browser-/Randfallkombinationen.
+  Keine neue Vollsuite oder physische Geräteprüfung behauptet.
+- Die neue Oberfläche wurde gegen beide Originalbilder verglichen. Neutrale
+  Initialen, bestehende Navigationsziele und echte Daten ersetzen bewusst die
+  fiktiven Wappen, Beispieltips und unbelegten Redaktionsaussagen der Studie.
+  Abschließende visuelle Zustimmung des Nutzers ist nicht vorweggenommen.
+
+### Erste Umsetzung – technischer Nachweis, keine visuelle Nutzerabnahme
 
 - Gemeinsames lokales Theme und Schrift, native Desktop-/Mobilnavigation.
 - Spielgruppen mit neutralen Initialen, Auswahl und Modellchance im Blick.
