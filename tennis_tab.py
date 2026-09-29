@@ -670,8 +670,16 @@ def _render_match_card(row: dict) -> None:
             if reason:
                 st.write(reason)
             if records:
-                for record in records:
-                    st.caption(record)
+                from tennis.customer_facts import customer_record_facts, customer_statistics_context
+                from sports_form import tennis_forms, render_form_html
+                display_context = customer_statistics_context(context, row['player_a'], row['player_b'], modeled_at=modeled_at)
+                forms = tennis_forms(display_context, customer_record_facts(display_context,
+                    row['player_a'], row['player_b'], modeled_at=modeled_at))
+                if forms:
+                    st.markdown(render_form_html(forms, instance_key='tennis-search-' + str(row['id'])), unsafe_allow_html=True)
+                else:
+                    for record in records:
+                        st.caption(record)
             elif surface_text:
                 st.caption(surface_text)
             details = customer_record_details(context, row['player_a'], row['player_b'], modeled_at=modeled_at)

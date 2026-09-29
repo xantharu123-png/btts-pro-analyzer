@@ -848,13 +848,17 @@ def create_alternative_markets_tab_extended(
                     recent_results=recent.get(str(raw_candidate.fixture_id)),
                     model_clock=snapshot.get('scanned_at'), now=price_now)
                 if customer:
+                    from sports_form import manual_football_forms
+                    forms = manual_football_forms(raw_candidate, recent.get(str(raw_candidate.fixture_id)),
+                        model_clock=snapshot.get('scanned_at'))
                     fact_details = dict(customer.fact_details)
                     compact = CompactAnalysis(customer.summary,
                         tuple(Fact(label, value, fact_details.get(label, customer.details))
                               for label, value in customer.facts),
                         (), (customer.counterargument, *customer.details),
-                        format_model_clock(snapshot.get('scanned_at')))
-                    st.markdown(render_compact_analysis_html(compact), unsafe_allow_html=True)
+                        format_model_clock(snapshot.get('scanned_at')), forms)
+                    st.markdown(render_compact_analysis_html(compact,
+                        instance_key=raw_candidate.candidate_id), unsafe_allow_html=True)
                 with st.popover("Kontextdaten"):
                     st.caption(candidate_context_summary(raw_candidate))
                 if offset < len(candidates) - 1:

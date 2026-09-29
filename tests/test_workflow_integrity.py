@@ -991,7 +991,7 @@ def test_automatic_all_surface_has_one_game_block_and_exact_price_actions(
     assert action_order == ["expander"] * len(forecasts)
     # These legacy fixtures intentionally lack attributable model evidence.
     assert html.count('class="wf-top-card"') == 0
-    assert html.count('class="wf-row"') == 4
+    assert html.count('class="wf-row se-card"') == 4
     assert all(html.count(f'data-key="{signal.key}"') == 1 for signal in forecasts)
     assert "Berechnete Auswahl 1" not in html
     assert "Tagestipp 1" not in html
@@ -1052,14 +1052,15 @@ def test_automatic_basis_only_catalog_skips_empty_top_columns(monkeypatch):
         for value, kwargs, _context in recording_st.markdown_calls
         if kwargs.get("unsafe_allow_html")
     )
-    assert recording_st.column_groups == []
+    # One content/real Daily3 rail pair, never empty top-selection columns.
+    assert len(recording_st.column_groups) == 1
     assert not any(
         kind == "subheader" and value == "Top-Auswahlen nach Modell"
         for kind, value in recording_st.messages
     )
     assert "Top-Auswahlen nach Modell" not in html
     assert "wettfinder_v2_section_header" not in recording_st.containers
-    assert html.count('class="wf-row"') == 1
+    assert html.count('class="wf-row se-card"') == 1
     assert html.count('data-key="basis-only"') == 1
 
 
@@ -1454,9 +1455,7 @@ def test_all_sports_shows_tabs_without_redundant_explanation(monkeypatch):
     app.render_wettfinder()
 
     assert recording_st.tabs_created == [app.FINDER_SINGLE_SPORT_OPTIONS]
-    assert [value for kind, value in recording_st.messages if kind == "caption"] == [
-        "Auswahl nach Sportdaten · deine Mindestquote für eigene Wetten: 1,20"
-    ]
+    assert [value for kind, value in recording_st.messages if kind == "caption"] == []
     assert "Alle Sportarten" in inspect.getsource(app.render_wettfinder)
 
 
@@ -1572,6 +1571,7 @@ def test_main_dispatches_riskobet_to_its_own_read_only_renderer(monkeypatch):
     monkeypatch.setattr(app, "_session_scope_id", lambda: "test-scope")
     monkeypatch.setattr(app, "get_analyzer", lambda *_args: object())
     monkeypatch.setattr(app, "_render_sidebar", lambda _analyzer: "RisikoBet")
+    monkeypatch.setattr(app, "_render_editorial_header", lambda workspace: events.append(('desktop', workspace)))
     monkeypatch.setattr(app, "account_scope_ready", lambda _state: True)
     monkeypatch.setattr(
         app,

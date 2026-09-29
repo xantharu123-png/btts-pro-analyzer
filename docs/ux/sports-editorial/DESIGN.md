@@ -1,6 +1,7 @@
 # BetBoy – Sports Editorial
 
-Stand: 29.09.2026. Designrichtung vom Nutzer freigegeben; Produktivumbau offen.
+Stand: 30.09.2026. Freigegebene responsive Weboberfläche umgesetzt und geprüft.
+Veröffentlichungsbeleg: [Abnahmebericht](../../audits/2026-09-30-sports-editorial.md).
 
 ## Verbindliche Auswahl
 
@@ -87,18 +88,31 @@ erfassbar sein – auf Desktop und kleinen Touchscreens.
 
 ## Abnahme
 
-- [ ] Bei 320, 390, 760, 1024 und 1440 px kein horizontaler Seitenüberlauf.
-- [ ] Formfelder, Gegnerlisten, 5/10-Auswahl und Spielgruppen per Maus,
-      Tastatur und Touch bedienbar; sichtbarer Fokus, mindestens 44 px Touchziele.
-- [ ] Lange Teamnamen, 0/1/3 Auswahlen, fehlende Quote und kurze Historie geprüft.
-- [ ] Modellwerte, Marktauswahl, 1,20-Filter und Geldbuchungen unverändert.
-- [ ] Kein Beispieldatensatz, erfundenes Redaktionsteam oder Fake-Wappen live.
-- [ ] Tatsächliche Browserbilder mit beiden Referenzen verglichen; keine
+- [x] Bei 320, 390, 760, 1024 und 1440 px kein horizontaler Seitenüberlauf.
+- [x] Formfelder, Gegnerlisten, 5/10-Auswahl und Spielgruppen per Maus und
+      Tastatur geprüft; Touch-Emulation, sichtbarer Fokus, mindestens 44 px Ziele.
+- [x] Lange Teamnamen, 0/1/3 Auswahlen, fehlende Quote und kurze Historie geprüft.
+- [x] Modellwerte, Marktauswahl, 1,20-Filter und Geldbuchungen unverändert.
+- [x] Keine produktiven Beispieldaten, erfundenes Redaktionsteam oder Fake-Wappen.
+- [x] Tatsächliche Browserbilder mit beiden Referenzen verglichen; keine
       Store-/Geräteprüfung aus einem Desktop-Screenshot ableiten.
 
 Erste messbare Abnahme sind diese Rendering-/Funktionsprüfungen, nicht eine
 unbelegte Verbesserung der Trefferquote. Keine offene Nutzerentscheidung
 verhindert den Beginn des beschriebenen UI-Umbaus.
+
+## Umsetzungsnachweis
+
+- Gemeinsames lokales Theme und Schrift, native Desktop-/Mobilnavigation.
+- Spielgruppen mit neutralen Initialen, Auswahl und Modellchance im Blick.
+- Echte Ergebnisfelder und Gegnerdetails in Wettfinder, Daily3 und eigener Suche;
+  RisikoBet erhält dieselben Gestaltungsregeln. Bestehende reine Zusammenfassungen
+  werden nicht in erfundene Einzelspiele umgewandelt.
+- 524 betroffene Tests bestanden; 25 Browser-/Randfallkombinationen geprüft,
+  zusätzlich native Klick-/Tastatursteuerung und mobile Touch-Emulation.
+- Ein beim Browsercheck reproduzierter Rücksetzfehler des 5/10-Schalters behoben.
+- Kein neuer Sportscan, Modellumbau, Backup oder Finanzvorgang. Reale Geräte,
+  native Store-Apps und numerisch nachgewiesene Kontexteffekte bleiben separat.
 
 ## Generierungsnachweis
 

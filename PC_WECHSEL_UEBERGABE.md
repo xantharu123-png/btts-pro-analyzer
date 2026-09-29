@@ -1,5 +1,18 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg – Sports Editorial, 30.09.2026
+
+Desktop-Design 2 und Mobil-Mix 2+5 sind als responsive Streamlit-Oberfläche
+umgesetzt. Zuerst den obersten Block in [TODO_AKTUELL.md](TODO_AKTUELL.md) und
+den [Abnahmebericht](docs/audits/2026-09-30-sports-editorial.md) lesen.
+524 betroffene Tests und 25 Browser-/Randfallkombinationen bestanden; echte
+Maus-/Tastatursteuerung sowie Touch-Emulation geprüft. Alte Vollsuitezahlen
+darunter beziehen sich nicht auf diesen neuen Patch. Bestehende WIP-/Output-
+Dateien erhalten; kein neues Backup, zusätzlicher Sportscan oder Bereinigung.
+Native Apps, echte Geräte, Kundenbetrieb und numerisch belegte Kontexteffekte
+bleiben separat. Veröffentlichungsstatus steht im Abnahmebericht, nicht aus
+den historischen Hashes unten ableiten.
+
 ## Aktueller Einstieg – Accountwechsel 28.09.2026
 
 Zuerst den obersten Accountwechsel-Block in [TODO_AKTUELL.md](TODO_AKTUELL.md)

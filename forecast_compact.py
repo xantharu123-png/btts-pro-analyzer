@@ -13,6 +13,7 @@ from forecast_analysis import (
     forecast_highlight_reason, format_model_clock, read_football_analysis,
 )
 from tennis.surface_evidence import format_surface_evidence
+from sports_form import TeamForm, football_forms, tennis_forms, team_forms, render_form_html
 
 
 @dataclass(frozen=True)
@@ -30,6 +31,7 @@ class CompactAnalysis:
     warnings: tuple[str, ...]
     explanation: tuple[str, ...]
     model_clock: str
+    forms: tuple[TeamForm, ...] = ()
 
 
 # Model-method limitations belong in optional details, not as repeated alerts.
@@ -98,7 +100,7 @@ def football_injury_fact(context, home, away, *, now):
 
 def build_compact_analysis(signal, analysis, *, now):
     sport = str(signal.sport or '').strip().casefold().replace('ß', 'ss')
-    facts, warnings = [], []
+    facts, warnings, forms = [], [], ()
     summary = analysis.basis.split('. ', 1)[0].rstrip('.')
     football = sport in {'fussball', 'football'}
     evidence = read_football_analysis(vars(signal), now=now) if football else None
@@ -107,6 +109,7 @@ def build_compact_analysis(signal, analysis, *, now):
     context = _mapping(evidence.get('context')) if evidence else {}
     basis = _mapping(evidence.get('basis')) if evidence else {}
     if football:
+        forms = football_forms(basis, home, away)
         summary = 'Modellgrundlagen unvollständig'
         if spec and analysis.supported:
             count_market = spec.kind in {'corner_total', 'team_corners', 'yellow_total', 'team_yellow'}
@@ -164,11 +167,14 @@ def build_compact_analysis(signal, analysis, *, now):
         summary = reason or (f'Belag: {surface}' if surface else 'Belag nicht bekannt')
         if reason and surface:
             facts.append(Fact('Belag', surface))
-        from tennis.customer_facts import customer_record_facts, customer_record_details
-        records = customer_record_facts(signal.context_evidence, signal.competitor_a,
+        from tennis.customer_facts import customer_record_facts, customer_record_details, customer_statistics_context
+        customer_context = customer_statistics_context(signal.context_evidence,
+            signal.competitor_a, signal.competitor_b, modeled_at=signal.modeled_at)
+        records = customer_record_facts(customer_context, signal.competitor_a,
             signal.competitor_b, modeled_at=signal.modeled_at)
-        details = customer_record_details(signal.context_evidence, signal.competitor_a,
+        details = customer_record_details(customer_context, signal.competitor_a,
             signal.competitor_b, modeled_at=signal.modeled_at)
+        forms = tennis_forms(customer_context, records)
         facts.extend(Fact(player, value, (scope, *details.get(player, ()))) for player, value, scope in records)
         surface_evidence = _mapping(_mapping(signal.context_evidence).get('surface_evidence'))
         surface_text = format_surface_evidence(
@@ -185,6 +191,7 @@ def build_compact_analysis(signal, analysis, *, now):
     elif sport in {'e-sport', 'esports', 'basketball', 'eishockey', 'ice_hockey'} and analysis.supported:
         from team_customer_facts import team_customer_explanation
         customer = team_customer_explanation(signal)
+        forms = team_forms(signal, customer)
         facts.extend(Fact('Letzte Spiele', text.split(': ', 1)[0], (text,))
                      for text in customer['recent'])
         if customer['counterpoint']:
@@ -198,7 +205,7 @@ def build_compact_analysis(signal, analysis, *, now):
     if freshness and freshness != 'Keine exakt zugeordneten Modellgrundlagen' and freshness not in warnings:
         warnings.append(freshness)
     explanation = tuple(part for part in (analysis.basis, analysis.caution, analysis.samples, analysis.data_age) if part)
-    return CompactAnalysis(summary, tuple(facts), tuple(warnings), explanation, format_model_clock(signal.modeled_at))
+    return CompactAnalysis(summary, tuple(facts), tuple(warnings), explanation, format_model_clock(signal.modeled_at), forms)
 
 
 def _fact_html(fact):
@@ -211,8 +218,11 @@ def _fact_html(fact):
             f'<div class="wf-fact-detail">{body}</div></details>')
 
 
-def render_compact_analysis_html(compact, *, supporting_fact=''):
-    facts = ''.join(_fact_html(fact) for fact in compact.facts)
+def render_compact_analysis_html(compact, *, supporting_fact='', instance_key='', show_form=True):
+    form_labels = {label for form in compact.forms for label in (form.team, 'Form ' + form.team)}
+    if compact.forms:
+        form_labels.add('Letzte Spiele')
+    facts = ''.join(_fact_html(fact) for fact in compact.facts if fact.label not in form_labels)
     notes = list(compact.explanation)
     alerts = []
     for text in compact.warnings:
@@ -229,6 +239,7 @@ def render_compact_analysis_html(compact, *, supporting_fact=''):
     return ('<section class="wf-analysis" aria-label="Kurzcheck">'
             f'<p class="wf-analysis-short">{escape(compact.summary)}</p>'
             f'{support}'
+            f'{render_form_html(compact.forms, instance_key=instance_key) if show_form else ""}'
             f'<div class="wf-facts">{facts}</div>{warning_html}'
             f'<div class="wf-analysis-footer"><span>Berechnet: {escape(compact.model_clock)}</span>{explanation}</div>'
             '</section>')

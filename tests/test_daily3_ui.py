@@ -20,8 +20,8 @@ def test_daily3_does_not_round_a_non_certain_model_to_one_hundred_percent(tmp_pa
     app = AppTest.from_function(_render_pool, args=(str(tmp_path/'day.db'), 1, True)).run(timeout=30)
     assert not app.exception
     text = ' '.join(item.value for item in app.markdown)
-    assert 'Modellschätzung: >99.9 %' in text
-    assert 'Modellschätzung: 100.0%' not in text
+    assert 'Modellchance</span><strong>&gt;99.9 %' in text
+    assert 'Modellchance</span><strong>100.0' not in text
 
 
 @pytest.mark.parametrize('count', [0, 1, 3])
@@ -173,7 +173,7 @@ def test_missing_or_stale_quote_status_does_not_enter_model_selection_ui(tmp_pat
         assert not app.exception
         assert app.session_state['fixture_price_code'] == expected_code
         assert not any('Quote fehlt' in item.value or 'Veraltet' in item.value for item in app.info)
-        assert any('Heimteam 1' in item.value for item in app.subheader)
+        assert any('Heimteam 1' in item.value and 'se-match' in item.value for item in app.markdown)
 
 
 def test_changed_analysis_invalidates_only_unsubmitted_confirmation(tmp_path):
@@ -209,7 +209,7 @@ def test_no_scope_means_no_anonymous_money_account_but_visible_models(tmp_path):
     db = tmp_path/'daily3.db'
     app = AppTest.from_function(_render, args=(str(db), True)).run(timeout=30)
     assert not app.exception and not db.exists()
-    assert any('Heimteam 1' in item.value for item in app.subheader)
+    assert any('Heimteam 1' in item.value and 'se-match' in item.value for item in app.markdown)
     assert not any(button.label == 'CHF 50 Tagesbudget bestätigen' for button in app.button)
 
 

@@ -230,19 +230,18 @@ def render_daily3(st, *, snapshot_loader=None, store_factory=None, now=None):
     elif used < 3:
         st.info('Heute noch keine passende defensive Auswahl.')
     can_reserve = storage_ready and day is not None and not day['closed'] and not prior_pending
-    choice_panels = st.columns(len(choices)) if choices else []
+    with st.container(key='daily3_choices_layout'):
+        choice_panels = st.columns(len(choices)) if choices else []
     for index, choice in enumerate(choices):
         snap = choice.snapshot()
         # Only a changed model selection invalidates an unsubmitted form.
         fingerprint = hashlib.sha256(json.dumps(snap, sort_keys=True).encode()).hexdigest()
         key = f'{scope}:{today}:{choice.signal.key}:{len(day["bets"]) if day else 0}:{fingerprint}'
         with choice_panels[index].container(border=True):
-            st.subheader(snap['event_label'])
-            st.write(f'{snap["market"]} · {snap["selection"]}')
-            st.write(f'Modellschätzung: {format_probability(choice.signal.probability)} · Beginn {choice.start.astimezone(_TZ):%H:%M}')
-            st.caption(choice.comparison.summary)
-            card = build_wettfinder_card(choice.signal, now=now)
-            st.markdown(render_compact_analysis_html(card.compact_analysis), unsafe_allow_html=True)
+            from wettfinder_surface import render_editorial_card_html
+            card = build_wettfinder_card(choice.signal, quote=choice.signal.reference_quote, now=now)
+            st.markdown(render_editorial_card_html(card,
+                supporting_fact=choice.comparison.summary), unsafe_allow_html=True)
             st.caption('Deine Mindestquote für eine tatsächliche Wette: 1,20')
             if can_reserve:
                 with st.form('d3-reserve:'+key):

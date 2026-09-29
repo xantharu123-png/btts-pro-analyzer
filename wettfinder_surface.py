@@ -9,7 +9,7 @@ into safe consumer-facing data. The user floor excludes known offers below
 from __future__ import annotations
 
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from html import escape
 import math
@@ -700,7 +700,7 @@ def _analysis_markup(card: WettfinderCard, *, featured: bool = False) -> str:
     supporting_fact = (card.highlight_comparison.summary
                        if featured and _can_feature(card) and card.highlight_comparison else "")
     if card.compact_analysis is not None:
-        return render_compact_analysis_html(card.compact_analysis, supporting_fact=supporting_fact)
+        return render_compact_analysis_html(card.compact_analysis, supporting_fact=supporting_fact, instance_key=card.key)
     support = f'<p class="wf-analysis-support">{escape(supporting_fact)}</p>' if supporting_fact else ''
     samples = (
         f'<p class="wf-analysis-samples">{escape(card.analysis_samples)}</p>'
@@ -836,7 +836,58 @@ def render_compact_row_html(card: WettfinderCard, *, grouped: bool = False, feat
     return _compact_row_markup(card, grouped=grouped, featured=featured, show_price=show_price)
 
 
+def render_match_header_html(card: WettfinderCard) -> str:
+    """Neutral team initials, not unlicensed or invented club crests."""
+    first = card.home_team or card.competitor_a
+    second = card.away_team or card.competitor_b
+    if not first or not second:
+        return f'<p class="se-event">{escape(card.event_label)}</p>'
+    def team(name):
+        initials = ''.join(word[0] for word in name.split()[:2]).upper()
+        return (f'<div class="se-team"><span class="se-shield" aria-hidden="true">{escape(initials)}</span>'
+                f'<strong>{escape(name)}</strong></div>')
+    return ('<div class="se-match">' + team(first)
+        + f'<div class="se-match-time"><span>{escape(card.sport)}</span><b>VS</b>'
+        + f'<span>{escape(card.scheduled_start_label)}</span></div>' + team(second) + '</div>')
+
+
+def render_editorial_card_html(card: WettfinderCard, *, grouped=False, featured=False, supporting_fact='', show_form=True) -> str:
+    """The sport-first card retains method limits in reachable details."""
+    head = '' if grouped else (
+        f'<p class="se-meta">{escape(card.sport)} · {escape(card.scheduled_start_label)}</p>'
+        + render_match_header_html(card))
+    note = quote_display_note(card)
+    quote_label = 'Letzte Quote' if card.price_code == 'STALE' else 'Quote'
+    quote_html = f'<div class="se-number se-number-quote"><span>{quote_label}</span><strong>{escape(format_decimal_odds(card.observed_odds))}</strong></div>'
+    if card.compact_analysis is not None:
+        original = card.compact_analysis
+        limits = ('Sicherheitswert: ' + format_probability(card.cautious_probability)
+                  + ' mit heuristischem Abschlag, keine gesicherte Mindestchance.',)
+        if card.evidence_label:
+            limits += (card.evidence_label,)
+        if note:
+            limits += (quote_label + ': ' + note,)
+        compact = replace(original, explanation=original.explanation + limits)
+        if not supporting_fact and featured and _can_feature(card) and card.highlight_comparison is not None:
+            supporting_fact = card.highlight_comparison.summary
+        analysis_html = render_compact_analysis_html(compact,
+            supporting_fact=supporting_fact, instance_key=card.key, show_form=show_form)
+    else:
+        analysis_html = _analysis_markup(card, featured=featured)
+    return (
+        f'<article class="wf-row se-card" data-key="{escape(card.key, quote=True)}"'
+        + (' data-grouped="true"' if grouped else '')
+        + f' aria-label="Modellprognose für {escape(card.event_label, quote=True)}">{head}'
+        '<div class="se-pick"><div class="se-pick-label">'
+        f'<span>{escape(card.market)}</span><strong>{escape(card.selection)}</strong></div>'
+        f'<div class="se-number"><span>Modellchance</span><strong>{escape(format_probability(card.model_probability))}</strong></div>'
+        f'{quote_html}</div>{analysis_html}</article>'
+    )
+
+
 __all__ = [
+    "render_editorial_card_html",
+    "render_match_header_html",
     "WettfinderCard",
     "WettfinderCatalog",
     "WettfinderFixtureGroup",

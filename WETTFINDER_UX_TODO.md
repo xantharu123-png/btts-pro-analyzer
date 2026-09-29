@@ -1,10 +1,14 @@
 # Wettfinder UX-Neuaufbau - To-do
 
-## Aktuell: Sports Editorial, 29.09.2026
+## Aktuell: Sports Editorial, 30.09.2026
 
-**Designrichtung freigegeben, neuer Produktivumbau noch offen.**
+**Responsive Weboberfläche umgesetzt und technisch/visuell abgenommen.**
 Desktop = Design 2; Mobil/App = Design 2 + 5.
 Referenzen, Regeln und Abnahme: [Designvertrag](docs/ux/sports-editorial/DESIGN.md).
+524 betroffene Tests, 25 Browser-/Randfallkombinationen und echte
+Maus-/Tastaturinteraktionen plus Touch-Emulation bestanden. Echte Mobilgeräte
+und native Apps bleiben separat offen. Veröffentlichung und genaue Grenzen:
+[Abnahmebericht](docs/audits/2026-09-30-sports-editorial.md).
 Die folgende V2-Abschlussnotiz dokumentiert den früheren Stand vom 02.09.,
 nicht den jetzt beauftragten gestalterischen Neuaufbau.
 

@@ -1,15 +1,24 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
-## 29.09.2026 – neue Designrichtung freigegeben
+## 30.09.2026 – Sports Editorial umgesetzt und abgenommen
 
 - Nutzerwahl: **Design 2 für Webbrowser; Mischung aus Design 2 und 5 für Mobil/App**.
 - Referenzbilder und knapper Umsetzungsvertrag:
   [Sports Editorial](docs/ux/sports-editorial/DESIGN.md).
-- Kombinierte Mobilvorschau erstellt. Noch kein Produktivcode umgestaltet;
-  keine Aussage, dass das neue Layout bereits live oder als native App gebaut ist.
-- Nächster Schritt: vorhandene responsive Oberfläche anhand dieser Referenzen
-  umbauen, echte 5/10-Formdaten als Ergebnisfelder darstellen, alle bisherigen
-  Funktionen und Modell-/Quotenregeln erhalten, Desktop/Mobil rendern und prüfen.
+- Responsive Oberfläche umgesetzt: lokale Sporttypografie, horizontale
+  Desktopnavigation, feste fünfteilige Mobilnavigation und gemeinsame Spielkarten.
+  Echte 5/10-Ergebnisfelder mit Gegnern, Spielständen und erreichbaren Details;
+  identische Formdaten innerhalb einer Spielgruppe nur einmal anzeigen.
+- Wettfinder, Daily3 und vorhandene manuelle Formanzeigen verbunden; RisikoBet
+  ebenfalls gestaltet. Keine zusätzlichen Datenabfragen beim 5/10-Wechsel.
+- 524 betroffene Tests bestanden; 25 Browser-/Randfallkombinationen bei
+  320/390/760/1024/1440 px sowie Maus, Tastatur und Touch-Emulation bestanden.
+  Daily3-Vorschau berücksichtigt die bestehenden Abo-Rechte; Budget, gespeicherte
+  Wetten, Modelle, Auswahlregeln und bekannte 1,20-Untergrenze bleiben unverändert.
+- [Abnahme und Veröffentlichungsstatus](docs/audits/2026-09-30-sports-editorial.md).
+  Kein neues Backup, Sport-/API-Scan oder Bereinigung. Native Apps und echte
+  Mobilgeräte sind damit nicht abgenommen. Numerische Kontexteffekte sowie
+  Kunden-/Storebetrieb bleiben die separat unten beschriebenen Restarbeiten.
 - Alte V2-Abschlussnotiz ist historisch, nicht die Abnahme dieses neuen Designs.
 
 ## 29.09.2026 – Quotenabruf für die bekannte 1,20-Untergrenze

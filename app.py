@@ -91,6 +91,8 @@ from wettfinder_surface import (
     wettfinder_game_label,
     render_compact_row_html,
     render_top_card_html,
+    render_editorial_card_html,
+    render_match_header_html,
     wettfinder_quote_binding_candidate,
     wettfinder_recommendation_candidate,
 )
@@ -2027,6 +2029,10 @@ def _apply_app_styles() -> None:
     )
 
 
+    from editorial_theme import editorial_css
+    st.markdown(editorial_css(), unsafe_allow_html=True)
+
+
 @st.cache_resource
 def get_analyzer(
     module_version: int = _REQUIRED_ANALYZER_MODULE_VERSION,
@@ -2225,6 +2231,34 @@ def _render_sidebar(analyzer) -> str:
         _sidebar_scan_poller()
 
     return workspace
+
+
+def _render_editorial_header(workspace: str) -> None:
+    """Synchronized native controls; mobile keeps all five existing pages."""
+    key = 'bb_desktop_navigation'
+    def _go():
+        chosen = st.session_state.get(key)
+        if chosen in MAIN_PAGES:
+            st.session_state['workspace'] = chosen
+            st.session_state['settings_open'] = False
+    if st.session_state.get(key) != workspace:
+        st.session_state[key] = workspace
+    with st.container(key='bb_editorial_header'):
+        brand, navigation = st.columns([1, 3])
+        with brand:
+            st.markdown('<p class="bb-brand">Bet<span>Boy</span></p>'
+                '<p class="bb-brand-note">SPORT · STATISTIK · AUSWAHL</p>', unsafe_allow_html=True)
+        with navigation:
+            with st.container(key='bb_desktop_nav'):
+                st.segmented_control('Hauptbereiche', MAIN_PAGES, key=key, required=True,
+                    label_visibility='collapsed', width='stretch', on_change=_go)
+
+
+def _daily3_rail_allowed() -> bool:
+    # bind_customer has already verified this request's account. Do not turn
+    # the new public rail into a bypass of the existing Daily3 entitlement.
+    from customer_access import enabled, ACCESS_KEY
+    return not enabled() or 'daily3' in st.session_state.get(ACCESS_KEY, {}).get('features', ())
 
 
 def _persist_prematch(results) -> Optional[dict]:
@@ -4661,12 +4695,17 @@ def _render_wettfinder_game(group, row_by_key, featured_keys) -> None:
         wettfinder_game_label(group), expanded=initially_open, key=key,
         on_change=_remember_wettfinder_game_state, args=(key,),
     ):
+        st.markdown(render_match_header_html(group.cards[0]), unsafe_allow_html=True)
+        shown_forms = set()
         for card in group.cards:
             signal, card = row_by_key[card.key]
+            forms = card.compact_analysis.forms if card.compact_analysis else ()
+            show_form = forms not in shown_forms
+            shown_forms.add(forms)
             with st.container(key=f'wettfinder_v2_game_market_{card.manual_quote_key}'):
-                st.markdown(render_compact_row_html(
+                st.markdown(render_editorial_card_html(
                     card, grouped=True, featured=card.key in featured_keys,
-                    show_price=False,
+                    show_form=show_form,
                 ), unsafe_allow_html=True)
 
 
@@ -4747,7 +4786,33 @@ def _render_automated_daily_selection() -> None:
         card.key: (signal, card)
         for signal, card in rows
     }
-    _render_wettfinder_games(catalog, row_by_key, sport_filter=sport_filter)
+    # Reuse the same immutable pool; the rail causes no model/API rerun and
+    # does not open a money account or create any reservation.
+    from daily3_selection import daily3_choices
+    from html import escape
+    daily3_allowed = _daily3_rail_allowed()
+    choices = daily3_choices(snapshot.forecasts, now=evaluation_now) if daily3_allowed else ()
+    with st.container(key='editorial_auto_layout'):
+        main_column, rail = st.columns([3, 1], gap='large')
+        with main_column:
+            _render_wettfinder_games(catalog, row_by_key, sport_filter=sport_filter)
+        with rail:
+            with st.container(key='editorial_daily3_rail'):
+                st.markdown('<p class="se-rail-kicker">Dein Tagesplan</p>'
+                    '<p class="se-rail-title">3 a day keeps<br>the job away</p>'
+                    '<p class="se-rail-sub">CHF 50 Tagesbudget · bis zu 3 Einzelwetten</p>', unsafe_allow_html=True)
+                for choice in choices:
+                    signal = choice.signal
+                    st.markdown('<div class="se-rail-choice"><strong>' + escape(signal.event_label)
+                        + '</strong><span>' + escape(signal.market + ' · ' + signal.selection)
+                        + '</span><b>' + f'{signal.probability:.1%}' + ' Modellchance</b></div>', unsafe_allow_html=True)
+                if not daily3_allowed:
+                    st.caption('Daily3 ist im Pro-Abo enthalten.')
+                elif not choices:
+                    st.caption('Heute noch keine passende defensive Auswahl.')
+                def _open_daily3():
+                    st.session_state['wettfinder_mode_v2'] = '3 a day'
+                st.button('Daily3 öffnen', key='editorial_daily3_open', on_click=_open_daily3, use_container_width=True)
 
 
 def _render_selected_finder(
@@ -4790,7 +4855,6 @@ def render_wettfinder() -> None:
                 "wettfinder_mode_v2",
                 "Automatisch",
             )
-        st.caption("Auswahl nach Sportdaten · deine Mindestquote für eigene Wetten: 1,20")
         if mode == "3 a day":
             require_feature(st, "daily3")
             from daily3_ui import render_daily3
@@ -4997,10 +5061,11 @@ def main() -> None:
         st.session_state["analyzer_error"] = str(exc)
 
     workspace = _render_sidebar(analyzer)
+    _render_editorial_header(workspace)
     require_feature(st, PAGE_FEATURES[workspace])
     title, caption = PAGE_INFO[workspace]
     st.markdown(f'<div class="bb-context">BetBoy / {workspace}</div>', unsafe_allow_html=True)
-    st.title(title)
+    st.title('Dein Spieltag.' if workspace == 'Wettfinder' else title)
     st.caption(caption)
 
     if st.session_state.get("analyzer_error"):
