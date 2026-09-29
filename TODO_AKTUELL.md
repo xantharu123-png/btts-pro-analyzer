@@ -9,15 +9,16 @@
   mit drei sichtbaren Gegnerzeilen; weitere Märkte im selben Spielblock.
   Lokale Stadion-/Tennisbilder und Daily3-/Tennisspalte auch bei leerem Spieltag.
   Kompakter Kopf, Magazinfarben und native fünfteilige Mobilnavigation.
-- 531 betroffene Tests bestanden; 35 enthaltene UI-Tests nach dem letzten
-  CSS-Patch erneut bestanden. 31 Layout-/Randfallkombinationen geprüft,
+- Final 531 betroffene Tests nach letzter Produktions-Wrapper-Korrektur bestanden.
+  31 Layout-/Randfallkombinationen geprüft,
   einschließlich tatsächlicher Spalten-/Covergeometrie, 5/10 und Navigation.
 - [Korrekturbericht und aktueller Veröffentlichungsstatus](docs/audits/2026-09-30-sports-editorial-korrektur.md).
   Kein neues Backup, zusätzlicher Scan, Finanzvorgang oder Modellumbau.
   Native Apps, reale Geräte und numerische Kontexteffekte bleiben separat.
   Finalen visuellen Zuspruch des Nutzers nicht aus Tests ableiten.
-- Veröffentlichungsstatus vor diesem Commit: noch nicht auf GitHub/VPS;
-  der tatsächliche Live-Nachweis folgt im Korrekturbericht.
+- Erster UI-Commit `ab5cd90` bereits auf main und VPS, beide Healthchecks `ok`.
+  Die bei der Produktionssicht gefundene letzte Iframe-Abstandskorrektur wurde
+  erneut getestet; ihr Veröffentlichungsnachweis folgt im Korrekturbericht.
 
 ## 30.09.2026 – erste Sports-Editorial-Umsetzung (Historie, technisch geprüft)
 

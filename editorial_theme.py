@@ -20,7 +20,7 @@ html, body, [data-testid="stAppViewContainer"], .stApp, [data-testid="stMain"] {
 [data-testid="stToolbar"], [data-testid="stSidebar"], [data-testid="stSidebarCollapsedControl"], [data-testid="collapsedControl"], .bb-context {display:none !important;}
 /* Nonvisual styles/account bridges must not leave empty layout rows. */
 [data-testid="stElementContainer"]:has([data-testid="stMarkdownContainer"] style) {display:none !important;}
-[data-testid="stElementContainer"]:has(>iframe[height="0"]) {position:absolute;height:0;width:0;overflow:hidden;}
+[data-testid="stElementContainer"]:has(iframe[height="0"]) {position:absolute;height:0;width:0;overflow:hidden;}
 [data-testid="stElementContainer"]:has(.se-edition) {position:fixed;top:0;left:0;right:0;z-index:990;}
 .se-edition {display:flex;justify-content:space-between;gap:1rem;padding:5px 2.25rem;background:var(--bb-green);color:white;
   font-size:.66rem;line-height:1.2;letter-spacing:.15em;}
@@ -154,7 +154,7 @@ details.wf-fact {padding:0 !important;}
 .st-key-editorial_daily3_cover [data-testid="stElementContainer"]:has(.se-cover-content) {position:absolute;inset:0;}
 .se-cover-content {box-sizing:border-box;height:280px;padding:1.3rem;display:flex;flex-direction:column;justify-content:center;background:linear-gradient(0deg,#062c22e8,#062c2230);color:white;}
 .se-cover-tag {align-self:flex-start;background:var(--bb-editorial-yellow);color:#101510;font-size:.8rem;font-weight:800;padding:.45rem .7rem;border-radius:5px;margin-bottom:1rem;}
-.se-cover-content h2 {font-family:'BB Sport',sans-serif;font-size:3.2rem !important;line-height:.99;margin:0 !important;color:white;}
+.se-cover-content h2 {font-family:'BB Sport',sans-serif;font-size:3.2rem !important;line-height:.99 !important;padding:0 !important;margin:0 !important;color:white;}
 .se-cover-content p {color:white;font-size:.88rem !important;margin:.7rem 0 0 !important;line-height:1.45;}
 .se-rail-choice {display:flex;align-items:flex-start;gap:.65rem;border-bottom:1px solid var(--bb-line);padding:.85rem 1rem;}
 .se-choice-rank {display:grid;place-items:center;flex:0 0 30px;width:30px;height:30px;border-radius:50%;background:var(--bb-green);color:white;font-size:.9rem;}

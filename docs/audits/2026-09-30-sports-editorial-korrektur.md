@@ -35,9 +35,10 @@ eingebetteten Bild-Strings. Provenienz: `assets/editorial/README.md`.
 
 ## Tests und Browserprüfung vor Veröffentlichung
 
-531 betroffene Tests bestanden in 13,34 Sekunden. Nach der letzten reinen
-Tablet-CSS-Korrektur nochmals 35 enthaltene UI-Tests bestanden; keine Addition
-überlappender Testzahlen, keine neue vollständige 11.000er-Suite behauptet.
+Finaler Stand: 531 betroffene Tests bestanden in 13,94 Sekunden, einschließlich
+der Produktions-Wrapper-Korrektur. Der vorherige 35er-Zwischenlauf ist darin
+enthalten; keine Addition überlappender Zahlen und keine neue vollständige
+11.000er-Suite behauptet.
 
 ```powershell
 .\.codex_test_venv\Scripts\python.exe -m pytest tests/test_sports_editorial.py tests/test_forecast_compact.py tests/test_daily3_selection.py tests/test_daily3_comparison.py tests/test_daily3_store.py tests/test_daily3_ui.py tests/test_wettfinder_surface.py tests/test_workflow_integrity.py tests/test_publication_odds_floor.py tests/test_riskobet_ui.py tests/test_riskobet_surface.py tests/test_riskobet_football_recent_results.py tests/test_football_recent_results.py tests/test_tennis_customer_facts.py tests/test_team_customer_facts.py tests/test_tennis_tab.py tests/test_forecast_analysis.py tests/test_customer_access.py -q --disable-warnings --maxfail=2
@@ -64,6 +65,11 @@ Daily3, RisikoBet und Abo-Hinweis jeweils bei 1440/760/390/320 px.
 Die Prüfung fand und korrigierte echte Fehler: nicht greifende CSS-Selektoren
 für verschachtelte Streamlit-Spalten (760-px- und Daily3-Ansicht) sowie einen
 um 2 px abgeschnittenen Mobil-Covertext. Kein Prüftoleranzwert wurde gelockert.
+Beim frischen Produktionsvergleich außerdem den zusätzlichen Leerabstand
+eines verschachtelten, unsichtbaren Kontobrücken-Iframes korrigiert. Die lokale
+Vorschau bildet jetzt diesen nativen Null-Höhen-Wrapper ohne echtes Konto nach.
+Sein Browser-/Speicher-Code wird nicht geändert oder deaktiviert. Der Covertext
+erhält explizite Zeilenhöhe ohne native Überschriften-Zusatzabstände.
 Der Bildtest wartet auf abgeschlossene Medien-Downloads statt deren bloße
 DOM-Präsenz; dauerhaft fehlende Bilder bleiben ein Fehler.
 
@@ -75,10 +81,23 @@ Bekannte alte Audit-/Output-Dateien wurden nicht gelöscht oder ins Release aufg
 
 ## Veröffentlichung
 
-Vor dem Commit noch nicht veröffentlicht. Ziel ist der reguläre Push auf main,
-kontrollierter Fast-forward des VPS und Neustart ausschließlich der App, ohne
-neues Backup, Bereinigung, Timeränderung oder zusätzlichen Sport-/API-Scan.
-Der tatsächliche Live-Nachweis wird erst nach diesen Schritten ergänzt.
+Erster UI-Commit `ab5cd900352b5f3f16ee840c8764d058f304ca35` um 01:46 CEST
+auf main gepusht und per kontrolliertem Fast-forward auf den VPS gezogen.
+Nur die App neu gestartet; beide Healthchecks `ok`. App/Caddy und die sieben
+bestehenden Timer aktiv, Tagesbackup weiter deaktiviert, keine neue Sicherung
+oder Sport-/API-Abfrage. Der Transportcontroller hatte nach erledigtem Pull,
+App-Neustart und Healthcheck einen abschließenden Windows-CR-Zeilenfehler;
+eine unabhängige SSH-Prüfung bestätigte den tatsächlich erfolgreichen Deploy.
+
+Frischer isolierter Produktionsbrowser: sieben Breiten ohne Überlauf oder
+Fehleroverlay, beide Coverbilder geladen; 22 gespeicherte RisikoBet-Karten und
+erster Desktop-/Mobilrückweg geprüft. Keine Page-/Console-/Request-Fehler;
+neun schon vorher vorhandene iframe-/Permissions-Policy-Warnungen. Für den
+neuen Tag noch kein automatisches Ergebnis vor dem regulären 03:35-Termin;
+keine Live-Tipps fingiert und kein Zusatzscan gestartet.
+
+Die dabei gefundene letzte Wrapper-Abstandskorrektur ist erneut lokal geprüft.
+Ihr finaler Produktionsnachweis wird nach dem folgenden kleinen UI-Commit ergänzt.
 
 ## Grenzen
 

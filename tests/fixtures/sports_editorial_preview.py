@@ -17,6 +17,10 @@ app._apply_app_styles()
 st.session_state.setdefault('workspace', 'Wettfinder')
 app._session_scope_id = lambda: 'editorial-visual-qa'
 workspace = app._render_sidebar(None)
+from streamlit.components.v1 import html as component_html
+# Mirror the native nested zero-height bridge wrapper without a real account,
+# production database, browser storage, or network call.
+component_html('<html><body></body></html>', height=0, scrolling=False)
 app._render_editorial_header(workspace)
 app._render_mobile_nav(workspace)
 if workspace == 'RisikoBet':

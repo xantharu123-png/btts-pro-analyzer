@@ -8,7 +8,9 @@ Desktop-Aufbau, Form-/Gegnerlisten und bebilderte Daily3-/Tennisspalte korrigier
 Mobil-/Tablet-Stapelung und vorhandene fünfteilige Navigation erhalten.
 Zuerst den obersten Block in [TODO_AKTUELL.md](TODO_AKTUELL.md) und den
 [Korrekturbericht](docs/audits/2026-09-30-sports-editorial-korrektur.md) lesen.
-531 Tests, 35 wiederholte enthaltene UI-Tests und 31 Browserkombinationen grün.
+Final 531 Tests und 31 Browserkombinationen grün, inklusive nachgestellter
+Produktions-Kontobrücke. Erster UI-Commit `ab5cd90` bereits live; letzter
+Wrapper-Abstand im Produktionsvergleich gefunden und ebenfalls korrigiert.
 Veröffentlichungsstatus steht im Korrekturbericht; nicht aus alten Hashes ableiten.
 Keine Backups, zusätzlichen Sportscans, Modell- oder Finanzänderungen.
 Bekannte ungetrackte Output-/Audit-Dateien bewahrt. Keine native Store-App,

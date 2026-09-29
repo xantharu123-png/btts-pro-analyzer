@@ -238,6 +238,8 @@ def test_theme_embeds_font_locally_and_retains_accessible_controls():
     assert ':focus-visible' in css and 'env(safe-area-inset-bottom)' in css
     assert '.form-toggle label' in css and '44px' in css
     assert '.st-key-riskobet_summary p {color:var(--bb-ink) !important;}' in css
+    assert '[data-testid="stElementContainer"]:has(iframe[height="0"])' in css
+    assert ':has(>iframe[height="0"])' not in css
 
 
 def test_new_daily3_rail_respects_existing_plan_entitlements(monkeypatch):
