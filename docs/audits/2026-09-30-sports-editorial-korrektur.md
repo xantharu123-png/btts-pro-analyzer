@@ -96,8 +96,25 @@ neun schon vorher vorhandene iframe-/Permissions-Policy-Warnungen. Für den
 neuen Tag noch kein automatisches Ergebnis vor dem regulären 03:35-Termin;
 keine Live-Tipps fingiert und kein Zusatzscan gestartet.
 
-Die dabei gefundene letzte Wrapper-Abstandskorrektur ist erneut lokal geprüft.
-Ihr finaler Produktionsnachweis wird nach dem folgenden kleinen UI-Commit ergänzt.
+Finaler UI-Commit **`c6b66c341479d7423935b5a25222b5dd7150833f`** um
+01:56 CEST auf main gepusht und per Fast-forward auf den VPS gezogen;
+Controller Exit 0. Nur die App neu gestartet. Interner und öffentlicher
+Healthcheck `ok`, App `active/running`, Caddy und die sieben Timer aktiv.
+
+Endgültige frische Produktionsprüfung: 1536/1440/1024/761/760/390/320 px
+ohne Überlauf oder Fehleroverlay, korrekt gestapelte Mobilspalten, beide Bilder
+geladen, kein Cover-Text abgeschnitten. Kopf beginnt bei 46,6 px am Desktop
+und 15,2 px auf Mobil statt des vorherigen unsichtbaren Iframe-Leerabstands.
+23 tatsächlich gespeicherte RisikoBet-Karten gerendert; erster direkter
+Desktop-/Mobilrückweg bestanden. Keine Page-/Console-/Request-Fehler; die
+neun vorhandenen Chromium-/iframe-Warnungen bleiben. Screenshots erst im
+fertigen `notRunning`-Zustand erstellt, nicht während eines ausgegrauten Rerenders.
+Live-Nachweise: `editorial-v2-live-qa.js`, `editorial-v2-live-1536.png`,
+`editorial-v2-live-390.png` im bewahrten lokalen Output-Verzeichnis.
+
+Der folgende Nachweiscommit ändert ausschließlich diese Dokumentation und die
+beiden Übergaben. Der getestete UI-Code bleibt identisch; sein reiner VPS-Pull
+benötigt keinen weiteren App-Neustart oder Sportscan.
 
 ## Grenzen
 

@@ -9,8 +9,10 @@ Mobil-/Tablet-Stapelung und vorhandene fünfteilige Navigation erhalten.
 Zuerst den obersten Block in [TODO_AKTUELL.md](TODO_AKTUELL.md) und den
 [Korrekturbericht](docs/audits/2026-09-30-sports-editorial-korrektur.md) lesen.
 Final 531 Tests und 31 Browserkombinationen grün, inklusive nachgestellter
-Produktions-Kontobrücke. Erster UI-Commit `ab5cd90` bereits live; letzter
-Wrapper-Abstand im Produktionsvergleich gefunden und ebenfalls korrigiert.
+Produktions-Kontobrücke. Finaler UI-Commit `c6b66c3` gepusht und auf dem VPS;
+sieben Live-Breiten, Coverbilder, 23 RisikoBet-Karten und Desktop-/Mobilrückweg
+bestätigt. Beide Healthchecks `ok`, sieben Timer aktiv. Folgender Nachweiscommit
+nur Dokumentation, getesteter UI-Code identisch. Keine Zusatzscans; Tageslauf 03:35.
 Veröffentlichungsstatus steht im Korrekturbericht; nicht aus alten Hashes ableiten.
 Keine Backups, zusätzlichen Sportscans, Modell- oder Finanzänderungen.
 Bekannte ungetrackte Output-/Audit-Dateien bewahrt. Keine native Store-App,

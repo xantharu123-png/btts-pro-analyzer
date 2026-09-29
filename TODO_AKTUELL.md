@@ -16,9 +16,12 @@
   Kein neues Backup, zusätzlicher Scan, Finanzvorgang oder Modellumbau.
   Native Apps, reale Geräte und numerische Kontexteffekte bleiben separat.
   Finalen visuellen Zuspruch des Nutzers nicht aus Tests ableiten.
-- Erster UI-Commit `ab5cd90` bereits auf main und VPS, beide Healthchecks `ok`.
-  Die bei der Produktionssicht gefundene letzte Iframe-Abstandskorrektur wurde
-  erneut getestet; ihr Veröffentlichungsnachweis folgt im Korrekturbericht.
+- Finaler UI-Commit `c6b66c3` auf main und VPS. Frisch im Produktionsbrowser bei
+  sieben Breiten geprüft, beide Bilder geladen, 23 RisikoBet-Karten und direkter
+  Desktop-/Mobilrückweg bestätigt. Keine Page-/Console-/Request-Fehler, neun
+  bekannte iframe-Warnungen. Beide Healthchecks `ok`, App/Caddy und sieben Timer
+  aktiv. Folgender Nachweiscommit nur Dokumentation, keine Codeänderung.
+  Für den neuen Tag noch kein automatisches Ergebnis vor 03:35; kein Scan erzwungen.
 
 ## 30.09.2026 – erste Sports-Editorial-Umsetzung (Historie, technisch geprüft)
 
