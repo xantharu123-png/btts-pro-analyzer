@@ -1,5 +1,17 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 29.09.2026 – neue Designrichtung freigegeben
+
+- Nutzerwahl: **Design 2 für Webbrowser; Mischung aus Design 2 und 5 für Mobil/App**.
+- Referenzbilder und knapper Umsetzungsvertrag:
+  [Sports Editorial](docs/ux/sports-editorial/DESIGN.md).
+- Kombinierte Mobilvorschau erstellt. Noch kein Produktivcode umgestaltet;
+  keine Aussage, dass das neue Layout bereits live oder als native App gebaut ist.
+- Nächster Schritt: vorhandene responsive Oberfläche anhand dieser Referenzen
+  umbauen, echte 5/10-Formdaten als Ergebnisfelder darstellen, alle bisherigen
+  Funktionen und Modell-/Quotenregeln erhalten, Desktop/Mobil rendern und prüfen.
+- Alte V2-Abschlussnotiz ist historisch, nicht die Abnahme dieses neuen Designs.
+
 ## 29.09.2026 – Quotenabruf für die bekannte 1,20-Untergrenze
 
 - Regulärer produktiver Fußballlauf nutzt wieder den vorhandenen API-Football-

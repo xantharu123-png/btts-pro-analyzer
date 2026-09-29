@@ -1,5 +1,15 @@
 # Wettfinder UX-Neuaufbau - To-do
 
+## Aktuell: Sports Editorial, 29.09.2026
+
+**Designrichtung freigegeben, neuer Produktivumbau noch offen.**
+Desktop = Design 2; Mobil/App = Design 2 + 5.
+Referenzen, Regeln und Abnahme: [Designvertrag](docs/ux/sports-editorial/DESIGN.md).
+Die folgende V2-Abschlussnotiz dokumentiert den früheren Stand vom 02.09.,
+nicht den jetzt beauftragten gestalterischen Neuaufbau.
+
+## Historie: Wettfinder V2
+
 Stand: 02.09.2026
 Prioritaet: P0
 Status: **ABGESCHLOSSEN – WETTFINDER V2 IMPLEMENTIERT UND VERIFIZIERT**
