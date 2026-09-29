@@ -108,11 +108,13 @@ verhindert den Beginn des beschriebenen UI-Umbaus.
 - Echte Ergebnisfelder und Gegnerdetails in Wettfinder, Daily3 und eigener Suche;
   RisikoBet erhält dieselben Gestaltungsregeln. Bestehende reine Zusammenfassungen
   werden nicht in erfundene Einzelspiele umgewandelt.
-- 525 betroffene Tests bestanden; 29 Browser-/Randfallkombinationen geprüft,
+- 526 betroffene Tests bestanden; 29 Browser-/Randfallkombinationen geprüft,
   zusätzlich native Klick-/Tastatursteuerung und mobile Touch-Emulation.
 - Ein beim Browsercheck reproduzierter Rücksetzfehler des 5/10-Schalters behoben.
 - Mobilnavigation bleibt auf Abo-Hinweisseiten erreichbar, ohne den Zugriff auf
   die gesperrten Funktionen zu öffnen. RisikoBet-Statuskontrast ebenfalls geprüft.
+- Gemeinsamer Routenzustand statt konkurrierender versteckter Sidebar-Radio;
+  dreifacher Desktop-/Mobilrückweg jeweils beim ersten Klick geprüft.
 - Kein neuer Sportscan, Modellumbau, Backup oder Finanzvorgang. Reale Geräte,
   native Store-Apps und numerisch nachgewiesene Kontexteffekte bleiben separat.
 

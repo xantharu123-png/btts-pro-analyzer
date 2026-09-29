@@ -19,7 +19,7 @@ als neue Einzelresultate interpretiert.
 
 ## Regression
 
-Finaler gezielter Lauf: **525 bestanden in 13,06 Sekunden**.
+Finaler gezielter Lauf: **526 bestanden in 14,68 Sekunden**.
 
 ```powershell
 .\.codex_test_venv\Scripts\python.exe -m pytest tests/test_sports_editorial.py tests/test_forecast_compact.py tests/test_daily3_selection.py tests/test_daily3_comparison.py tests/test_daily3_store.py tests/test_daily3_ui.py tests/test_wettfinder_surface.py tests/test_workflow_integrity.py tests/test_publication_odds_floor.py tests/test_riskobet_ui.py tests/test_riskobet_surface.py tests/test_riskobet_football_recent_results.py tests/test_football_recent_results.py tests/test_tennis_customer_facts.py tests/test_team_customer_facts.py tests/test_tennis_tab.py tests/test_forecast_analysis.py tests/test_customer_access.py -q --disable-warnings --maxfail=2
@@ -45,6 +45,8 @@ synthetischen Beispielen; keine Produktionsdatenbank oder externen Sportabfragen
 - Mobile Touch-Emulation bei 390 px: 10 Spiele, Ergebnisdetails und Wechsel zu
   RisikoBet per Tap; fünf untere Navigationsziele mit 58 px Höhe.
 - Browserbilder gegen beide freigegebenen Referenzen verglichen.
+- Drei direkte Desktop→RisikoBet→Mobil→Wettfinder-Rückwege jeweils mit dem
+  ersten Klick bestanden, einschließlich der tatsächlichen Routenzustände.
 - RisikoBet-Statuszeile mit explizit gemessener dunkler Schrift auf hellem
   Hintergrund; Mobilnavigation bleibt auch bei einem Seitenabbruch durch den
   unveränderten Abo-Guard sichtbar. Reproduzierter Regressionstest erst rot,
@@ -56,6 +58,14 @@ Klick die Fünferauswahl wieder her. Native unkontrollierte Radios und die
 initiale CSS-Fünferansicht beheben den Fehler; der erste Klick wurde erneut
 erfolgreich geprüft. Die Navigationsicons sind rein dekorative lokale SVG-Masken,
 damit sie die zugänglichen Namen der echten Buttons nicht verändern.
+
+Die erste Produktionsprüfung reproduzierte einen weiteren Rücksetzfall beim
+Wechsel von Desktop- auf Mobilnavigation. Die alte versteckte Sidebar war noch
+ein drittes navigierendes Widget. Jetzt ist `workspace` gewöhnlicher Appzustand;
+ein gemeinsamer Callback synchronisiert beide sichtbaren Widgets vor dem
+nächsten Rendern. Der Regressionstest zeigte zunächst die auseinanderlaufenden
+Widgetwerte und ist nach der Korrektur grün. Die isolierte Vorschau nutzt jetzt
+ebenfalls die echte Initialisierung/Sidebar-Pollfunktion statt diese zu umgehen.
 
 Lokale Nachweise (nicht im Git-Release, vorhandenes Output-Verzeichnis erhalten):
 `output/playwright/editorial-browser-qa.js`, `editorial-touch-qa.js`,

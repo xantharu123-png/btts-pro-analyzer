@@ -5,7 +5,7 @@
 Desktop-Design 2 und Mobil-Mix 2+5 sind als responsive Streamlit-Oberfläche
 umgesetzt. Zuerst den obersten Block in [TODO_AKTUELL.md](TODO_AKTUELL.md) und
 den [Abnahmebericht](docs/audits/2026-09-30-sports-editorial.md) lesen.
-525 betroffene Tests und 29 Browser-/Randfallkombinationen bestanden; echte
+526 betroffene Tests und 29 Browser-/Randfallkombinationen bestanden; echte
 Maus-/Tastatursteuerung sowie Touch-Emulation geprüft. Alte Vollsuitezahlen
 darunter beziehen sich nicht auf diesen neuen Patch. Bestehende WIP-/Output-
 Dateien erhalten; kein neues Backup, zusätzlicher Sportscan oder Bereinigung.

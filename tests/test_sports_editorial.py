@@ -207,6 +207,25 @@ def test_mobile_navigation_is_reachable_when_plan_guard_stops_page(monkeypatch):
     assert controls['bb_desktop_navigation'] == app.MAIN_PAGES
 
 
+def test_navigation_callback_syncs_both_surfaces_before_next_render(monkeypatch):
+    import app
+    from test_workflow_integrity import _RecordingStreamlit
+    recording = _RecordingStreamlit(session_state={'workspace': 'RisikoBet'})
+    callbacks = {}
+    def segmented(_label, _options, **kwargs):
+        callbacks[kwargs['key']] = kwargs['on_change']
+    recording.segmented_control = segmented
+    monkeypatch.setattr(app, 'st', recording)
+    app._render_editorial_header('RisikoBet')
+    app._render_mobile_nav('RisikoBet')
+    for changed, page in (('bb_mobile_navigation', 'Wettfinder'), ('bb_desktop_navigation', '15K')):
+        recording.session_state[changed] = page
+        callbacks[changed]()
+        assert recording.session_state['workspace'] == page
+        assert recording.session_state['bb_desktop_navigation'] == page
+        assert recording.session_state['bb_mobile_navigation'] == page
+
+
 @pytest.mark.parametrize('sport', ['Basketball', 'Eishockey'])
 def test_team_sport_tiles_keep_final_score_scope_and_source_binding(sport):
     from types import SimpleNamespace

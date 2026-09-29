@@ -2211,12 +2211,9 @@ def _render_sidebar(analyzer) -> str:
         elif previous_workspace not in MAIN_PAGES:
             st.session_state["workspace"] = "Wettfinder"
 
-        workspace = st.radio(
-            "Arbeitsbereich",
-            list(MAIN_PAGES),
-            label_visibility="collapsed",
-            key="workspace",
-        )
+        # This is application state, not a third (hidden) navigation widget.
+        # A stale sidebar-radio value must not overwrite a mobile route click.
+        workspace = st.session_state["workspace"]
         st.session_state["settings_open"] = False
         st.session_state.setdefault("_nav_running_pages", frozenset())
         running_scan_pages = scan_jobs.running_pages(
@@ -2233,14 +2230,23 @@ def _render_sidebar(analyzer) -> str:
     return workspace
 
 
+def _commit_workspace_choice(widget_key: str) -> None:
+    chosen = st.session_state.get(widget_key)
+    if chosen not in MAIN_PAGES:
+        return
+    st.session_state['workspace'] = chosen
+    st.session_state['settings_open'] = False
+    # Callbacks run before either widget is instantiated on the next rerun.
+    # Synchronize both surfaces here, not after a competing widget's event.
+    for key in ('bb_desktop_navigation', 'bb_mobile_navigation'):
+        st.session_state[key] = chosen
+
+
 def _render_editorial_header(workspace: str) -> None:
     """Synchronized native controls; mobile keeps all five existing pages."""
     key = 'bb_desktop_navigation'
     def _go():
-        chosen = st.session_state.get(key)
-        if chosen in MAIN_PAGES:
-            st.session_state['workspace'] = chosen
-            st.session_state['settings_open'] = False
+        _commit_workspace_choice(key)
     if st.session_state.get(key) != workspace:
         st.session_state[key] = workspace
     with st.container(key='bb_editorial_header'):
@@ -4990,7 +4996,7 @@ def render_settings(analyzer) -> None:
 def _render_mobile_nav(workspace: str) -> None:
     """Bottom navigation for small screens; hidden on desktop via CSS.
 
-    The sidebar radio stays the workspace source of truth.  A segmented
+    Non-widget workspace state is shared with the desktop navigation. A segmented
     control gives the active item a real radio ``aria-checked`` state; decorative
     Material icon tokens no longer pollute the accessible button names.
     """
@@ -5004,11 +5010,7 @@ def _render_mobile_nav(workspace: str) -> None:
     widget_key = "bb_mobile_navigation"
 
     def _go() -> None:
-        page = st.session_state.get(widget_key)
-        if page not in MAIN_PAGES:
-            return
-        st.session_state["workspace"] = page
-        st.session_state["settings_open"] = False
+        _commit_workspace_choice(widget_key)
 
     if st.session_state.get(widget_key) != workspace:
         st.session_state[widget_key] = workspace

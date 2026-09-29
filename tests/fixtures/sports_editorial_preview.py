@@ -15,9 +15,11 @@ from test_workflow_integrity import _automatic_status
 st.set_page_config(page_title='BetBoy · isolierte Designprüfung', layout='wide', initial_sidebar_state='collapsed')
 app._apply_app_styles()
 st.session_state.setdefault('workspace', 'Wettfinder')
-app._render_editorial_header(st.session_state['workspace'])
-app._render_mobile_nav(st.session_state['workspace'])
-st.title('Dein Spieltag.')
+app._session_scope_id = lambda: 'editorial-visual-qa'
+workspace = app._render_sidebar(None)
+app._render_editorial_header(workspace)
+app._render_mobile_nav(workspace)
+st.title('RisikoBet' if workspace == 'RisikoBet' else 'Dein Spieltag.')
 st.caption('LOKALE DESIGNPRÜFUNG · Nur Beispieldaten · Kein Sport-/API-Scan')
 scenario = st.selectbox('Prüffall', ['Normal', 'Kurze Historie', 'Langer Teamname', 'Keine Auswahl', 'RisikoBet', 'Daily3', 'Abo-Hinweis'])
 if scenario == 'Abo-Hinweis':

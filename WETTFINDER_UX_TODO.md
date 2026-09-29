@@ -5,7 +5,7 @@
 **Responsive Weboberfläche umgesetzt und technisch/visuell abgenommen.**
 Desktop = Design 2; Mobil/App = Design 2 + 5.
 Referenzen, Regeln und Abnahme: [Designvertrag](docs/ux/sports-editorial/DESIGN.md).
-525 betroffene Tests, 29 Browser-/Randfallkombinationen und echte
+526 betroffene Tests, 29 Browser-/Randfallkombinationen und echte
 Maus-/Tastaturinteraktionen plus Touch-Emulation bestanden. Echte Mobilgeräte
 und native Apps bleiben separat offen. Veröffentlichung und genaue Grenzen:
 [Abnahmebericht](docs/audits/2026-09-30-sports-editorial.md).
