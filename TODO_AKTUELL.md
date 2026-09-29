@@ -11,10 +11,11 @@
   identische Formdaten innerhalb einer Spielgruppe nur einmal anzeigen.
 - Wettfinder, Daily3 und vorhandene manuelle Formanzeigen verbunden; RisikoBet
   ebenfalls gestaltet. Keine zusätzlichen Datenabfragen beim 5/10-Wechsel.
-- 524 betroffene Tests bestanden; 25 Browser-/Randfallkombinationen bei
+- 525 betroffene Tests bestanden; 29 Browser-/Randfallkombinationen bei
   320/390/760/1024/1440 px sowie Maus, Tastatur und Touch-Emulation bestanden.
   Daily3-Vorschau berücksichtigt die bestehenden Abo-Rechte; Budget, gespeicherte
   Wetten, Modelle, Auswahlregeln und bekannte 1,20-Untergrenze bleiben unverändert.
+  Mobilnavigation auch auf Abo-Hinweisseiten erreichbar; kein Rechte-Bypass.
 - [Abnahme und Veröffentlichungsstatus](docs/audits/2026-09-30-sports-editorial.md).
   Kein neues Backup, Sport-/API-Scan oder Bereinigung. Native Apps und echte
   Mobilgeräte sind damit nicht abgenommen. Numerische Kontexteffekte sowie

@@ -5062,6 +5062,9 @@ def main() -> None:
 
     workspace = _render_sidebar(analyzer)
     _render_editorial_header(workspace)
+    # Render routing before any feature/page can stop. Otherwise an upgrade
+    # notice would strand mobile users after hiding the legacy sidebar.
+    _render_mobile_nav(workspace)
     require_feature(st, PAGE_FEATURES[workspace])
     title, caption = PAGE_INFO[workspace]
     st.markdown(f'<div class="bb-context">BetBoy / {workspace}</div>', unsafe_allow_html=True)
@@ -5095,7 +5098,6 @@ def main() -> None:
     st.caption(
         "Modellwerte sind Schätzungen. Wetten können zum Verlust des Einsatzes führen."
     )
-    _render_mobile_nav(st.session_state.get("workspace", "Wettfinder"))
 
 
 if __name__ == "__main__":

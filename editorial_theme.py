@@ -138,6 +138,8 @@ details.wf-fact {padding:0 !important;}
 .se-rail-choice span {font-size:.7rem;color:var(--bb-muted);}
 .se-rail-choice b {font-family:'BB Sport',sans-serif;color:var(--bb-green);font-size:1.25rem;}
 .st-key-daily3_choices_layout .form-window {grid-template-columns:1fr;}
+.st-key-riskobet_summary {background:var(--bb-green-soft) !important;border-color:var(--bb-line) !important;border-radius:8px !important;}
+.st-key-riskobet_summary p {color:var(--bb-ink) !important;}
 .st-key-riskobet_page .rb-card, .st-key-riskobet_page .rb-row {border-color:var(--bb-line) !important;background:var(--bb-surface) !important;border-radius:12px !important;box-shadow:none !important;}
 .st-key-riskobet_page .rb-card .rb-event {font-family:'BB Sport',sans-serif !important;font-size:1.8rem !important;}
 .st-key-riskobet_page .rb-pick {background:var(--bb-green-soft) !important;color:var(--bb-green) !important;border-radius:6px;}

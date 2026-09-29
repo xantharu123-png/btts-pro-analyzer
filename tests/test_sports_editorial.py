@@ -170,6 +170,7 @@ def test_theme_embeds_font_locally_and_retains_accessible_controls():
     assert 'url(https:' not in css
     assert ':focus-visible' in css and 'env(safe-area-inset-bottom)' in css
     assert '.form-toggle label' in css and '44px' in css
+    assert '.st-key-riskobet_summary p {color:var(--bb-ink) !important;}' in css
 
 
 def test_new_daily3_rail_respects_existing_plan_entitlements(monkeypatch):
@@ -183,6 +184,27 @@ def test_new_daily3_rail_respects_existing_plan_entitlements(monkeypatch):
     assert not app._daily3_rail_allowed()
     recording.session_state[customer_access.ACCESS_KEY]['features'].append('daily3')
     assert app._daily3_rail_allowed()
+
+
+def test_mobile_navigation_is_reachable_when_plan_guard_stops_page(monkeypatch):
+    import app
+    from test_workflow_integrity import _RecordingStreamlit
+    recording = _RecordingStreamlit(session_state={'workspace': 'RisikoBet'})
+    recording.set_page_config = lambda **_kw: None
+    monkeypatch.setattr(app, 'st', recording)
+    monkeypatch.setattr(app, '_apply_app_styles', lambda: None)
+    monkeypatch.setattr(app, 'bind_customer', lambda _st: True)
+    monkeypatch.setattr(app, '_session_scope_id', lambda: 'test-scope')
+    monkeypatch.setattr(app, 'get_analyzer', lambda *_args: None)
+    monkeypatch.setattr(app, '_render_sidebar', lambda _analyzer: 'RisikoBet')
+    def higher_plan_required(_st, _feature):
+        raise RuntimeError('page stopped by plan guard')
+    monkeypatch.setattr(app, 'require_feature', higher_plan_required)
+    with pytest.raises(RuntimeError, match='page stopped by plan guard'):
+        app.main()
+    controls = {key: options for _label, options, _default, key in recording.segmented_controls}
+    assert controls['bb_mobile_navigation'] == app.MAIN_PAGES
+    assert controls['bb_desktop_navigation'] == app.MAIN_PAGES
 
 
 @pytest.mark.parametrize('sport', ['Basketball', 'Eishockey'])

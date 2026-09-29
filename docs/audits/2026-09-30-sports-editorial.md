@@ -19,7 +19,7 @@ als neue Einzelresultate interpretiert.
 
 ## Regression
 
-Finaler gezielter Lauf: **524 bestanden in 18,78 Sekunden**.
+Finaler gezielter Lauf: **525 bestanden in 13,06 Sekunden**.
 
 ```powershell
 .\.codex_test_venv\Scripts\python.exe -m pytest tests/test_sports_editorial.py tests/test_forecast_compact.py tests/test_daily3_selection.py tests/test_daily3_comparison.py tests/test_daily3_store.py tests/test_daily3_ui.py tests/test_wettfinder_surface.py tests/test_workflow_integrity.py tests/test_publication_odds_floor.py tests/test_riskobet_ui.py tests/test_riskobet_surface.py tests/test_riskobet_football_recent_results.py tests/test_football_recent_results.py tests/test_tennis_customer_facts.py tests/test_team_customer_facts.py tests/test_tennis_tab.py tests/test_forecast_analysis.py tests/test_customer_access.py -q --disable-warnings --maxfail=2
@@ -34,8 +34,9 @@ Navigation und Aborechte. Keine erneute vollständige 11.000er-Suite behauptet.
 Isolierte App `tests/fixtures/sports_editorial_preview.py` mit klar markierten
 synthetischen Beispielen; keine Produktionsdatenbank oder externen Sportabfragen.
 
-- 25 Layout-/Randfallkombinationen: normal bei 1440, 1024, 760, 390 und 320 px;
-  lange Namen, kurze Historie, leere Auswahl, RisikoBet und drei Daily3-Karten
+- 29 Layout-/Randfallkombinationen: normal bei 1440, 1024, 760, 390 und 320 px;
+  lange Namen, kurze Historie, leere Auswahl, RisikoBet, drei Daily3-Karten
+  und die Abo-Hinweisseite
   jeweils bei 1440, 760, 390 und 320 px.
 - Kein horizontaler Seitenüberlauf oder Streamlit-Fehleroverlay, keine
   Page-/Console-Fehler während des finalen QA-Laufs.
@@ -44,6 +45,10 @@ synthetischen Beispielen; keine Produktionsdatenbank oder externen Sportabfragen
 - Mobile Touch-Emulation bei 390 px: 10 Spiele, Ergebnisdetails und Wechsel zu
   RisikoBet per Tap; fünf untere Navigationsziele mit 58 px Höhe.
 - Browserbilder gegen beide freigegebenen Referenzen verglichen.
+- RisikoBet-Statuszeile mit explizit gemessener dunkler Schrift auf hellem
+  Hintergrund; Mobilnavigation bleibt auch bei einem Seitenabbruch durch den
+  unveränderten Abo-Guard sichtbar. Reproduzierter Regressionstest erst rot,
+  nach Platzierung der Navigation vor dem Guard grün.
 
 Der Browserlauf fand einen echten Rücksetzfehler: ein HTML-`checked`-Attribut
 wurde durch React als kontrollierter Zustand behandelt und stellte nach dem

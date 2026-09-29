@@ -16,9 +16,13 @@ st.set_page_config(page_title='BetBoy · isolierte Designprüfung', layout='wide
 app._apply_app_styles()
 st.session_state.setdefault('workspace', 'Wettfinder')
 app._render_editorial_header(st.session_state['workspace'])
+app._render_mobile_nav(st.session_state['workspace'])
 st.title('Dein Spieltag.')
 st.caption('LOKALE DESIGNPRÜFUNG · Nur Beispieldaten · Kein Sport-/API-Scan')
-scenario = st.selectbox('Prüffall', ['Normal', 'Kurze Historie', 'Langer Teamname', 'Keine Auswahl', 'RisikoBet', 'Daily3'])
+scenario = st.selectbox('Prüffall', ['Normal', 'Kurze Historie', 'Langer Teamname', 'Keine Auswahl', 'RisikoBet', 'Daily3', 'Abo-Hinweis'])
+if scenario == 'Abo-Hinweis':
+    st.info('Dieser Bereich ist in einem höheren Abo enthalten.')
+    st.stop()
 now = st.session_state.setdefault('_qa_model_time', datetime.now(timezone.utc).replace(hour=7, minute=0, second=0, microsecond=0))
 # Freeze the display evaluation as well, so a midnight rollover or a long QA
 # session cannot expire synthetic matches or remove Daily3's fixture cards.
@@ -51,4 +55,3 @@ elif scenario == 'Daily3' or st.session_state.get('wettfinder_mode_v2') == '3 a 
 else:
     with st.container(key='wettfinder_v2_page'):
         app._render_automated_daily_selection()
-app._render_mobile_nav(st.session_state['workspace'])
