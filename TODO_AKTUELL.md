@@ -1,5 +1,19 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 29.09.2026 – Quotenabruf für die bekannte 1,20-Untergrenze
+
+- Regulärer produktiver Fußballlauf nutzt wieder den vorhandenen API-Football-
+  Quotenadapter nach der Modellberechnung: höchstens zehn Spiele pro Lauf,
+  eine Anfrage pro Spiel für mehrere exakt zugeordnete Märkte, bestehendes
+  API-Budget bleibt wirksam. Kein neuer Anbieter oder kostenpflichtiger Tarif.
+- Isolierte Tests/Replays starten weiterhin keinen impliziten Quotenabruf.
+  Modellwerte und Rangfolge bleiben unverändert; bekannte passende Quoten
+  unter 1,20 werden durch die vorhandenen Verbraucherfilter ausgeblendet.
+  Fehlende Anbieterabdeckung bleibt möglich; keine Quote erfinden.
+- Geprüft: 196 Tests für Tageslauf, gemeinsame Quoten, Mindestquote und Daily3.
+  Kein Modell-/Datenbankumbau, kein neues Backup. Veröffentlichungsnachweis
+  separat anhand Git/VPS prüfen; diese Notiz allein bestätigt kein Deployment.
+
 ## Accountwechsel 28.09.2026, 20:29 CEST – hier fortsetzen
 
 Diese Aktualisierung betrifft nur die Übergabe, nicht Programmcode oder Modelle.

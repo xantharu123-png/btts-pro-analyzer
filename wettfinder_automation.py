@@ -3588,12 +3588,18 @@ def run_wettfinder(
         and row["fixture_id"] > 0
         and str(row.get("market_key") or "").strip()
     ]
-    # Normal production runs do not query bookmaker prices for tip finding.
-    # An explicit loader remains available for historical replay/tests only;
-    # a played 15K ticket receives its actual price from the user's entry.
+    # Observe prices only after modelling, for the user's 1.20 display floor.
+    # Never enable network access implicitly for isolated replays/tests.
+    observe_production_prices = production_state and football_quote_loader is None
+    if observe_production_prices:
+        price_config = config or load_app_config()
+        if price_config.api_football_key:
+            football_quote_loader = lambda rows: fetch_football_consensus(
+                price_config.api_football_key, rows, now=current, timeout=10
+            )
     football_price_rows = select_price_check_candidates(
         (
-            row
+            ({**row, "status": "PRICE_REQUIRED"} if observe_production_prices else row)
             for row in football_model_rows
             if exact_market_target(row.get("market_key")) is not None
         ),

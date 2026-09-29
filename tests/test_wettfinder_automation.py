@@ -1870,7 +1870,7 @@ def test_normal_low_probability_forecast_is_not_promoted_to_strict_15k_pool(tmp_
     assert len(automated_wettfinder_forecasts(artifact, now=now)) == 1
 
 
-def test_productive_daily_football_model_skips_bookmaker_quote_api(tmp_path, monkeypatch):
+def test_isolated_daily_football_model_skips_bookmaker_quote_api(tmp_path, monkeypatch):
     now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
     snapshot = _football_snapshot(now)
     item = snapshot["shortlist"][0]
@@ -1905,6 +1905,29 @@ def test_productive_daily_football_model_skips_bookmaker_quote_api(tmp_path, mon
     assert quote_calls == []
     assert len(document["model_candidates"]) == 1
     assert document["sources"]["football"]["price_checked_count"] == 0
+
+
+def test_production_daily_model_observes_prices_without_rerunning_model(tmp_path, monkeypatch):
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    path = tmp_path / "production.json"
+    monkeypatch.setattr(wettfinder_automation, "STATE_PATH", path)
+    calls = []
+    def quotes(key, rows, **kwargs):
+        calls.append((key, rows))
+        return {}, []
+    monkeypatch.setattr(wettfinder_automation, "fetch_football_consensus", quotes)
+    document = run_wettfinder(
+        now=now, state_path=path, config=AppConfig(api_football_key="test"),
+        football_scanner=lambda _day: _football_snapshot(now),
+        football_context_refresher=lambda *_args: {},
+        tennis_loader=lambda **_kwargs: [], esports_loader=lambda **_kwargs: [],
+        riskobet_enabled=False,
+    )
+    assert len(calls) == 1
+    assert calls[0][0] == "test"
+    assert calls[0][1]
+    assert document["sources"]["football"]["price_checked_count"] > 0
+    assert document["model_candidates"]  # Missing offers do not erase models.
 
 
 def test_default_football_discovery_scans_all_configured_leagues(monkeypatch):
