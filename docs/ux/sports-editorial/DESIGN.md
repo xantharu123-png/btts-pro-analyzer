@@ -1,6 +1,6 @@
 # BetBoy – Sports Editorial
 
-Stand: 30.09.2026. Freigegebene responsive Weboberfläche umgesetzt und geprüft.
+Stand: 30.09.2026. Freigegebene responsive Weboberfläche umgesetzt, geprüft und live.
 Veröffentlichungsbeleg: [Abnahmebericht](../../audits/2026-09-30-sports-editorial.md).
 
 ## Verbindliche Auswahl

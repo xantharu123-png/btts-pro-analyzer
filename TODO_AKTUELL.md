@@ -22,6 +22,12 @@
   Kein neues Backup, Sport-/API-Scan oder Bereinigung. Native Apps und echte
   Mobilgeräte sind damit nicht abgenommen. Numerische Kontexteffekte sowie
   Kunden-/Storebetrieb bleiben die separat unten beschriebenen Restarbeiten.
+- UI-Code `f673c8d` auf GitHub und per Fast-forward auf dem VPS veröffentlicht;
+  um 00:39 CEST identische Codehashes, beide Healthchecks `ok`, App/Caddy und
+  sieben Timer aktiv. Frische Produktionsprüfung einschließlich 23 RisikoBet-
+  Karten und Desktop-/Mobilrückweg bestanden. Der folgende reine Nachweiscommit
+  ändert keinen Python-Code. Tages-Wettfinder erst regulär um 03:35 CEST;
+  kein zusätzlicher Scan erzwungen. Tennis zuvor regulär Exit 0 um 00:24:27.
 - Alte V2-Abschlussnotiz ist historisch, nicht die Abnahme dieses neuen Designs.
 
 ## 29.09.2026 – Quotenabruf für die bekannte 1,20-Untergrenze

@@ -12,6 +12,10 @@ Dateien erhalten; kein neues Backup, zusätzlicher Sportscan oder Bereinigung.
 Native Apps, echte Geräte, Kundenbetrieb und numerisch belegte Kontexteffekte
 bleiben separat. Veröffentlichungsstatus steht im Abnahmebericht, nicht aus
 den historischen Hashes unten ableiten.
+UI-Code `f673c8d` gepusht und auf dem VPS live; Produktionsbrowser inklusive
+Desktop-/Mobilrückweg bestanden, beide Healthchecks `ok`, sieben Timer aktiv.
+Tennis regulär Exit 0 am 30.09. um 00:24:27; Tages-Wettfinder um 03:35 geplant.
+Der folgende reine Nachweiscommit verändert keine getesteten Programmdateien.
 
 ## Aktueller Einstieg – Accountwechsel 28.09.2026
 

@@ -2,7 +2,7 @@
 
 ## Aktuell: Sports Editorial, 30.09.2026
 
-**Responsive Weboberfläche umgesetzt und technisch/visuell abgenommen.**
+**Responsive Weboberfläche umgesetzt, technisch/visuell abgenommen und live.**
 Desktop = Design 2; Mobil/App = Design 2 + 5.
 Referenzen, Regeln und Abnahme: [Designvertrag](docs/ux/sports-editorial/DESIGN.md).
 526 betroffene Tests, 29 Browser-/Randfallkombinationen und echte

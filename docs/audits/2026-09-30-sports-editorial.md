@@ -74,10 +74,34 @@ und `editorial-touch.png`.
 
 ## Veröffentlichung
 
-UI-Code geprüft; GitHub-/VPS-Veröffentlichung wird nach Commit per Hashvergleich,
-internem/öffentlichem Healthcheck und frischem Produktionsbrowser bestätigt.
-Kein neuer Backup- oder Sportscan. Der reguläre Tennisdienst startete am
-30.09. um 00:05 CEST; er wird für den UI-Deploy nicht unterbrochen.
+Codecommit **`f673c8d21bbca0b3d59699e8eec069f1baec6536`** am 30.09. auf
+GitHub `main` gepusht und mit kontrolliertem Fast-forward auf den VPS gezogen.
+Lokaler, GitHub- und VPS-Hash identisch bestätigt. Nur die App neu gestartet;
+keine neue Sicherung, Bereinigung oder zusätzlicher Sport-/API-Scan.
+
+Produktionsnachweis um 00:39 CEST:
+
+- App und Caddy aktiv; interner und öffentlicher Healthcheck `ok`.
+- Alle sieben vorhandenen BetBoy-Timer aktiv, Zeitplan unverändert.
+- Frisch geladene Seite mit lokalem Font, richtigen fünf Desktop-/Mobilzielen,
+  bei 1440/1024/760/390/320 px ohne Überlauf oder Fehleroverlay.
+- 23 tatsächlich gespeicherte RisikoBet-Karten gerendert (drei Hauptkarten plus
+  erste Zusatzseite). Desktopwechsel zu RisikoBet und direkter Mobilrückweg zu
+  Wettfinder beim ersten Klick bestanden; keine Page-/Console-/Request-Fehler.
+- Neun bereits vor dem Umbau vorhandene Chromium-/Streamlit-Warnungen zu
+  iframe/Permissions-Policy bleiben; nicht als fehlerfreie Konsole behaupten.
+- Der automatische Wettfinder hat um diese Uhrzeit noch kein Ergebnis für den
+  neuen Tag. Nächster regulärer Wettfinder-Timer: **30.09.2026, 03:35 CEST**.
+  Deshalb stammen die ausführlichen Form-/Gruppentests aus der isolierten
+  Vorschau, nicht aus erfundenen neuen Live-Fußballtipps.
+
+Der reguläre Tennisdienst startete um 00:05:24 und endete um **00:24:27 CEST**
+mit `Result=success`, `ExecMainStatus=0`. Vor dem ersten UI-Deploy abgewartet,
+nicht unterbrochen oder neu gestartet. Das ist technischer Erfolg, kein Beleg
+verbesserter Wettqualität.
+
+Dieser abschließende Nachweiscommit ändert ausschließlich Dokumentation;
+der getestete Python-/UI-Code bleibt identisch.
 
 ## Grenzen
 
