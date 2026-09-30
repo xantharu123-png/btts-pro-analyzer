@@ -31,6 +31,26 @@ if scenario == 'Abo-Hinweis':
     st.info('Dieser Bereich ist in einem höheren Abo enthalten.')
     st.stop()
 now = st.session_state.setdefault('_qa_model_time', datetime.now(timezone.utc).replace(hour=7, minute=0, second=0, microsecond=0))
+if scenario == 'Identitaeten':
+    from dataclasses import replace
+    from wettfinder_identity import rendered_identity_card
+    from wettfinder_surface import build_wettfinder_card, render_editorial_card_html
+    samples = (
+        replace(editorial_football(now=now), home_team='FC Porto', away_team='Manchester City',
+            home_team_id=212, away_team_id=50, fixture_source='api_football',
+            event_label='FC Porto vs Manchester City', selection='Heimsieg'),
+        replace(editorial_tennis(now=now), competitor_a='Arthur Gea', competitor_b='Zhang Zhizhen',
+            event_label='Arthur Gea vs Zhang Zhizhen', selection='Sieg Arthur Gea'),
+        replace(editorial_tennis(now=now), key='identity-djokovic', competitor_a='Novak Djokovic',
+            competitor_b='Nuno Borges', event_label='Novak Djokovic vs Nuno Borges', selection='Sieg Novak Djokovic'),
+        replace(editorial_tennis(now=now), key='identity-sakamoto', competitor_a='Rei Sakamoto',
+            competitor_b='Matteo Arnaldi', event_label='Rei Sakamoto vs Matteo Arnaldi', selection='Sieg Rei Sakamoto'),
+    )
+    for signal in samples:
+        card = build_wettfinder_card(signal, now=now)
+        card = replace(card, compact_analysis=None)
+        st.markdown(render_editorial_card_html(rendered_identity_card(card, signal), show_form=False), unsafe_allow_html=True)
+    st.stop()
 # Freeze the display evaluation as well, so a midnight rollover or a long QA
 # session cannot expire synthetic matches or remove Daily3's fixture cards.
 class QADatetime(datetime):

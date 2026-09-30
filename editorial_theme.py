@@ -82,6 +82,14 @@ button:focus-visible, summary:focus-visible {outline:3px solid #a67b00 !importan
 .se-shield {position:relative;display:grid;place-items:center;flex:0 0 94px;width:78px;height:94px;background:var(--bb-green);border:5px solid var(--bb-green);color:white;font-size:1.4rem;font-weight:800;clip-path:polygon(50% 0,100% 18%,95% 78%,50% 100%,5% 78%,0 18%);}
 .se-shield:after {content:'';position:absolute;inset:4px;border:2px solid #ffffffa0;clip-path:polygon(50% 0,100% 18%,95% 78%,50% 100%,5% 78%,0 18%);}
 .se-team:last-child .se-shield {background:#193a53;border-color:#193a53;}
+.se-identity {display:flex;flex-direction:column;align-items:center;gap:.2rem;min-width:0;max-width:100%;}
+.se-shield-image, .se-team:last-child .se-shield-image {background:var(--bb-surface);}
+.se-shield-image img {display:block;width:100%;height:100%;min-width:0;min-height:0;}
+.se-shield-football img {box-sizing:border-box;object-fit:contain;padding:13px 10px 17px;}
+.se-shield-tennis img {object-fit:cover;object-position:center 22%;}
+.se-image-credit {display:block;max-width:78px;font-size:.55rem;line-height:1.25;color:var(--bb-muted);white-space:nowrap;text-decoration:none;}
+.se-image-credit:hover {text-decoration:underline;}
+.se-image-credit:focus-visible {outline:2px solid #a67b00;outline-offset:2px;}
 .se-match-time {display:flex;flex-direction:column;text-align:center;color:var(--bb-muted);font-size:.7rem;gap:.25rem;max-width:95px;}
 .se-match-time b {font-family:'BB Sport',sans-serif;font-size:1.2rem;color:var(--bb-ink);}
 .se-pick {display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) minmax(0,.9fr);gap:.5rem;margin-bottom:.7rem;align-items:stretch;}
@@ -200,6 +208,7 @@ details.wf-fact {padding:0 !important;}
   .st-key-wettfinder_v2_sports [data-testid="stButtonGroup"] button {flex-shrink:0;white-space:nowrap;padding:.45rem .75rem !important;}
   .se-card-top {grid-template-columns:1fr;gap:.3rem;} .se-team strong {font-size:1.5rem;}
   .se-shield {flex-basis:70px;width:60px;height:70px;font-size:1.1rem;} .se-match {padding:.5rem 0 .2rem;}
+  .se-shield-football img {padding:9px 7px 13px;} .se-image-credit {max-width:60px;font-size:.5rem;}
   .se-match-time {font-size:.7rem;max-width:72px;}
   .se-pick {grid-template-columns:minmax(0,1.6fr) minmax(0,1fr) minmax(0,.8fr);gap:.4rem;}
   .se-card-top-market .se-pick {grid-template-columns:minmax(0,1.5fr) minmax(0,1fr) minmax(0,.8fr);}

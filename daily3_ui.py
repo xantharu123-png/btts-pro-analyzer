@@ -237,7 +237,9 @@ def render_daily3(st, *, snapshot_loader=None, store_factory=None, now=None):
         key = f'{scope}:{today}:{choice.signal.key}:{len(day["bets"]) if day else 0}:{fingerprint}'
         with choice_panels[index].container(border=True):
             from wettfinder_surface import render_editorial_card_html
+            from wettfinder_identity import rendered_identity_card
             card = build_wettfinder_card(choice.signal, quote=choice.signal.reference_quote, now=now)
+            card = rendered_identity_card(card, choice.signal)
             st.markdown(render_editorial_card_html(card,
                 supporting_fact=choice.comparison.summary), unsafe_allow_html=True)
             st.caption('Deine Mindestquote für eine tatsächliche Wette: 1,20')

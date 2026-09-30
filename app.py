@@ -4710,6 +4710,9 @@ def _render_wettfinder_game(group, row_by_key, featured_keys) -> None:
             show_form = forms not in shown_forms
             shown_forms.add(forms)
             with st.container(key=f'wettfinder_v2_game_market_{card.manual_quote_key}'):
+                if index == 0:
+                    from wettfinder_identity import rendered_identity_card
+                    card = rendered_identity_card(card, signal)
                 st.markdown(render_editorial_card_html(
                     card, grouped=True, featured=card.key in featured_keys,
                     show_form=show_form, include_match=index == 0,

@@ -1,5 +1,25 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 30.09.2026 – Originalbilder in der bestehenden Schildform
+
+- Wettfinder und Daily3: Fußball zeigt Originalwappen über die vorhandenen
+  API-Football-Teamkennungen; Tennis zeigt überprüfte, frei lizenzierte
+  Spielerfotos. Die bestehende Schildkontur bleibt unverändert. Wappen werden
+  vollständig eingepasst, Spieleraufnahmen passend auf Gesicht/Oberkörper
+  fokussiert. Herkunft und Lizenz bleiben über das kleine `© Foto` erreichbar.
+- Die kuratierte Fotoliste enthält derzeit 13 eindeutig identifizierte Spieler,
+  einschließlich aller sechs zum Prüfzeitpunkt anstehenden Tennis-Teilnehmer.
+  Unbekannte Spieler oder nicht verfügbare Originalbilder behalten Initialen;
+  keine erfundenen Gesichter oder Wappen. Neue Fotos benötigen eine geprüfte
+  Namens-, Quellen- und Lizenzzuordnung in `assets/identity/tennis-portraits.json`.
+- Ausschließlich Darstellung: keine Modell-, Auswahl-, Preis-, Einsatz- oder
+  Abrechnungsänderung. Bilder werden begrenzt im Arbeitsspeicher zwischengespeichert;
+  keine neue Datenbank, Bilddatei-Kopie, Sicherung oder zusätzlicher Sportscan.
+- Prüfung vor Veröffentlichung: 442 betroffene Tests bestanden. Originalbilder
+  für zwei Vereine und sechs Tennis-Spieler tatsächlich geladen; Desktop sowie
+  390/320 px ohne horizontalen Überlauf oder Page-/Console-Fehler geprüft.
+  Unabhängiges Review; abschließender Produktionsnachweis im Aufgabenbericht.
+
 ## 30.09.2026 – Tennisquoten live, RisikoBet-Kurzform korrigiert
 
 - Tennis-Quotenabruf im Produktionslauf wieder angeschlossen; expliziter

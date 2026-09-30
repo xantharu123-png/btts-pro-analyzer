@@ -8,15 +8,23 @@ into safe consumer-facing data. The user floor excludes known offers below
 
 from __future__ import annotations
 
+from base64 import b64decode, b64encode
+from binascii import Error as Base64Error
 from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from functools import lru_cache
 from html import escape
+from io import BytesIO
 import math
 import re
 from typing import Iterable, Mapping, Optional
 import unicodedata
+from urllib.parse import unquote, urlsplit
+import warnings
 from zoneinfo import ZoneInfo
+
+from PIL import Image
 
 from bet_finder_ui import (
     ReferencePriceEvaluation,
@@ -103,6 +111,16 @@ class WettfinderCard:
     # model's modal direction before any presentation-interest comparison.
     highlight_comparison: Optional[Comparison] = None
     quote_floor_excluded: bool = False
+    # Optional presentation-only raster assets. Attached after model/price
+    # selection; the builder never resolves images or performs network calls.
+    home_image: Optional[str] = None
+    away_image: Optional[str] = None
+    home_image_credit: Optional[str] = None
+    away_image_credit: Optional[str] = None
+    home_image_source: Optional[str] = None
+    away_image_source: Optional[str] = None
+    home_image_crop: Optional[tuple[float, float, float]] = None
+    away_image_crop: Optional[tuple[float, float, float]] = None
 
 
 @dataclass(frozen=True)
@@ -809,19 +827,136 @@ def render_compact_row_html(card: WettfinderCard, *, grouped: bool = False, feat
     return _compact_row_markup(card, grouped=grouped, featured=featured, show_price=show_price)
 
 
+_IDENTITY_IMAGE_MAX_BYTES = 2 * 1024 * 1024
+_IDENTITY_IMAGE_MAX_URI_LENGTH = 4 * ((_IDENTITY_IMAGE_MAX_BYTES + 2) // 3) + 64
+_IDENTITY_IMAGE_DATA_URI = re.compile(
+    r"data:image/(png|jpeg|webp);base64,([A-Za-z0-9+/]+={0,2})"
+)
+
+
+@lru_cache(maxsize=32)
+def _verified_identity_image_uri(value: str) -> Optional[str]:
+    """Accept actual bounded raster bytes, never SVG or arbitrary URL markup."""
+    match = _IDENTITY_IMAGE_DATA_URI.fullmatch(value)
+    if not match:
+        return None
+    mime, encoded = match.groups()
+    try:
+        payload = b64decode(encoded, validate=True)
+        if not payload or len(payload) > _IDENTITY_IMAGE_MAX_BYTES:
+            return None
+        # Pillow verify() skips the final IEND checksum. Do not serve damaged
+        # PNG endings or trailing non-image payload as an identity asset.
+        if mime == "png" and not payload.endswith(b"\x00\x00\x00\x00IEND\xae\x42\x60\x82"):
+            return None
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(BytesIO(payload)) as raster:
+                width, height = raster.size
+                if (
+                    raster.format != {"png": "PNG", "jpeg": "JPEG", "webp": "WEBP"}[mime]
+                    or width < 1 or height < 1
+                    or width > 2048 or height > 2048
+                    or getattr(raster, "is_animated", False)
+                ):
+                    return None
+                raster.verify()
+            # verify() alone does not decode JPEG pixel data; load() rejects
+            # truncated/incomplete images before they reach the browser.
+            with Image.open(BytesIO(payload)) as raster:
+                raster.load()
+    except (Base64Error, ValueError, OSError, SyntaxError, EOFError,
+            Image.DecompressionBombError, Image.DecompressionBombWarning):
+        return None
+    return f"data:image/{mime};base64,{b64encode(payload).decode('ascii')}"
+
+
+def _safe_identity_image_uri(value: object) -> Optional[str]:
+    if not isinstance(value, str) or len(value) > _IDENTITY_IMAGE_MAX_URI_LENGTH:
+        return None
+    return _verified_identity_image_uri(value)
+
+
+def _safe_identity_image_source(value: object) -> Optional[str]:
+    """Only a canonical Wikimedia Commons file page may be an attribution link."""
+    if not isinstance(value, str) or len(value) > 2048:
+        return None
+    if re.search(r'[\s<>"\'\\]', value) or re.search(r"%(?![0-9a-fA-F]{2})", value):
+        return None
+    try:
+        source = urlsplit(value)
+        path = unquote(source.path, encoding="utf-8", errors="strict")
+    except (ValueError, UnicodeDecodeError):
+        return None
+    if (
+        source.scheme != "https" or source.netloc != "commons.wikimedia.org"
+        or not path.startswith("/wiki/File:") or path == "/wiki/File:"
+        or source.query or source.fragment
+        or any(ord(character) < 32 or ord(character) == 127 for character in path)
+    ):
+        return None
+    return value
+
+
+def _safe_identity_crop_style(value: object) -> str:
+    """A bounded numeric focal point/zoom, never caller-provided CSS markup."""
+    if type(value) not in (tuple, list) or len(value) != 3:
+        return ''
+    if any(isinstance(number, bool) or not isinstance(number, (int, float)) for number in value):
+        return ''
+    try:
+        x, y, scale = (float(number) for number in value)
+    except (ValueError, OverflowError):
+        return ''
+    if not all(math.isfinite(number) for number in (x, y, scale)):
+        return ''
+    if not (0 <= x <= 100 and 0 <= y <= 100 and 1 <= scale <= 3):
+        return ''
+    # Formatting only converted floats prevents objects/strings from injecting
+    # styles. Canonical zero avoids a redundant negative-zero percentage.
+    focal_x, focal_y, zoom = (format(number or 0.0, '.6g') for number in (x, y, scale))
+    return f'transform:scale({zoom});transform-origin:{focal_x}% {focal_y}%'
+
+
 def render_match_header_html(card: WettfinderCard) -> str:
-    """Neutral team initials, not unlicensed or invented club crests."""
+    """Keep the original shield, with verified portraits/crests or neutral initials."""
     first = card.home_team or card.competitor_a
     second = card.away_team or card.competitor_b
     if not first or not second:
         return f'<p class="se-event">{escape(card.event_label)}</p>'
-    def team(name):
+    sport = _token(card.sport)
+    image_kind = "tennis" if sport == "tennis" else (
+        "football" if sport in {"fussball", "football", "soccer"} else None
+    )
+
+    def team(name, image_value, credit_value, source_value, crop_value):
         initials = ''.join(word[0] for word in name.split()[:2]).upper()
-        return (f'<div class="se-team"><span class="se-shield" aria-hidden="true">{escape(initials)}</span>'
+        image_uri = _safe_identity_image_uri(image_value) if image_kind else None
+        attribution = ''
+        if image_uri:
+            crop_style = _safe_identity_crop_style(crop_value)
+            image_style = f' style="{escape(crop_style, quote=True)}"' if crop_style else ''
+            shield = (
+                f'<span class="se-shield se-shield-image se-shield-{image_kind}" aria-hidden="true">'
+                f'<img src="{escape(image_uri, quote=True)}" alt="" decoding="async" loading="lazy"{image_style}></span>'
+            )
+            source = _safe_identity_image_source(source_value)
+            if source:
+                credit = str(credit_value).strip() if credit_value is not None else ''
+                credit = credit or "Wikimedia Commons"
+                attribution = (
+                    f'<a class="se-image-credit" href="{escape(source, quote=True)}" '
+                    f'target="_blank" rel="noopener noreferrer" title="{escape(credit, quote=True)}" '
+                    f'aria-label="Bildnachweis: {escape(credit, quote=True)}">© Foto</a>'
+                )
+        else:
+            shield = f'<span class="se-shield" aria-hidden="true">{escape(initials)}</span>'
+        return (f'<div class="se-team"><span class="se-identity">{shield}{attribution}</span>'
                 f'<strong>{escape(name)}</strong></div>')
-    return ('<div class="se-match">' + team(first)
+    return ('<div class="se-match">' + team(first, card.home_image, card.home_image_credit, card.home_image_source, card.home_image_crop)
         + f'<div class="se-match-time"><span>{escape(card.sport)}</span><b>VS</b>'
-        + f'<span>{escape(card.scheduled_start_label)}</span></div>' + team(second) + '</div>')
+        + f'<span>{escape(card.scheduled_start_label)}</span></div>'
+        + team(second, card.away_image, card.away_image_credit, card.away_image_source, card.away_image_crop) + '</div>')
 
 
 def render_editorial_card_html(card: WettfinderCard, *, grouped=False, featured=False, supporting_fact='', show_form=True, include_match=False) -> str:
