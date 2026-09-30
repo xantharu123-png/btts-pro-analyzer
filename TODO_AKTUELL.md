@@ -24,7 +24,9 @@
   Konkrete Integrationspunkte/Tests im neuen Prüfbericht. Kein neuer Designprozess.
 - Gezielte Tests und zwei unabhängige Codeprüfungen bestanden. Vollsuite mit
   11.940 Fällen meldete Fehler bei etwa 40–44 %, anschließend für das begrenzte
-  Zeitfenster bei 67 % angehalten: **kein Vollsuite-PASS**. Benachbarte Gruppen
+  Zeitfenster bei 90 % angehalten: **kein Vollsuite-PASS**. Weitere Fehler um
+  76 %; die zuletzt gepufferten Ausgaben wurden beim Stop noch nachgeliefert.
+  Benachbarte Gruppen
   einzeln grün (479 Tests; Updater 111 plus ein Windows-Skip; unabhängiger Hook
   351). Ursache der ursprünglichen Fehler noch ungeklärt, nicht wegklassifiziert.
   Nächste Prüfung: Vollsuite `-x --tb=short` mit kurzem neuen Basetemp, ersten

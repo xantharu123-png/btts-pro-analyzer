@@ -8,7 +8,7 @@ Anpfiff korrigiert; streng exakter Tennis-Siegerpreisjoin und 1,20-Filter.
 Keine neuen Abrufe, Sicherungen, Migrationen oder Bereinigungen. Modelle/Preise
 bytegleich; beide Healthchecks `ok`, sieben Timer unverändert. Gezielte Tests,
 unabhängige Reviews sowie Desktop-/Mobilprüfungen bestanden; Vollsuite meldete
-Fehler und wurde für das Zeitfenster bei 67 % angehalten. Benachbarte Gruppen
+Fehler und wurde für das Zeitfenster bei 90 % angehalten. Benachbarte Gruppen
 einzeln grün; ursprüngliche Ursache offen. Als Nächstes kurzer Basetemp und
 `-x --tb=short`, keine Fehler blind überspringen. Gegenpreise für RisikoBet werden im
 regulären Tennisabruf bislang nicht gespeichert: nächste konkrete Reparatur,

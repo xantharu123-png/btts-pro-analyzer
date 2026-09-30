@@ -80,7 +80,8 @@ Nächste kleine Integration, ohne zusätzliches HTTP:
 ## Software- und sichtbare Prüfung
 
 Vollsuite auf eingefrorenem Code `707e2f8`: 11.940 gesammelt. Bei etwa 40–44 %
-Fehler gemeldet, bei 67 % wegen des ausdrücklich begrenzten Arbeitsfensters
+Fehler gemeldet, weitere um 76 %. Beim Stop noch gepufferte Ausgaben bis 90 %
+nachgeliefert; bei 90 % wegen des ausdrücklich begrenzten Arbeitsfensters
 angehalten; kein abschließender Gesamtsummary und ausdrücklich kein Vollsuite-PASS.
 Sofortige Einzelprüfung der benachbarten Gruppen: 479 Tests bestanden;
 Updater 111 bestanden / ein Windows-Skip. Unabhängig Update-Hook 351 bestanden.
