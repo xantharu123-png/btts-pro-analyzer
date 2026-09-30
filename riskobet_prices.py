@@ -34,6 +34,7 @@ def football_market(candidate):
 def shared_price_overlays(candidates, rows, *, now=None):
     """Join by native event, kickoff and exact settlement market, not names."""
     now = now or datetime.now(timezone.utc)
+    candidates, rows = tuple(candidates), tuple(rows)
     index = {}
     for row in rows:
         if not isinstance(row, dict):
@@ -52,6 +53,7 @@ def shared_price_overlays(candidates, rows, *, now=None):
         else:
             index[key] = (row, quote)
     overlays = team_price_overlays(candidates, rows, now=now)
+    overlays.update(tennis_price_overlays(candidates, rows, now=now))
     for candidate in candidates:
         match = index.get((candidate.event_key, football_market(candidate)))
         if match is None:
@@ -71,6 +73,70 @@ def shared_price_overlays(candidates, rows, *, now=None):
             observed_odds=price.odds, bookmaker=price.bookmaker,
             observed_at=price.observed_at,
             below_floor=quote_below_publication_floor(quote, candidate=binding, now=now),
+        )
+    return overlays
+
+
+def tennis_price_overlays(candidates, rows, *, now):
+    """Reuse a stored winner quote only for the same native tennis match.
+
+    Provider participants are already checked by the common H2H binder. The
+    native event, original player order, exact scheduled start and selected
+    side must additionally agree with the frozen RisikoBet scenario. A winner
+    quote never supplies the price of a set, handicap or total market.
+    """
+    index = {}
+    for row in rows:
+        if not isinstance(row, dict) or str(row.get('sport') or '').casefold() != 'tennis':
+            continue
+        provider, event_id = row.get('fixture_source'), row.get('provider_event_id')
+        player_a, player_b = row.get('competitor_a'), row.get('competitor_b')
+        selected = row.get('selected_competitor')
+        if (row.get('market_key') != 'H2H' or row.get('fixture_id') is not None
+                or not all(isinstance(value, str) and value.strip()
+                           for value in (provider, event_id, player_a, player_b, selected))
+                or player_a == player_b or selected not in (player_a, player_b)):
+            continue
+        try:
+            start = datetime.fromisoformat(str(row.get('scheduled_start')).replace('Z', '+00:00'))
+            if start.tzinfo is None or start.utcoffset() is None:
+                continue
+            event = stable_event_key('tennis', provider, event_id)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        quote = MarketConsensus.from_dict(row.get('reference_quote'))
+        if quote is None or not quote_matches_candidate(quote, row):
+            continue
+        side = 'home' if selected == player_a else 'away'
+        key = event, side
+        value = row, quote, start.astimezone(timezone.utc)
+        # Conflicting observations cannot select a convenient offer.
+        index[key] = value if key not in index or index[key] == value else None
+    overlays = {}
+    for candidate in candidates:
+        if (candidate.sport != 'tennis' or candidate.market_key != 'match_winner'
+                or candidate.selection_key not in ('home', 'away')
+                or candidate.settlement_contract != (
+                    f'riskobet-settlement-v1:tennis:match_winner:{candidate.selection_key}')):
+            continue
+        match = index.get((candidate.event_key, candidate.selection_key))
+        if match is None:
+            continue
+        row, quote, start = match
+        if (candidate.starts_at != start or candidate.starts_at <= now
+                or candidate.event_label != f"{row['competitor_a']} vs {row['competitor_b']}"
+                or candidate.selection_label != row['selected_competitor']):
+            continue
+        observed = observed_consensus(quote, candidate=row, now=now)
+        if observed is None:
+            continue
+        fresh = wettfinder_consensus(quote, now=now)
+        fresh = fresh if fresh and fresh.is_wettfinder_fresh(now) else None
+        point = max((fresh or observed).points, key=lambda p: p.odds)
+        overlays[candidate.candidate_id] = RiskBetPriceOverlay(
+            candidate.candidate_id, 'AVAILABLE' if fresh else 'STALE',
+            point.odds, point.bookmaker, point.observed_at,
+            quote_below_publication_floor(quote, candidate=row, now=now),
         )
     return overlays
 

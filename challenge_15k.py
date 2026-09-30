@@ -5,6 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 from datetime import date, datetime, timedelta, timezone
 import hashlib
+import json
 import math
 from pathlib import Path
 import re
@@ -748,6 +749,10 @@ class ChallengeDataProvider:
         self._last_request = 0.0
         self._weather_cache: dict[tuple[str, str], Optional[dict[str, Any]]] = {}
         self._weather_receipts: dict[tuple[str, str], dict[str, Any]] = {}
+        # Keep the already received small forecast for this provider's existing
+        # city/hour scope. A kickoff MINUTE can select another three-hour point;
+        # sharing only the first game's selected point would be incorrect.
+        self._weather_forecasts: dict[tuple[str, str], dict[str, Any]] = {}
         self._domestic_history_cache: dict[
             tuple[int, str], Optional[dict[str, Any]]
         ] = {}
@@ -1412,9 +1417,10 @@ class ChallengeDataProvider:
             return None
         cache_key = (f"{city},{country}", kickoff.strftime("%Y-%m-%dT%H"))
         if cache_key in self._weather_cache:
-            if self._context_capture is not None and cache_key in self._weather_receipts:
-                self._context_capture.record_weather(fixture, **self._weather_receipts[cache_key])
-            return self._weather_cache[cache_key]
+            source = self._weather_forecasts.get(cache_key)
+            if source is None:
+                return self._weather_cache[cache_key]
+            return self._weather_from_forecast(fixture, kickoff, cache_key, source)
 
         try:
             geocode = requests.get(
@@ -1478,6 +1484,17 @@ class ChallengeDataProvider:
             self.errors.append(f"Wetter {city}: ungültige Provider-Antwort")
             self._weather_cache[cache_key] = None
             return None
+        # The normal five-day response has 40 points. Bound the extra request-
+        # local RAM independently of provider claims; never store a huge body
+        # or silently truncate it to a potentially wrong nearest point.
+        try:
+            if (len(forecasts) > 64 or len(json.dumps(forecasts, ensure_ascii=False,
+                    separators=(",", ":")).encode("utf-8")) > 64 * 1024):
+                self._weather_cache[cache_key] = None
+                return None
+        except (TypeError, ValueError, OverflowError, RecursionError):
+            self._weather_cache[cache_key] = None
+            return None
         valid_forecasts = []
         for item in forecasts:
             if not isinstance(item, dict):
@@ -1486,16 +1503,30 @@ class ChallengeDataProvider:
             if (
                 isinstance(timestamp, bool)
                 or not isinstance(timestamp, (int, float))
-                or not math.isfinite(float(timestamp))
-                or timestamp <= 0
             ):
                 continue
-            valid_forecasts.append(item)
+            try:
+                # A finite positive number is not necessarily representable as
+                # a datetime (e.g. 1e100). One bad source point must not abort
+                # the existing scan or discard other usable forecast points.
+                if not math.isfinite(float(timestamp)) or timestamp <= 0:
+                    continue
+                datetime.fromtimestamp(timestamp, timezone.utc)
+            except (ValueError, OverflowError, OSError):
+                continue
+            valid_forecasts.append(deepcopy(item))
         if not valid_forecasts:
             self._weather_cache[cache_key] = None
             return None
+        source = {"points": tuple(valid_forecasts), "latitude": latitude,
+                  "longitude": longitude, "observed_at": forecast_received_at}
+        self._weather_forecasts[cache_key] = source
+        return self._weather_from_forecast(fixture, kickoff, cache_key, source)
+
+    def _weather_from_forecast(self, fixture, kickoff, cache_key, source):
+        """Project this exact kickoff without a request or new receipt clock."""
         nearest = min(
-            valid_forecasts,
+            source["points"],
             key=lambda item: abs(datetime.fromtimestamp(item["dt"], timezone.utc) - kickoff),
         )
         forecast_time = datetime.fromtimestamp(nearest["dt"], timezone.utc)
@@ -1523,12 +1554,12 @@ class ChallengeDataProvider:
             "snow_3h_mm": snow_data.get("3h", 0.0),
             "description": weather_item.get("description"),
         }
-        if self._context_capture is not None and forecast_received_at is not None:
-            receipt = {"point": deepcopy(nearest), "latitude": latitude, "longitude": longitude,
-                       "observed_at": forecast_received_at}
+        if self._context_capture is not None and source["observed_at"] is not None:
+            receipt = {"point": deepcopy(nearest), "latitude": source["latitude"], "longitude": source["longitude"],
+                       "observed_at": source["observed_at"]}
             self._weather_receipts[cache_key] = receipt
             self._context_capture.record_weather(fixture, **receipt)
-        self._weather_cache[cache_key] = result
+        self._weather_cache[cache_key] = deepcopy(result)
         return result
 
 
