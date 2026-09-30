@@ -19,6 +19,10 @@
   für zwei Vereine und sechs Tennis-Spieler tatsächlich geladen; Desktop sowie
   390/320 px ohne horizontalen Überlauf oder Page-/Console-Fehler geprüft.
   Unabhängiges Review; abschließender Produktionsnachweis im Aufgabenbericht.
+- Code `4e87ca2` auf main und VPS veröffentlicht; echte Gea-/Zhang-Bilder im
+  Wettfinder und in Daily3 geladen. Healthchecks `ok`, sieben Timer geplant,
+  gespeicherter Modell-/Preisbestand vor/nach Veröffentlichung bytegleich.
+  [Produktionsnachweis](docs/audits/2026-09-30-schildbilder.md).
 
 ## 30.09.2026 – Tennisquoten live, RisikoBet-Kurzform korrigiert
 

@@ -1,5 +1,16 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg – Originalbilder in den Schildkarten, 30.09.2026
+
+Code `4e87ca2` auf main und VPS: Originalvereinswappen sowie eindeutig
+zugeordnete Spielerfotos in der vorhandenen Schildform, Wettfinder/Daily3.
+13 geprüfte Spielerfotos; neue/unbekannte Spieler behalten Initialen.
+442 Tests, unabhängiger Review und echte Browserprüfung bei 1440/390/320 px
+bestanden. Modell-/Preisdatei bytegleich, keine Geldänderung, Sicherung,
+Bereinigung oder zusätzlicher Sportscan. Oberster TODO-Block und
+[Produktionsnachweis](docs/audits/2026-09-30-schildbilder.md) sind maßgeblich;
+ältere offene Tennis-Quotenhinweise weiter unten sind bereits überholt.
+
 ## Aktueller Einstieg – Tennisquoten und RisikoBet-Kurzform, 30.09.2026
 
 Zuerst den obersten Block in [TODO_AKTUELL.md](TODO_AKTUELL.md) lesen.
