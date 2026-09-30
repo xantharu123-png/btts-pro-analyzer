@@ -1,5 +1,28 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 30.09.2026 – Bilder direkt beim Anbieter, ohne BetBoy-Bildcache
+
+- Die Anschlussänderung ersetzt den RAM-Bildcache der unten dokumentierten
+  Erstumsetzung: Browser lädt Vereinswappen und Spielerfotos direkt über HTTPS
+  beim Anbieter. Server speichert nur vorhandene Bildlinks/Quellenmetadaten,
+  keine Bildbytes, Bilddatei-Kopien oder Bilddatenbanken. Normales Browsercaching
+  ist möglich. Bestehende dekorative Editorial-Banner bleiben unverändert.
+- Wappen: API-Sports-CDN mit eindeutig gebundener API-Football-Teamkennung;
+  Spieler: kuratiertes Commons-Manifest, derzeit 330-px-Vorschaubilder. Keine
+  Original-/Hochauflösungs-URLs; Grenze 400 px. Schildform, Bildausschnitt und
+  Quellen-/Lizenznachweis erhalten. Fehlende Bilder zeigen Initialen.
+- Code `d4274a3981601ed724fd1d6651cf376b4ad1ce10` committed, gepusht und per
+  kontrolliertem Pull auf dem VPS live. 464 betroffene Tests bestanden;
+  unabhängiger Review ohne Befund. Eigener Browser: 8 Direktabrufe mit HTTP 200,
+  gezielter 404-Fallback, Wiederherstellung und neue DOM-Knoten geprüft;
+  Desktop 1440 und Mobil 390/320 ohne horizontalen Überlauf.
+- Echte Djokovic-/Borges-Karte: zwei direkte 330-px-Fotos, unverändert 75,9 %
+  und letzte Quote 1,42. Moduswechsel und Neurender funktionieren. App/Caddy
+  aktiv, beide Healthchecks `ok`, sieben Timer weiter geplant.
+- Keine Modell-/Preis-/Geldänderung, kein Backup, keine Bereinigung und kein
+  zusätzlicher Sport-/API-Scan. Gespeicherter Modell-/Preisbestand bytegleich.
+  [Prüf- und Produktionsnachweis](docs/audits/2026-09-30-schildbilder.md#direktabruf-ohne-server-bildcache-30092026).
+
 ## 30.09.2026 – Originalbilder in der bestehenden Schildform
 
 - Wettfinder und Daily3: Fußball zeigt Originalwappen über die vorhandenen

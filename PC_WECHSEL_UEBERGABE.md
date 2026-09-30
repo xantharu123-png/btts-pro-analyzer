@@ -1,5 +1,18 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg – direkte CDN-Bilder, 30.09.2026
+
+Code `d4274a3` auf main und VPS ersetzt den nachfolgend beschriebenen RAM-Cache:
+Clublogos und Spielerfotos laden direkt im Browser beim Anbieter. Nur Links/
+geprüfte Quellenmetadaten auf BetBoy, keine Bildkopien oder Binär-Bildcaches.
+330-px-Tennisbilder, 150-px-Wappen tatsächlich geladen; bestehende Schildform
+und Zuschnitte erhalten. Fehlende Bilder zeigen Initialen. 464 Tests,
+unabhängiger Review, 404-Fallback und lokale/produktive 1440/390/320-Prüfung
+bestanden. UI-Neurender geprüft; Modelle/Preise/Geld unverändert, kein Backup,
+keine Bereinigung, kein zusätzlicher Scan. Oberster TODO-Block und letzter
+Abschnitt des [Produktionsnachweises](docs/audits/2026-09-30-schildbilder.md)
+sind maßgeblich; frühere Cache-Beschreibung ist historisch, nicht aktueller Code.
+
 ## Aktueller Einstieg – Originalbilder in den Schildkarten, 30.09.2026
 
 Code `4e87ca2` auf main und VPS: Originalvereinswappen sowie eindeutig
