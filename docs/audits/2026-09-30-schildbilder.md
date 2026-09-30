@@ -161,6 +161,30 @@ Sicherungen oder Bereinigungen. Bilder werden direkt extern im Browser geladen.
   Die externen Betreiber erhalten normale Browserabrufe; eine freie Quelle
   bedeutet keine pauschale kommerzielle Markenfreigabe oder Teambefürwortung.
 
-Produktionscommit, echte Live-Karten und unveränderter Modell-/Preishash werden
-nach kontrolliertem Pull separat nachgetragen. Lokale Browserartefakte verbleiben
-unversioniert unter `output/playwright/team-logos-*20260930*`.
+### Produktionsnachweis der Teamlogos
+
+- Code `778434abc572f3e52d85ff9a4791bf6f4d76d230` auf main gepusht und am
+  30.09.2026 um 12:47 CEST kontrolliert per Fast-Forward auf dem VPS gepullt.
+  47 tatsächliche Logo-Bindungen und Python-Imports auch auf dem VPS offline
+  geprüft. App neu gestartet; kurze erwartete Startphase, anschließend interner
+  und öffentlicher Healthcheck `ok`, App/Caddy aktiv und sieben Timer geplant.
+- Eigener Produktionsbrowser: Team Spirit mit Originallogo bei unverändert
+  74,4 %, 1win korrekt mit Initiale statt Dota-Spielicon; Team Vitality und LOUD
+  beide mit ihren Originalgrafiken bei unveränderten 52,3 %. Drei echte externe
+  Teamlogo-Abrufe HTTP 200, Quellenlink erhalten. 1440/390/320 ohne horizontalen
+  Überlauf, Page-/Console-Fehler oder zusätzliche Sportabfrage. Frischer Reload,
+  Sport-Anzeigefilter und vorhandener Spielblock geprüft; keine Wette erfasst.
+- Für Basketball/Eishockey/Cricket waren im aktuellen Produktionskatalog keine
+  Karten vorhanden. Ihre echte Grafikdarstellung ist lokal mit eindeutig als
+  Beispiele gekennzeichneten Identitäten sowie VPS-Resolver belegt, nicht durch
+  erfundene produktive Auswahlen. Neue PandaScore-Linkmetadaten werden erst beim
+  nächsten regulären Scan übernommen, kein zusätzlicher Lauf dafür gestartet.
+- Modell-/Preisdatei vor und nach Pull sowie Liveprüfung bytegleich:
+  `916beed520687a5304ef573fb2b8ac9a4fa624979cdebf0752816ff567bb8fdd`.
+  Kein Backup, keine Bereinigung, keine neue Bilddatei oder Bilddatenbank.
+- Lokale Artefakte `output/playwright/team-logos-*20260930*` bleiben unversioniert.
+  Alte Audit-/Output-Dateien und Benutzerbrowser unberührt. Eigene Testbrowser
+  und lokaler Designserver werden nach dem Nachweis geschlossen.
+
+Abschließender Nachweiscommit/Pull ändern nur diesen Bericht und die Übergabe.
+Die Änderung belegt Logo-Darstellung, nicht bessere Wettqualität.

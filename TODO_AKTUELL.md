@@ -17,6 +17,11 @@
   im letzten Abschnitt von [Schildbilder](docs/audits/2026-09-30-schildbilder.md).
   Basket-/Hockey-/Cricket-Logos sind keine nachträgliche Modellfreigabe oder
   Garantie, dass für diese Sportarten aktuell produktive Auswahlen vorliegen.
+- Code `778434a` auf main und VPS live, 674 Tests und ein erwarteter Windows-Skip.
+  Live geprüft: Spirit, Vitality und LOUD mit korrekten Logos, 1win bei Initiale.
+  Modelle/Preisbestand bytegleich, beide Healthchecks `ok`, sieben Timer geplant;
+  1440/390/320 ohne Überlauf oder Browserfehler. Weitere Sportgrafiken lokal und
+  per VPS-Resolver geprüft, aktuell keine entsprechenden Produktivkarten.
 
 ## 30.09.2026 – Bilder direkt beim Anbieter, ohne BetBoy-Bildcache
 

@@ -10,6 +10,11 @@ URL-Metadaten aus ohnehin empfangenen Antworten, höchstens 128 KiB / 256 Teams.
 Provider-ID/Namensraum strikt gebunden; NBA nicht mit WNBA/NCAA verwechselt.
 Unbekannte Teams bleiben Initialen; NAVIs falsches `1w`-Dota-Spielicon entfernt.
 Modelle/Preise/Geld unverändert; Fußball/Tennis-Pfade bleiben erhalten.
+Code `778434a` auf main und VPS live. 674 Tests, ein erwarteter Windows-Skip;
+Spirit/Vitality/LOUD live bei 1440/390/320, andere Sportgrafiken lokal und
+VPS-Resolver. Keine neuen produktiven Sportkarten erfunden. Modell-/Preisdatei
+bytegleich, beide Healthchecks `ok`, sieben Timer geplant. Nachweiscommit ist
+reine Dokumentation, kein weiterer funktionaler App-Stand.
 
 ## Aktueller Einstieg – direkte CDN-Bilder, 30.09.2026
 
