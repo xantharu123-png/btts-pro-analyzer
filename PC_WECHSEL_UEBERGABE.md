@@ -1,5 +1,19 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg – Wetterzeitpunkt und Tennispreise, 30.09.2026
+
+Oberster TODO-Block und [neuer Prüfbericht](docs/audits/2026-09-30-wetter-tennis-preiszuordnung.md)
+sind maßgeblich. Code `707e2f8` auf main/VPS live, Wettercache pro genauem
+Anpfiff korrigiert; streng exakter Tennis-Siegerpreisjoin und 1,20-Filter.
+Keine neuen Abrufe, Sicherungen, Migrationen oder Bereinigungen. Modelle/Preise
+bytegleich; beide Healthchecks `ok`, sieben Timer unverändert. Gezielte Tests,
+unabhängige Reviews sowie Desktop-/Mobilprüfungen bestanden; Vollsuite meldete
+Fehler und wurde für das Zeitfenster bei 67 % angehalten. Benachbarte Gruppen
+einzeln grün; ursprüngliche Ursache offen. Als Nächstes kurzer Basetemp und
+`-x --tb=short`, keine Fehler blind überspringen. Gegenpreise für RisikoBet werden im
+regulären Tennisabruf bislang nicht gespeichert: nächste konkrete Reparatur,
+ohne Extra-API. Fachliche Kontexteffekte bleiben getrennt offen.
+
 ## Aktueller Einstieg – RisikoBet-Zeitfilter und Serienform, 30.09.2026
 
 Oberster TODO-Block ist maßgeblich. Bereits gestartete RisikoBet-Szenarien

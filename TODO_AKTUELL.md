@@ -1,5 +1,51 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 30.09.2026 – weitere 60 Minuten: Wetterzeitpunkt und Tennis-Preiszuordnung
+
+- Code `707e2f802f9d14a849bd1d3ad74fb5e23e722f3f` committed, auf main gepusht
+  und um 19:09 CEST exakt auf dem VPS fast-forwarded. Keine Sicherung,
+  Bereinigung, Migration oder zusätzliche Sport-/API-Abfrage. Sieben Timer
+  unverändert; App/Caddy aktiv, beide Healthchecks `ok`.
+- Wettercache repariert: Spiele derselben Stadt und UTC-Stunde wählen ihren
+  eigenen nächsten Vorhersagepunkt aus derselben bereits empfangenen Antwort.
+  Empfangszeit bleibt original; keine zusätzlichen Abrufe. Antwort-RAM begrenzt,
+  ungültige Zeiten und unvollständige Punkte werden nicht passend erfunden.
+- RisikoBet übernimmt vorhandene Tennis-Siegerquoten nur bei exakt gleichem
+  nativen Spiel, Anpfiff, Spielerreihenfolge, gewählter Seite und Wettvertrag.
+  Bekannte Quoten unter 1,20 erreichen jetzt auch dort den bestehenden Filter.
+  Niemals Favoritenquote auf Außenseiter oder Siegerquote auf Satzmarkt übertragen.
+- Wichtige offene Datenlücke: normaler Bestand 11 Tennis-Auswahlen / 3 Quoten;
+  RisikoBet wählt bei denselben drei Spielen jeweils den Gegner. Somit heute
+  **0 passende RisikoBet-Tennispreise**. Gegenpreise werden beim regulären Abruf
+  bislang verworfen. Der Preisjoin allein behebt diese Abdeckung nicht.
+- Nächste begrenzte Reparatur: beide tatsächlich gelieferten H2H-Seiten aus dem
+  ohnehin geplanten Abruf als separaten, begrenzten Preisbereich im bestehenden
+  Schnappschuss speichern; keine zusätzlichen Modellkarten, Dateien oder APIs.
+  Konkrete Integrationspunkte/Tests im neuen Prüfbericht. Kein neuer Designprozess.
+- Gezielte Tests und zwei unabhängige Codeprüfungen bestanden. Vollsuite mit
+  11.940 Fällen meldete Fehler bei etwa 40–44 %, anschließend für das begrenzte
+  Zeitfenster bei 67 % angehalten: **kein Vollsuite-PASS**. Benachbarte Gruppen
+  einzeln grün (479 Tests; Updater 111 plus ein Windows-Skip; unabhängiger Hook
+  351). Ursache der ursprünglichen Fehler noch ungeklärt, nicht wegklassifiziert.
+  Nächste Prüfung: Vollsuite `-x --tb=short` mit kurzem neuen Basetemp, ersten
+  konkreten Trace sichern; keine Tests blind ändern/überspringen.
+- Eigener Browser: Preisbeispiele 1,12 ausgeblendet / 1,20 und 1,52 sichtbar,
+  Prognose unverändert, 1440/390/320 ohne Überlauf. Live nur zwei kommende
+  Basketball-Szenarien; keine begonnenen Tennis-/E-Sport-Spiele. Keine Browserfehler.
+- Weiter offen: modelllose Basketball-Karten mit redundanten Datenlückentexten;
+  Daily3-Seitenleiste kennt verbrauchte Slots/gespielte Events nicht und ist nur
+  Modellvorschau, nicht Kontostand. Kein Geld-/Ledgerfehler daraus nachgewiesen.
+- Tennislauf 30.09. 00:05–00:24 CEST: Exit 0, Scan/Gesamt OK, 33 neue Prognosen;
+  drei alte Ergebnisfälle ungeklärt, ein natives Ergebnis nicht verfügbar.
+  Die frühere Tennis-Nachprüfung ist bereits PAUSED, unverändert belassen.
+- Numerisch qualifizierte Verletzungs-/Wetter-/Müdigkeitseffekte und bessere
+  Wettqualität bleiben offen. Wetterquellenkorrektur ist keine Effektfreigabe.
+- Aktuelles Aktivierungsmanifest enthält nur ATP/WTA, keine Kontext-Effekt-Slots.
+  Letzte vollständige Merkmalsinventur weiterhin 28.09., nicht heute. Nächster
+  vorhandener Anschluss: Football-Jointvergleich nach persistiertem Capture am
+  echten späteren Vor-Anpfiff-Stichtag; keine neuen Datenabfragen oder Gewichte.
+- [Prüfbericht](docs/audits/2026-09-30-wetter-tennis-preiszuordnung.md).
+
 ## 30.09.2026 – RisikoBet-Zeitfilter und kompakte Serienform
 
 - Reproduziert am echten Bestand: 70 RisikoBet-Szenarien, davon 60 bereits
