@@ -14,7 +14,7 @@ def recorder(monkeypatch):
     calls = []
     def image(kind, name, **kwargs):
         calls.append((kind, name, kwargs))
-        return SimpleNamespace(data_uri='image-' + name, source_url=None, credit=None)
+        return SimpleNamespace(image_url='image-' + name, source_url=None, credit=None)
     monkeypatch.setattr(sports_identity_media, 'participant_image', image)
     return calls
 
@@ -78,3 +78,25 @@ def test_missing_images_leave_card_unmodified(monkeypatch):
     signal = editorial_tennis()
     card = build_wettfinder_card(signal, now=NOW)
     assert with_identity_images(card, signal, enabled=True) is card
+
+
+def test_fallback_bridge_is_ui_only_static_and_has_no_fetch_or_storage(monkeypatch):
+    import streamlit.components.v1 as components
+    import streamlit.runtime.scriptrunner as runtime
+    from wettfinder_identity import install_image_fallback
+    calls = []
+    monkeypatch.setattr(components, 'html', lambda *args, **kwargs: calls.append((args, kwargs)))
+    monkeypatch.setattr(runtime, 'get_script_run_ctx', lambda **_kw: None)
+    install_image_fallback()
+    assert calls == []
+    monkeypatch.setattr(runtime, 'get_script_run_ctx', lambda **_kw: object())
+    install_image_fallback()
+    script = calls[0][0][0]
+    assert calls[0][1] == {'height': 0, 'scrolling': False}
+    assert "attributeFilter:['src']" in script
+    assert "doc.addEventListener('error', onImage, true)" in script
+    assert "image.complete && image.naturalWidth > 0" in script
+    assert "'.se-shield-image img'" in script
+    assert "previous.version === 1" in script
+    for forbidden in ('fetch(', 'XMLHttpRequest', 'localStorage', 'sessionStorage', 'cookie', 'https://'):
+        assert forbidden not in script

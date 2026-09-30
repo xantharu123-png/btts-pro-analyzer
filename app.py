@@ -2032,6 +2032,8 @@ def _apply_app_styles() -> None:
 
     from editorial_theme import editorial_css
     st.markdown(editorial_css(), unsafe_allow_html=True)
+    from wettfinder_identity import install_image_fallback
+    install_image_fallback()
 
 
 @st.cache_resource

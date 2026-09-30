@@ -1,12 +1,9 @@
 """Safe presentation-only portraits/crests inside the existing editorial shield."""
-from base64 import b64encode
 from copy import deepcopy
 from dataclasses import fields, replace
 from html.parser import HTMLParser
-from io import BytesIO
 import re
 
-from PIL import Image
 import pytest
 
 import wettfinder_surface as surface
@@ -19,13 +16,8 @@ IMAGE_FIELDS = {
     "home_image_source", "away_image_source", "home_image_crop", "away_image_crop",
 }
 COMMONS_SOURCE = "https://commons.wikimedia.org/wiki/File:Verified_test_image.png"
-
-
-def raster_uri(format="PNG", *, size=(16, 20)):
-    output = BytesIO()
-    Image.new("RGB", size, (90, 120, 150)).save(output, format=format)
-    mime = {"PNG": "png", "JPEG": "jpeg", "WEBP": "webp"}[format]
-    return f"data:image/{mime};base64,{b64encode(output.getvalue()).decode('ascii')}"
+FOOTBALL_IMAGE = "https://media.api-sports.io/football/teams/212.png"
+TENNIS_IMAGE = "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/ab/Verified_test_image.png/330px-Verified_test_image.png"
 
 
 def card_for(sport="Fussball"):
@@ -42,24 +34,53 @@ class Tags(HTMLParser):
         self.tags.append((tag, dict(attributes)))
 
 
-@pytest.mark.parametrize("format", ["PNG", "JPEG", "WEBP"])
-@pytest.mark.parametrize("sport, kind", [("Fussball", "football"), ("Fußball", "football"), ("Tennis", "tennis")])
-def test_verified_raster_is_inside_same_shield_with_sport_specific_fit(format, sport, kind):
-    uri = raster_uri(format)
+@pytest.mark.parametrize("sport, kind, uri", [
+    ("Fussball", "football", FOOTBALL_IMAGE),
+    ("Fußball", "football", FOOTBALL_IMAGE),
+    ("Tennis", "tennis", TENNIS_IMAGE),
+])
+def test_allowlisted_remote_image_is_inside_same_shield_with_sport_specific_fit(uri, sport, kind):
     card = replace(card_for(sport), home_image=uri, away_image=uri)
     html = surface.render_match_header_html(card)
     tags = Tags(html).tags
     images = [attributes for tag, attributes in tags if tag == "img"]
     assert len(images) == 2
-    assert all(image == {"src": uri, "alt": "", "decoding": "async", "loading": "lazy"} for image in images)
+    assert all(image == {"src": uri, "alt": "", "decoding": "async", "loading": "lazy", "referrerpolicy": "no-referrer"} for image in images)
     assert html.count(f'class="se-shield se-shield-image se-shield-{kind}" aria-hidden="true"') == 2
+    assert html.count('<span class="se-image-initials">') == 2
+    assert '<span class="se-image-initials">A</span>' in html
+    assert '<span class="se-image-initials">B</span>' in html
+    assert 'is-loaded' not in html  # Only successful browser loading can grant this state.
     assert html.count('<strong>') == 2
     assert "©" not in html  # No invented license/source when metadata is absent.
+
+
+@pytest.mark.parametrize("sport, uri", [("Fussball", TENNIS_IMAGE), ("Tennis", FOOTBALL_IMAGE)])
+def test_allowlisted_source_for_other_sport_keeps_initials(sport, uri):
+    html = surface.render_match_header_html(replace(card_for(sport), home_image=uri,
+        home_image_source=COMMONS_SOURCE))
+    assert '<span class="se-shield" aria-hidden="true">A</span>' in html
+    assert '<img ' not in html and '<a ' not in html
 
 
 @pytest.mark.parametrize("bad_uri", [
     None, "", False, [], {},
     "https://upload.wikimedia.org/example.png",
+    "https://example.com/image.png",
+    "http://media.api-sports.io/football/teams/212.png",
+    "https://media.api-sports.io.evil.example/football/teams/212.png",
+    "https://media.api-sports.io@evil.example/football/teams/212.png",
+    "https://evil.example@media.api-sports.io/football/teams/212.png",
+    "https://media.api-sports.io:443/football/teams/212.png",
+    "https://media.api-sports.io/football/teams/0.png",
+    "https://media.api-sports.io/football/teams/212.svg",
+    "https://media.api-sports.io/football/teams/212.png?secret=x",
+    "https://media.api-sports.io/football/teams/212.png#fragment",
+    "https://media.api-sports.io/football/teams/212.png%0A",
+    "https://upload.wikimedia.org/wikipedia/commons/a/ab/Verified_test_image.png",
+    "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/ab/Verified_test_image.png/401px-Verified_test_image.png",
+    "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/ab/Verified_test_image.png/330px-Other_file.png",
+    "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/ab/Verified_test_image.svg/330px-Verified_test_image.svg",
     "javascript:alert(1)",
     'x" onerror="alert(1)',
     "data:image/svg+xml;base64,PHN2ZyBvbmxvYWQ9YWxlcnQoMSk+PC9zdmc+",
@@ -81,7 +102,7 @@ def test_unsafe_missing_or_malformed_image_falls_back_to_initials(bad_uri):
 
 
 def test_valid_image_does_not_displace_other_side_fallback():
-    html = surface.render_match_header_html(replace(card_for(), home_image=raster_uri()))
+    html = surface.render_match_header_html(replace(card_for(), home_image=FOOTBALL_IMAGE))
     assert html.count('<img ') == 1
     assert '<span class="se-shield" aria-hidden="true">B</span>' in html
 
@@ -92,8 +113,8 @@ def test_valid_image_does_not_displace_other_side_fallback():
     ((0, -0.0, 1), 'transform:scale(1);transform-origin:0% 0%'),
     ((100, 100, 3), 'transform:scale(3);transform-origin:100% 100%'),
 ])
-def test_valid_focal_point_zoom_stays_in_original_clipped_shield_without_changing_bytes(crop, expected):
-    uri = raster_uri()
+def test_valid_focal_point_zoom_stays_in_original_clipped_shield_without_changing_url(crop, expected):
+    uri = TENNIS_IMAGE
     card = replace(card_for("Tennis"), home_image=uri, away_image=uri,
         home_image_crop=crop, away_image_crop=(60, 30, 1.5))
     html = surface.render_match_header_html(card)
@@ -116,7 +137,7 @@ def test_valid_focal_point_zoom_stays_in_original_clipped_shield_without_changin
     (50, 20, .999), (50, 20, 3.001), (2**2048, 20, 2),
 ])
 def test_invalid_crop_never_exports_styles_or_handlers(crop):
-    uri = raster_uri()
+    uri = TENNIS_IMAGE
     html = surface.render_match_header_html(replace(card_for("Tennis"), home_image=uri, home_image_crop=crop))
     images = [attributes for tag, attributes in Tags(html).tags if tag == 'img']
     assert len(images) == 1 and images[0]['src'] == uri
@@ -125,49 +146,19 @@ def test_invalid_crop_never_exports_styles_or_handlers(crop):
     assert not any(name.startswith('on') for _tag, attributes in Tags(html).tags for name in attributes)
 
 
-def test_crop_without_valid_raster_keeps_initials_and_emits_no_style():
+def test_crop_without_allowlisted_image_keeps_initials_and_emits_no_style():
     html = surface.render_match_header_html(replace(card_for("Tennis"), home_image_crop=(50, 20, 2)))
     assert '<img ' not in html and 'style=' not in html
     assert '<span class="se-shield" aria-hidden="true">A</span>' in html
 
 
-def test_mime_mismatch_corrupted_crc_and_truncated_jpeg_are_rejected():
-    png = raster_uri()
-    jpeg = raster_uri("JPEG")
-    from base64 import b64decode
-    corrupt = bytearray(b64decode(png.split(",", 1)[1]))
-    corrupt[-1] ^= 1  # Break the IEND checksum without changing a valid PNG signature.
-    truncated = b64decode(jpeg.split(",", 1)[1])[:-20]
-    for invalid in (
-        png.replace("image/png", "image/jpeg"),
-        jpeg.replace("image/jpeg", "image/webp"),
-        "data:image/png;base64," + b64encode(corrupt).decode("ascii"),
-        "data:image/jpeg;base64," + b64encode(truncated).decode("ascii"),
-    ):
-        html = surface.render_match_header_html(replace(card_for(), home_image=invalid))
-        assert '<img ' not in html
-
-
-def test_oversized_raster_or_uri_are_rejected_without_browser_payload():
-    for invalid in (
-        raster_uri(size=(2049, 2)),
-        "data:image/png;base64," + "A" * surface._IDENTITY_IMAGE_MAX_URI_LENGTH,
-    ):
-        assert '<img ' not in surface.render_match_header_html(replace(card_for(), home_image=invalid))
-
-
-def test_animated_raster_is_not_a_static_identity_portrait():
-    output = BytesIO()
-    Image.new("RGB", (16, 20), "red").save(
-        output, format="PNG", save_all=True,
-        append_images=[Image.new("RGB", (16, 20), "blue")], duration=100,
-    )
-    uri = "data:image/png;base64," + b64encode(output.getvalue()).decode("ascii")
+def test_oversized_remote_url_is_rejected_without_browser_payload():
+    uri = FOOTBALL_IMAGE + "A" * 2048
     assert '<img ' not in surface.render_match_header_html(replace(card_for(), home_image=uri))
 
 
 def test_commons_credit_link_is_outside_clipped_shield_and_escaped():
-    card = replace(card_for(), home_team='<Alpha & "Beta">', home_image=raster_uri(),
+    card = replace(card_for("Tennis"), competitor_a='<Alpha & "Beta">', home_image=TENNIS_IMAGE,
         home_image_source=COMMONS_SOURCE, home_image_credit='<script>alert("credit")</script> & Author')
     html = surface.render_match_header_html(card)
     assert '</span><a class="se-image-credit"' in html
@@ -199,7 +190,7 @@ def test_commons_credit_link_is_outside_clipped_shield_and_escaped():
     "https://commons.wikimedia.org/wiki/File:Test%xx.png",
 ])
 def test_non_commons_or_unsafe_credit_source_never_becomes_link(bad_source):
-    html = surface.render_match_header_html(replace(card_for(), home_image=raster_uri(),
+    html = surface.render_match_header_html(replace(card_for("Tennis"), home_image=TENNIS_IMAGE,
         home_image_source=bad_source, home_image_credit="Author"))
     assert html.count('<img ') == 1
     assert '<a ' not in html and '©' not in html
@@ -207,7 +198,7 @@ def test_non_commons_or_unsafe_credit_source_never_becomes_link(bad_source):
 
 def test_encoded_commons_file_name_is_valid_and_unknown_credit_is_not_invented():
     source = "https://commons.wikimedia.org/wiki/File:Jos%C3%A9_Test%20portrait.jpg"
-    html = surface.render_match_header_html(replace(card_for("Tennis"), home_image=raster_uri(),
+    html = surface.render_match_header_html(replace(card_for("Tennis"), home_image=TENNIS_IMAGE,
         home_image_source=source))
     assert f'href="{source}"' in html
     assert 'title="Wikimedia Commons" aria-label="Bildnachweis: Wikimedia Commons">© Foto</a>' in html
@@ -223,7 +214,7 @@ def test_image_decoration_preserves_all_model_price_and_event_fields(monkeypatch
     assert all(getattr(undecorated, name) is None for name in IMAGE_FIELDS)
     assert IMAGE_FIELDS.issubset({field.name for field in fields(surface.WettfinderCard)})
     monkeypatch.undo()
-    decorated = replace(undecorated, home_image=raster_uri(), away_image=raster_uri("JPEG"),
+    decorated = replace(undecorated, home_image=FOOTBALL_IMAGE, away_image=FOOTBALL_IMAGE,
         home_image_credit="Author", home_image_source=COMMONS_SOURCE,
         home_image_crop=(50, 20, 2), away_image_crop=(60, 30, 1.5))
     surface.render_match_header_html(decorated)
@@ -236,9 +227,9 @@ def test_image_decoration_preserves_all_model_price_and_event_fields(monkeypatch
 
 def test_missing_event_names_and_other_sports_keep_existing_fallback():
     missing = replace(card_for("Tennis"), competitor_a=None, competitor_b=None,
-        event_label="A < B", home_image=raster_uri())
+        event_label="A < B", home_image=TENNIS_IMAGE)
     assert surface.render_match_header_html(missing) == '<p class="se-event">A &lt; B</p>'
-    other = replace(card_for("Basketball"), home_image=raster_uri(), home_image_source=COMMONS_SOURCE)
+    other = replace(card_for("Basketball"), home_image=FOOTBALL_IMAGE, home_image_source=COMMONS_SOURCE)
     assert '<img ' not in surface.render_match_header_html(other)
 
 
@@ -252,6 +243,19 @@ def test_shield_polygon_inner_border_and_320_390_dimensions_are_unchanged():
     assert '.se-shield {flex-basis:70px;width:60px;height:70px;font-size:1.1rem;}' in css
     assert '.se-shield-tennis img {object-fit:cover;object-position:center 22%;}' in css
     assert 'object-fit:contain;padding:13px 10px 17px;' in css
-    assert '.se-shield-image, .se-team:last-child .se-shield-image {background:var(--bb-surface);}' in css
+    assert '.se-shield-image.is-loaded, .se-team:last-child .se-shield-image.is-loaded {background:var(--bb-surface);}' in css
     assert re.search(r'\.se-image-credit \{[^}]*max-width:78px;[^}]*white-space:nowrap;', css)
     assert '.se-image-credit:focus-visible' in css
+
+
+def test_pending_or_failed_image_keeps_initials_and_hides_credit_until_success():
+    html = surface.render_match_header_html(replace(card_for("Tennis"), home_image=TENNIS_IMAGE,
+        home_image_source=COMMONS_SOURCE, home_image_credit="Author"))
+    css = editorial_css()
+    assert '<span class="se-image-initials">A</span>' in html
+    assert 'is-loaded' not in html
+    assert re.search(r'\.se-shield-image img \{[^}]*opacity:0;', css)
+    assert '.se-shield-image.is-loaded img {opacity:1;}' in css
+    assert '.se-shield-image.is-loaded .se-image-initials {visibility:hidden;}' in css
+    assert '.se-identity:has(.se-shield-image:not(.is-loaded)) .se-image-credit {visibility:hidden;}' in css
+    assert not any(name.startswith("on") for _tag, attributes in Tags(html).tags for name in attributes)

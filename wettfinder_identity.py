@@ -40,7 +40,7 @@ def with_identity_images(card, signal, *, enabled=False):
     fields = {}
     for side, image in zip(('home', 'away'), images):
         if image is not None:
-            fields[side + '_image'] = image.data_uri
+            fields[side + '_image'] = image.image_url
             fields[side + '_image_source'] = image.source_url
             fields[side + '_image_credit'] = image.credit
             fields[side + '_image_crop'] = getattr(image, 'crop', None)
@@ -48,8 +48,56 @@ def with_identity_images(card, signal, *, enabled=False):
 
 
 def rendered_identity_card(card, signal):
-    """Images load only in an actual Streamlit UI, not scans or pure renderers."""
+    """Image links decorate only actual UI cards, never saved model evidence."""
     from streamlit.runtime.scriptrunner import get_script_run_ctx
     return with_identity_images(
         card, signal, enabled=get_script_run_ctx(suppress_warning=True) is not None,
     )
+
+
+_IMAGE_FALLBACK_BRIDGE = """<!doctype html><html><body><script>
+// Presentation only: no fetch, storage, account access or model callbacks.
+(() => { try {
+const host = window.parent;
+const doc = host.document;
+const previous = host.__bbIdentityImages;
+if (previous && previous.version === 1) { previous.scan(); return; }
+if (previous) previous.cleanup();
+function paint(image) {
+  if (!image.matches?.('.se-shield-image img')) return;
+  const shield = image.closest('.se-shield-image');
+  const loaded = image.complete && image.naturalWidth > 0;
+  shield.classList.toggle('is-loaded', loaded);
+  shield.classList.toggle('is-failed', image.complete && !loaded);
+}
+function scan() { doc.querySelectorAll('.se-shield-image img').forEach(paint); }
+function onImage(event) { paint(event.target); }
+doc.addEventListener('load', onImage, true);
+doc.addEventListener('error', onImage, true);
+let queued = false;
+const observer = new host.MutationObserver(changes => {
+  changes.filter(change => change.type === 'attributes').forEach(change => paint(change.target));
+  if (!queued) {
+    queued = true;
+    host.requestAnimationFrame(() => { queued = false; scan(); });
+  }
+});
+observer.observe(doc.querySelector('.stApp') || doc.body,
+  {childList:true, subtree:true, attributes:true, attributeFilter:['src']});
+host.__bbIdentityImages = {version:1, scan, cleanup() {
+  observer.disconnect();
+  doc.removeEventListener('load', onImage, true);
+  doc.removeEventListener('error', onImage, true);
+}};
+scan();
+} catch (_) { /* Isolated/restricted embeds retain their native initials. */ } })();
+</script></body></html>"""
+
+
+def install_image_fallback():
+    """One invisible UI bridge replaces failed/lazy images with native initials."""
+    from streamlit.runtime.scriptrunner import get_script_run_ctx
+    if get_script_run_ctx(suppress_warning=True) is None:
+        return
+    from streamlit.components.v1 import html
+    html(_IMAGE_FALLBACK_BRIDGE, height=0, scrolling=False)

@@ -83,8 +83,12 @@ button:focus-visible, summary:focus-visible {outline:3px solid #a67b00 !importan
 .se-shield:after {content:'';position:absolute;inset:4px;border:2px solid #ffffffa0;clip-path:polygon(50% 0,100% 18%,95% 78%,50% 100%,5% 78%,0 18%);}
 .se-team:last-child .se-shield {background:#193a53;border-color:#193a53;}
 .se-identity {display:flex;flex-direction:column;align-items:center;gap:.2rem;min-width:0;max-width:100%;}
-.se-shield-image, .se-team:last-child .se-shield-image {background:var(--bb-surface);}
-.se-shield-image img {display:block;width:100%;height:100%;min-width:0;min-height:0;}
+.se-shield-image.is-loaded, .se-team:last-child .se-shield-image.is-loaded {background:var(--bb-surface);}
+.se-image-initials {display:grid;place-items:center;position:absolute;inset:0;}
+.se-shield-image.is-loaded .se-image-initials {visibility:hidden;}
+.se-shield-image img {position:absolute;inset:0;display:block;width:100%;height:100%;min-width:0;min-height:0;opacity:0;}
+.se-shield-image.is-loaded img {opacity:1;}
+.se-identity:has(.se-shield-image:not(.is-loaded)) .se-image-credit {visibility:hidden;}
 .se-shield-football img {box-sizing:border-box;object-fit:contain;padding:13px 10px 17px;}
 .se-shield-tennis img {object-fit:cover;object-position:center 22%;}
 .se-image-credit {display:block;max-width:78px;font-size:.55rem;line-height:1.25;color:var(--bb-muted);white-space:nowrap;text-decoration:none;}

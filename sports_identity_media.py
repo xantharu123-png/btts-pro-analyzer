@@ -2,14 +2,13 @@
 
 Football crests use explicitly API-Football-native team IDs. Tennis portraits
 come only from the reviewed Commons manifest; neither names nor provider IDs
-are searched on the network. There is no disk cache or database access.
+are searched on the network. The browser loads each public image directly;
+this module never downloads image bytes or writes a cache or database.
 """
 from __future__ import annotations
 
-import base64
 from dataclasses import dataclass
 from functools import lru_cache
-from io import BytesIO
 import json
 import math
 from pathlib import Path
@@ -17,26 +16,19 @@ import re
 import time
 import unicodedata
 from urllib.parse import unquote, urlsplit
-import warnings
-
-import requests
-from PIL import Image
 
 
 _MANIFEST_PATH = Path(__file__).resolve().parent / "assets" / "identity" / "tennis-portraits.json"
-_MAX_BYTES = 1024 * 1024
 _MAX_MANIFEST_BYTES = 256 * 1024
-_MAX_DIMENSION = 4096
-_MAX_PIXELS = 4_000_000
-_CACHE_SECONDS = 24 * 60 * 60
-_FORMATS = {"image/png": "PNG", "image/jpeg": "JPEG", "image/webp": "WEBP"}
+_MANIFEST_REFRESH_SECONDS = 24 * 60 * 60
+_MAX_THUMBNAIL_WIDTH = 400
 _COMMONS_HOSTS = frozenset({"upload.wikimedia.org", "thumb.wikimedia.org"})
 _RASTER_FILE = re.compile(r".+\.(?:png|jpe?g|webp)$", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
 class ParticipantImage:
-    data_uri: str
+    image_url: str
     source_url: str | None = None
     credit: str | None = None
     crop: tuple[float, float, float] | None = None
@@ -66,35 +58,61 @@ def _full_name(value: object) -> tuple[str, ...]:
     return words
 
 
-def _safe_url(url: object, *, source: bool = False) -> bool:
+def _safe_url_parts(url: object):
     if not isinstance(url, str) or not url or len(url) > 2048:
-        return False
+        return None
     if any(char.isspace() or ord(char) < 32 for char in url):
-        return False
+        return None
     try:
         parsed = urlsplit(url)
         if (parsed.scheme != "https" or parsed.username is not None or parsed.password is not None
                 or parsed.port is not None or parsed.query or parsed.fragment):
-            return False
+            return None
     except ValueError:
-        return False
-    if source:
-        return parsed.netloc == "commons.wikimedia.org" and parsed.path.startswith("/wiki/File:")
+        return None
+    return parsed
+
+
+def safe_participant_image_url(url: object) -> str | None:
+    """Allow only native club PNGs or small, exact-file Commons thumbnails.
+
+    Validation is entirely local. Originals, oversized thumbnails, arbitrary
+    hosts, SVGs, credentials and query strings are not granted to the browser.
+    No HTTP preflight is performed; remote availability is a browser concern.
+    """
+    parsed = _safe_url_parts(url)
+    if parsed is None:
+        return None
     if parsed.netloc == "media.api-sports.io":
-        return re.fullmatch(r"/football/teams/[1-9][0-9]*\.png", parsed.path) is not None
+        match = re.fullmatch(r"/football/teams/([1-9][0-9]{0,18})\.png", parsed.path)
+        return url if match and int(match.group(1)) <= 2**63 - 1 else None
     if parsed.netloc not in _COMMONS_HOSTS:
-        return False
-    path = unquote(parsed.path)
-    if any(part in {".", ".."} for part in path.split("/")) or "\\" in path:
-        return False
-    match = re.fullmatch(r"/wikipedia/commons/(?:thumb/)?[0-9a-f]/[0-9a-f]{2}/(.+)", path)
+        return None
+    if re.search(r"%(?![0-9a-fA-F]{2})", parsed.path):
+        return None
+    try:
+        path = unquote(parsed.path, errors="strict")
+    except UnicodeError:
+        return None
+    if (any(part in {".", ".."} for part in path.split("/")) or "\\" in path
+            or any(ord(char) < 32 or ord(char) == 127 for char in path)):
+        return None
+    match = re.fullmatch(r"/wikipedia/commons/thumb/[0-9a-f]/[0-9a-f]{2}/([^/]+)/([1-9][0-9]{0,2})px-([^/]+)", path)
     if match is None:
-        return False
-    tail = match.group(1).split("/")
-    if "/thumb/" in path:
-        return (len(tail) == 2 and _RASTER_FILE.fullmatch(tail[0]) is not None
-                and re.fullmatch(r"[1-9][0-9]{0,3}px-.+\.(?:png|jpe?g|webp)", tail[1], re.IGNORECASE) is not None)
-    return len(tail) == 1 and _RASTER_FILE.fullmatch(tail[0]) is not None
+        return None
+    file_name, width, thumbnail_file = match.groups()
+    if (int(width) > _MAX_THUMBNAIL_WIDTH or _RASTER_FILE.fullmatch(file_name) is None
+            or thumbnail_file != file_name):
+        return None
+    return url
+
+
+def _safe_url(url: object, *, source: bool = False) -> bool:
+    if not source:
+        return safe_participant_image_url(url) is not None
+    parsed = _safe_url_parts(url)
+    return (parsed is not None and parsed.netloc == "commons.wikimedia.org"
+            and parsed.path.startswith("/wiki/File:"))
 
 
 @lru_cache(maxsize=1)
@@ -163,69 +181,6 @@ def _portrait(name: object, bucket: int) -> _Portrait | None:
     return matches[0] if len(matches) == 1 else None
 
 
-def _magic_matches(data: bytes, mime: str) -> bool:
-    if mime == "image/png":
-        return data.startswith(b"\x89PNG\r\n\x1a\n")
-    if mime == "image/jpeg":
-        return data.startswith(b"\xff\xd8\xff")
-    return len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP"
-
-
-def _verified_data_uri(data: bytes, mime: str) -> str | None:
-    if not data or len(data) > _MAX_BYTES or mime not in _FORMATS or not _magic_matches(data, mime):
-        return None
-    try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("error", Image.DecompressionBombWarning)
-            with Image.open(BytesIO(data)) as picture:
-                width, height = picture.size
-                if (picture.format != _FORMATS[mime] or width < 1 or height < 1
-                        or max(width, height) > _MAX_DIMENSION or width * height > _MAX_PIXELS
-                        or getattr(picture, "n_frames", 1) != 1):
-                    return None
-                picture.verify()
-            # JPEG verification alone does not decode the body or reject truncation.
-            with Image.open(BytesIO(data)) as picture:
-                picture.load()
-        return f"data:{mime};base64," + base64.b64encode(data).decode("ascii")
-    except (OSError, ValueError, SyntaxError, EOFError, OverflowError,
-            Image.DecompressionBombError, Image.DecompressionBombWarning):
-        return None
-
-
-@lru_cache(maxsize=128)
-def _download_image(url: str, bucket: int) -> str | None:
-    """Bounded memory-only cache includes unavailable or invalid responses."""
-    del bucket
-    if not _safe_url(url):
-        return None
-    try:
-        # No .netrc credentials, API headers, cookies or environment proxies.
-        with requests.Session() as session:
-            session.trust_env = False
-            with session.get(url, stream=True, timeout=(2, 3), allow_redirects=False,
-                             headers={"User-Agent": "BetBoy/1.0 (public participant images)"}) as response:
-                if response.status_code != 200 or not _safe_url(response.url) or response.url != url:
-                    return None
-                mime = response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
-                if mime not in _FORMATS:
-                    return None
-                length = response.headers.get("Content-Length")
-                if length is not None and (not length.isdecimal() or not 0 < int(length) <= _MAX_BYTES):
-                    return None
-                chunks, received = [], 0
-                started = time.monotonic()
-                for chunk in response.iter_content(chunk_size=8192):
-                    received += len(chunk)
-                    if received > _MAX_BYTES or time.monotonic() - started > 8:
-                        return None
-                    if chunk:
-                        chunks.append(chunk)
-                return _verified_data_uri(b"".join(chunks), mime)
-    except (requests.RequestException, OSError, ValueError, TypeError):
-        return None
-
-
 def _native_team_id(value: object) -> int | None:
     if type(value) is int:
         return value if 0 < value <= 2**63 - 1 else None
@@ -241,13 +196,13 @@ def _native_team_id(value: object) -> int | None:
 def participant_image(kind: str, name: str, *, team_id: object = None,
                       fixture_source: str | None = None, context_evidence: object = None,
                       side: str = "a") -> ParticipantImage | None:
-    """Return a verified identity image, otherwise preserve the caller's fallback.
+    """Return a verified identity URL, otherwise preserve the caller's fallback.
 
     ``context_evidence`` and ``side`` are deliberately not used to guess names,
     URLs or cross-provider IDs. Callers bind the existing participant ID/name.
     """
     del context_evidence, side
-    bucket = int(time.time() // _CACHE_SECONDS)
+    bucket = int(time.time() // _MANIFEST_REFRESH_SECONDS)
     if kind == "football":
         if not isinstance(fixture_source, str) or fixture_source.strip().casefold() not in {"api-football", "api_football"}:
             return None
@@ -255,12 +210,10 @@ def participant_image(kind: str, name: str, *, team_id: object = None,
         if native_id is None:
             return None
         url = f"https://media.api-sports.io/football/teams/{native_id}.png"
-        data_uri = _download_image(url, bucket)
-        return ParticipantImage(data_uri, url) if data_uri else None
+        return ParticipantImage(url, url)
     if kind == "tennis":
         portrait = _portrait(name, bucket)
         if portrait is None:
             return None
-        data_uri = _download_image(portrait.url, bucket)
-        return ParticipantImage(data_uri, portrait.source, portrait.credit + " · Bildausschnitt", portrait.crop) if data_uri else None
+        return ParticipantImage(portrait.url, portrait.source, portrait.credit + " · Bildausschnitt", portrait.crop)
     return None

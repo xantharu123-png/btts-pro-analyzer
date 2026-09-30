@@ -8,23 +8,16 @@ into safe consumer-facing data. The user floor excludes known offers below
 
 from __future__ import annotations
 
-from base64 import b64decode, b64encode
-from binascii import Error as Base64Error
 from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from functools import lru_cache
 from html import escape
-from io import BytesIO
 import math
 import re
 from typing import Iterable, Mapping, Optional
 import unicodedata
 from urllib.parse import unquote, urlsplit
-import warnings
 from zoneinfo import ZoneInfo
-
-from PIL import Image
 
 from bet_finder_ui import (
     ReferencePriceEvaluation,
@@ -827,54 +820,10 @@ def render_compact_row_html(card: WettfinderCard, *, grouped: bool = False, feat
     return _compact_row_markup(card, grouped=grouped, featured=featured, show_price=show_price)
 
 
-_IDENTITY_IMAGE_MAX_BYTES = 2 * 1024 * 1024
-_IDENTITY_IMAGE_MAX_URI_LENGTH = 4 * ((_IDENTITY_IMAGE_MAX_BYTES + 2) // 3) + 64
-_IDENTITY_IMAGE_DATA_URI = re.compile(
-    r"data:image/(png|jpeg|webp);base64,([A-Za-z0-9+/]+={0,2})"
-)
-
-
-@lru_cache(maxsize=32)
-def _verified_identity_image_uri(value: str) -> Optional[str]:
-    """Accept actual bounded raster bytes, never SVG or arbitrary URL markup."""
-    match = _IDENTITY_IMAGE_DATA_URI.fullmatch(value)
-    if not match:
-        return None
-    mime, encoded = match.groups()
-    try:
-        payload = b64decode(encoded, validate=True)
-        if not payload or len(payload) > _IDENTITY_IMAGE_MAX_BYTES:
-            return None
-        # Pillow verify() skips the final IEND checksum. Do not serve damaged
-        # PNG endings or trailing non-image payload as an identity asset.
-        if mime == "png" and not payload.endswith(b"\x00\x00\x00\x00IEND\xae\x42\x60\x82"):
-            return None
-        with warnings.catch_warnings():
-            warnings.simplefilter("error", Image.DecompressionBombWarning)
-            with Image.open(BytesIO(payload)) as raster:
-                width, height = raster.size
-                if (
-                    raster.format != {"png": "PNG", "jpeg": "JPEG", "webp": "WEBP"}[mime]
-                    or width < 1 or height < 1
-                    or width > 2048 or height > 2048
-                    or getattr(raster, "is_animated", False)
-                ):
-                    return None
-                raster.verify()
-            # verify() alone does not decode JPEG pixel data; load() rejects
-            # truncated/incomplete images before they reach the browser.
-            with Image.open(BytesIO(payload)) as raster:
-                raster.load()
-    except (Base64Error, ValueError, OSError, SyntaxError, EOFError,
-            Image.DecompressionBombError, Image.DecompressionBombWarning):
-        return None
-    return f"data:image/{mime};base64,{b64encode(payload).decode('ascii')}"
-
-
 def _safe_identity_image_uri(value: object) -> Optional[str]:
-    if not isinstance(value, str) or len(value) > _IDENTITY_IMAGE_MAX_URI_LENGTH:
-        return None
-    return _verified_identity_image_uri(value)
+    """Only reviewed CDN paths; image bytes never pass through this server."""
+    from sports_identity_media import safe_participant_image_url
+    return safe_participant_image_url(value)
 
 
 def _safe_identity_image_source(value: object) -> Optional[str]:
@@ -932,13 +881,17 @@ def render_match_header_html(card: WettfinderCard) -> str:
     def team(name, image_value, credit_value, source_value, crop_value):
         initials = ''.join(word[0] for word in name.split()[:2]).upper()
         image_uri = _safe_identity_image_uri(image_value) if image_kind else None
+        if image_uri and ((urlsplit(image_uri).netloc == 'media.api-sports.io') != (image_kind == 'football')):
+            image_uri = None
         attribution = ''
         if image_uri:
             crop_style = _safe_identity_crop_style(crop_value)
             image_style = f' style="{escape(crop_style, quote=True)}"' if crop_style else ''
             shield = (
                 f'<span class="se-shield se-shield-image se-shield-{image_kind}" aria-hidden="true">'
-                f'<img src="{escape(image_uri, quote=True)}" alt="" decoding="async" loading="lazy"{image_style}></span>'
+                f'<span class="se-image-initials">{escape(initials)}</span>'
+                f'<img src="{escape(image_uri, quote=True)}" alt="" decoding="async" loading="lazy" '
+                f'referrerpolicy="no-referrer"{image_style}></span>'
             )
             source = _safe_identity_image_source(source_value)
             if source:
