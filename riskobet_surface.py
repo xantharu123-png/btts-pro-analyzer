@@ -657,7 +657,90 @@ def _badge(kind: str, tone: str, label: str) -> str:
     )
 
 
+def customer_riskobet_note(value: object) -> str:
+    """Keep concrete sport copy, not generic model/workload explanations."""
+    text = _clean_text(value, '')
+    generic = (
+        'serve-simulation', 'satzsimulation', 'das satzmodell sieht',
+        'das modell setzt ein regulär beendetes', 'grundmodell: spielstärke',
+        'unvollständige historie belegt keine tatsächliche erholungsdauer',
+        'jüngstes beobachtetes ergebnis seit',
+        'keine zeitlich belegte vorherige matchbelastung verfügbar',
+        'belastungsdaten decken nur zuvor beobachtete',
+        'numerischer belastungseffekt', 'als numerischer effekt validiert',
+    )
+    isolated_sets = re.search(
+        r':\s*zuletzt\s+(?:\d+|ein|zwei|drei|vier|fünf)\s+'
+        r'(?:beobachtete\s+Sätze|Sätze\s+beobachtet)\.?\s*$', text,
+        flags=re.IGNORECASE,
+    )
+    if isolated_sets or any(part in text.casefold() for part in generic):
+        return ''
+    public = format_riskobet_public_detail(text)
+    return '' if public == _TECHNICAL_DETAIL_FALLBACK else public
+
+
+def compact_riskobet_tennis_form(value: object) -> tuple[str, tuple[tuple[str, str], ...]]:
+    """Project only the exact frozen customer-record templates, never history.
+
+    Tennis snapshots retain aggregate strings, not ordered result rows. The
+    original date/scope remains in the factor; only explicit counts are copied.
+    Player names are not split at dots or passed through status translations.
+    """
+    text = _clean_text(value, '')
+    surface_names = 'Hartplatz|Sand|Rasen|Teppich|Alle Beläge'
+    record_pattern = re.compile(
+        r'(?P<player>[^:]{1,200}):\s*'
+        r'(?P<counts>\d+/\d+(?:\s*·\s*\d+/\d+)*)\s+Siege'
+        r'(?P<all_surfaces>\s*·\s*alle Beläge)?\s*'
+        r'\((?P<surface>' + surface_names + r')\s*·\s*'
+        r'(?:letzte (?:5 / 10|\d+) erfasste Spiele|\d+ erfasste Spiele)\s*·\s*'
+        r'\d{2}\.\d{2}\.\d{4}–\d{2}\.\d{2}\.\d{4}'
+        r'(?:\s*·\s*K\.-o\.-Runden einschließlich Qualifikation)?\)\.?'
+    )
+    records, surface, offset = [], '', 0
+    while offset < len(text):
+        match = record_pattern.match(text, offset)
+        if not match:
+            break
+        pairs = [tuple(map(int, ratio.split('/'))) for ratio in re.split(r'\s*·\s*', match['counts'])]
+        if (len(pairs) > 2 or any(not 0 <= wins <= count <= 10 or count == 0 for wins, count in pairs)
+                or len({count for _, count in pairs}) != len(pairs)):
+            return '', ()
+        if surface and surface != match['surface']:
+            return '', ()
+        if match['all_surfaces'] and match['surface'] != 'Alle Beläge':
+            return '', ()
+        surface = match['surface']
+        player = match['player'].strip()
+        if not player or any(name == player for name, _ in records):
+            return '', ()
+        records.append((player, ' · '.join(f'{wins}/{count} Siege' for wins, count in pairs)))
+        offset = match.end()
+        while offset < len(text) and text[offset].isspace():
+            offset += 1
+    if offset == len(text) and 1 <= len(records) <= 2:
+        return surface, tuple(records)
+    # Older surface-only evidence has sample counts, not win records. Preserve
+    # that distinction; do not turn an Elo/rating into a form or a victory count.
+    legacy = re.fullmatch(r'(?P<surface>' + surface_names + r'):\s*(?P<body>.+)', text)
+    if not legacy:
+        return '', ()
+    body = re.sub(r'[\d.,]+ Elo \((\d+) Spiele\)', r'\1 erfasste Spiele', legacy['body'])
+    body = re.sub(r' · (?:Belag-Elo berücksichtigt|Gesamt-Elo verwendet)(?: · Daten bis .*\Z)?', '', body)
+    samples = []
+    for part in body.split(' · '):
+        sample = re.fullmatch(r'(?P<player>.+?) (?P<count>\d+) erfasste Spiele', part)
+        if not sample:
+            return '', ()
+        samples.append((sample['player'], sample['count'] + ' erfasste Spiele'))
+    return (legacy['surface'], tuple(samples)) if 1 <= len(samples) <= 2 else ('', ())
+
+
 def _reason_block(kind: str, title: str, values: Iterable[str]) -> str:
+    values = tuple(text for value in values if (text := customer_riskobet_note(value)))
+    if not values:
+        return ''
     items = "".join(f"<li>{escape(value)}</li>" for value in values)
     return (
         f'<section class="rb-reason rb-reason-{kind}">'
@@ -691,8 +774,9 @@ def render_riskobet_card_html(card: RiskBetCard, *, show_price: bool = True) -> 
 
     probability = format_riskobet_probability(card.model_probability)
     missing = ""
-    if card.missing_core_data:
-        missing_items = ", ".join(card.missing_core_data)
+    missing_data = tuple(text for value in card.missing_core_data if (text := customer_riskobet_note(value)))
+    if missing_data:
+        missing_items = ", ".join(missing_data)
         missing = (
             '<p class="rb-missing"><span>Fehlende Kerndaten:</span> '
             f"{escape(missing_items)}</p>"
@@ -701,6 +785,7 @@ def render_riskobet_card_html(card: RiskBetCard, *, show_price: bool = True) -> 
         '<p class="rb-price-separation">Der Wettpreis verändert diese Prognose nicht.</p>'
         if show_price else ''
     )
+    market_markup = f'<p class="rb-market">{escape(card.market)}</p>' if card.market != card.selection else ''
     return (
         f'<article class="rb-card rb-card-featured" data-key="'
         f'{escape(card.candidate_id, quote=True)}" '
@@ -714,7 +799,7 @@ def render_riskobet_card_html(card: RiskBetCard, *, show_price: bool = True) -> 
         '<span aria-hidden="true"> · </span>'
         f'<time class="rb-start">{escape(card.scheduled_start_label)}</time></p>'
         f'<h3 class="rb-event">{escape(card.event_label)}</h3>'
-        f'<p class="rb-market">{escape(card.market)}</p>'
+        f'{market_markup}'
         f'<p class="rb-selection">{escape(card.selection)}</p>'
         '<div class="rb-probabilities">'
         '<div><span>Modellwahrscheinlichkeit</span>'
@@ -734,11 +819,19 @@ def render_riskobet_compact_row_html(card: RiskBetCard, *, show_price: bool = Tr
     """Render a flat sport-first row without internal evidence or safety values."""
 
     probability = format_riskobet_probability(card.model_probability)
+    pros = tuple(text for value in card.pros if (text := customer_riskobet_note(value)))
+    cons = tuple(text for value in card.cons if (text := customer_riskobet_note(value)))
+    reason_pro = ('<span class="rb-row-pro"><b>Grundlage:</b> '
+                  + escape(pros[0]) + '</span>') if pros else ''
+    reason_contra = ('<span class="rb-row-contra"><b>Contra:</b> '
+                     + escape(cons[0]) + '</span>') if cons else ''
+    market_markup = f'<span>{escape(card.market)}</span>' if card.market != card.selection else ''
     missing = ""
-    if card.missing_core_data:
+    missing_data = tuple(text for value in card.missing_core_data if (text := customer_riskobet_note(value)))
+    if missing_data:
         missing = (
             '<span class="rb-row-missing">Fehlt: '
-            f"{escape(', '.join(card.missing_core_data))}</span>"
+            f"{escape(', '.join(missing_data))}</span>"
         )
     return (
         f'<article class="rb-row" data-key="'
@@ -753,16 +846,13 @@ def render_riskobet_compact_row_html(card: RiskBetCard, *, show_price: bool = Tr
         f"{_badge('context', card.context_tone, card.context_label)}"
         "</span></div>"
         '<div class="rb-row-pick">'
-        f"<span>{escape(card.market)}</span>"
+        f'{market_markup}'
         f"<strong>{escape(card.selection)}</strong></div>"
         '<div class="rb-row-probabilities">'
         '<span>Modell <strong>'
         f"{escape(probability)}</strong></span></div>"
         '<div class="rb-row-reasons">'
-        '<span class="rb-row-pro"><b>Grundlage:</b> '
-        f"{escape(card.pros[0])}</span>"
-        '<span class="rb-row-contra"><b>Contra:</b> '
-        f"{escape(card.cons[0])}</span>{missing}</div>"
+        f'{reason_pro}{reason_contra}{missing}</div>'
         f"{_price_markup(card, compact=True) if show_price else ''}"
         "</article>"
     )
@@ -774,6 +864,8 @@ __all__ = [
     "RiskBetCatalog",
     "RiskBetPriceOverlay",
     "build_riskobet_card",
+    "customer_riskobet_note",
+    "compact_riskobet_tennis_form",
     "compose_riskobet_catalog",
     "format_riskobet_odds",
     "format_riskobet_probability",

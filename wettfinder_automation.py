@@ -115,6 +115,7 @@ MAX_AUTOMATIC_CANDIDATES = MAX_AUTOMATED_MODEL_CANDIDATES
 MAX_AUTOMATIC_RECOMMENDATIONS = MAX_AUTOMATED_RECOMMENDATIONS
 MAX_AUTOMATIC_PRICE_FIXTURES = 10
 MAX_AUTOMATIC_MARKETS_PER_FIXTURE = 8
+TENNIS_PRICE_MIN_GAP = timedelta(minutes=30)
 MAX_AUTOMATIC_BASIC_FORECASTS = 4
 MAX_AUTOMATIC_BASIC_PER_MARKET_KEY = 2
 # The persisted artifact represents the currently active Zurich match day.
@@ -1050,6 +1051,28 @@ def select_price_check_candidates(
         fixture_counts[fixture] += 1
         selected.append(row)
     return selected
+
+
+def _tennis_price_check_candidates(rows, *, now, target_date, previous_checks):
+    """Reuse the bounded price pool, without repeatedly spending tennis credits."""
+    checks = previous_checks or {}
+    due = []
+    for row in rows:
+        if row.get("status") not in {"MODEL_SELECTION", "PRICE_REQUIRED"}:
+            continue
+        if row.get("market_key") != "H2H" or not all(
+            str(row.get(field) or "").strip()
+            for field in ("competitor_a", "competitor_b", "selected_competitor")
+        ):
+            continue
+        checked = _parse_iso(checks.get(str(row.get("key") or "")))
+        if checked is not None and now - checked < TENNIS_PRICE_MIN_GAP:
+            continue
+        due.append({**row, "status": "PRICE_REQUIRED"})
+    return select_price_check_candidates(
+        due, now=now, target_date=target_date, preserve_order=True,
+        previous_checks=checks,
+    )
 
 
 def _fixture_kickoffs(snapshot: dict[str, Any]) -> list[str]:
@@ -3648,25 +3671,27 @@ def run_wettfinder(
     tennis_model_rows = [
         row for row in source_rows if row.get("source") == "tennis_shadow"
     ]
-    tennis_price_rows = []
+    tennis_price_provider_status = "not_requested_for_isolated_run"
+    if production_state and tennis_quote_loader is None:
+        price_config = config or load_app_config()
+        tennis_price_provider_status = "missing_api_key"
+        if price_config.odds_api_key:
+            tennis_quote_loader = lambda rows: fetch_tennis_h2h_consensus(
+                price_config.odds_api_key, rows, now=current,
+            )
+    if tennis_quote_loader is not None:
+        tennis_price_provider_status = "configured"
+    tennis_price_rows = _tennis_price_check_candidates(
+        tennis_model_rows, now=current, target_date=target,
+        previous_checks=prior_price_checks,
+    ) if tennis_quote_loader is not None else []
     tennis_quote_errors: list[str] = []
     tennis_reference_quotes: dict[str, MarketConsensus] = {}
     if tennis_price_rows:
         try:
-            if tennis_quote_loader is not None:
-                tennis_reference_quotes, tennis_quote_errors = (
-                    tennis_quote_loader(tennis_price_rows)
-                )
-            else:
-                app_config = config or load_app_config()
-                if app_config.odds_api_key:
-                    tennis_reference_quotes, tennis_quote_errors = (
-                        fetch_tennis_h2h_consensus(
-                            app_config.odds_api_key,
-                            tennis_price_rows,
-                            now=current,
-                        )
-                    )
+            tennis_reference_quotes, tennis_quote_errors = (
+                tennis_quote_loader(tennis_price_rows)
+            )
         except Exception as exc:
             tennis_quote_errors = _safe_quote_loader_error(exc)
     if tennis_price_rows and not fixed_now:
@@ -3690,9 +3715,10 @@ def run_wettfinder(
             tennis_price_rows,
             tennis_reference_quotes,
             now=current,
-            previous_rows=(),
+            previous_rows=previous.get("model_candidates") or (),
         )
     )
+    tennis_quote_error_count = len(_operational_quote_errors(tennis_quote_errors))
 
     esports_model_rows = [
         row for row in source_rows if row.get("source") == "esports_shadow"
@@ -3756,7 +3782,7 @@ def run_wettfinder(
             if football_run_publishable
             else []
         ),
-        *tennis_playable_rows,
+        *(tennis_playable_rows if not tennis_quote_error_count else []),
     ]
     model_candidates = build_model_selection_ledger(
         playable_rows,
@@ -3871,7 +3897,7 @@ def run_wettfinder(
         )
         source_status["football"]["quote_errors"] = quote_errors[:10]
     if isinstance(source_status.get("tennis"), dict):
-        source_status["tennis"]["price_provider_status"] = "disabled_for_model_only_tips"
+        source_status["tennis"]["price_provider_status"] = tennis_price_provider_status
         source_status["tennis"]["reference_quote_count"] = len(
             tennis_reference_quotes
         )
@@ -3885,9 +3911,6 @@ def run_wettfinder(
             row.get("source") == "tennis_shadow" for row in candidates
         )
         source_status["tennis"]["quote_errors"] = tennis_quote_errors[:10]
-        tennis_quote_error_count = len(
-            _operational_quote_errors(tennis_quote_errors)
-        )
         source_status["tennis"]["quote_operational_error_count"] = (
             tennis_quote_error_count
         )
@@ -3948,6 +3971,7 @@ def run_wettfinder(
         # evidence separate from the number of published recommendations.
         "bookmaker_data_used": bool(
             reference_quotes or tennis_reference_quotes
+            or any(row.get("reference_quote") for row in [*football_model_rows, *tennis_model_rows])
         ),
         "quote_required": True,
         "run_status": (
@@ -4209,7 +4233,8 @@ def run_wettfinder(
     return document
 
 
-def refresh_prices_only(*, state_path=STATE_PATH, config=None, now=None, quote_loader=None):
+def refresh_prices_only(*, state_path=STATE_PATH, config=None, now=None, quote_loader=None,
+                        quote_sport="football"):
     """Bounded price refresh; never rerun a model or advance its freshness.
 
     The canonical scheduler must be idle. A concurrent snapshot publication
@@ -4217,6 +4242,8 @@ def refresh_prices_only(*, state_path=STATE_PATH, config=None, now=None, quote_l
     """
     from copy import deepcopy
     import subprocess
+    if quote_sport not in {"football", "tennis"}:
+        raise ValueError("unsupported quote sport")
     path = Path(state_path)
     def require_idle():
         state = subprocess.run(['systemctl', 'show', 'betboy-wettfinder.service',
@@ -4230,35 +4257,67 @@ def refresh_prices_only(*, state_path=STATE_PATH, config=None, now=None, quote_l
     document = json.loads(original)
     previous = deepcopy(document.get('model_candidates') or [])
     current = _utc(now or datetime.now(timezone.utc))
-    rows = [r for r in document.get('model_candidates', [])
-            if r.get('source') == 'football_challenge']
-    selected = select_price_check_candidates(
-        ({**r, 'status': 'PRICE_REQUIRED'} for r in rows
-         if r.get('status') in {'MODEL_SELECTION', 'PRICE_REQUIRED'}
-         and exact_market_target(r.get('market_key')) is not None),
-        now=current, target_date=target_search_date(current), preserve_order=True,
-        previous_checks=document.get('price_check_attempts') or {}, max_markets_per_fixture=100)
-    if quote_loader is None:
-        cfg = config or load_app_config()
-        quotes, errors = fetch_football_consensus(cfg.api_football_key or '', selected, now=current, timeout=10)
+    row_source = 'tennis_shadow' if quote_sport == 'tennis' else 'football_challenge'
+    rows = [r for r in document.get('model_candidates', []) if r.get('source') == row_source]
+    if quote_sport == 'tennis':
+        selected = _tennis_price_check_candidates(
+            rows, now=current, target_date=target_search_date(current),
+            previous_checks=document.get('price_check_attempts') or {},
+        )
     else:
-        quotes, errors = quote_loader(selected)
+        selected = select_price_check_candidates(
+            ({**r, 'status': 'PRICE_REQUIRED'} for r in rows
+             if r.get('status') in {'MODEL_SELECTION', 'PRICE_REQUIRED'}
+             and exact_market_target(r.get('market_key')) is not None),
+            now=current, target_date=target_search_date(current), preserve_order=True,
+            previous_checks=document.get('price_check_attempts') or {}, max_markets_per_fixture=100)
+    quotes, errors = {}, []
+    provider_status = 'configured'
+    if quote_loader is None and (selected or quote_sport == 'football'):
+        cfg = config or load_app_config()
+        if quote_sport == 'tennis':
+            provider_status = 'configured' if cfg.odds_api_key else 'missing_api_key'
+            if cfg.odds_api_key:
+                try:
+                    quotes, errors = fetch_tennis_h2h_consensus(cfg.odds_api_key, selected, now=current)
+                except Exception as exc:
+                    errors = _safe_quote_loader_error(exc)
+            else:
+                errors = ["The-Odds-API-Key fuer Tennisquoten fehlt"]
+        else:
+            quotes, errors = fetch_football_consensus(cfg.api_football_key or '', selected, now=current, timeout=10)
+    elif quote_loader is not None and (selected or quote_sport == 'football'):
+        try:
+            quotes, errors = quote_loader(selected)
+        except Exception as exc:
+            if quote_sport != 'tennis':
+                raise
+            errors = _safe_quote_loader_error(exc)
+    elif quote_loader is None:
+        provider_status = 'not_requested_no_due_candidates'
     selected_by_id = {r['candidate_id']: r for r in selected}
     quotes = {key: quote for key, quote in quotes.items()
               if quote_matches_candidate(quote, selected_by_id.get(key))}
     counts, _ = _apply_reference_quotes(rows, selected, quotes, now=current, previous_rows=previous)
     # Existing releases carry execution proof for their previous quote. Do not
     # manufacture a release during this display-only operation.
-    document['candidates'] = [r for r in document.get('candidates', []) if r.get('source') != 'football_challenge']
+    document['candidates'] = [r for r in document.get('candidates', []) if r.get('source') != row_source]
     for row in selected:
         document.setdefault('price_check_attempts', {})[row['key']] = current.isoformat()
-    summary = dict(updated_at=current.isoformat(), fixtures=len({r['fixture_id'] for r in selected}),
+    summary = dict(updated_at=current.isoformat(), fixtures=len({r.get('event_identity') or r.get('fixture_id') or r['key'] for r in selected}),
                    checked=len(selected), quotes=len(quotes), errors=len(errors), status_counts=counts)
+    if quote_sport == 'tennis':
+        summary['sport'] = quote_sport
+        summary['operational_errors'] = len(_operational_quote_errors(errors))
+        document['bookmaker_data_used'] = bool(document.get('bookmaker_data_used') or quotes)
     document['price_only_refresh'] = summary
-    source = document.setdefault('sources', {}).setdefault('football', {})
+    source = document.setdefault('sources', {}).setdefault(quote_sport, {})
     source.update(price_checked_count=len(selected), price_fixture_count=summary['fixtures'],
                   reference_quote_count=len(quotes), price_status_counts=counts,
                   published_recommendation_count=0, quote_operational_error_count=len(errors))
+    if quote_sport == 'tennis':
+        source.update(price_provider_status=provider_status, quote_errors=errors[:10],
+                      quote_operational_error_count=len(_operational_quote_errors(errors)))
     if canonical:
         require_idle()
     if path.read_bytes() != original:
@@ -4271,16 +4330,19 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--force-football", action="store_true")
     parser.add_argument('--quotes-only', action='store_true')
+    parser.add_argument('--quote-sport', choices=('football', 'tennis'), default='football')
     parser.add_argument("--state-path", default=str(STATE_PATH))
     args = parser.parse_args(argv)
+    if args.quote_sport != 'football' and not args.quotes_only:
+        parser.error('--quote-sport tennis requires --quotes-only')
     if args.quotes_only:
         try:
-            summary = refresh_prices_only(state_path=args.state_path)
+            summary = refresh_prices_only(state_path=args.state_path, quote_sport=args.quote_sport)
         except Exception as exc:
             print(json.dumps({'status':'error', 'error_type':type(exc).__name__}))
             return 1
         print(json.dumps(summary))
-        return 0 if not summary['errors'] else 1
+        return 0 if not summary.get('operational_errors', summary['errors']) else 1
     try:
         document = run_wettfinder(
             state_path=args.state_path,

@@ -195,6 +195,106 @@ def test_model_probability_is_visible_without_internal_safety_or_method_notes():
     assert card.cautious_probability == 0.28
 
 
+@pytest.mark.parametrize('renderer', [
+    surface.render_riskobet_card_html, surface.render_riskobet_compact_row_html,
+])
+def test_legacy_simulation_and_recovery_copy_is_not_a_customer_match_reason(renderer):
+    simulation = 'Die Serve-Simulation weist 64.2% für drei Sätze aus.'
+    recovery = ('Arthur Gea: jüngstes beobachtetes Ergebnis seit 10.0 Stunden bestätigt; '
+                'unvollständige Historie belegt keine tatsächliche Erholungsdauer.')
+    candidate = _candidate(sport='tennis', pros=(simulation, 'Arthur gewann 3 der letzten 5 Spiele.'),
+        cons=(recovery, 'Zhang gewann beide Direktduelle.'))
+    card = _card(candidate, status='AVAILABLE', observed_odds=2.25)
+    before = deepcopy(candidate), deepcopy(card)
+    markup = renderer(card)
+    assert simulation not in markup and recovery not in markup
+    assert 'Serve-Simulation' not in markup and 'Erholungsdauer' not in markup
+    assert 'Arthur gewann 3 der letzten 5 Spiele.' in markup
+    assert 'Zhang gewann beide Direktduelle.' in markup
+    assert '34.0 %' in markup and '2.25' in markup
+    assert (candidate, card) == before
+    assert card.pros[0] == simulation and card.cons[0] == recovery
+
+
+@pytest.mark.parametrize('renderer', [
+    surface.render_riskobet_card_html, surface.render_riskobet_compact_row_html,
+])
+def test_method_only_reason_blocks_disappear_without_inventing_a_sporting_argument(renderer):
+    card = _card(_candidate(sport='tennis',
+        pros=('Die Serve-Simulation weist 64.2% für drei Sätze aus.',),
+        cons=('Das Modell setzt ein regulär beendetes Best-of-3-Match voraus.',)))
+    markup = renderer(card)
+    assert 'Serve-Simulation' not in markup and 'Best-of-3-Match' not in markup
+    assert 'rb-reason-pro' not in markup and 'rb-reason-contra' not in markup
+    assert 'rb-row-pro"' not in markup and 'rb-row-contra"' not in markup
+    assert 'müde' not in markup and 'fit' not in markup
+    assert '34.0 %' in markup
+
+
+@pytest.mark.parametrize('renderer', [
+    surface.render_riskobet_card_html, surface.render_riskobet_compact_row_html,
+])
+def test_equal_market_and_selection_labels_are_rendered_once_without_changing_the_card(renderer):
+    card = _card(_candidate(sport='tennis', market_key='over_2_5_sets',
+        market_label='Über 2,5 Sätze', selection_label='Über 2,5 Sätze'))
+    before = deepcopy(card)
+    markup = renderer(card)
+    assert markup.count('Über 2,5 Sätze') == 1
+    assert '34.0 %' in markup
+    assert card == before and card.market == card.selection == 'Über 2,5 Sätze'
+    different = replace(card, market='Über 2,5 Sätze · Match', selection='Über 2,5 Sätze')
+    different_markup = renderer(different)
+    assert 'Über 2,5 Sätze · Match' in different_markup
+    assert different_markup.count('Über 2,5 Sätze') == 2
+
+
+@pytest.mark.parametrize('renderer', [
+    surface.render_riskobet_card_html, surface.render_riskobet_compact_row_html,
+])
+def test_technical_fallback_never_becomes_a_reason_or_missing_sport_fact(renderer):
+    candidate = _candidate(pros=('API-Football provider failed (403)', 'Alpha gewann 4/5 Spiele.'),
+        cons=('Walk-forward gate passed', 'Beta gewann beide Direktduelle.'),
+        missing_core_data=('factor_key=weather passed', 'Startaufstellung'))
+    card = _card(candidate)
+    before = deepcopy(candidate), deepcopy(card)
+    markup = renderer(card)
+    assert 'Technischer Prüfstatus' not in markup
+    assert 'Alpha gewann 4/5 Spiele.' in markup
+    assert 'Beta gewann beide Direktduelle.' in markup
+    assert 'Startaufstellung' in markup
+    assert (candidate, card) == before
+
+
+def test_tennis_form_projection_copies_each_exact_window_without_scope_protocol():
+    raw = ('J. Smith Jr.: 3/5 · 6/10 Siege (Hartplatz · letzte 5 / 10 erfasste Spiele · '
+           '22.08.2026–28.09.2026 · K.-o.-Runden einschließlich Qualifikation). '
+           'Arthur Gea: 2/5 · 4/10 Siege (Hartplatz · letzte 5 / 10 erfasste Spiele · '
+           '22.08.2026–28.09.2026 · K.-o.-Runden einschließlich Qualifikation).')
+    surface_label, records = surface.compact_riskobet_tennis_form(raw)
+    assert surface_label == 'Hartplatz'
+    assert records == (('J. Smith Jr.', '3/5 Siege · 6/10 Siege'),
+                       ('Arthur Gea', '2/5 Siege · 4/10 Siege'))
+    assert 'K.-o.' not in repr(records) and '2026' not in repr(records)
+    assert 'K.-o.-Runden einschließlich Qualifikation' in raw
+
+
+def test_legacy_all_surface_record_has_a_compact_explicit_scope_and_count():
+    raw = ('A: 3/5 Siege · alle Beläge (Alle Beläge · 5 erfasste Spiele · '
+           '22.08.2026–28.09.2026).')
+    assert surface.compact_riskobet_tennis_form(raw) == (
+        'Alle Beläge', (('A', '3/5 Siege'),))
+
+
+@pytest.mark.parametrize('value', [
+    'A: 6/5 Siege (Hartplatz · 5 erfasste Spiele · 22.08.2026–28.09.2026).',
+    'A: 3/5 · 4/5 Siege (Hartplatz · 5 erfasste Spiele · 22.08.2026–28.09.2026).',
+    'A: Rating 3.5 auf Hartplatz, sechs Siege.',
+    'A: 3/5 Siege · alle Beläge (Hartplatz · 5 erfasste Spiele · 22.08.2026–28.09.2026).',
+])
+def test_tennis_form_projection_never_infers_or_repairs_unknown_win_counts(value):
+    assert surface.compact_riskobet_tennis_form(value) == ('', ())
+
+
 @pytest.mark.parametrize('stage', list(EvidenceStage))
 @pytest.mark.parametrize('show_price', [False, True])
 @pytest.mark.parametrize('renderer', [

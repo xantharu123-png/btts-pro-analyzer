@@ -196,6 +196,42 @@ def _payload(*bundles, status="COMPLETE", errors=()):
     }
 
 
+def _legacy_tsitsipas_etcheverry_bundle():
+    """Synthetic immutable bundle using the exact user-reported legacy copy."""
+    snapshot, candidate = _bundle('user-reported-tsitsipas', sport='tennis',
+        market_key='over_2_5_sets', model_probability=0.50, cautious_probability=0.40)
+    tsitsipas = ('Stefanos Tsitsipas: 3/5 · 6/10 Siege (Hartplatz · letzte 5 / 10 erfasste Spiele · '
+                '02.08.2026–30.08.2026 · K.-o.-Runden einschließlich Qualifikation).')
+    etcheverry = ('Tomas Martin Etcheverry: 3/5 · 4/10 Siege (Hartplatz · letzte 5 / 10 erfasste Spiele · '
+                 '18.03.2026–23.09.2026 · K.-o.-Runden einschließlich Qualifikation).')
+    simulation = 'Die Serve-Simulation weist 50.0% für drei Sätze aus.'
+    assumption = 'Das Modell setzt ein regulär beendetes Best-of-3-Match voraus.'
+    observations = (
+        'Stefanos Tsitsipas: zuletzt 2 beobachtete Sätze.',
+        'Stefanos Tsitsipas: jüngstes beobachtetes Ergebnis seit 3.5 Stunden bestätigt; '
+        'unvollständige Historie belegt keine tatsächliche Erholungsdauer.',
+        'Tomas Martin Etcheverry: jüngstes beobachtetes Ergebnis seit 99.5 Stunden bestätigt; '
+        'unvollständige Historie belegt keine tatsächliche Erholungsdauer.',
+    )
+    values = (
+        ('tennis_calibrated_match_model', simulation, FactorRole.MODEL),
+        ('tennis_surface_evidence', tsitsipas + ' ' + etcheverry, FactorRole.DISPLAY_ONLY),
+        ('customer_recent_a', tsitsipas, FactorRole.DISPLAY_ONLY),
+        ('customer_recent_b', etcheverry, FactorRole.DISPLAY_ONLY),
+        *((f'tennis_workload_a_{index}', value, FactorRole.DISPLAY_ONLY)
+          for index, value in enumerate(observations)),
+    )
+    snapshot = replace(snapshot, event_label='Stefanos Tsitsipas vs Tomas Martin Etcheverry',
+        competition='ATP · synthetischer Prüffall',
+        factors=tuple(replace(snapshot.factors[0], factor_key=key, summary=value, role=role)
+                      for key, value, role in values))
+    candidate = replace(candidate, snapshot_id=snapshot.snapshot_id,
+        event_label=snapshot.event_label, competition=snapshot.competition,
+        market_label='Über 2,5 Sätze', selection_label='Über 2,5 Sätze',
+        context_state=ContextState.PARTIAL, pros=(simulation,), cons=(assumption,))
+    return snapshot, candidate
+
+
 def _view(*bundles, status="COMPLETE") -> ui.RiskBetView:
     snapshots = {snapshot.snapshot_id: snapshot for snapshot, _ in bundles}
     candidates = tuple(candidate for _, candidate in bundles)
@@ -477,19 +513,17 @@ def test_featured_grid_flat_rows_and_exact_stable_keys(monkeypatch):
     assert "## Weitere Szenarien" in _all_text(first)
 
 
-def test_observed_context_is_available_only_inside_analysis(monkeypatch):
+def test_isolated_set_observations_do_not_create_an_analysis_drawer(monkeypatch):
     snapshot, candidate = _bundle("compact-context", sport="tennis")
     observation = replace(snapshot.factors[0], factor_key="tennis_workload_a_0",
                           role=FactorRole.DISPLAY_ONLY, summary="Spieler A: zuletzt drei Sätze beobachtet.")
-    snapshot = replace(snapshot, factors=(*snapshot.factors, observation))
+    snapshot = replace(snapshot, factors=(observation,))
     candidate = replace(candidate, snapshot_id=snapshot.snapshot_id)
     fake = RecordingStreamlit()
     monkeypatch.setattr(ui, "st", fake)
     ui._render_detail(candidate, snapshot)
-    context_rows = [row for row in fake.messages if "beobachtet" in str(row[1])]
-    assert context_rows
-    assert all(any(kind == "expander" for kind, _ in row[2]) for row in context_rows)
-    assert all(not expanded for _, expanded, _ in fake.expanders)
+    assert 'zuletzt drei Sätze beobachtet' not in _all_text(fake)
+    assert not fake.expanders
 
 
 def test_public_factor_details_hide_frozen_source_identities(monkeypatch):
@@ -599,7 +633,7 @@ def test_full_ui_keeps_sport_facts_in_opened_details_and_method_notes_internal(m
     # RecordingStreamlit enters collapsed expanders too, checking all emitted
     # detail text, not merely the initially visible card.
     text = _all_text(fake)
-    for fact in ('Hartplatz: Alpha 25 erfasste Spiele', 'Alpha: 4/5 Siege',
+    for fact in ('Belag: Hartplatz', 'Alpha: 25 erfasste Spiele', 'Alpha: 4/5 Siege',
                  'Gegner Gamma 2:1', 'Gegenargument: Beta gewann beide Direktduelle.',
                  'Alpha: zuletzt drei Sätze gegen Gamma.',
                  'Ausfälle: Heim A fällt aus; Gast B fraglich.',
@@ -638,12 +672,131 @@ def test_tennis_surface_evidence_is_visible_without_opening_analysis(monkeypatch
     ui._render_detail(candidate, snapshot)
     mentions = [
         item for item in fake.messages
-        if "A 25 erfasste Spiele" in str(item[1])
+        if "A: 25 erfasste Spiele" in str(item[1])
     ]
     assert len(mentions) == 1, fake.messages
     assert not any('Elo' in str(item[1]) for item in fake.messages)
     assert mentions[0][0] == "caption"
     assert not any(kind == "expander" for kind, _ in mentions[0][2])
+    assert 'Belag: Hartplatz' in _all_text(fake)
+    assert not fake.expanders
+
+
+def test_legacy_tennis_form_is_per_player_and_generic_observations_have_no_empty_drawer(monkeypatch):
+    snapshot, candidate = _bundle('legacy-compact', sport='tennis')
+    form = ('Arthur Gea: 3/5 · 6/10 Siege (Hartplatz · letzte 5 / 10 erfasste Spiele · '
+            '22.08.2026–28.09.2026 · K.-o.-Runden einschließlich Qualifikation). '
+            'Zhang Zhizhen: 2/5 · 4/10 Siege (Hartplatz · letzte 5 / 10 erfasste Spiele · '
+            '22.08.2026–28.09.2026 · K.-o.-Runden einschließlich Qualifikation).')
+    recovery = ('Arthur Gea: jüngstes beobachtetes Ergebnis seit 10.0 Stunden bestätigt; '
+                'unvollständige Historie belegt keine tatsächliche Erholungsdauer.')
+    simulation = 'Die Serve-Simulation weist 64.2% für drei Sätze aus.'
+    factor_values = (
+        ('tennis_calibrated_match_model', simulation, FactorRole.MODEL),
+        ('tennis_surface_evidence', form, FactorRole.DISPLAY_ONLY),
+        ('tennis_workload_a_0', recovery, FactorRole.DISPLAY_ONLY),
+    )
+    factors = tuple(replace(snapshot.factors[0], factor_key=key, summary=value, role=role)
+                    for key, value, role in factor_values)
+    snapshot = replace(snapshot, factors=factors)
+    candidate = replace(candidate, snapshot_id=snapshot.snapshot_id,
+        pros=(simulation,), cons=(recovery,))
+    view = _view((snapshot, candidate))
+    before = deepcopy(view)
+    fake = RecordingStreamlit()
+    monkeypatch.setattr(ui, 'st', fake)
+    monkeypatch.setattr(ui, 'load_riskobet_view', lambda _path=None: view)
+
+    ui.render_riskobet()
+
+    captions = [value for kind, value, _ in fake.messages if kind == 'caption']
+    assert captions.count('Belag: Hartplatz') == 1
+    assert captions.count('Arthur Gea: 3/5 Siege · 6/10 Siege') == 1
+    assert captions.count('Zhang Zhizhen: 2/5 Siege · 4/10 Siege') == 1
+    text = _all_text(fake)
+    for internal in (form, recovery, simulation, '22.08.2026', 'K.-o.-Runden',
+                     'Keine weiteren Spielinformationen', 'Erholungsdauer', 'Serve-Simulation'):
+        assert internal not in text
+    assert not fake.expanders
+    assert view == before
+    assert candidate.pros == (simulation,) and candidate.cons == (recovery,)
+    assert snapshot.factors == factors
+
+
+def test_exact_user_reported_card_has_two_compact_records_and_no_empty_analysis(monkeypatch):
+    bundle = _legacy_tsitsipas_etcheverry_bundle()
+    view = _view(bundle)
+    before = deepcopy(view)
+    fake = RecordingStreamlit()
+    monkeypatch.setattr(ui, 'st', fake)
+    monkeypatch.setattr(ui, 'load_riskobet_view', lambda _path=None: view)
+
+    ui.render_riskobet()
+
+    captions = [value for kind, value, _ in fake.messages if kind == 'caption']
+    assert captions.count('Belag: Hartplatz') == 1
+    assert captions.count('Stefanos Tsitsipas: 3/5 Siege · 6/10 Siege') == 1
+    assert captions.count('Tomas Martin Etcheverry: 3/5 Siege · 4/10 Siege') == 1
+    text = _all_text(fake)
+    assert '50.0 %' in text and 'Über 2,5 Sätze' in text
+    for protocol in ('Serve-Simulation', 'Best-of-3-Match', 'Erholungsdauer',
+                     'beobachtete Sätze', '02.08.2026', '18.03.2026',
+                     'K.-o.-Runden', 'Keine weiteren Spielinformationen'):
+        assert protocol not in text
+    assert not fake.expanders
+    assert view == before
+
+
+def test_compact_tennis_keeps_concrete_context_and_existing_results_in_nonempty_details(monkeypatch):
+    snapshot, candidate = _bundle('compact-result-details', sport='tennis')
+    values = (
+        ('tennis_calibrated_match_model', 'Kalibriertes Sieger-Modell plus Satzsimulation.', FactorRole.MODEL),
+        ('customer_recent_a', 'Arthur: 3/5 Siege; Gegner Gamma 2:1.', FactorRole.DISPLAY_ONLY),
+        ('customer_counter_'+candidate.selection_key, 'Zhang gewann beide Direktduelle.', FactorRole.DISPLAY_ONLY),
+        ('football_context_0_injuries', 'Ausfälle: Heim A fällt aus; Gast B fraglich.', FactorRole.DISPLAY_ONLY),
+        ('football_context_0_weather', 'Wetter: 12 °C, leichter Regen.', FactorRole.DISPLAY_ONLY),
+        ('tennis_workload_a_0', 'Arthur: vorheriges Match endete mit Aufgabe; verletzter Spieler und Ursache nicht belegt.', FactorRole.DISPLAY_ONLY),
+    )
+    snapshot = replace(snapshot, factors=tuple(replace(snapshot.factors[0], factor_key=key, summary=text, role=role)
+                                             for key, text, role in values))
+    candidate = replace(candidate, snapshot_id=snapshot.snapshot_id)
+    before = deepcopy(snapshot), deepcopy(candidate)
+    fake = RecordingStreamlit()
+    monkeypatch.setattr(ui, 'st', fake)
+
+    ui._render_detail(candidate, snapshot)
+
+    assert len(fake.expanders) == 1
+    text = _all_text(fake)
+    for actual in ('Gegner Gamma 2:1', 'Gegenargument: Zhang gewann beide Direktduelle.',
+                   'Heim A fällt aus', 'Gast B fraglich', '12 °C, leichter Regen',
+                   'vorheriges Match endete mit Aufgabe', 'Ursache nicht belegt'):
+        assert actual in text
+    assert 'Keine weiteren Spielinformationen' not in text
+    assert 'Arthur ist verletzt' not in text and 'Arthur ist müde' not in text
+    assert (snapshot, candidate) == before
+
+
+def test_native_compact_form_captions_keep_long_and_html_player_names_as_data(monkeypatch):
+    snapshot, candidate = _bundle('compact-xss', sport='tennis')
+    name = 'J. <script>alert(1)</script> ' + 'LongName'*10
+    text = (name + ': 3/5 · 6/10 Siege (Hartplatz · letzte 5 / 10 erfasste Spiele · '
+            '22.08.2026–28.09.2026). Open: 2/5 · 4/10 Siege '
+            '(Hartplatz · letzte 5 / 10 erfasste Spiele · 22.08.2026–28.09.2026).')
+    factor = replace(snapshot.factors[0], factor_key='tennis_surface_evidence', role=FactorRole.DISPLAY_ONLY, summary=text)
+    snapshot = replace(snapshot, factors=(factor,))
+    candidate = replace(candidate, snapshot_id=snapshot.snapshot_id)
+    fake = RecordingStreamlit()
+    monkeypatch.setattr(ui, 'st', fake)
+
+    ui._render_detail(candidate, snapshot)
+
+    # Native Streamlit captions use its safe Markdown path, never raw HTML.
+    captions = [value for kind, value, _ in fake.messages if kind == 'caption']
+    assert name + ': 3/5 Siege · 6/10 Siege' in captions
+    assert 'Open: 2/5 Siege · 4/10 Siege' in captions  # No machine-status name rewrite.
+    assert not fake.markdown_calls
+    assert not fake.expanders
 
 
 def test_production_like_payload_hides_internal_stage_and_factor_status(

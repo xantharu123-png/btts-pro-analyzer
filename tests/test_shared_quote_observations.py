@@ -245,3 +245,157 @@ def test_price_refresh_aborts_if_model_snapshot_changed_during_fetch(tmp_path):
     with pytest.raises(RuntimeError,match='snapshot changed'):
         refresh_prices_only(state_path=path, now=NOW, quote_loader=racing_loader)
     assert json.loads(path.read_text()) == {'newer':True}
+
+
+def _tennis_price_fixture(price=1.90, books=4):
+    from wettfinder_automation import _signal_record
+    signal = _signal('tennis-gea', sport='Tennis', market='Match Winner',
+                     selection='Sieg A', market_key='H2H')
+    signal = replace(signal, candidate_id=signal.key)
+    row = _signal_record(signal)
+    row['status'] = 'MODEL_SELECTION'
+    event = dict(id='odds-gea', home_team='A', away_team='B',
+                 commence_time=row['scheduled_start'], bookmakers=[
+        dict(key=f'book-{i}', title=f'Book {i}', last_update=NOW.isoformat(), markets=[
+            dict(key='h2h', outcomes=[dict(name='A', price=price), dict(name='B', price=2.10)])])
+        for i in range(books)
+    ])
+    quote = mc.parse_h2h_event_consensus(event, [row], fetched_at=NOW)[row['candidate_id']]
+    return signal, row, quote
+
+
+@pytest.mark.parametrize('price', [1.12, 1.90])
+def test_tennis_price_only_keeps_models_clocks_order_and_other_sports(tmp_path, price):
+    from copy import deepcopy
+    from wettfinder_automation import refresh_prices_only
+    signal, row, quote = _tennis_price_fixture(price)
+    other = dict(key='other', source='football_challenge', probability=.41,
+                 reference_quote={'untouched': True}, status='MODEL_SELECTION')
+    path = tmp_path/'tennis-prices.json'
+    document = dict(generated_at=NOW.isoformat(), model_candidates=[other, row],
+        candidates=[deepcopy(other), deepcopy(row)], football={'scanned_at':'original'},
+        challenge_release_candidates=[{'untouched': True}], riskobet={'untouched': True},
+        sources={'football':{'untouched':True}, 'tennis':{'modeled_at':'original'}})
+    path.write_text(json.dumps(document), encoding='utf-8')
+    calls = []
+    def loader(rows):
+        calls.append(rows)
+        return {quote.candidate_id:quote}, []
+    summary = refresh_prices_only(state_path=path, now=NOW, quote_loader=loader, quote_sport='tennis')
+    after = json.loads(path.read_text(encoding='utf-8'))
+    assert summary['sport'] == 'tennis' and summary['checked'] == summary['quotes'] == 1
+    assert len(calls) == 1 and calls[0][0]['candidate_id'] == row['candidate_id']
+    for field in ('generated_at','football','riskobet','challenge_release_candidates'):
+        assert after[field] == document[field]
+    assert after['model_candidates'][0] == other
+    assert after['sources']['football'] == document['sources']['football']
+    assert after['sources']['tennis']['modeled_at'] == 'original'
+    for field, value in row.items():
+        if not field.startswith(('reference_', 'quote_')):
+            assert after['model_candidates'][1][field] == value
+    assert after['model_candidates'][1]['reference_quote']['fetched_at'] == NOW.isoformat()
+    assert after['candidates'] == [other]  # Never create a money release from a display refresh.
+    assert after['bookmaker_data_used'] is True
+    assert mc.quote_below_publication_floor(quote, candidate=row, now=NOW) is (price < 1.20)
+    assert build_wettfinder_card(signal, quote, now=NOW).quote_floor_excluded is (price < 1.20)
+
+
+@pytest.mark.parametrize('problem', ['none', 'mismatch', 'stale'])
+def test_tennis_cached_quote_preserves_original_clock_and_exact_binding(tmp_path, problem):
+    from wettfinder_automation import refresh_prices_only
+    _, row, quote = _tennis_price_fixture()
+    row['reference_quote'] = quote.to_dict()
+    if problem == 'mismatch':
+        row['scheduled_start'] = (NOW+timedelta(hours=4)).isoformat()
+    current = NOW+timedelta(minutes=10 if problem != 'stale' else 50)
+    path = tmp_path/'cached.json'
+    path.write_text(json.dumps(dict(model_candidates=[row], candidates=[],
+        price_check_attempts={row['key']:current.isoformat()})), encoding='utf-8')
+    def unused_loader(_rows):
+        pytest.fail('recent attempt must not repeat a paid quote request')
+    summary = refresh_prices_only(state_path=path, now=current, quote_loader=unused_loader, quote_sport='tennis')
+    after = json.loads(path.read_text(encoding='utf-8'))['model_candidates'][0]
+    assert summary['checked'] == summary['quotes'] == 0
+    assert after['probability'] == row['probability']
+    if problem == 'mismatch':
+        assert 'reference_quote' not in after and after['reference_price_status'] == 'UNAVAILABLE'
+    else:
+        assert after['reference_quote']['fetched_at'] == NOW.isoformat()
+        assert after['reference_price_status'] == ('PLAYABLE' if problem == 'none' else 'STALE')
+
+
+def test_tennis_price_only_aborts_on_snapshot_change_and_never_runs_a_scan(tmp_path, monkeypatch):
+    import wettfinder_automation as automation
+    _, row, _ = _tennis_price_fixture()
+    path = tmp_path/'racing-tennis.json'
+    path.write_text(json.dumps(dict(model_candidates=[row])), encoding='utf-8')
+    monkeypatch.setattr(automation, 'run_wettfinder', lambda **_kwargs: pytest.fail('model scan'))
+    def racing_loader(_rows):
+        path.write_text('{"newer":true}', encoding='utf-8')
+        return {}, []
+    with pytest.raises(RuntimeError, match='snapshot changed'):
+        automation.refresh_prices_only(state_path=path, now=NOW, quote_loader=racing_loader, quote_sport='tennis')
+    assert json.loads(path.read_text()) == {'newer':True}
+
+
+@pytest.mark.parametrize('outcome', ['thin', 'no_coverage', 'failure'])
+def test_tennis_price_only_keeps_coverage_separate_from_safe_provider_failures(tmp_path, outcome):
+    from wettfinder_automation import refresh_prices_only
+    _, row, quote = _tennis_price_fixture(books=1)
+    path = tmp_path/'coverage.json'
+    path.write_text(json.dumps(dict(model_candidates=[row], candidates=[])), encoding='utf-8')
+    def loader(_rows):
+        if outcome == 'failure':
+            raise RuntimeError('private-provider-credential')
+        if outcome == 'no_coverage':
+            return {}, ['The Odds API meldet keine aktive Tennis-Konkurrenz']
+        return {quote.candidate_id:quote}, []
+    summary = refresh_prices_only(state_path=path, now=NOW, quote_loader=loader, quote_sport='tennis')
+    after = json.loads(path.read_text(encoding='utf-8'))
+    assert summary['operational_errors'] == int(outcome == 'failure')
+    assert after['model_candidates'][0]['probability'] == row['probability']
+    assert after['model_candidates'][0]['reference_price_status'] == ('THIN' if outcome == 'thin' else 'UNAVAILABLE')
+    assert 'private-provider-credential' not in path.read_text(encoding='utf-8')
+    assert after['candidates'] == []
+
+
+def test_tennis_price_only_cli_dispatches_without_full_model_run(monkeypatch, capsys):
+    import wettfinder_automation as automation
+    calls = []
+    monkeypatch.setattr(automation, 'run_wettfinder', lambda **_kwargs: pytest.fail('model scan'))
+    monkeypatch.setattr(automation, 'refresh_prices_only', lambda **kwargs:
+        calls.append(kwargs) or {'errors':1, 'operational_errors':0})
+    assert automation.main(['--quotes-only', '--quote-sport', 'tennis', '--state-path', 'fixture.json']) == 0
+    assert calls == [{'state_path':'fixture.json', 'quote_sport':'tennis'}]
+    assert 'operational_errors' in capsys.readouterr().out
+
+
+def test_tennis_quote_sport_requires_quote_only_mode(monkeypatch):
+    import wettfinder_automation as automation
+    monkeypatch.setattr(automation, 'run_wettfinder', lambda **_kwargs: pytest.fail('model scan'))
+    with pytest.raises(SystemExit) as exc:
+        automation.main(['--quote-sport', 'tennis'])
+    assert exc.value.code == 2
+
+
+@pytest.mark.parametrize('busy_check', [1, 2])
+def test_tennis_canonical_price_only_requires_idle_before_fetch_and_publish(tmp_path, monkeypatch, busy_check):
+    import subprocess
+    import wettfinder_automation as automation
+    _, row, quote = _tennis_price_fixture()
+    path = tmp_path/'canonical.json'
+    path.write_text(json.dumps(dict(model_candidates=[row])), encoding='utf-8')
+    original = path.read_bytes()
+    monkeypatch.setattr(automation, 'STATE_PATH', path)
+    checks, fetches = [], []
+    def service_state(*_args, **_kwargs):
+        checks.append(True)
+        return SimpleNamespace(stdout='active' if len(checks) == busy_check else 'inactive')
+    monkeypatch.setattr(subprocess, 'run', service_state)
+    def loader(_rows):
+        fetches.append(True)
+        return {quote.candidate_id:quote}, []
+    with pytest.raises(RuntimeError, match='must be idle'):
+        automation.refresh_prices_only(state_path=path, now=NOW, quote_loader=loader, quote_sport='tennis')
+    assert path.read_bytes() == original
+    assert len(checks) == busy_check and len(fetches) == busy_check-1

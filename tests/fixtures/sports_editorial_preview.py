@@ -48,10 +48,14 @@ if scenario == 'Daily3':
     pool.append(editorial_football(now=now, count=count, fixture=3, key='DC_1X', start_hours=.1))
 app.automated_wettfinder_snapshot = lambda **_: SimpleNamespace(
     status=_automatic_status(now), forecasts=tuple(pool), signals=())
-if scenario == 'RisikoBet' or st.session_state['workspace'] == 'RisikoBet':
+if scenario in {'RisikoBet', 'RisikoBet-Kurzform'} or st.session_state['workspace'] == 'RisikoBet':
     import riskobet_ui
     from test_riskobet_ui import _bundle, _view
-    riskobet_ui.load_riskobet_view = lambda *_a, **_kw: _view(_bundle('1'), _bundle('2', sport='tennis'))
+    if scenario == 'RisikoBet-Kurzform':
+        from test_riskobet_ui import _legacy_tsitsipas_etcheverry_bundle
+        riskobet_ui.load_riskobet_view = lambda *_a, **_kw: _view(_legacy_tsitsipas_etcheverry_bundle())
+    else:
+        riskobet_ui.load_riskobet_view = lambda *_a, **_kw: _view(_bundle('1'), _bundle('2', sport='tennis'))
     riskobet_ui.render_riskobet()
 elif scenario == 'Daily3' or st.session_state.get('wettfinder_mode_v2') == '3 a day':
     from daily3_ui import render_daily3

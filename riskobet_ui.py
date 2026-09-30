@@ -29,6 +29,8 @@ from riskobet_surface import (
     RiskBetPriceOverlay,
     build_riskobet_card,
     compose_riskobet_catalog,
+    compact_riskobet_tennis_form,
+    customer_riskobet_note,
     format_riskobet_public_detail,
     render_riskobet_card_html,
     render_riskobet_compact_row_html,
@@ -389,15 +391,14 @@ def _customer_factor_detail(factor: FactorEvidence) -> str:
         return ''
     if factor.factor_key == 'esports_recent_form':
         raw = raw.removesuffix(' Im Elo berücksichtigt.')
-    summary = format_riskobet_public_detail(raw)
+    summary = customer_riskobet_note(raw)
     # A technical fallback is not a substitute for a sporting fact.
     if summary == 'Technischer Prüfstatus ist noch nicht nutzerverständlich aufbereitet.':
         return ''
     return summary
 
 
-def _render_factor_details(snapshot: EventModelSnapshot) -> None:
-    st.caption("Grundlage dieser Analyse")
+def _factor_detail_rows(snapshot: EventModelSnapshot) -> tuple[str, ...]:
     visible_factors = tuple(
         (factor, _customer_factor_detail(factor))
         for factor in snapshot.factors
@@ -405,16 +406,20 @@ def _render_factor_details(snapshot: EventModelSnapshot) -> None:
         and factor.factor_key != "esports_recent_form"
     )
     visible_factors = tuple((factor, summary) for factor, summary in visible_factors if summary)
-    if not visible_factors:
-        st.caption("Keine weiteren Spielinformationen hinterlegt.")
-        return
+    rows = []
     for factor, summary in visible_factors:
         observed = factor.observed_at.astimezone(timezone.utc).strftime(
             "%d.%m.%Y %H:%M UTC"
         )
         # Streamlit write escapes text. Deliberately omit internal factor keys,
         # provider identifiers and numeric implementation roles.
-        st.write(f"{summary} · Stand: {observed}")
+        rows.append(f"{summary} · Stand: {observed}")
+    return tuple(rows)
+
+
+def _render_factor_details(snapshot: EventModelSnapshot) -> None:
+    for detail in _factor_detail_rows(snapshot):
+        st.write(detail)
 
 
 def _render_quote_comparison(candidate: RiskCandidate) -> None:
@@ -465,23 +470,41 @@ def _render_detail(
         )
         if recent_form:
             st.caption(recent_form)
-        surface_text = next(
+        surface_factor = next(
             (
-                _customer_factor_detail(factor)
+                factor
                 for factor in snapshot.factors
                 if factor.factor_key == "tennis_surface_evidence"
                 and factor.role is FactorRole.DISPLAY_ONLY
             ),
             None,
         )
-        if surface_text:
-            st.caption(surface_text)
-        for factor in snapshot.factors:
-            if factor.role is FactorRole.DISPLAY_ONLY and factor.factor_key.startswith('customer_recent_'):
+        details = list(_factor_detail_rows(snapshot))
+        shown_records, shown_surfaces, shown_copy = set(), set(), set()
+        record_factors = ([surface_factor] if surface_factor else []) + [
+            factor for factor in snapshot.factors
+            if factor.role is FactorRole.DISPLAY_ONLY and factor.factor_key.startswith('customer_recent_')
+        ]
+        for factor in record_factors:
+            surface, records = compact_riskobet_tennis_form(factor.summary)
+            if surface:
+                if surface not in shown_surfaces:
+                    st.caption('Belag: ' + surface)
+                    shown_surfaces.add(surface)
+                for player, record in records:
+                    if (player, record) not in shown_records:
+                        st.caption(player + ': ' + record, unsafe_allow_html=False)
+                        shown_records.add((player, record))
+            else:
                 detail = _customer_factor_detail(factor)
-                if detail:
-                    st.caption(detail)
-            elif (factor.role is FactorRole.DISPLAY_ONLY
+                if detail and detail not in shown_copy:
+                    if factor is surface_factor:
+                        details.append(detail)
+                    else:
+                        st.caption(detail)
+                    shown_copy.add(detail)
+        for factor in snapshot.factors:
+            if (factor.role is FactorRole.DISPLAY_ONLY
                     and factor.factor_key == 'customer_counter_'+candidate.selection_key):
                 detail = _customer_factor_detail(factor)
                 if detail:
@@ -492,12 +515,12 @@ def _render_detail(
             if factor.role is FactorRole.DISPLAY_ONLY
             and factor.factor_key.startswith(("tennis_workload_", "football_context_"))
         )
-        with st.expander(
-            "Analyse anzeigen", expanded=False, key=detail_key
-        ):
-            _render_factor_details(snapshot)
-            for detail in visible_context:
-                if detail:
+        details.extend(detail for detail in visible_context if detail)
+        # Do not offer an empty analysis drawer after method-only factors were
+        # removed. Real observations/results remain in the retained detail rows.
+        if details:
+            with st.expander("Analyse anzeigen", expanded=False, key=detail_key):
+                for detail in dict.fromkeys(details):
                     st.write(detail)
 
 

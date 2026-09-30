@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 import json
+import pytest
 
 import market_consensus
 import wettfinder_automation
@@ -3102,7 +3103,7 @@ def test_runner_fails_closed_without_api_key_but_still_writes_state(tmp_path):
     )
 
 
-def test_runner_reprices_each_supported_reused_candidate_on_every_run(tmp_path):
+def test_runner_reuses_tennis_quote_without_reordering_models_or_renewing_clock(tmp_path):
     now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
     state_path = tmp_path / "wettfinder.json"
     scan_calls = 0
@@ -3215,7 +3216,7 @@ def test_runner_reprices_each_supported_reused_candidate_on_every_run(tmp_path):
         ["fixture-1-btts"],
         ["fixture-1-btts"],
     ]
-    assert tennis_quote_calls == []
+    assert tennis_quote_calls == [["tennis-model-1-A"]]
     assert {row["sport"] for row in first["model_candidates"]} == {
         "Fußball",
         "Tennis",
@@ -3227,15 +3228,48 @@ def test_runner_reprices_each_supported_reused_candidate_on_every_run(tmp_path):
         "E-Sport",
     }
     priced = {row["sport"]: row for row in second["model_candidates"]}
-    assert priced["Tennis"]["reference_price_status"] == "UNAVAILABLE"
-    assert "reference_quote" not in priced["Tennis"]
+    assert priced["Tennis"]["reference_price_status"] == "PLAYABLE"
+    assert priced["Tennis"]["reference_quote"]["fetched_at"] == now.isoformat()
+    assert [(r["key"], r["probability"]) for r in second["model_candidates"]] == [
+        (r["key"], r["probability"]) for r in first["model_candidates"]
+    ]
     assert priced["E-Sport"]["reference_price_status"] == "UNAVAILABLE"
-    assert second["candidates"] == []
+    assert [r["source"] for r in second["candidates"]] == ["tennis_shadow"]
     assert second["sources"]["tennis"]["price_checked_count"] == 0
     assert second["sources"]["tennis"]["reference_quote_count"] == 0
     assert second["sources"]["esports"]["price_provider_status"] == (
             "disabled_for_model_only_tips"
     )
+    assert second["bookmaker_data_used"] is True
+
+
+@pytest.mark.parametrize('mode', ['isolated', 'production_key', 'production_no_key'])
+def test_tennis_default_transport_only_runs_for_configured_production(tmp_path, monkeypatch, mode):
+    now = datetime(2030, 1, 1, 10, tzinfo=UTC)
+    path = tmp_path/'wettfinder.json'
+    calls = []
+    tennis = ModelSignal(key='tennis-production', label='A vs B', probability=.70,
+        probability_haircut=.08, evidence_stage='SHADOW', policy_version='test', detail='model',
+        scheduled_start=(now+timedelta(hours=6)).isoformat(), sport='Tennis',
+        competitor_a='A', competitor_b='B', selected_competitor='A', market_key='H2H')
+    if mode.startswith('production'):
+        monkeypatch.setattr(wettfinder_automation, 'STATE_PATH', path)
+    def transport(_key, rows, **_kwargs):
+        calls.append([r['candidate_id'] for r in rows])
+        return {}, []
+    monkeypatch.setattr(wettfinder_automation, 'fetch_tennis_h2h_consensus', transport)
+    document = run_wettfinder(now=now, state_path=path,
+        config=AppConfig(api_football_key=None, odds_api_key=None if mode == 'production_no_key' else 'test-only'),
+        football_scanner=lambda _date: _football_snapshot(now), football_quote_loader=lambda _rows: ({}, []),
+        tennis_loader=lambda **_kwargs: [tennis], tennis_model_refresher=lambda **_kwargs: {},
+        esports_loader=lambda **_kwargs: [], riskobet_enabled=False,
+        esports_settlement_runner=lambda *_args, **_kwargs: {},
+        evidence_db_path=tmp_path/'evidence.db', evidence_settlement_runner=lambda **_kwargs: {})
+    assert calls == ([['tennis-production']] if mode == 'production_key' else [])
+    assert document['sources']['tennis']['price_provider_status'] == {
+        'isolated':'not_requested_for_isolated_run', 'production_key':'configured',
+        'production_no_key':'missing_api_key'}[mode]
+    assert document['sources']['tennis']['price_checked_count'] == int(mode == 'production_key')
 
 
 def test_quote_loader_exception_details_are_never_persisted(tmp_path):
@@ -3276,14 +3310,14 @@ def test_quote_loader_exception_details_are_never_persisted(tmp_path):
 
     expected = ["Quotenabruf fehlgeschlagen (RuntimeError)"]
     assert document["sources"]["football"]["quote_errors"] == expected
-    assert document["sources"]["tennis"]["quote_errors"] == []
+    assert document["sources"]["tennis"]["quote_errors"] == expected
     assert document["run_status"] == "degraded"
-    assert document["operational_error_count"] == 1
+    assert document["operational_error_count"] == 2
     assert load_state(state_path) == document
     assert secret not in str(document)
 
 
-def test_unused_tennis_quote_failure_cannot_degrade_football_or_tennis_models(
+def test_tennis_quote_failure_is_diagnostic_without_degrading_football_models(
     tmp_path,
 ):
     now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
@@ -3384,10 +3418,10 @@ def test_unused_tennis_quote_failure_cannot_degrade_football_or_tennis_models(
         esports_loader=lambda **_kwargs: [],
     )
 
-    assert document["run_status"] == "completed"
-    assert document["operational_error_count"] == 0
+    assert document["run_status"] == "degraded"
+    assert document["operational_error_count"] == 1
     assert document["sources"]["football"]["operational_error_count"] == 0
-    assert document["sources"]["tennis"]["operational_error_count"] == 0
+    assert document["sources"]["tennis"]["operational_error_count"] == 1
     assert [row["source"] for row in document["candidates"]] == [
         "football_challenge"
     ]
@@ -3436,6 +3470,8 @@ def test_normal_missing_market_coverage_is_not_an_operational_failure(tmp_path):
     assert document["run_status"] == "completed"
     assert document["operational_error_count"] == 0
     assert document["sources"]["tennis"]["reference_quote_count"] == 0
+    assert document["sources"]["tennis"]["price_checked_count"] == 1
+    assert document["sources"]["tennis"]["quote_operational_error_count"] == 0
 
 
 def test_main_returns_nonzero_for_persisted_operational_failure(
