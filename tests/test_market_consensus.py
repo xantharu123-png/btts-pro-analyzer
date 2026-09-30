@@ -693,6 +693,126 @@ def test_tennis_identity_punctuation_is_a_word_separator():
     )
 
 
+def _gea_zhang_quote_fixture(now, *, selected="Arthur Gea"):
+    candidate = {
+        "candidate_id": "tennis-gea-zhang-A" if selected == "Arthur Gea" else "tennis-gea-zhang-B",
+        "market_key": "H2H", "sport": "Tennis", "source": "tennis_shadow",
+        "competitor_a": "Arthur Gea", "competitor_b": "Zhang Zhizhen",
+        "selected_competitor": selected, "competition": "ATP China Open",
+        "scheduled_start": "2030-09-30T09:00:00+00:00",
+    }
+    event = {
+        "id": "gea-zhang-provider-event", "home_team": "Zhizhen Zhang",
+        "away_team": "Arthur Gea", "commence_time": candidate["scheduled_start"],
+        "bookmakers": [{
+            "key": "pinnacle", "title": "Pinnacle", "last_update": now.isoformat(),
+            "markets": [{"key": "h2h", "outcomes": [
+                {"name": "Zhizhen Zhang", "price": 2.70},
+                {"name": "Arthur Gea", "price": 1.52},
+            ]}],
+        }],
+    }
+    return candidate, event
+
+
+def test_tennis_full_name_order_matches_provider_event_and_selected_side():
+    now = datetime(2030, 9, 30, 8, tzinfo=UTC)
+    for selected, expected in (("Arthur Gea", 1.52), ("Zhang Zhizhen", 2.70)):
+        candidate, event = _gea_zhang_quote_fixture(now, selected=selected)
+        assert market_consensus._h2h_event_matches(event, candidate)
+        quotes = parse_h2h_event_consensus(event, [candidate], fetched_at=now)
+        quote = quotes[candidate["candidate_id"]]
+        assert quote.best_odds == expected
+        assert quote.value_name == selected
+        assert quote.event_home == "Zhizhen Zhang"
+        assert quote_matches_candidate(quote, candidate)
+        provider_selected = "Zhizhen Zhang" if selected == "Zhang Zhizhen" else "Gea Arthur"
+        assert quote_matches_candidate(replace(quote, value_name=provider_selected), candidate)
+        assert not quote_matches_candidate(replace(quote, value_name="Other Player"), candidate)
+
+
+def test_tennis_name_order_equivalence_never_drops_adds_or_fuzzes_tokens():
+    now = datetime(2030, 9, 30, 8, tzinfo=UTC)
+    candidate, event = _gea_zhang_quote_fixture(now)
+    quote = parse_h2h_event_consensus(event, [candidate], fetched_at=now)[candidate["candidate_id"]]
+    for wrong_name in ("Zhang", "Zhizhen", "Zhang Z.", "Zhizheng Zhang",
+                       "Zhizhen Zhang Jr", "Zhizhen Zhang Zhang", "Arthur Gea Zhang"):
+        assert not market_consensus._h2h_event_matches({**event, "home_team": wrong_name}, candidate)
+        assert parse_h2h_event_consensus({**event, "home_team": wrong_name}, [candidate], fetched_at=now) == {}
+        assert not quote_matches_candidate(replace(quote, event_home=wrong_name), candidate)
+    assert market_consensus._identity_name("Zhizhen Zhang") != market_consensus._identity_name("Zhang Zhizhen")
+    # Distinct participants cannot collapse to one token identity; repeated
+    # tokens also remain part of a name, unlike a plain set comparison.
+    assert market_consensus._h2h_candidate_identity({**candidate,
+        "competitor_a": "Zhizhen Zhang", "selected_competitor": "Zhizhen Zhang"}) is None
+    assert not market_consensus._h2h_event_matches({**event, "away_team": "Zhang Zhizhen"}, candidate)
+
+
+def test_tennis_name_order_does_not_relax_final_start_or_provider_binding():
+    now = datetime(2030, 9, 30, 8, tzinfo=UTC)
+    candidate, event = _gea_zhang_quote_fixture(now)
+    quote = parse_h2h_event_consensus(event, [candidate], fetched_at=now)[candidate["candidate_id"]]
+    start = datetime.fromisoformat(candidate["scheduled_start"])
+    assert quote_matches_candidate(replace(quote, scheduled_start=(start+timedelta(minutes=30)).isoformat()), candidate)
+    assert not quote_matches_candidate(replace(quote, scheduled_start=(start+timedelta(minutes=31)).isoformat()), candidate)
+    bound = {**candidate, "quote_provider_event_id": quote.provider_event_id}
+    assert quote_matches_candidate(quote, bound)
+    assert not quote_matches_candidate(replace(quote, provider_event_id="another-event"), bound)
+
+
+def test_tennis_reversed_names_still_reject_ambiguous_provider_events(monkeypatch):
+    now = datetime(2030, 9, 30, 8, tzinfo=UTC)
+    candidate, event = _gea_zhang_quote_fixture(now)
+    calls = []
+    def provider(path, _key, **_kwargs):
+        calls.append(path)
+        if path == "sports/":
+            return [{"key": "tennis_atp_china_open", "active": True}], None
+        if path.endswith("/events"):
+            return [event, {**event, "id": "second-event", "home_team": "Zhang Zhizhen"}], None
+        raise AssertionError("Ambiguous identity must not request paid odds")
+    monkeypatch.setattr(market_consensus, "_odds_api_json", provider)
+    quotes, errors = market_consensus.fetch_tennis_h2h_consensus("test-key", [candidate], now=now)
+    assert quotes == {}
+    assert len(errors) == 1 and "Ereignis nicht eindeutig" in errors[0]
+    assert calls == ["sports/", "sports/tennis_atp_china_open/events"]
+
+
+def test_tennis_name_order_fetch_discovers_and_parses_one_exact_event(monkeypatch):
+    now = datetime(2030, 9, 30, 8, tzinfo=UTC)
+    candidate, event = _gea_zhang_quote_fixture(now, selected="Zhang Zhizhen")
+    calls = []
+    def provider(path, _key, **kwargs):
+        calls.append(path)
+        if path == "sports/":
+            return [{"key": "tennis_atp_china_open", "active": True}], None
+        if path.endswith("/events"):
+            return [event], None
+        assert kwargs["params"]["eventIds"] == event["id"]
+        assert kwargs["params"]["markets"] == "h2h"
+        return [event], None
+    monkeypatch.setattr(market_consensus, "_odds_api_json", provider)
+    quotes, errors = market_consensus.fetch_tennis_h2h_consensus("test-key", [candidate], now=now)
+    assert errors == []
+    quote = quotes[candidate["candidate_id"]]
+    assert quote.best_odds == 2.70 and quote_matches_candidate(quote, candidate)
+    assert calls == ["sports/", "sports/tennis_atp_china_open/events", "sports/tennis_atp_china_open/odds"]
+
+
+def test_tennis_name_order_still_rejects_duplicate_odds_event_ids(monkeypatch):
+    now = datetime(2030, 9, 30, 8, tzinfo=UTC)
+    candidate, event = _gea_zhang_quote_fixture(now)
+    def provider(path, _key, **_kwargs):
+        if path == "sports/":
+            return [{"key": "tennis_atp_china_open", "active": True}], None
+        if path.endswith("/events"):
+            return [event], None
+        return [event, {**event, "home_team": "Zhang Zhizhen"}], None
+    monkeypatch.setattr(market_consensus, "_odds_api_json", provider)
+    quotes, errors = market_consensus.fetch_tennis_h2h_consensus("test-key", [candidate], now=now)
+    assert quotes == {} and errors == []
+
+
 def test_football_consensus_excludes_individually_stale_bookmaker_points():
     now = datetime(2030, 1, 3, 10, 0, tzinfo=UTC)
     entries = [

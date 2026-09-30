@@ -1053,7 +1053,8 @@ def select_price_check_candidates(
     return selected
 
 
-def _tennis_price_check_candidates(rows, *, now, target_date, previous_checks):
+def _tennis_price_check_candidates(rows, *, now, target_date, previous_checks,
+                                   min_gap=TENNIS_PRICE_MIN_GAP):
     """Reuse the bounded price pool, without repeatedly spending tennis credits."""
     checks = previous_checks or {}
     due = []
@@ -1066,7 +1067,7 @@ def _tennis_price_check_candidates(rows, *, now, target_date, previous_checks):
         ):
             continue
         checked = _parse_iso(checks.get(str(row.get("key") or "")))
-        if checked is not None and now - checked < TENNIS_PRICE_MIN_GAP:
+        if checked is not None and now - checked < min_gap:
             continue
         due.append({**row, "status": "PRICE_REQUIRED"})
     return select_price_check_candidates(
@@ -2430,6 +2431,7 @@ def _apply_reference_quotes(
     *,
     now: datetime,
     previous_rows: Iterable[dict[str, Any]] = (),
+    price_evaluated_at: Optional[datetime] = None,
 ) -> tuple[dict[str, int], list[dict[str, Any]]]:
     """Attach only freshly fetched exact prices without altering forecasts."""
     execution_fields = (
@@ -2463,6 +2465,7 @@ def _apply_reference_quotes(
     for row in model_rows:
         row.pop("reference_quote", None)
         row.pop("quote_provider_event_id", None)
+        row.pop("reference_price_evaluated_at", None)
         clear_execution(row)
         row["reference_price_status"] = "UNAVAILABLE"
 
@@ -2470,6 +2473,7 @@ def _apply_reference_quotes(
     playable: list[dict[str, Any]] = []
     for row in price_rows:
         clear_execution(row)
+        row.pop("reference_price_evaluated_at", None)
         candidate_id = str(row.get("candidate_id") or "").strip()
         model_row = model_by_id.get(candidate_id)
         raw_quote = quotes.get(candidate_id)
@@ -2480,10 +2484,14 @@ def _apply_reference_quotes(
             quote = wettfinder_consensus(raw_quote, now=now) or raw_quote
             quotes[candidate_id] = quote
             row["reference_quote"] = quote.to_dict()
+            if price_evaluated_at is not None:
+                row["reference_price_evaluated_at"] = _utc(price_evaluated_at).isoformat()
             if quote.provider_event_id:
                 row["quote_provider_event_id"] = quote.provider_event_id
             if model_row is not None:
                 model_row["reference_quote"] = row["reference_quote"]
+                if price_evaluated_at is not None:
+                    model_row["reference_price_evaluated_at"] = row["reference_price_evaluated_at"]
                 if quote.provider_event_id:
                     model_row["quote_provider_event_id"] = (
                         quote.provider_event_id
@@ -2521,6 +2529,8 @@ def _apply_reference_quotes(
         if quote is None or not quote_matches_candidate(quote, target):
             continue
         target["reference_quote"] = quote.to_dict()
+        if price_evaluated_at is not None:
+            target["reference_price_evaluated_at"] = _utc(price_evaluated_at).isoformat()
         if quote.provider_event_id:
             target["quote_provider_event_id"] = quote.provider_event_id
         status = wettfinder_reference_price_status(quote, target.get("minimum_odds"), candidate=target, now=now)
@@ -4263,6 +4273,7 @@ def refresh_prices_only(*, state_path=STATE_PATH, config=None, now=None, quote_l
         selected = _tennis_price_check_candidates(
             rows, now=current, target_date=target_search_date(current),
             previous_checks=document.get('price_check_attempts') or {},
+            min_gap=timedelta(0),
         )
     else:
         selected = select_price_check_candidates(
@@ -4298,10 +4309,14 @@ def refresh_prices_only(*, state_path=STATE_PATH, config=None, now=None, quote_l
     selected_by_id = {r['candidate_id']: r for r in selected}
     quotes = {key: quote for key, quote in quotes.items()
               if quote_matches_candidate(quote, selected_by_id.get(key))}
-    counts, _ = _apply_reference_quotes(rows, selected, quotes, now=current, previous_rows=previous)
+    counts, _ = _apply_reference_quotes(rows, selected, quotes, now=current, previous_rows=previous,
+                                      price_evaluated_at=current)
     # Existing releases carry execution proof for their previous quote. Do not
     # manufacture a release during this display-only operation.
     document['candidates'] = [r for r in document.get('candidates', []) if r.get('source') != row_source]
+    if quote_sport == 'football':
+        document['challenge_release_candidates'] = [r for r in document.get('challenge_release_candidates', [])
+                                                    if r.get('source') != row_source]
     for row in selected:
         document.setdefault('price_check_attempts', {})[row['key']] = current.isoformat()
     summary = dict(updated_at=current.isoformat(), fixtures=len({r.get('event_identity') or r.get('fixture_id') or r['key'] for r in selected}),
@@ -4315,6 +4330,8 @@ def refresh_prices_only(*, state_path=STATE_PATH, config=None, now=None, quote_l
     source.update(price_checked_count=len(selected), price_fixture_count=summary['fixtures'],
                   reference_quote_count=len(quotes), price_status_counts=counts,
                   published_recommendation_count=0, quote_operational_error_count=len(errors))
+    if quote_sport == 'football':
+        source['challenge_release_candidate_count'] = 0
     if quote_sport == 'tennis':
         source.update(price_provider_status=provider_status, quote_errors=errors[:10],
                       quote_operational_error_count=len(_operational_quote_errors(errors)))

@@ -1200,6 +1200,16 @@ def _load_automated_wettfinder_document(
         ):
             return None
         quote_payload = row.get("reference_quote")
+        price_evaluated_at = generated
+        if "reference_price_evaluated_at" in row:
+            evaluated = _parse_iso(row["reference_price_evaluated_at"])
+            if evaluated is None or evaluated.tzinfo is None or quote_payload is None:
+                return None
+            price_evaluated_at = evaluated.astimezone(timezone.utc)
+            # A display-only refresh has its own clock; it must not backdate a
+            # price decision or claim a future observation as already evaluated.
+            if not generated <= price_evaluated_at <= current:
+                return None
         if quote_payload is not None:
             quote = MarketConsensus.from_dict(quote_payload)
             if not quote_matches_candidate(quote, row):
@@ -1208,7 +1218,7 @@ def _load_automated_wettfinder_document(
                 quote,
                 supplied_minimum,
                 candidate=row,
-                now=generated,
+                now=price_evaluated_at,
             )
             if (
                 row.get("reference_price_status") != status.code

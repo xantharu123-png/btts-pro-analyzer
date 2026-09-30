@@ -828,6 +828,16 @@ def _identity_name(value: object) -> str:
     return " ".join(separated.split())
 
 
+def _tennis_identity_name(value: object) -> str:
+    """Match complete tennis names despite provider given/family-name order.
+
+    Sorting keeps every normalized word, including repeated words. It never
+    expands initials or accepts partial names, spelling similarities or extras.
+    Other sports retain their existing order-sensitive identity contract.
+    """
+    return " ".join(sorted(_identity_name(value).split()))
+
+
 def _line_from_key(market_key: str) -> Optional[str]:
     match = re.search(r"_(\d+)_(\d+)$", market_key)
     if not match:
@@ -1115,16 +1125,16 @@ def quote_matches_candidate(
             )
         )
     if is_tennis:
-        selected = _identity_name(
+        selected = _tennis_identity_name(
             _candidate_value(candidate, "selected_competitor")
         )
         competitors = {
-            _identity_name(_candidate_value(candidate, "competitor_a")),
-            _identity_name(_candidate_value(candidate, "competitor_b")),
+            _tennis_identity_name(_candidate_value(candidate, "competitor_a")),
+            _tennis_identity_name(_candidate_value(candidate, "competitor_b")),
         }
         quoted_competitors = {
-            _identity_name(quote.event_home),
-            _identity_name(quote.event_away),
+            _tennis_identity_name(quote.event_home),
+            _tennis_identity_name(quote.event_away),
         }
         expected_provider_event_id = _candidate_quote_provider_event_id(
             candidate
@@ -1150,7 +1160,7 @@ def quote_matches_candidate(
                 candidate,
                 TENNIS_QUOTE_START_TOLERANCE,
             )
-            and _identity_name(quote.value_name) == selected
+            and _tennis_identity_name(quote.value_name) == selected
         )
     return False
 
@@ -1389,7 +1399,7 @@ def _h2h_candidate_identity(
     ).strip()
     scheduled = _parse_utc(_candidate_value(candidate, "scheduled_start"))
     normalized = tuple(
-        _identity_name(value)
+        _tennis_identity_name(value)
         for value in (competitor_a, competitor_b, selected)
     )
     if (
@@ -1414,8 +1424,8 @@ def _h2h_event_matches(
         return False
     competitor_a, competitor_b, _selected, scheduled = identity
     event_participants = {
-        _identity_name(event.get("home_team")),
-        _identity_name(event.get("away_team")),
+        _tennis_identity_name(event.get("home_team")),
+        _tennis_identity_name(event.get("away_team")),
     }
     return (
         event_participants == {competitor_a, competitor_b}
@@ -1431,8 +1441,9 @@ def parse_h2h_event_consensus(
 ) -> dict[str, MarketConsensus]:
     """Parse exact match-winner prices for one identified provider event.
 
-    Participant names must match exactly after case, accent and punctuation
-    normalization, the scheduled times must be close, and the selected
+    Participant names must contain the exact same complete words after case,
+    accent and punctuation normalization; only word order may differ. The
+    scheduled times must be close, and the selected
     participant must be one of the two modeled competitors. No market or
     price is inferred when any identity field is missing or ambiguous.
     """
@@ -1492,7 +1503,7 @@ def parse_h2h_event_consensus(
             for outcome in outcomes:
                 if not isinstance(outcome, Mapping):
                     continue
-                outcome_name = _identity_name(outcome.get("name"))
+                outcome_name = _tennis_identity_name(outcome.get("name"))
                 if not outcome_name:
                     continue
                 try:

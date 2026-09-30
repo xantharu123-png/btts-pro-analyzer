@@ -249,9 +249,10 @@ def test_price_refresh_aborts_if_model_snapshot_changed_during_fetch(tmp_path):
 
 def _tennis_price_fixture(price=1.90, books=4):
     from wettfinder_automation import _signal_record
+    from ev_signal_sources import TENNIS_POLICY_VERSION
     signal = _signal('tennis-gea', sport='Tennis', market='Match Winner',
                      selection='Sieg A', market_key='H2H')
-    signal = replace(signal, candidate_id=signal.key)
+    signal = replace(signal, candidate_id=signal.key, policy_version=TENNIS_POLICY_VERSION)
     row = _signal_record(signal)
     row['status'] = 'MODEL_SELECTION'
     event = dict(id='odds-gea', home_team='A', away_team='B',
@@ -302,20 +303,20 @@ def test_tennis_price_only_keeps_models_clocks_order_and_other_sports(tmp_path, 
 
 @pytest.mark.parametrize('problem', ['none', 'mismatch', 'stale'])
 def test_tennis_cached_quote_preserves_original_clock_and_exact_binding(tmp_path, problem):
-    from wettfinder_automation import refresh_prices_only
+    from copy import deepcopy
+    from wettfinder_automation import _apply_reference_quotes, _tennis_price_check_candidates
     _, row, quote = _tennis_price_fixture()
     row['reference_quote'] = quote.to_dict()
     if problem == 'mismatch':
         row['scheduled_start'] = (NOW+timedelta(hours=4)).isoformat()
     current = NOW+timedelta(minutes=10 if problem != 'stale' else 50)
-    path = tmp_path/'cached.json'
-    path.write_text(json.dumps(dict(model_candidates=[row], candidates=[],
-        price_check_attempts={row['key']:current.isoformat()})), encoding='utf-8')
-    def unused_loader(_rows):
-        pytest.fail('recent attempt must not repeat a paid quote request')
-    summary = refresh_prices_only(state_path=path, now=current, quote_loader=unused_loader, quote_sport='tennis')
-    after = json.loads(path.read_text(encoding='utf-8'))['model_candidates'][0]
-    assert summary['checked'] == summary['quotes'] == 0
+    previous = deepcopy(row)
+    selected = _tennis_price_check_candidates([row], now=current, target_date=current.date(),
+        previous_checks={row['key']:current.isoformat()})
+    assert selected == []
+    _apply_reference_quotes([row], selected, {}, now=current, previous_rows=[previous],
+                            price_evaluated_at=current)
+    after = row
     assert after['probability'] == row['probability']
     if problem == 'mismatch':
         assert 'reference_quote' not in after and after['reference_price_status'] == 'UNAVAILABLE'
@@ -399,3 +400,111 @@ def test_tennis_canonical_price_only_requires_idle_before_fetch_and_publish(tmp_
         automation.refresh_prices_only(state_path=path, now=NOW, quote_loader=loader, quote_sport='tennis')
     assert path.read_bytes() == original
     assert len(checks) == busy_check and len(fetches) == busy_check-1
+
+
+@pytest.mark.parametrize('order', [('tennis','football'), ('football','tennis')])
+def test_sequential_price_refresh_uses_independent_row_clocks_in_real_reader(tmp_path, order):
+    from copy import deepcopy
+    from ev_signal_sources import automated_wettfinder_snapshot
+    from wettfinder_automation import refresh_prices_only
+    from test_ev_signal_sources import _automatic_document, _playable_automatic_candidate, _model_overlay
+    _, tennis, tennis_quote = _tennis_price_fixture()
+    generated = NOW-timedelta(hours=1)
+    tennis.update(modeled_at=generated.isoformat(), input_cutoff_at=generated.isoformat())
+    strict = _playable_automatic_candidate(generated_at=generated.isoformat())
+    football = _model_overlay(strict)
+    document = _automatic_document([football, tennis], candidates=[strict])
+    document['generated_at'] = generated.isoformat()
+    document['sources']['football'].update(challenge_release_candidate_count=1, published_recommendation_count=1)
+    original = deepcopy(document)
+    path = tmp_path/'real-reader.json'
+    path.write_text(json.dumps(document), encoding='utf-8')
+    assert automated_wettfinder_snapshot(path, now=NOW).status is not None
+    for index, sport in enumerate(order):
+        current = NOW+timedelta(minutes=5*index)
+        def loader(rows):
+            if sport == 'tennis':
+                quote = replace(tennis_quote, fetched_at=current.isoformat(), quoted_at=current.isoformat(),
+                    points=tuple(replace(p, observed_at=current.isoformat()) for p in tennis_quote.points))
+            else:
+                fresh = _playable_automatic_candidate(generated_at=current.isoformat())
+                quote = mc.MarketConsensus.from_dict(fresh['reference_quote'])
+            return {quote.candidate_id:quote}, []
+        refresh_prices_only(state_path=path, now=current, quote_loader=loader, quote_sport=sport)
+        after = json.loads(path.read_text(encoding='utf-8'))
+        snapshot = automated_wettfinder_snapshot(path, now=current)
+        assert snapshot.status is not None and len(snapshot.forecasts) == 2
+        assert after['generated_at'] == original['generated_at']
+        assert [r['key'] for r in after['model_candidates']] == [r['key'] for r in original['model_candidates']]
+        for before, row in zip(original['model_candidates'], after['model_candidates']):
+            for field, value in before.items():
+                if not field.startswith(('reference_', 'quote_')):
+                    assert row[field] == value
+        if sport == 'tennis' and index == 0:
+            assert after['candidates'] == original['candidates']
+            assert after['challenge_release_candidates'] == original['challenge_release_candidates']
+            assert after['sources']['football'] == original['sources']['football']
+    assert after['candidates'] == after['challenge_release_candidates'] == []
+    assert after['sources']['football']['challenge_release_candidate_count'] == 0
+    assert after['sources']['football']['published_recommendation_count'] == 0
+    stamps = {r['source']:r['reference_price_evaluated_at'] for r in after['model_candidates']}
+    assert stamps[{'football':'football_challenge','tennis':'tennis_shadow'}[order[0]]] == NOW.isoformat()
+    assert stamps[{'football':'football_challenge','tennis':'tennis_shadow'}[order[1]]] == (NOW+timedelta(minutes=5)).isoformat()
+
+
+def test_explicit_tennis_price_retry_ignores_automatic_gap(tmp_path):
+    from wettfinder_automation import refresh_prices_only
+    _, row, quote = _tennis_price_fixture()
+    path = tmp_path/'explicit-retry.json'
+    path.write_text(json.dumps(dict(model_candidates=[row], candidates=[],
+        price_check_attempts={row['key']:NOW.isoformat()})), encoding='utf-8')
+    calls = []
+    def loader(rows):
+        calls.append(rows)
+        return {quote.candidate_id:quote}, []
+    summary = refresh_prices_only(state_path=path, now=NOW, quote_loader=loader, quote_sport='tennis')
+    assert summary['checked'] == summary['quotes'] == 1 and len(calls) == 1
+
+
+@pytest.mark.parametrize('bad_stamp', ['future', 'before_publication', 'naive', 'invalid'])
+def test_actual_reader_rejects_invalid_price_evaluation_clock(tmp_path, bad_stamp):
+    from ev_signal_sources import automated_wettfinder_snapshot
+    from wettfinder_automation import _apply_reference_quotes
+    from test_ev_signal_sources import _automatic_document
+    _, row, quote = _tennis_price_fixture()
+    generated = NOW-timedelta(hours=1)
+    document = _automatic_document([row])
+    document['generated_at'] = generated.isoformat()
+    _apply_reference_quotes([row], [dict(row)], {quote.candidate_id:quote}, now=NOW, price_evaluated_at=NOW)
+    row['reference_price_evaluated_at'] = {
+        'future':(NOW+timedelta(seconds=1)).isoformat(),
+        'before_publication':(generated-timedelta(seconds=1)).isoformat(),
+        'naive':NOW.replace(tzinfo=None).isoformat(), 'invalid':'not-a-clock'}[bad_stamp]
+    path = tmp_path/'bad-price-clock.json'
+    path.write_text(json.dumps(document), encoding='utf-8')
+    assert automated_wettfinder_snapshot(path, now=NOW).status is None
+
+
+def test_real_reader_keeps_model_when_cached_price_genuinely_expires(tmp_path):
+    from copy import deepcopy
+    from ev_signal_sources import automated_wettfinder_snapshot
+    from wettfinder_automation import _apply_reference_quotes
+    from test_ev_signal_sources import _automatic_document
+    _, row, quote = _tennis_price_fixture()
+    document = _automatic_document([row])
+    document['generated_at'] = (NOW-timedelta(hours=1)).isoformat()
+    _apply_reference_quotes([row], [dict(row)], {quote.candidate_id:quote}, now=NOW, price_evaluated_at=NOW)
+    current = NOW+timedelta(minutes=50)
+    _apply_reference_quotes([row], [], {}, now=current, previous_rows=[deepcopy(row)], price_evaluated_at=current)
+    assert row['reference_price_status'] == 'STALE'
+    assert row['reference_quote']['fetched_at'] == NOW.isoformat()
+    assert row['reference_price_evaluated_at'] == current.isoformat()
+    assert not any(field.startswith('reference_quote_') for field in row)
+    path = tmp_path/'expired-price.json'
+    path.write_text(json.dumps(document), encoding='utf-8')
+    snapshot = automated_wettfinder_snapshot(path, now=current)
+    assert snapshot.status is not None and len(snapshot.forecasts) == 1
+    # A normal publication reevaluates at its own generated clock, never
+    # blindly carries the earlier display-only decision clock forward.
+    _apply_reference_quotes([row], [], {}, now=current, previous_rows=[deepcopy(row)])
+    assert 'reference_price_evaluated_at' not in row
