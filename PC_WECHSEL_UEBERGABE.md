@@ -1,5 +1,17 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg – Tennisquoten und RisikoBet-Kurzform, 30.09.2026
+
+Zuerst den obersten Block in [TODO_AKTUELL.md](TODO_AKTUELL.md) lesen.
+Tennisquoten wieder aktiv; Namensreihenfolge Zhang/Zhizhen und separater
+Preiszeitpunkt korrigiert. Echte Gea-Karte zeigt 1,28 bei unveränderten 79,4 %.
+RisikoBet hat kurze Spielerbilanzen statt der beanstandeten Protokollabsätze.
+767 Tests plus 26 Untertests sowie lokale/produktive Drei-Breiten-Prüfung grün.
+Code `7b60496` auf main/VPS; nachfolgender Nachweiscommit nur Dokumentation.
+Keine neuen Sicherungen, zusätzlichen Sportscans oder Geld-/Modelländerungen.
+Numerische Kontexteffekte, Gesamt-Wettqualität und RisikoBet-Projektion bereits
+begonnener Tagesszenarien bleiben gesondert offen. Ungetrackte Artefakte erhalten.
+
 ## Aktueller Einstieg – Kundenkarten ohne interne Modellnotizen, 30.09.2026
 
 Zuerst den obersten Block in [TODO_AKTUELL.md](TODO_AKTUELL.md) lesen.

@@ -1,5 +1,37 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 30.09.2026 – Tennisquoten live, RisikoBet-Kurzform korrigiert
+
+- Tennis-Quotenabruf im Produktionslauf wieder angeschlossen; expliziter
+  Quotenlauf aktualisiert nur Preise zu vorhandenen Modellen. Gemeinsamer
+  Budgetschutz und bekannte 1,20-Untergrenze unverändert. Keine Modell-/
+  Ranglisten-/Geldänderung, kein zusätzlicher Sportscan oder neues Backup.
+- Zusätzlich real gefunden und repariert: `Zhang Zhizhen` / `Zhizhen Zhang`
+  sowie der Reader-Fehler, der nach neuer Quote den gesamten Katalog verwarf.
+  Namensbindung verlangt alle vollständigen Wörter; Preisprüfzeit ist separat
+  validiert, Modellzeit wird nicht erneuert. Kein lockeres fuzzy Matching.
+- Echter VPS-Nachabruf 30.09.2026, 09:44 CEST: drei anstehende Auswahlen geprüft,
+  drei Preise, null Abruffehler. Arthur Gea 1,28 aus 20 Buchmachern; Sakamoto
+  1,73 aus 16; Djokovic 1,42 aus 20. Modellwerte/-reihenfolge unverändert,
+  `generated_at` weiterhin 01:52:46 UTC. Tatsächlicher Leser wieder gültig,
+  zehn aktive Prognosen. Gea-Karte zeigt 79,4 % und Quote 1,28 im Livebrowser.
+- RisikoBet-Nutzerfall: kurzes Belagfeld, getrennte 5-/10-Spielerquotienten,
+  keine Serve-/Erholungsprotokolle, isolierten Satzbeobachtungen, langen
+  Formmetadaten, leeren Analysefelder oder identischen doppelten Markttexte.
+  Originalbelege unverändert; echte Sportfakten und Gegenargumente erhalten.
+- Finale betroffene Integration: 767 Tests und 26 Untertests bestanden;
+  unabhängige Namens-/Preiszeit-/UI-Reviews ohne offene P1/P2-Befunde.
+  Lokale und echte RisikoBet-Karte sowie reale Gea-Quotenkarte bei
+  1440/390/320 px geprüft, kein horizontaler Überlauf oder neuer Browserfehler.
+- Codecommits `bf62ab7` und `7b60496` auf GitHub main und per geprüftem
+  Fast-forward auf dem VPS veröffentlicht; App/Caddy aktiv, beide Healthchecks
+  `ok`. Folgender Nachweiscommit ist nur Dokumentation; keine Neuerstellung
+  von Sicherungen, Datenbereinigung oder weiteren API-Abfragen.
+- [Ursachen, Reparatur und Produktionsnachweis](docs/audits/2026-09-30-tennisquoten-riskobet-kurzform.md).
+  Separat offen bleiben empirisch belegte Kontexteffekte und Gesamt-Wettqualität.
+  RisikoBet führt außerdem schon begonnene Tagesszenarien noch im Katalog;
+  diese zeitliche Auswahlprojektion ist nicht Teil der Text-/Quotenreparatur.
+
 ## 30.09.2026 – Modellnotizen intern, Sportfakten für Kunden
 
 - Kundenkarten zeigen keine wiederholten `Statistik & Details`-Modellabsätze,
