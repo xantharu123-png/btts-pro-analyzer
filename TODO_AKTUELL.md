@@ -1,5 +1,23 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 30.09.2026 – Teamlogos für die weiteren Sportarten
+
+- E-Sport, NBA, NHL, EuroLeague und Cricket nutzen jetzt dieselben externen
+  Bild-Schildkarten wie Fußball/Tennis. Keine gespeicherten Bildbytes oder
+  Bildkopien auf BetBoy. Provider-ID, Sport und vollständiger Teamname gebunden;
+  bei NBA zusätzlich ausdrücklich NBA statt WNBA/NCAA. Fehlende Zuordnungen
+  behalten Initialen. Modelle, Preise und Geldbelege bleiben unverändert.
+- Kuratiert: 32 aktive NHL-Teams, zwei EuroLeague-Teams, neun E-Sport-Teams,
+  Indien/Australien für zwei Cricket-Provider. NBA über native ESPN-ID plus NBA.
+  Visuell falsches `1w`-Bild (Dota-Spielicon) ausdrücklich verworfen.
+- Künftige E-Sport-Logolinks werden aus ohnehin empfangenen Antworten übernommen;
+  Metadaten maximal 256 Teams / 128 KiB, identische Daten ohne Neuschreiben.
+  Keine zusätzliche API-Abfrage, kein Sportscan, keine Sicherung/Bereinigung.
+- Lokale Software-, Desktop-/Mobil-, Fehlerfall- und Produktionsnachweise stehen
+  im letzten Abschnitt von [Schildbilder](docs/audits/2026-09-30-schildbilder.md).
+  Basket-/Hockey-/Cricket-Logos sind keine nachträgliche Modellfreigabe oder
+  Garantie, dass für diese Sportarten aktuell produktive Auswahlen vorliegen.
+
 ## 30.09.2026 – Bilder direkt beim Anbieter, ohne BetBoy-Bildcache
 
 - Die Anschlussänderung ersetzt den RAM-Bildcache der unten dokumentierten

@@ -1,8 +1,9 @@
 """Fail-closed public participant imagery, isolated from all sporting models.
 
-Football crests use explicitly API-Football-native team IDs. Tennis portraits
-come only from the reviewed Commons manifest; neither names nor provider IDs
-are searched on the network. The browser loads each public image directly;
+Football crests use explicitly API-Football-native team IDs; NBA logos use
+ESPN's NBA namespace. Other team logos and tennis portraits come only from
+reviewed manifests; neither names nor provider IDs are searched on the network.
+The browser loads each public image directly;
 this module never downloads image bytes or writes a cache or database.
 """
 from __future__ import annotations
@@ -19,11 +20,29 @@ from urllib.parse import unquote, urlsplit
 
 
 _MANIFEST_PATH = Path(__file__).resolve().parent / "assets" / "identity" / "tennis-portraits.json"
+_TEAM_MANIFEST_PATH = Path(__file__).resolve().parent / "assets" / "identity" / "team-logos.json"
 _MAX_MANIFEST_BYTES = 256 * 1024
+_MAX_TEAM_MANIFEST_BYTES = 128 * 1024
 _MANIFEST_REFRESH_SECONDS = 24 * 60 * 60
 _MAX_THUMBNAIL_WIDTH = 400
 _COMMONS_HOSTS = frozenset({"upload.wikimedia.org", "thumb.wikimedia.org"})
 _RASTER_FILE = re.compile(r".+\.(?:png|jpe?g|webp)$", re.IGNORECASE)
+_TEAM_SPORT_PROVIDERS = {
+    "basketball": frozenset({"espn", "euroleague"}),
+    "ice_hockey": frozenset({"nhl"}),
+    "cricket": frozenset({"cricbuzz", "cricketdata"}),
+    "esports": frozenset({"pandascore"}),
+}
+# Exact, reviewed public team thumbnails, not a wildcard CDN grant.
+_REVIEWED_ESPORT_IMAGE_URLS = frozenset({
+    "https://thumb.wikimedia.org/wikipedia/commons/thumb/f/f5/Team_Spirit_new_em.svg/330px-Team_Spirit_new_em.svg.png",
+    "https://img.navi.gg/teams/2025/10/teams-4028/thumbnail/58234/Team-Yandex_46x46.png",
+    "https://static.tildacdn.net/tild6665-6161-4135-a464-323633633463/Frame_2091750347.png",
+    "https://upload.wikimedia.org/wikipedia/commons/d/d6/Team_OG.png",
+    "https://vitality.gg/cdn/shop/files/Vitality-logo-black-rgb_1_5c36a8d1-0cde-4aef-a074-2b4fafd5ec0b.png?height=100&v=1684483759",
+    "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/16/100_Thieves_logo.svg/330px-100_Thieves_logo.svg.png",
+    "https://thumb.wikimedia.org/wikipedia/commons/thumb/3/3a/T1_esports_logo.svg/330px-T1_esports_logo.svg.png",
+})
 
 
 @dataclass(frozen=True)
@@ -41,6 +60,17 @@ class _Portrait:
     source: str
     credit: str
     crop: tuple[float, float, float] | None = None
+
+
+@dataclass(frozen=True)
+class _TeamLogo:
+    sport: str
+    provider: str
+    team_id: str
+    names: tuple[str, ...]
+    url: str
+    source: str
+    credit: str | None = None
 
 
 def _full_name(value: object) -> tuple[str, ...]:
@@ -74,18 +104,35 @@ def _safe_url_parts(url: object):
 
 
 def safe_participant_image_url(url: object) -> str | None:
-    """Allow only native club PNGs or small, exact-file Commons thumbnails.
+    """Allow only reviewed public team sources and small Commons thumbnails.
 
     Validation is entirely local. Originals, oversized thumbnails, arbitrary
-    hosts, SVGs, credentials and query strings are not granted to the browser.
+    hosts, credentials and query strings are not granted to the browser. The
+    only SVG exception is the official NHL logo path, used by callers as img
+    (never inline SVG or an object/embed element).
     No HTTP preflight is performed; remote availability is a browser concern.
     """
+    # A fixed small Vitality header URL contains a reviewed resize query; this
+    # exact string is permitted, never arbitrary caller-supplied query values.
+    if isinstance(url, str) and url in _REVIEWED_ESPORT_IMAGE_URLS:
+        return url
     parsed = _safe_url_parts(url)
     if parsed is None:
         return None
     if parsed.netloc == "media.api-sports.io":
         match = re.fullmatch(r"/football/teams/([1-9][0-9]{0,18})\.png", parsed.path)
         return url if match and int(match.group(1)) <= 2**63 - 1 else None
+    if parsed.netloc == "a.espncdn.com":
+        match = re.fullmatch(r"/i/teamlogos/nba/500/([1-9][0-9]{0,18})\.png", parsed.path)
+        return url if match and int(match.group(1)) <= 2**63 - 1 else None
+    if parsed.netloc == "assets.nhle.com":
+        return url if re.fullmatch(r"/logos/nhl/svg/[A-Z]{3}_light\.svg", parsed.path) else None
+    if parsed.netloc == "mediacentre.euroleague.net":
+        return url if re.fullmatch(r"/uploads/euroleaguecore/teams/logos/positive_[1-9][0-9]{0,9}\.png", parsed.path) else None
+    if parsed.netloc == "static.cricbuzz.com":
+        return url if re.fullmatch(r"/a/img/v1/152x152/i1/c[1-9][0-9]{0,9}/[a-z0-9][a-z0-9_-]{0,100}\.jpg", parsed.path) else None
+    if parsed.netloc == "cdn.pandascore.co":
+        return url if re.fullmatch(r"/images/team/image/[1-9][0-9]{0,18}/thumb_[A-Za-z0-9][A-Za-z0-9_.-]{0,180}\.(?:png|jpe?g|webp)", parsed.path) else None
     if parsed.netloc not in _COMMONS_HOSTS:
         return None
     if re.search(r"%(?![0-9a-fA-F]{2})", parsed.path):
@@ -105,6 +152,140 @@ def safe_participant_image_url(url: object) -> str | None:
             or thumbnail_file != file_name):
         return None
     return url
+
+
+def participant_image_url_matches_kind(kind: str, url: object) -> bool:
+    """Do not reuse a valid source URL in a different sport's image slot."""
+    if safe_participant_image_url(url) is None:
+        return False
+    host = urlsplit(url).netloc
+    if kind == "football":
+        return host == "media.api-sports.io"
+    if kind == "tennis":
+        return (host in _COMMONS_HOSTS and url not in _REVIEWED_ESPORT_IMAGE_URLS
+                and not any(row.url == url for row in _team_logos()))
+    if kind == "basketball":
+        return host in {"a.espncdn.com", "mediacentre.euroleague.net"}
+    if kind == "ice_hockey":
+        return host == "assets.nhle.com"
+    if kind == "cricket":
+        return host == "static.cricbuzz.com"
+    if kind == "esports":
+        return host == "cdn.pandascore.co" or url in _REVIEWED_ESPORT_IMAGE_URLS or any(
+            row.sport == kind and row.url == url for row in _team_logos())
+    return False
+
+
+def _team_name(value: object) -> str:
+    """Exact full team label; abbreviations only when explicitly reviewed."""
+    if (not isinstance(value, str) or not value.strip() or len(value) > 200
+            or any(unicodedata.category(char).startswith("C") for char in value)):
+        return ""
+    return " ".join(unicodedata.normalize("NFC", value).casefold().split())
+
+
+def _provider(value: object) -> str:
+    return value.strip().casefold() if isinstance(value, str) else ""
+
+
+def _team_key(value: object, provider: str, sport: str) -> str | None:
+    if isinstance(value, str) and ":" in value:
+        prefix = f"{provider}:{sport}:team:"
+        if not value.startswith(prefix):
+            return None
+        value = value[len(prefix):]
+    if provider == "euroleague":
+        return value if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", value) else None
+    if provider == "cricketdata":
+        # Current CricketData receipts do not carry team IDs; explicit reviewed
+        # country names may resolve only in this provider's blank-ID namespace.
+        return "" if value is None or value == "" else None
+    native = _native_team_id(value)
+    return str(native) if native is not None else None
+
+
+@lru_cache(maxsize=1)
+def _read_team_manifest(path: str, modified_ns: int, bucket: int) -> tuple[_TeamLogo, ...]:
+    """Bounded reviewed logo metadata only, never image bytes or network I/O."""
+    del modified_ns, bucket
+    try:
+        data = Path(path).read_bytes()
+        if len(data) > _MAX_TEAM_MANIFEST_BYTES:
+            return ()
+        manifest = json.loads(data)
+        entries = manifest.get("entries") if isinstance(manifest, dict) else None
+        if not isinstance(entries, list) or len(entries) > 256:
+            return ()
+        logos = []
+        for row in entries:
+            if not isinstance(row, dict):
+                return ()
+            sport, provider = row.get("sport"), _provider(row.get("provider"))
+            names, url, source = row.get("names"), row.get("url"), row.get("source")
+            credit = row.get("credit")
+            team_id = _team_key(row.get("team_id"), provider, sport)
+            if (sport not in _TEAM_SPORT_PROVIDERS or provider not in _TEAM_SPORT_PROVIDERS[sport]
+                    or team_id is None or not isinstance(names, list) or not 1 <= len(names) <= 12
+                    or any(not _team_name(name) for name in names)
+                    or safe_participant_image_url(url) is None or _safe_url_parts(source) is None
+                    or (credit is not None and (not isinstance(credit, str) or not credit.strip()
+                        or len(credit) > 500 or any(ord(char) < 32 for char in credit)))):
+                return ()
+            host = urlsplit(url).netloc
+            if ((sport == "basketball" and host != "mediacentre.euroleague.net")
+                    or (sport == "ice_hockey" and host != "assets.nhle.com")
+                    or (sport == "cricket" and host != "static.cricbuzz.com")
+                    or (sport == "esports" and host not in _COMMONS_HOSTS and url not in _REVIEWED_ESPORT_IMAGE_URLS)):
+                return ()
+            logos.append(_TeamLogo(sport, provider, team_id, tuple(names), url, source,
+                                   credit.strip() if credit is not None else None))
+        return tuple(logos)
+    except (OSError, ValueError, TypeError, UnicodeError):
+        return ()
+
+
+def _team_logos() -> tuple[_TeamLogo, ...]:
+    try:
+        stat = _TEAM_MANIFEST_PATH.stat()
+        if stat.st_size > _MAX_TEAM_MANIFEST_BYTES:
+            return ()
+        return _read_team_manifest(str(_TEAM_MANIFEST_PATH), stat.st_mtime_ns,
+                                   int(time.time() // _MANIFEST_REFRESH_SECONDS))
+    except OSError:
+        return ()
+
+
+def _team_logo(kind: str, name: str, team_id: object, provider: str,
+               competition: object) -> ParticipantImage | None:
+    if provider not in _TEAM_SPORT_PROVIDERS.get(kind, ()) or not _team_name(name):
+        return None
+    native_id = _team_key(team_id, provider, kind)
+    if native_id is None:
+        return None
+    if kind == "basketball" and provider == "espn":
+        # ESPN also has WNBA/NCAA IDs in the same basketball namespace; NBA
+        # identity requires its competition even when the ID is namespaced.
+        if _provider(competition) != "nba":
+            return None
+        url = f"https://a.espncdn.com/i/teamlogos/nba/500/{native_id}.png"
+        return ParticipantImage(url, url)
+    if kind == "esports" and provider == "pandascore":
+        try:
+            from participant_logo_catalog import resolve_pandascore_logo
+        except ImportError:
+            resolve_pandascore_logo = None
+        if resolve_pandascore_logo is not None:
+            url = resolve_pandascore_logo(native_id, name)
+            if (safe_participant_image_url(url) is not None
+                    and urlsplit(url).netloc == "cdn.pandascore.co"
+                    and urlsplit(url).path.startswith(f"/images/team/image/{native_id}/thumb_")):
+                return ParticipantImage(url, url)
+    matches = [row for row in _team_logos() if row.sport == kind and row.provider == provider
+               and row.team_id == native_id and any(_team_name(name) == _team_name(alias) for alias in row.names)]
+    if len(matches) != 1:
+        return None
+    row = matches[0]
+    return ParticipantImage(row.url, row.source, row.credit)
 
 
 def _safe_url(url: object, *, source: bool = False) -> bool:
@@ -195,7 +376,7 @@ def _native_team_id(value: object) -> int | None:
 
 def participant_image(kind: str, name: str, *, team_id: object = None,
                       fixture_source: str | None = None, context_evidence: object = None,
-                      side: str = "a") -> ParticipantImage | None:
+                      side: str = "a", competition: str | None = None) -> ParticipantImage | None:
     """Return a verified identity URL, otherwise preserve the caller's fallback.
 
     ``context_evidence`` and ``side`` are deliberately not used to guess names,
@@ -216,4 +397,6 @@ def participant_image(kind: str, name: str, *, team_id: object = None,
         if portrait is None:
             return None
         return ParticipantImage(portrait.url, portrait.source, portrait.credit + " · Bildausschnitt", portrait.crop)
+    if kind in _TEAM_SPORT_PROVIDERS:
+        return _team_logo(kind, name, team_id, _provider(fixture_source), competition)
     return None

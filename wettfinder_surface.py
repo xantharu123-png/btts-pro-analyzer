@@ -874,15 +874,18 @@ def render_match_header_html(card: WettfinderCard) -> str:
     if not first or not second:
         return f'<p class="se-event">{escape(card.event_label)}</p>'
     sport = _token(card.sport)
-    image_kind = "tennis" if sport == "tennis" else (
-        "football" if sport in {"fussball", "football", "soccer"} else None
-    )
+    image_kind = {'tennis': 'tennis', 'fussball': 'football', 'football': 'football',
+                  'soccer': 'football', 'basketball': 'basketball', 'eishockey': 'ice_hockey',
+                  'ice_hockey': 'ice_hockey', 'cricket': 'cricket',
+                  'e_sport': 'esports', 'esport': 'esports', 'esports': 'esports'}.get(sport)
 
     def team(name, image_value, credit_value, source_value, crop_value):
         initials = ''.join(word[0] for word in name.split()[:2]).upper()
         image_uri = _safe_identity_image_uri(image_value) if image_kind else None
-        if image_uri and ((urlsplit(image_uri).netloc == 'media.api-sports.io') != (image_kind == 'football')):
-            image_uri = None
+        if image_uri:
+            from sports_identity_media import participant_image_url_matches_kind
+            if not participant_image_url_matches_kind(image_kind, image_uri):
+                image_uri = None
         attribution = ''
         if image_uri:
             crop_style = _safe_identity_crop_style(crop_value)
@@ -897,10 +900,11 @@ def render_match_header_html(card: WettfinderCard) -> str:
             if source:
                 credit = str(credit_value).strip() if credit_value is not None else ''
                 credit = credit or "Wikimedia Commons"
+                credit_label = '© Foto' if image_kind == 'tennis' else '© Logo'
                 attribution = (
                     f'<a class="se-image-credit" href="{escape(source, quote=True)}" '
                     f'target="_blank" rel="noopener noreferrer" title="{escape(credit, quote=True)}" '
-                    f'aria-label="Bildnachweis: {escape(credit, quote=True)}">© Foto</a>'
+                    f'aria-label="Bildnachweis: {escape(credit, quote=True)}">{credit_label}</a>'
                 )
         else:
             shield = f'<span class="se-shield" aria-hidden="true">{escape(initials)}</span>'

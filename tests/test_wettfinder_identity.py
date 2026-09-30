@@ -80,6 +80,28 @@ def test_missing_images_leave_card_unmodified(monkeypatch):
     assert with_identity_images(card, signal, enabled=True) is card
 
 
+@pytest.mark.parametrize('sport, kind, provider, team_ids', [
+    ('Basketball', 'basketball', 'ESPN', ('espn:basketball:team:2', 'espn:basketball:team:13')),
+    ('Eishockey', 'ice_hockey', 'NHL', ('nhl:ice_hockey:team:10', 'nhl:ice_hockey:team:6')),
+    ('Cricket', 'cricket', 'Cricbuzz', ('2', '4')),
+    ('E-Sport', 'esports', 'pandascore', ('1669', '134536')),
+])
+def test_team_logos_use_existing_sport_provider_ids_without_mutating_card(monkeypatch, sport, kind, provider, team_ids):
+    calls = recorder(monkeypatch)
+    signal = SimpleNamespace(competition='NBA' if sport == 'Basketball' else None, context_evidence=None)
+    card = replace(build_wettfinder_card(editorial_tennis(), now=NOW), sport=sport,
+        fixture_source=provider, competitor_a_id=team_ids[0], competitor_b_id=team_ids[1])
+    before = deepcopy(vars(card))
+    decorated = with_identity_images(card, signal, enabled=True)
+    assert [call[0] for call in calls] == [kind, kind]
+    assert [call[2]['team_id'] for call in calls] == list(team_ids)
+    assert all(call[2]['fixture_source'] == provider for call in calls)
+    assert decorated.home_image is not None and decorated.away_image is not None
+    assert vars(card) == before
+    assert {k: v for k, v in vars(decorated).items() if '_image' not in k} == {
+        k: v for k, v in before.items() if '_image' not in k}
+
+
 def test_fallback_bridge_is_ui_only_static_and_has_no_fetch_or_storage(monkeypatch):
     import streamlit.components.v1 as components
     import streamlit.runtime.scriptrunner as runtime

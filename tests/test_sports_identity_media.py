@@ -19,13 +19,16 @@ SOURCE = "https://commons.wikimedia.org/wiki/File:Rafael_Nadal.jpg"
 @pytest.fixture(autouse=True)
 def no_real_network(monkeypatch, tmp_path):
     media._read_manifest.cache_clear()
+    media._read_team_manifest.cache_clear()
     monkeypatch.setattr(media, "_MANIFEST_PATH", tmp_path / "missing.json")
+    monkeypatch.setattr(media, "_TEAM_MANIFEST_PATH", tmp_path / "missing-teams.json")
     network = Mock(side_effect=AssertionError("Participant URL resolution must stay offline"))
     monkeypatch.setattr(socket, "create_connection", network)
     monkeypatch.setattr(socket.socket, "connect", network)
     yield network
     network.assert_not_called()
     media._read_manifest.cache_clear()
+    media._read_team_manifest.cache_clear()
 
 
 def portrait_manifest(monkeypatch, tmp_path, entries=None):
@@ -55,6 +58,7 @@ def test_resolver_has_no_http_binary_decoder_or_image_cache():
     for removed in ("requests", "Image", "base64", "BytesIO", "_download_image", "_verified_data_uri"):
         assert removed not in vars(media)
     assert media._read_manifest.cache_info().maxsize == 1
+    assert media._read_team_manifest.cache_info().maxsize == 1
 
 
 def test_repeated_resolution_does_not_write_files_or_grow_an_image_cache(no_real_network, monkeypatch, tmp_path):
@@ -255,3 +259,229 @@ def test_manifest_metadata_refreshes_in_new_daily_bucket_without_network(no_real
     clock[0] += media._MANIFEST_REFRESH_SECONDS
     assert media.participant_image("tennis", "Rafael Nadal").credit.startswith("Another author")
     assert media._read_manifest.cache_info().maxsize == 1
+
+
+NBA_LOGO = "https://a.espncdn.com/i/teamlogos/nba/500/2.png"
+NHL_LOGO = "https://assets.nhle.com/logos/nhl/svg/TOR_light.svg"
+EURO_LOGO = "https://mediacentre.euroleague.net/uploads/euroleaguecore/teams/logos/positive_3363.png"
+CRICKET_LOGO = "https://static.cricbuzz.com/a/img/v1/152x152/i1/c172115/india.jpg"
+NAVi_LOGO = "https://img.navi.gg/teams/2025/10/teams-4028/thumbnail/58234/Team-Yandex_46x46.png"
+
+
+def team_manifest(monkeypatch, tmp_path, entries=None):
+    row = {"sport": "ice_hockey", "provider": "nhl", "team_id": "10",
+           "names": ["TOR", "Toronto Maple Leafs"], "url": NHL_LOGO,
+           "source": "https://records.nhl.com/site/api/team"}
+    path = tmp_path / "team-logos.json"
+    path.write_text(json.dumps({"entries": [row] if entries is None else entries}), encoding="utf-8")
+    monkeypatch.setattr(media, "_TEAM_MANIFEST_PATH", path)
+    return path, row
+
+
+@pytest.mark.parametrize("team_id,competition", [("espn:basketball:team:2", "NBA"), (2, "NBA"), ("2", "nba")])
+def test_nba_logo_uses_espn_native_namespace_without_network(no_real_network, team_id, competition):
+    image = media.participant_image("basketball", "BOS", team_id=team_id,
+                                    fixture_source="ESPN", competition=competition)
+    assert image.image_url == NBA_LOGO
+    assert media.participant_image_url_matches_kind("basketball", image.image_url)
+
+
+@pytest.mark.parametrize("team_id,provider,competition", [
+    (2, "ESPN", None), (2, "ESPN", "Euroleague"), (2, "NBA.com", "NBA"),
+    ("nhl:ice_hockey:team:2", "ESPN", "NBA"), ("espn:ice_hockey:team:2", "ESPN", "NBA"),
+    ("espn:basketball:team:02", "ESPN", "NBA"), (True, "ESPN", "NBA"),
+    ("espn:basketball:team:5", "ESPN", "WNBA"), ("espn:basketball:team:2", "ESPN", None),
+    ("espn:basketball:team:5", "ESPN", "NCAA"),
+    (2.0, "ESPN", "NBA"), ("2?apiKey=secret", "ESPN", "NBA"),
+])
+def test_nba_ids_cannot_cross_provider_sport_or_competition_namespaces(no_real_network, team_id, provider, competition):
+    assert media.participant_image("basketball", "BOS", team_id=team_id,
+                                    fixture_source=provider, competition=competition) is None
+
+
+@pytest.mark.parametrize("team_id,name", [("nhl:ice_hockey:team:10", "TOR"), (10, "Toronto Maple Leafs"), ("10", "toronto maple leafs")])
+def test_nhl_logo_requires_reviewed_native_id_and_whole_team_name(no_real_network, monkeypatch, tmp_path, team_id, name):
+    team_manifest(monkeypatch, tmp_path)
+    image = media.participant_image("ice_hockey", name, team_id=team_id, fixture_source="NHL")
+    assert image.image_url == NHL_LOGO
+    assert media.participant_image_url_matches_kind("ice_hockey", image.image_url)
+
+
+@pytest.mark.parametrize("team_id,name,provider", [
+    ("espn:basketball:team:10", "TOR", "NHL"), (10, "TOR", "ESPN"), (9, "TOR", "NHL"),
+    (10, "Toronto", "NHL"), (10, "BOS", "NHL"), ("010", "TOR", "NHL"),
+])
+def test_nhl_does_not_guess_from_name_or_foreign_id(no_real_network, monkeypatch, tmp_path, team_id, name, provider):
+    team_manifest(monkeypatch, tmp_path)
+    assert media.participant_image("ice_hockey", name, team_id=team_id, fixture_source=provider) is None
+
+
+def test_euroleague_logo_uses_exact_reviewed_club_code_and_source(no_real_network, monkeypatch, tmp_path):
+    row = {"sport": "basketball", "provider": "euroleague", "team_id": "BAR",
+           "names": ["BAR", "FC Barcelona"], "url": EURO_LOGO,
+           "source": "https://mediacentre.euroleague.net/mediacentre/en/games/view/18487/yes"}
+    team_manifest(monkeypatch, tmp_path, [row])
+    for key in ("BAR", "euroleague:basketball:team:BAR"):
+        assert media.participant_image("basketball", "BAR", team_id=key, fixture_source="EuroLeague").image_url == EURO_LOGO
+    assert media.participant_image("basketball", "FC Barcelona", team_id="PAR", fixture_source="EuroLeague") is None
+    assert media.participant_image("basketball", "Barcelona", team_id="BAR", fixture_source="EuroLeague") is None
+
+
+def test_cricket_country_can_match_only_unique_reviewed_provider_identity(no_real_network, monkeypatch, tmp_path):
+    row = {"sport": "cricket", "provider": "cricbuzz", "team_id": "2", "names": ["India", "IND"],
+           "url": CRICKET_LOGO, "source": "https://www.cricbuzz.com/cricket-team/india/2"}
+    team_manifest(monkeypatch, tmp_path, [row])
+    assert media.participant_image("cricket", "India", team_id="2", fixture_source="Cricbuzz").image_url == CRICKET_LOGO
+    assert media.participant_image("cricket", "India", team_id="4", fixture_source="Cricbuzz") is None
+    assert media.participant_image("cricket", "India", fixture_source="Cricbuzz") is None
+    row.update(provider="cricketdata", team_id="")
+    team_manifest(monkeypatch, tmp_path, [row])
+    assert media.participant_image("cricket", "India", fixture_source="CricketData").image_url == CRICKET_LOGO
+    assert media.participant_image("cricket", "India A", fixture_source="CricketData") is None
+    assert media.participant_image("cricket", "India", team_id=2, fixture_source="CricketData") is None
+
+
+def test_esports_team_logo_needs_exact_manifest_id_name_provider_and_url(no_real_network, monkeypatch, tmp_path):
+    row = {"sport": "esports", "provider": "pandascore", "team_id": "1653", "names": ["Natus Vincere", "NAVI"],
+           "url": NAVi_LOGO, "source": "https://navi.gg/en"}
+    team_manifest(monkeypatch, tmp_path, [row])
+    image = media.participant_image("esports", "NAVI", team_id=1653, fixture_source="PandaScore")
+    assert image.image_url == NAVi_LOGO
+    assert media.participant_image_url_matches_kind("esports", image.image_url)
+    assert media.participant_image("esports", "NAVI", team_id=1654, fixture_source="PandaScore") is None
+    assert media.participant_image("esports", "Navi junior", team_id=1653, fixture_source="PandaScore") is None
+    assert media.participant_image("esports", "NAVI", team_id=1653, fixture_source="ESPN") is None
+
+
+def test_reviewed_logo_retains_author_and_license_credit(no_real_network, monkeypatch, tmp_path):
+    row = {"sport": "esports", "provider": "pandascore", "team_id": "1653", "names": ["NAVI"],
+           "url": NAVi_LOGO, "source": "https://navi.gg/en", "credit": "NAVI · offizieller Spielplan"}
+    team_manifest(monkeypatch, tmp_path, [row])
+    assert media.participant_image("esports", "NAVI", team_id=1653, fixture_source="pandascore").credit == row["credit"]
+
+
+def test_existing_pandascore_metadata_can_supply_a_small_direct_logo_without_network(no_real_network, monkeypatch):
+    import participant_logo_catalog
+    url = "https://cdn.pandascore.co/images/team/image/1653/thumb_navi.png"
+    resolve = Mock(return_value=url)
+    monkeypatch.setattr(participant_logo_catalog, "resolve_pandascore_logo", resolve)
+    image = media.participant_image("esports", "NAVI", team_id=1653, fixture_source="PandaScore")
+    assert image.image_url == url
+    resolve.assert_called_once_with("1653", "NAVI")
+    assert media.participant_image_url_matches_kind("esports", url)
+
+
+@pytest.mark.parametrize("url", [
+    "https://cdn.pandascore.co/images/team/image/999/thumb_navi.png",
+    "https://cdn.pandascore.co/images/team/image/1653/navi.png",
+    "https://cdn.pandascore.co/images/team/image/1653/thumb_navi.svg",
+    "https://cdn.pandascore.co/images/team/image/1653/thumb_navi.png?key=secret",
+    "https://evil.test/images/team/image/1653/thumb_navi.png",
+])
+def test_pandascore_metadata_cannot_grant_other_team_original_or_foreign_host(no_real_network, monkeypatch, url):
+    import participant_logo_catalog
+    monkeypatch.setattr(participant_logo_catalog, "resolve_pandascore_logo", Mock(return_value=url))
+    assert media.participant_image("esports", "NAVI", team_id=1653, fixture_source="pandascore") is None
+
+
+def test_curated_esport_commons_logo_is_not_a_tennis_portrait(no_real_network, monkeypatch, tmp_path):
+    url = "https://thumb.wikimedia.org/wikipedia/commons/thumb/3/39/MOUZlogo2021.png/330px-MOUZlogo2021.png"
+    row = {"sport": "esports", "provider": "pandascore", "team_id": "134559", "names": ["MOUZ"],
+           "url": url, "source": "https://commons.wikimedia.org/wiki/File:MOUZlogo2021.png"}
+    team_manifest(monkeypatch, tmp_path, [row])
+    assert media.participant_image_url_matches_kind("esports", url)
+    assert not media.participant_image_url_matches_kind("tennis", url)
+
+
+def test_reviewed_small_logo_exceptions_do_not_grant_neighbor_urls_or_query_changes(no_real_network):
+    for url in media._REVIEWED_ESPORT_IMAGE_URLS:
+        assert media.safe_participant_image_url(url) == url
+        assert media.participant_image_url_matches_kind("esports", url)
+        assert not media.participant_image_url_matches_kind("tennis", url)
+        assert media.safe_participant_image_url(url + "&token=secret") is None
+        assert media.safe_participant_image_url(url + "#fragment") is None
+        if "330px-" in url:
+            assert media.safe_participant_image_url(url.replace("330px-", "331px-")) is None
+
+
+def test_duplicate_team_manifest_identity_is_ambiguous(no_real_network, monkeypatch, tmp_path):
+    _, row = team_manifest(monkeypatch, tmp_path)
+    team_manifest(monkeypatch, tmp_path, [row, row])
+    assert media.participant_image("ice_hockey", "TOR", team_id=10, fixture_source="NHL") is None
+
+
+@pytest.mark.parametrize("change", [
+    {"team_id": "010"}, {"names": []}, {"names": ["TOR\n"]}, {"sport": "tennis"},
+    {"provider": "ESPN"}, {"url": NHL_LOGO + "?token=secret"}, {"url": "https://evil.test/TOR_light.svg"},
+    {"url": NHL_LOGO.replace("_light", "_dark")}, {"url": CREST}, {"source": "javascript:alert(1)"},
+])
+def test_malformed_team_manifest_fails_closed(no_real_network, monkeypatch, tmp_path, change):
+    _, row = team_manifest(monkeypatch, tmp_path)
+    team_manifest(monkeypatch, tmp_path, [{**row, **change}])
+    assert media.participant_image("ice_hockey", "TOR", team_id=10, fixture_source="NHL") is None
+
+
+def test_team_metadata_cache_is_bounded_and_does_not_persist_images(no_real_network, monkeypatch, tmp_path):
+    team_manifest(monkeypatch, tmp_path)
+    before = {item.name: item.read_bytes() for item in tmp_path.iterdir()}
+    for _ in range(25):
+        assert media.participant_image("ice_hockey", "TOR", team_id=10, fixture_source="NHL").image_url == NHL_LOGO
+    assert {item.name: item.read_bytes() for item in tmp_path.iterdir()} == before
+    assert media._read_team_manifest.cache_info().maxsize == 1
+
+
+def test_oversized_or_too_many_team_manifest_rows_are_rejected(no_real_network, monkeypatch, tmp_path):
+    path, row = team_manifest(monkeypatch, tmp_path)
+    path.write_text("x" * (media._MAX_TEAM_MANIFEST_BYTES + 1), encoding="utf-8")
+    assert media.participant_image("ice_hockey", "TOR", team_id=10, fixture_source="NHL") is None
+    team_manifest(monkeypatch, tmp_path, [row] * 257)
+    assert media.participant_image("ice_hockey", "TOR", team_id=10, fixture_source="NHL") is None
+
+
+@pytest.mark.parametrize("url", [NBA_LOGO, NHL_LOGO, EURO_LOGO, CRICKET_LOGO, NAVi_LOGO])
+def test_only_specific_reviewed_public_team_logo_paths_are_allowed(no_real_network, url):
+    assert media.safe_participant_image_url(url) == url
+
+
+@pytest.mark.parametrize("url", [
+    NBA_LOGO.replace("/nba/", "/nhl/"), NBA_LOGO.replace("/500/", "/100/"), NBA_LOGO.replace("/2.png", "/02.png"),
+    NHL_LOGO.replace("/nhl/", "/players/"), NHL_LOGO.replace("TOR_light.svg", "TOR.svg"),
+    NHL_LOGO.replace("TOR_light.svg", "TOR_dark.svg"), NHL_LOGO.replace("nhle.com", "nhle.com.evil.test"),
+    EURO_LOGO.replace("positive_", "negative_"), EURO_LOGO.replace(".png", ".svg"),
+    CRICKET_LOGO.replace("152x152", "420x420"), CRICKET_LOGO.replace("c172115", "c0172115"),
+    NAVi_LOGO.replace("58234", "58235"), "https://img.navi.gg/unreviewed.png", "https://assets.nhle.com/logo.svg",
+    "https://img.navi.gg/teams/2026/09/teams-2561/thumbnail/64186/conversions/dota2_46x46-webp.webp",
+])
+def test_foreign_unreviewed_originals_or_oversized_team_urls_are_rejected(no_real_network, url):
+    assert media.safe_participant_image_url(url) is None
+
+
+@pytest.mark.parametrize("kind,url", [
+    ("football", NBA_LOGO), ("football", NHL_LOGO), ("tennis", NBA_LOGO), ("tennis", NHL_LOGO),
+    ("basketball", NHL_LOGO), ("ice_hockey", NBA_LOGO), ("cricket", NHL_LOGO), ("esports", NBA_LOGO),
+])
+def test_valid_team_url_cannot_be_rendered_in_a_foreign_sport_slot(no_real_network, kind, url):
+    assert not media.participant_image_url_matches_kind(kind, url)
+
+
+def test_all_actual_reviewed_team_entries_resolve_offline_with_identity_and_credit(no_real_network, monkeypatch):
+    monkeypatch.setattr(media, '_TEAM_MANIFEST_PATH', Path(__file__).resolve().parents[1] / 'assets' / 'identity' / 'team-logos.json')
+    manifest = json.loads(media._TEAM_MANIFEST_PATH.read_text(encoding='utf-8'))
+    assert len(manifest['entries']) == 47
+    for row in manifest['entries']:
+        for name in row['names']:
+            image = media.participant_image(row['sport'], name,
+                team_id=row['team_id'], fixture_source=row['provider'])
+            assert image is not None, (row['sport'], row['team_id'], name)
+            assert image.image_url == row['url']
+            assert image.credit == row.get('credit')
+            assert media.participant_image_url_matches_kind(row['sport'], image.image_url)
+
+
+def test_dota_game_icon_is_not_granted_as_1win_team_logo(no_real_network, monkeypatch):
+    import participant_logo_catalog
+    monkeypatch.setattr(participant_logo_catalog, 'resolve_pandascore_logo', Mock(return_value=None))
+    assert media.participant_image('esports', '1win', team_id=134536,
+                                   fixture_source='pandascore') is None
+    assert media.safe_participant_image_url(
+        'https://img.navi.gg/teams/2026/09/teams-2561/thumbnail/64186/conversions/dota2_46x46-webp.webp') is None

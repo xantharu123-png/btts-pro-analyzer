@@ -9,14 +9,17 @@ def with_identity_images(card, signal, *, enabled=False):
         return card
     from sports_identity_media import participant_image
 
-    sport = str(card.sport or '').casefold().replace('ß', 'ss')
-    if sport not in {'fussball', 'football', 'tennis'}:
+    sport = str(card.sport or '').casefold().replace('ß', 'ss').replace('-', '_').replace(' ', '_')
+    kind = {'fussball': 'football', 'football': 'football', 'tennis': 'tennis',
+            'basketball': 'basketball', 'eishockey': 'ice_hockey', 'ice_hockey': 'ice_hockey',
+            'cricket': 'cricket', 'e_sport': 'esports', 'esport': 'esports', 'esports': 'esports'}.get(sport)
+    if kind is None:
         return card
     source = card.fixture_source
     # The current automatic football reader retains native API-Football team
     # IDs, but older stored rows lack its optional display-source marker.
     # Infer only this existing validated producer, never a foreign namespace.
-    if sport in {'fussball', 'football'} and source is None:
+    if kind == 'football' and source is None:
         evidence = getattr(signal, 'analysis_evidence', None)
         binding = evidence.get('identity', {}) if isinstance(evidence, dict) else {}
         if (isinstance(evidence, dict) and isinstance(binding, dict)
@@ -29,11 +32,12 @@ def with_identity_images(card, signal, *, enabled=False):
                 and binding.get('away_team') == card.away_team):
             source = 'api_football'
     names = (card.home_team or card.competitor_a, card.away_team or card.competitor_b)
-    ids = (card.home_team_id, card.away_team_id)
-    kind = 'tennis' if sport == 'tennis' else 'football'
+    ids = (card.home_team_id, card.away_team_id) if kind == 'football' else (
+        card.competitor_a_id, card.competitor_b_id)
     images = [participant_image(
         kind, name, team_id=team_id, fixture_source=source,
         context_evidence=getattr(signal, 'context_evidence', None), side=side,
+        competition=getattr(signal, 'competition', None),
     ) if name else None for name, team_id, side in zip(names, ids, ('a', 'b'))]
     if not any(images):
         return card

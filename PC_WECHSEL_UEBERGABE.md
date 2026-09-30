@@ -1,5 +1,16 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg – Teamlogos aller Sportarten, 30.09.2026
+
+Oberster TODO-Block und letzter Schildbilder-Bericht sind maßgeblich. E-Sport,
+NBA, NHL, zwei EuroLeague-Teams und zwei Cricket-Nationalteams erhalten echte
+externe Teamgrafiken in der bestehenden Schildform. Keine Bilddatei-/DB-Kopien,
+kein API-/Sportscan, kein Backup oder Cleanup. Kleine deduplizierte E-Sport-
+URL-Metadaten aus ohnehin empfangenen Antworten, höchstens 128 KiB / 256 Teams.
+Provider-ID/Namensraum strikt gebunden; NBA nicht mit WNBA/NCAA verwechselt.
+Unbekannte Teams bleiben Initialen; NAVIs falsches `1w`-Dota-Spielicon entfernt.
+Modelle/Preise/Geld unverändert; Fußball/Tennis-Pfade bleiben erhalten.
+
 ## Aktueller Einstieg – direkte CDN-Bilder, 30.09.2026
 
 Code `d4274a3` auf main und VPS ersetzt den nachfolgend beschriebenen RAM-Cache:

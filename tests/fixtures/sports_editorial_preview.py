@@ -31,6 +31,30 @@ if scenario == 'Abo-Hinweis':
     st.info('Dieser Bereich ist in einem höheren Abo enthalten.')
     st.stop()
 now = st.session_state.setdefault('_qa_model_time', datetime.now(timezone.utc).replace(hour=7, minute=0, second=0, microsecond=0))
+if scenario == 'TeamsportLogos':
+    from dataclasses import replace
+    from wettfinder_identity import with_identity_images
+    from wettfinder_surface import build_wettfinder_card, render_match_header_html
+    samples = (
+        ('Basketball', 'espn', 'NBA', 'Boston Celtics', 'Los Angeles Lakers', 'espn:basketball:team:2', 'espn:basketball:team:13'),
+        ('Basketball', 'euroleague', 'EuroLeague', 'FC Barcelona', 'Partizan Mozzart Bet Belgrade', 'BAR', 'PAR'),
+        ('Eishockey', 'nhl', 'NHL', 'Toronto Maple Leafs', 'Boston Bruins', 'nhl:ice_hockey:team:10', 'nhl:ice_hockey:team:6'),
+        ('Cricket', 'cricbuzz', None, 'India', 'Australia', '2', '4'),
+        ('E-Sport', 'pandascore', None, 'Team Spirit', 'Team Vitality', '1669', '128796'),
+        ('E-Sport', 'pandascore', None, 'Team Yandex', 'MOUZ', '137073', '134559'),
+        ('E-Sport', 'pandascore', None, 'BetBoom Team', 'OG', '130768', '1654'),
+        ('E-Sport', 'pandascore', None, 'Team Vitality', 'LOUD', '128796', '130338'),
+        ('E-Sport', 'pandascore', None, '100 Thieves', 'T1 Academy', '128605', '131040'),
+        ('E-Sport', 'pandascore', None, 'Unbekanntes Team', 'Kein Logo', '999999999', '999999998'),
+    )
+    base = build_wettfinder_card(editorial_tennis(now=now), now=now)
+    for sport, provider, competition, first, second, first_id, second_id in samples:
+        card = replace(base, sport=sport, fixture_source=provider, competitor_a=first,
+            competitor_b=second, competitor_a_id=first_id, competitor_b_id=second_id,
+            home_team=None, away_team=None, event_label=f'{first} vs {second}')
+        card = with_identity_images(card, SimpleNamespace(competition=competition), enabled=True)
+        st.markdown(render_match_header_html(card), unsafe_allow_html=True)
+    st.stop()
 if scenario == 'Identitaeten':
     from dataclasses import replace
     from wettfinder_identity import rendered_identity_card

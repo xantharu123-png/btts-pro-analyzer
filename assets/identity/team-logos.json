@@ -1,0 +1,554 @@
+{
+  "schema": "participant-team-logos-v1",
+  "reviewed_at": "2026-09-30",
+  "notes": "Presentation-only exact provider-ID and team-name bindings. Public image URLs load directly in the browser. No sporting data, model inputs, image bytes or credentials are stored here.",
+  "entries": [
+    {
+      "sport": "esports",
+      "provider": "pandascore",
+      "team_id": 1669,
+      "names": ["Team Spirit"],
+      "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/f/f5/Team_Spirit_new_em.svg/330px-Team_Spirit_new_em.svg.png",
+      "source": "https://commons.wikimedia.org/wiki/File:Team_Spirit_new_em.svg",
+      "source_file": "Team Spirit new em.svg",
+      "credit": "Team Spirit · CC BY-SA 4.0 · unverändert skaliert",
+      "license_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+      "width": 330,
+      "height": 330,
+      "identity_evidence": "Commons describes the Team Spirit logo and records a reviewed license from the official Team Spirit article. PandaScore team ID and current exact name read from the existing BetBoy catalog."
+    },
+    {
+      "sport": "esports",
+      "provider": "pandascore",
+      "team_id": 137073,
+      "names": ["Team Yandex"],
+      "url": "https://img.navi.gg/teams/2025/10/teams-4028/thumbnail/58234/Team-Yandex_46x46.png",
+      "source": "https://navi.gg/en",
+      "credit": "Team Yandex · offizieller NAVI-Spielplan",
+      "width": 46,
+      "height": 46,
+      "identity_evidence": "Exact image URL occurs in the official NAVI homepage match item with alt='Yandex' for the 27 September 2026 PGL Wallachia final opponent. This is the esports team logo, not a general Yandex product or employer logo."
+    },
+    {
+      "sport": "esports",
+      "provider": "pandascore",
+      "team_id": 134559,
+      "names": ["MOUZ"],
+      "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/3/39/MOUZlogo2021.png/330px-MOUZlogo2021.png",
+      "source": "https://commons.wikimedia.org/wiki/File:MOUZlogo2021.png",
+      "source_file": "MOUZlogo2021.png",
+      "credit": "mousesports · Public Domain / Markenlogo",
+      "license_url": "https://commons.wikimedia.org/wiki/Template:PD-textlogo",
+      "width": 330,
+      "height": 82,
+      "identity_evidence": "Commons file identifies the MOUZ logo by mousesports. The official mousesports homepage uses the corresponding 2021 MOUZ branding. Bound to the existing PandaScore Dota roster ID, not HLTV or a different academy roster."
+    },
+    {
+      "sport": "esports",
+      "provider": "pandascore",
+      "team_id": 130768,
+      "names": ["BetBoom Team"],
+      "url": "https://static.tildacdn.net/tild6665-6161-4135-a464-323633633463/Frame_2091750347.png",
+      "source": "https://betboom.team/",
+      "credit": "BetBoom Team · offizielle Teamseite",
+      "width": 180,
+      "height": 180,
+      "identity_evidence": "Exact 180px image is the apple-touch-icon published in the official BetBoom esports team's homepage. It is not the BetBoom sportsbook brand asset."
+    },
+    {
+      "sport": "esports",
+      "provider": "pandascore",
+      "team_id": 1654,
+      "names": ["OG"],
+      "url": "https://upload.wikimedia.org/wikipedia/commons/d/d6/Team_OG.png",
+      "source": "https://commons.wikimedia.org/wiki/File:Team_OG.png",
+      "source_file": "Team OG.png",
+      "credit": "Histeris · CC BY-SA 4.0 · unverändert skaliert",
+      "license_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+      "width": 200,
+      "height": 200,
+      "identity_evidence": "Commons identifies the original green Team OG mark and supplies a 200px raster. OG's official 2026 announcement https://ogs.gg/new-year-new-og/ explicitly returns to the original logo and green colours; the old blue/red-bull header mark is not used."
+    },
+    {
+      "sport": "esports",
+      "provider": "pandascore",
+      "team_id": 128796,
+      "names": ["Team Vitality"],
+      "url": "https://vitality.gg/cdn/shop/files/Vitality-logo-black-rgb_1_5c36a8d1-0cde-4aef-a074-2b4fafd5ec0b.png?height=100&v=1684483759",
+      "source": "https://vitality.gg/",
+      "credit": "Team Vitality · offizielle Teamseite",
+      "width": 88,
+      "height": 100,
+      "identity_evidence": "Exact 2x header logo URL occurs in the official Team Vitality homepage with alt='Team Vitality'; inspected PNG is only 88x100px."
+    },
+    {
+      "sport": "esports",
+      "provider": "pandascore",
+      "team_id": 130338,
+      "names": ["LOUD"],
+      "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/6/6b/Loud-logo.png/330px-Loud-logo.png",
+      "source": "https://commons.wikimedia.org/wiki/File:Loud-logo.png",
+      "source_file": "Loud-logo.png",
+      "credit": "LOUD · Public Domain / Markenlogo",
+      "license_url": "https://commons.wikimedia.org/wiki/Template:PD-textlogo",
+      "width": 330,
+      "height": 47,
+      "identity_evidence": "Commons explicitly identifies the LOUD esports wordmark and its author LOUD. Official https://loud.gg/ publishes the same wordmark identity. This is not the Korean LOUD production company or an album logo."
+    },
+    {
+      "sport": "esports",
+      "provider": "pandascore",
+      "team_id": 128605,
+      "names": ["100 Thieves"],
+      "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/16/100_Thieves_logo.svg/330px-100_Thieves_logo.svg.png",
+      "source": "https://commons.wikimedia.org/wiki/File:100_Thieves_logo.svg",
+      "source_file": "100 Thieves logo.svg",
+      "credit": "100 Thieves · Public Domain / Markenlogo",
+      "license_url": "https://commons.wikimedia.org/wiki/Template:PD-textlogo",
+      "width": 330,
+      "height": 262,
+      "identity_evidence": "Commons file description identifies the American esports organization 100 Thieves and the author 100 Thieves. Only its small rasterized PNG thumbnail is used, not the SVG original."
+    },
+    {
+      "sport": "esports",
+      "provider": "pandascore",
+      "team_id": 131040,
+      "names": ["T1 Academy"],
+      "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/3/3a/T1_esports_logo.svg/330px-T1_esports_logo.svg.png",
+      "source": "https://commons.wikimedia.org/wiki/File:T1_esports_logo.svg",
+      "source_file": "T1 esports logo.svg",
+      "credit": "T1 · Public Domain / Markenlogo",
+      "license_url": "https://commons.wikimedia.org/wiki/Template:PD-textlogo",
+      "width": 330,
+      "height": 131,
+      "identity_evidence": "T1 organization's logo, not player imagery. Explicit display binding uses current PandaScore T1 Academy roster ID 131040 and exact T1 Academy name; no names or IDs are shared with the T1 main-team model."
+    },
+    {
+      "sport": "ice_hockey",
+      "provider": "nhl",
+      "team_id": "1",
+      "names": [
+        "NJD",
+        "New Jersey Devils"
+      ],
+      "url": "https://assets.nhle.com/logos/nhl/svg/NJD_light.svg",
+      "source": "https://records.nhl.com/site/api/team"
+    },
+    {
+      "sport": "ice_hockey",
+      "provider": "nhl",
+      "team_id": "2",
+      "names": [
+        "NYI",
+        "New York Islanders"
+      ],
+      "url": "https://assets.nhle.com/logos/nhl/svg/NYI_light.svg",
+      "source": "https://records.nhl.com/site/api/team"
+    },
+    {
+      "sport": "ice_hockey",
+      "provider": "nhl",
+      "team_id": "3",
+      "names": [
+        "NYR",
+        "New York Rangers"
+      ],
+      "url": "https://assets.nhle.com/logos/nhl/svg/NYR_light.svg",
+      "source": "https://records.nhl.com/site/api/team"
+    },
+    {
+      "sport": "ice_hockey",
+      "provider": "nhl",
+      "team_id": "4",
+      "names": [
+        "PHI",
+        "Philadelphia Flyers"
+      ],
+      "url": "https://assets.nhle.com/logos/nhl/svg/PHI_light.svg",
+      "source": "https://records.nhl.com/site/api/team"
+    },
+    {
+      "sport": "ice_hockey",
+      "provider": "nhl",
+      "team_id": "5",
+      "names": [
+        "PIT",
+        "Pittsburgh Penguins"
+      ],
+      "url": "https://assets.nhle.com/logos/nhl/svg/PIT_light.svg",
+      "source": "https://records.nhl.com/site/api/team"
+    },
+    {
+      "sport": "ice_hockey",
+      "provider": "nhl",
+      "team_id": "6",
+      "names": [
+        "BOS",
+        "Boston Bruins"
+      ],
+      "url": "https://assets.nhle.com/logos/nhl/svg/BOS_light.svg",
+      "source": "https://records.nhl.com/site/api/team"
+    },
+    {
+      "sport": "ice_hockey",
+      "provider": "nhl",
+      "team_id": "7",
+      "names": [
+        "BUF",
+        "Buffalo Sabres"
+      ],
+      "url": "https://assets.nhle.com/logos/nhl/svg/BUF_light.svg",
+      "source": "https://records.nhl.com/site/api/team"
+    },
+    {
+      "sport": "ice_hockey",
+      "provider": "nhl",
+      "team_id": "8",
+      "names": [
+        "MTL",
+        "Montréal Canadiens",
+        "Montreal Canadiens"
+      ],
+      "url": "https://assets.nhle.com/logos/nhl/svg/MTL_light.svg",
+      "source": "https://records.nhl.com/site/api/team"
+    },
+    {
+      "sport": "ice_hockey",
+      "provider": "nhl",
+      "team_id": "9",
+      "names": [
+        "OTT",
+        "Ottawa Senators"
+      ],
+      "url": "https://assets.nhle.com/logos/nhl/svg/OTT_light.svg",
+      "source": "https://records.nhl.com/site/api/team"
+    },
+    {
+      "sport": "ice_hockey",
+      "provider": "nhl",
+      "team_id": "10",
+      "names": [
+        "TOR",
+        "Toronto Maple Leafs"
+      ],
+      "url": "https://assets.nhle.com/logos/nhl/svg/TOR_light.svg",
+      "source": "https://records.nhl.com/site/api/team"
+    },
+    {
+      "sport": "ice_hockey",
+      "provider": "nhl",
+      "team_id": "12",
+      "names": [
+        "CAR",
+        "Carolina Hurricanes"
+      ],
+      "url": "https://assets.nhle.com/logos/nhl/svg/CAR_light.svg",
+      "source": "https://records.nhl.com/site/api/team"
+    },
+    {
+      "sport": "ice_hockey",
+      "provider": "nhl",
+      "team_id": "13",
+      "names": [
+        "FLA",
+        "Florida Panthers"
+      ],
+      "url": "https://assets.nhle.com/logos/nhl/svg/FLA_light.svg",
+      "source": "https://records.nhl.com/site/api/team"
+    },
+    {
+      "sport": "ice_hockey",
+      "provider": "nhl",
+      "team_id": "14",
+      "names": [
+        "TBL",
+        "Tampa Bay Lightning"
+      ],
+      "url": "https://assets.nhle.com/logos/nhl/svg/TBL_light.svg",
+      "source": "https://records.nhl.com/site/api/team"
+    },
+    {
+      "sport": "ice_hockey",
+      "provider": "nhl",
+      "team_id": "15",
+      "names": [
+        "WSH",
+        "Washington Capitals"
+      ],
+      "url": "https://assets.nhle.com/logos/nhl/svg/WSH_light.svg",
+      "source": "https://records.nhl.com/site/api/team"
+    },
+    {
+      "sport": "ice_hockey",
+      "provider": "nhl",
+      "team_id": "16",
+      "names": [
+        "CHI",
+        "Chicago Blackhawks"
+      ],
+      "url": "https://assets.nhle.com/logos/nhl/svg/CHI_light.svg",
+      "source": "https://records.nhl.com/site/api/team"
+    },
+    {
+      "sport": "ice_hockey",
+      "provider": "nhl",
+      "team_id": "17",
+      "names": [
+        "DET",
+        "Detroit Red Wings"
+      ],
+      "url": "https://assets.nhle.com/logos/nhl/svg/DET_light.svg",
+      "source": "https://records.nhl.com/site/api/team"
+    },
+    {
+      "sport": "ice_hockey",
+      "provider": "nhl",
+      "team_id": "18",
+      "names": [
+        "NSH",
+        "Nashville Predators"
+      ],
+      "url": "https://assets.nhle.com/logos/nhl/svg/NSH_light.svg",
+      "source": "https://records.nhl.com/site/api/team"
+    },
+    {
+      "sport": "ice_hockey",
+      "provider": "nhl",
+      "team_id": "19",
+      "names": [
+        "STL",
+        "St. Louis Blues"
+      ],
+      "url": "https://assets.nhle.com/logos/nhl/svg/STL_light.svg",
+      "source": "https://records.nhl.com/site/api/team"
+    },
+    {
+      "sport": "ice_hockey",
+      "provider": "nhl",
+      "team_id": "20",
+      "names": [
+        "CGY",
+        "Calgary Flames"
+      ],
+      "url": "https://assets.nhle.com/logos/nhl/svg/CGY_light.svg",
+      "source": "https://records.nhl.com/site/api/team"
+    },
+    {
+      "sport": "ice_hockey",
+      "provider": "nhl",
+      "team_id": "21",
+      "names": [
+        "COL",
+        "Colorado Avalanche"
+      ],
+      "url": "https://assets.nhle.com/logos/nhl/svg/COL_light.svg",
+      "source": "https://records.nhl.com/site/api/team"
+    },
+    {
+      "sport": "ice_hockey",
+      "provider": "nhl",
+      "team_id": "22",
+      "names": [
+        "EDM",
+        "Edmonton Oilers"
+      ],
+      "url": "https://assets.nhle.com/logos/nhl/svg/EDM_light.svg",
+      "source": "https://records.nhl.com/site/api/team"
+    },
+    {
+      "sport": "ice_hockey",
+      "provider": "nhl",
+      "team_id": "23",
+      "names": [
+        "VAN",
+        "Vancouver Canucks"
+      ],
+      "url": "https://assets.nhle.com/logos/nhl/svg/VAN_light.svg",
+      "source": "https://records.nhl.com/site/api/team"
+    },
+    {
+      "sport": "ice_hockey",
+      "provider": "nhl",
+      "team_id": "24",
+      "names": [
+        "ANA",
+        "Anaheim Ducks"
+      ],
+      "url": "https://assets.nhle.com/logos/nhl/svg/ANA_light.svg",
+      "source": "https://records.nhl.com/site/api/team"
+    },
+    {
+      "sport": "ice_hockey",
+      "provider": "nhl",
+      "team_id": "25",
+      "names": [
+        "DAL",
+        "Dallas Stars"
+      ],
+      "url": "https://assets.nhle.com/logos/nhl/svg/DAL_light.svg",
+      "source": "https://records.nhl.com/site/api/team"
+    },
+    {
+      "sport": "ice_hockey",
+      "provider": "nhl",
+      "team_id": "26",
+      "names": [
+        "LAK",
+        "Los Angeles Kings"
+      ],
+      "url": "https://assets.nhle.com/logos/nhl/svg/LAK_light.svg",
+      "source": "https://records.nhl.com/site/api/team"
+    },
+    {
+      "sport": "ice_hockey",
+      "provider": "nhl",
+      "team_id": "28",
+      "names": [
+        "SJS",
+        "San Jose Sharks"
+      ],
+      "url": "https://assets.nhle.com/logos/nhl/svg/SJS_light.svg",
+      "source": "https://records.nhl.com/site/api/team"
+    },
+    {
+      "sport": "ice_hockey",
+      "provider": "nhl",
+      "team_id": "29",
+      "names": [
+        "CBJ",
+        "Columbus Blue Jackets"
+      ],
+      "url": "https://assets.nhle.com/logos/nhl/svg/CBJ_light.svg",
+      "source": "https://records.nhl.com/site/api/team"
+    },
+    {
+      "sport": "ice_hockey",
+      "provider": "nhl",
+      "team_id": "30",
+      "names": [
+        "MIN",
+        "Minnesota Wild"
+      ],
+      "url": "https://assets.nhle.com/logos/nhl/svg/MIN_light.svg",
+      "source": "https://records.nhl.com/site/api/team"
+    },
+    {
+      "sport": "ice_hockey",
+      "provider": "nhl",
+      "team_id": "52",
+      "names": [
+        "WPG",
+        "Winnipeg Jets"
+      ],
+      "url": "https://assets.nhle.com/logos/nhl/svg/WPG_light.svg",
+      "source": "https://records.nhl.com/site/api/team"
+    },
+    {
+      "sport": "ice_hockey",
+      "provider": "nhl",
+      "team_id": "54",
+      "names": [
+        "VGK",
+        "Vegas Golden Knights"
+      ],
+      "url": "https://assets.nhle.com/logos/nhl/svg/VGK_light.svg",
+      "source": "https://records.nhl.com/site/api/team"
+    },
+    {
+      "sport": "ice_hockey",
+      "provider": "nhl",
+      "team_id": "55",
+      "names": [
+        "SEA",
+        "Seattle Kraken"
+      ],
+      "url": "https://assets.nhle.com/logos/nhl/svg/SEA_light.svg",
+      "source": "https://records.nhl.com/site/api/team"
+    },
+    {
+      "sport": "ice_hockey",
+      "provider": "nhl",
+      "team_id": "68",
+      "names": [
+        "UTA",
+        "Utah Mammoth"
+      ],
+      "url": "https://assets.nhle.com/logos/nhl/svg/UTA_light.svg",
+      "source": "https://records.nhl.com/site/api/team"
+    },
+    {
+      "sport": "basketball",
+      "provider": "euroleague",
+      "team_id": "BAR",
+      "names": [
+        "BAR",
+        "FC Barcelona"
+      ],
+      "url": "https://mediacentre.euroleague.net/uploads/euroleaguecore/teams/logos/positive_3363.png",
+      "source": "https://mediacentre.euroleague.net/mediacentre/en/games/view/18487/yes"
+    },
+    {
+      "sport": "basketball",
+      "provider": "euroleague",
+      "team_id": "PAR",
+      "names": [
+        "PAR",
+        "Partizan Mozzart Bet Belgrade"
+      ],
+      "url": "https://mediacentre.euroleague.net/uploads/euroleaguecore/teams/logos/positive_3375.png",
+      "source": "https://mediacentre.euroleague.net/mediacentre/en/games/view/18487/yes"
+    },
+    {
+      "sport": "cricket",
+      "provider": "cricbuzz",
+      "team_id": "2",
+      "names": [
+        "India",
+        "IND"
+      ],
+      "url": "https://static.cricbuzz.com/a/img/v1/152x152/i1/c776162/india.jpg",
+      "source": "https://www.cricbuzz.com/cricket-team/india/2",
+      "width": 152,
+      "height": 152
+    },
+    {
+      "sport": "cricket",
+      "provider": "cricbuzz",
+      "team_id": "4",
+      "names": [
+        "Australia",
+        "AUS"
+      ],
+      "url": "https://static.cricbuzz.com/a/img/v1/152x152/i1/c776202/australia.jpg",
+      "source": "https://www.cricbuzz.com/cricket-team/australia/4",
+      "width": 152,
+      "height": 152
+    },
+    {
+      "sport": "cricket",
+      "provider": "cricketdata",
+      "team_id": "",
+      "names": [
+        "India",
+        "IND"
+      ],
+      "url": "https://static.cricbuzz.com/a/img/v1/152x152/i1/c776162/india.jpg",
+      "source": "https://www.cricbuzz.com/cricket-team/india/2",
+      "width": 152,
+      "height": 152
+    },
+    {
+      "sport": "cricket",
+      "provider": "cricketdata",
+      "team_id": "",
+      "names": [
+        "Australia",
+        "AUS"
+      ],
+      "url": "https://static.cricbuzz.com/a/img/v1/152x152/i1/c776202/australia.jpg",
+      "source": "https://www.cricbuzz.com/cricket-team/australia/4",
+      "width": 152,
+      "height": 152
+    }
+  ]
+}

@@ -90,6 +90,7 @@ button:focus-visible, summary:focus-visible {outline:3px solid #a67b00 !importan
 .se-shield-image.is-loaded img {opacity:1;}
 .se-identity:has(.se-shield-image:not(.is-loaded)) .se-image-credit {visibility:hidden;}
 .se-shield-football img {box-sizing:border-box;object-fit:contain;padding:13px 10px 17px;}
+.se-shield-basketball img, .se-shield-ice_hockey img, .se-shield-esports img, .se-shield-cricket img {box-sizing:border-box;object-fit:contain;padding:13px 10px 17px;}
 .se-shield-tennis img {object-fit:cover;object-position:center 22%;}
 .se-image-credit {display:block;max-width:78px;font-size:.55rem;line-height:1.25;color:var(--bb-muted);white-space:nowrap;text-decoration:none;}
 .se-image-credit:hover {text-decoration:underline;}
@@ -213,6 +214,7 @@ details.wf-fact {padding:0 !important;}
   .se-card-top {grid-template-columns:1fr;gap:.3rem;} .se-team strong {font-size:1.5rem;}
   .se-shield {flex-basis:70px;width:60px;height:70px;font-size:1.1rem;} .se-match {padding:.5rem 0 .2rem;}
   .se-shield-football img {padding:9px 7px 13px;} .se-image-credit {max-width:60px;font-size:.5rem;}
+  .se-shield-basketball img, .se-shield-ice_hockey img, .se-shield-esports img, .se-shield-cricket img {padding:9px 7px 13px;}
   .se-match-time {font-size:.7rem;max-width:72px;}
   .se-pick {grid-template-columns:minmax(0,1.6fr) minmax(0,1fr) minmax(0,.8fr);gap:.4rem;}
   .se-card-top-market .se-pick {grid-template-columns:minmax(0,1.5fr) minmax(0,1fr) minmax(0,.8fr);}

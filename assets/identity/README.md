@@ -1,4 +1,42 @@
-# Tennis player photographs
+# Participant photographs and team logos
+
+## Team logos — 2026-09-30
+
+Wettfinder and Daily3 use the same shield-shaped image slots for all six sports.
+Football and tennis keep their existing mappings below. Team logos load directly
+in the browser; BetBoy does not download, decode or store image bytes.
+
+- Basketball: ESPN NBA IDs require an explicit NBA competition, including
+  namespaced IDs. WNBA/NCAA IDs must never produce NBA logos. Two EuroLeague
+  teams currently have explicit reviewed provider-code/name bindings.
+- Ice hockey: 32 currently active NHL teams have reviewed native ID/name/logo
+  bindings from the official identity catalog. Utah Mammoth is ID 68; inactive
+  Utah Hockey Club ID 59 is not reused.
+- Cricket: India and Australia currently have exact reviewed country bindings
+  for Cricbuzz and CricketData; no country logo is reused for A/youth/women's
+  teams or similarly named clubs. These are the provider's national-team flags.
+- E-Sport: nine reviewed native PandaScore team/name bindings. The NAVI page's
+  `1w` thumbnail was visually a Dota game icon, not a team logo; it was rejected.
+  Unknown/unverified squads retain initials, not another team's logo.
+
+The regular E-Sport scanner also remembers only ID/name/logo-link metadata
+already present in its successful, in-window responses. No new API call is made.
+`runtime_state/participant-logos.json` is bounded to 256 teams / 128 KiB and
+deduplicated: identical responses do not rewrite it. Native ID and full name
+must agree; only PandaScore's documented 200px `thumb_` raster URLs are used.
+It is a small link catalog, not a picture cache or a second sporting database.
+Existing model dictionaries, probabilities, hashes, prices and money are unchanged.
+
+`team-logos.json` holds the reviewed source metadata. Logos are fitted without
+clipping inside the existing shield; only the official NHL logo SVG path is
+allowed as an external `img`, never inline SVG or an embedded document.
+Commons PNG thumbnails preserve their author/license link as `© Logo`.
+Other sources have exact allowlisted paths or individually reviewed small URLs.
+Logo ownership and trademarks remain with their respective owners; no endorsement
+or blanket commercial clearance is claimed. New sources require identity and
+rights/source verification. Failed/unknown images retain initials.
+
+## Tennis player photographs
 
 `tennis-portraits.json` is an explicit identity allowlist of real photographs, not generated faces or surname-only guesses. The six currently visible players (Rei Sakamoto, Matteo Arnaldi, Arthur Gea, Zhang Zhizhen, Novak Djokovic and Nuno Borges) are covered, alongside other commonly used players.
 

@@ -232,6 +232,7 @@ class EsportsScanner:
             if len(page_matches) < limit or reached_window_end:
                 break
         formatted_matches: List[Dict] = []
+        logo_opponents: List[Dict] = []
         matching_index = 0
         scoped_matches = matches if window is not None else matches[:limit]
         for match in scoped_matches:
@@ -254,6 +255,21 @@ class EsportsScanner:
             matching_index += 1
             if formatted:
                 formatted_matches.append(formatted)
+                opponents = match.get('opponents') if isinstance(match, dict) else None
+                if isinstance(opponents, list):
+                    logo_opponents.extend(
+                        item.get('opponent', {})
+                        for item in opponents
+                        if isinstance(item, dict)
+                    )
+        if logo_opponents:
+            # Optional UI metadata from this existing response only: no API call,
+            # image download or modification of the modeled match dictionary.
+            try:
+                from participant_logo_catalog import remember_pandascore_logos
+                remember_pandascore_logos(logo_opponents)
+            except Exception:
+                pass
         return formatted_matches
 
     def _format_match(

@@ -113,3 +113,54 @@ bleiben bestehen. Normales HTTP-Caching im Kundenbrowser ist möglich.
 Diese Änderung betrifft nur Darstellung und Speicher-/Übertragungsweg der
 Teilnehmerbilder; sie belegt keine höhere Wettqualität. Nachweiscommit und
 abschließender Pull ändern ausschließlich diese Dokumentation und Übergabe.
+
+## Teamlogos weiterer Sportarten, 30.09.2026
+
+Umfang: gemeinsame Schildkarten von Wettfinder/Daily3 für E-Sport, Basketball,
+Eishockey und Cricket. Fußballwappen und Tennisfotos bleiben erhalten. Keine
+Modell-, Preis-, Finanz- oder Kontoänderung; keine neuen Sport-/Quoten-Scans,
+Sicherungen oder Bereinigungen. Bilder werden direkt extern im Browser geladen.
+
+- 47 geprüfte Manifest-Bindungen: 32 aktive NHL-Teams, zwei EuroLeague-Teams,
+  neun E-Sport-Teams sowie Indien/Australien bei zwei Cricket-Providern.
+  NBA nutzt ESPN-Teamkennung ausdrücklich zusammen mit Wettbewerb NBA;
+  WNBA/NCAA/fehlender Wettbewerb können keine NBA-Logos erhalten.
+- Spieler-/Team-/Provider-Namensräume getrennt, vollständige Namen statt fuzzy
+  Suche. Utah Mammoth ID 68; die inaktive Utah-Hockey-Club-ID 59 wird nicht
+  wiederverwendet. Cricket zeigt die vom Anbieter verwendeten Nationalflaggen,
+  nicht erfundene Clubwappen; andere nicht geprüfte Teams behalten Initialen.
+- Konkreter visueller Quellenfehler gefunden: NAVIs `1w`-Bild zeigte ein rotes
+  Dota-Spielicon. Aus Manifest und Allowlist entfernt, Ablehnungstest ergänzt;
+  kein anderes Markenbild geraten. 1win bleibt bis zu einer echten geprüften
+  Teamgrafik bei Initialen. Reine HTTP-200-Prüfung war dafür nicht ausreichend.
+- E-Sport sammelt ausschließlich bereits empfangene native ID/Name/Logo-URLs
+  erfolgreicher Spiele im bestehenden Suchfenster. Optionaler Seiteneffekt,
+  kein weiteres HTTP und keine Änderung zurückgegebener Modellfelder/Hashes.
+  Atomar und dedupliziert, maximal 256 Einträge / 128 KiB; keine Bildbytes/DB.
+  Exakte PandaScore-CDN-ID plus dokumentierter 200px-`thumb_`-Rasterpfad.
+- NHL-SVG ausschließlich offizieller externer `img`-Pfad, nie inline SVG oder
+  Dokument-Embedding. Alle übrigen Logos Rasterbilder. Bestehende Schildform,
+  Contain-Einpassung, no-referrer, Lazy Loading und Quellen-/Lizenzlinks erhalten.
+- Betroffene Regression: **674 bestanden, ein erwarteter Windows-Symlink-Skip**.
+  Einschließlich Scanner-Rückgaben, Provider-ID-Kollisionen, tatsächlichem
+  Manifest, Quellen-/Autorenangaben, Grenzen, unveränderlichen Geld-/Modellfeldern
+  sowie Wettfinder/Daily3/RisikoBet. Keine vollständige 11k-Vollsuite behauptet.
+- Unabhängiger Gegencheck: beide Befunde (1w-Grafik und ESPN-Namensraum) behoben,
+  47/47 Manifest-Einträge offline auflösbar, keine weiteren konkreten Findings.
+- Eigener lokaler Browser: 18 geladene Bilder in neun Beispielpaarungen plus
+  unbekanntes Paar mit Initialen; 1440/390/320 ohne horizontalen Überlauf.
+  Antworten 200 beziehungsweise normale 304-Cachebestätigung; keine Page- oder
+  normalen Console-/Requestfehler. Sichtbare Bilder kontrolliert, nicht nur DOM.
+  Absichtlicher Bildausfall je neuer Sportart: Initialen bleiben sichtbar,
+  Wiederherstellung sowie dynamisch eingefügte Knoten funktionieren. Dabei vier
+  erwartete 404-Konsolenmeldungen, keine JS-Pagefehler. Streamlit-Iframe-
+  Feature-Policy-Warnungen sind vorhandene Plattformwarnungen, keine Bildfehler.
+- Metadatenquellen/Autoren und erlaubte Grenzen:
+  [Identity README](../../assets/identity/README.md),
+  [Teammanifest](../../assets/identity/team-logos.json).
+  Die externen Betreiber erhalten normale Browserabrufe; eine freie Quelle
+  bedeutet keine pauschale kommerzielle Markenfreigabe oder Teambefürwortung.
+
+Produktionscommit, echte Live-Karten und unveränderter Modell-/Preishash werden
+nach kontrolliertem Pull separat nachgetragen. Lokale Browserartefakte verbleiben
+unversioniert unter `output/playwright/team-logos-*20260930*`.

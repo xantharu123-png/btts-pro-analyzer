@@ -18,6 +18,10 @@ IMAGE_FIELDS = {
 COMMONS_SOURCE = "https://commons.wikimedia.org/wiki/File:Verified_test_image.png"
 FOOTBALL_IMAGE = "https://media.api-sports.io/football/teams/212.png"
 TENNIS_IMAGE = "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/ab/Verified_test_image.png/330px-Verified_test_image.png"
+BASKETBALL_IMAGE = "https://a.espncdn.com/i/teamlogos/nba/500/2.png"
+HOCKEY_IMAGE = "https://assets.nhle.com/logos/nhl/svg/TOR_light.svg"
+CRICKET_IMAGE = "https://static.cricbuzz.com/a/img/v1/152x152/i1/c776162/india.jpg"
+ESPORT_IMAGE = "https://thumb.wikimedia.org/wikipedia/commons/thumb/f/f5/Team_Spirit_new_em.svg/330px-Team_Spirit_new_em.svg.png"
 
 
 def card_for(sport="Fussball"):
@@ -38,6 +42,10 @@ class Tags(HTMLParser):
     ("Fussball", "football", FOOTBALL_IMAGE),
     ("Fußball", "football", FOOTBALL_IMAGE),
     ("Tennis", "tennis", TENNIS_IMAGE),
+    ("Basketball", "basketball", BASKETBALL_IMAGE),
+    ("Eishockey", "ice_hockey", HOCKEY_IMAGE),
+    ("Cricket", "cricket", CRICKET_IMAGE),
+    ("E-Sport", "esports", ESPORT_IMAGE),
 ])
 def test_allowlisted_remote_image_is_inside_same_shield_with_sport_specific_fit(uri, sport, kind):
     card = replace(card_for(sport), home_image=uri, away_image=uri)
@@ -55,7 +63,12 @@ def test_allowlisted_remote_image_is_inside_same_shield_with_sport_specific_fit(
     assert "©" not in html  # No invented license/source when metadata is absent.
 
 
-@pytest.mark.parametrize("sport, uri", [("Fussball", TENNIS_IMAGE), ("Tennis", FOOTBALL_IMAGE)])
+@pytest.mark.parametrize("sport, uri", [
+    ("Fussball", TENNIS_IMAGE), ("Tennis", FOOTBALL_IMAGE),
+    ("Tennis", ESPORT_IMAGE), ("Tennis", "https://thumb.wikimedia.org/wikipedia/commons/thumb/3/39/MOUZlogo2021.png/330px-MOUZlogo2021.png"),
+    ("Basketball", HOCKEY_IMAGE), ("Eishockey", BASKETBALL_IMAGE),
+    ("Cricket", FOOTBALL_IMAGE), ("E-Sport", TENNIS_IMAGE),
+])
 def test_allowlisted_source_for_other_sport_keeps_initials(sport, uri):
     html = surface.render_match_header_html(replace(card_for(sport), home_image=uri,
         home_image_source=COMMONS_SOURCE))
@@ -172,6 +185,23 @@ def test_commons_credit_link_is_outside_clipped_shield_and_escaped():
     assert not any(name.startswith("on") for _tag, attributes in Tags(html).tags for name in attributes)
 
 
+def test_esport_logo_credit_is_preserved_as_logo_not_player_photo():
+    source = "https://commons.wikimedia.org/wiki/File:Team_Spirit_new_em.svg"
+    credit = "Team Spirit · CC BY-SA 4.0 · unverändert skaliert"
+    card = replace(card_for("E-Sport"), home_image=ESPORT_IMAGE,
+                   home_image_source=source, home_image_credit=credit)
+    html = surface.render_match_header_html(card)
+    assert f'href="{source}"' in html
+    assert f'title="{credit}"' in html and '>© Logo</a>' in html
+    assert '>© Foto</a>' not in html
+
+
+def test_official_nhl_svg_is_only_external_img_never_inline_or_object():
+    html = surface.render_match_header_html(replace(card_for("Eishockey"), home_image=HOCKEY_IMAGE))
+    assert f'src="{HOCKEY_IMAGE}"' in html
+    assert not any(tag in {"svg", "object", "embed", "script"} for tag, _attrs in Tags(html).tags)
+
+
 @pytest.mark.parametrize("bad_source", [
     None, False, [], "", "javascript:alert(1)",
     "http://commons.wikimedia.org/wiki/File:Test.png",
@@ -243,6 +273,7 @@ def test_shield_polygon_inner_border_and_320_390_dimensions_are_unchanged():
     assert '.se-shield {flex-basis:70px;width:60px;height:70px;font-size:1.1rem;}' in css
     assert '.se-shield-tennis img {object-fit:cover;object-position:center 22%;}' in css
     assert 'object-fit:contain;padding:13px 10px 17px;' in css
+    assert '.se-shield-basketball img, .se-shield-ice_hockey img, .se-shield-esports img, .se-shield-cricket img' in css
     assert '.se-shield-image.is-loaded, .se-team:last-child .se-shield-image.is-loaded {background:var(--bb-surface);}' in css
     assert re.search(r'\.se-image-credit \{[^}]*max-width:78px;[^}]*white-space:nowrap;', css)
     assert '.se-image-credit:focus-visible' in css
