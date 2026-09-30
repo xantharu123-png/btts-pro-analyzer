@@ -853,8 +853,9 @@ def create_alternative_markets_tab_extended(
                         model_clock=snapshot.get('scanned_at'))
                     fact_details = dict(customer.fact_details)
                     compact = CompactAnalysis(customer.summary,
-                        tuple(Fact(label, value, fact_details.get(label, customer.details))
-                              for label, value in customer.facts),
+                        (Fact('Gegenargument', 'Spielvergleich', (customer.counterargument,)),)
+                        + tuple(Fact(label, value, fact_details.get(label, ()))
+                                for label, value in customer.facts),
                         (), (customer.counterargument, *customer.details),
                         format_model_clock(snapshot.get('scanned_at')), forms)
                     st.markdown(render_compact_analysis_html(compact,

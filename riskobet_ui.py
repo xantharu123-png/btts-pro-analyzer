@@ -371,24 +371,49 @@ def _display_card(
     return build_riskobet_card(candidate, overlay)
 
 
+def _customer_factor_detail(factor: FactorEvidence) -> str:
+    """Project sporting observations without changing their frozen evidence."""
+    if (factor.factor_key in {'tennis_calibrated_match_model', 'esports_subgraph_elo'}
+            or factor.factor_key.startswith('football_fixture_id:')):
+        return ''
+    raw = factor.summary
+    # These old/current templates describe implementation, not an extra
+    # sporting observation. Expected goals/margins and other real facts stay.
+    if raw.startswith((
+        'Aus den Punktedifferenzen geschätzte Streuung:',
+        'Kalibriertes Sieger-Modell', 'Siegermodell:',
+        'Subgraph-Elo ', 'Spielstärke-Abstand:',
+        'Das geglättete Log5-Modell', 'Forschungsmodell ohne ',
+        'Berechnet:', 'Modellstand:', 'Sicherheitswert:', 'Evidenzprüfung',
+    )) or factor.factor_key.startswith('prematch_model_') and 'Stärkedifferenz:' in raw:
+        return ''
+    if factor.factor_key == 'esports_recent_form':
+        raw = raw.removesuffix(' Im Elo berücksichtigt.')
+    summary = format_riskobet_public_detail(raw)
+    # A technical fallback is not a substitute for a sporting fact.
+    if summary == 'Technischer Prüfstatus ist noch nicht nutzerverständlich aufbereitet.':
+        return ''
+    return summary
+
+
 def _render_factor_details(snapshot: EventModelSnapshot) -> None:
     st.caption("Grundlage dieser Analyse")
     visible_factors = tuple(
-        factor
+        (factor, _customer_factor_detail(factor))
         for factor in snapshot.factors
         if factor.role is not FactorRole.DISPLAY_ONLY
         and factor.factor_key != "esports_recent_form"
     )
+    visible_factors = tuple((factor, summary) for factor, summary in visible_factors if summary)
     if not visible_factors:
-        st.caption("Keine zusätzlichen Kontextfaktoren hinterlegt.")
+        st.caption("Keine weiteren Spielinformationen hinterlegt.")
         return
-    for factor in visible_factors:
+    for factor, summary in visible_factors:
         observed = factor.observed_at.astimezone(timezone.utc).strftime(
             "%d.%m.%Y %H:%M UTC"
         )
         # Streamlit write escapes text. Deliberately omit internal factor keys,
         # provider identifiers and numeric implementation roles.
-        summary = format_riskobet_public_detail(factor.summary)
         st.write(f"{summary} · Stand: {observed}")
 
 
@@ -429,10 +454,9 @@ def _render_detail(
     suffix = _widget_suffix(candidate)
     detail_key = f"riskobet-detail-{suffix}"
     with st.container(key=f"riskobet_actions_{suffix}"):
-        st.caption("Modellstand: " + snapshot.modeled_at.astimezone(timezone.utc).strftime("%d.%m. %H:%M UTC"))
         recent_form = next(
             (
-                format_riskobet_public_detail(factor.summary)
+                _customer_factor_detail(factor)
                 for factor in snapshot.factors
                 if factor.factor_key == "esports_recent_form"
                 and factor.role is FactorRole.MODEL
@@ -443,7 +467,7 @@ def _render_detail(
             st.caption(recent_form)
         surface_text = next(
             (
-                format_riskobet_public_detail(factor.summary)
+                _customer_factor_detail(factor)
                 for factor in snapshot.factors
                 if factor.factor_key == "tennis_surface_evidence"
                 and factor.role is FactorRole.DISPLAY_ONLY
@@ -454,12 +478,16 @@ def _render_detail(
             st.caption(surface_text)
         for factor in snapshot.factors:
             if factor.role is FactorRole.DISPLAY_ONLY and factor.factor_key.startswith('customer_recent_'):
-                st.caption(format_riskobet_public_detail(factor.summary))
+                detail = _customer_factor_detail(factor)
+                if detail:
+                    st.caption(detail)
             elif (factor.role is FactorRole.DISPLAY_ONLY
                     and factor.factor_key == 'customer_counter_'+candidate.selection_key):
-                st.caption('Gegenargument: '+format_riskobet_public_detail(factor.summary))
+                detail = _customer_factor_detail(factor)
+                if detail:
+                    st.caption('Gegenargument: '+detail)
         visible_context = tuple(
-            format_riskobet_public_detail(factor.summary)
+            _customer_factor_detail(factor)
             for factor in snapshot.factors
             if factor.role is FactorRole.DISPLAY_ONLY
             and factor.factor_key.startswith(("tennis_workload_", "football_context_"))
@@ -468,9 +496,8 @@ def _render_detail(
             "Analyse anzeigen", expanded=False, key=detail_key
         ):
             _render_factor_details(snapshot)
-            if visible_context:
-                st.caption("Beobachtet, noch nicht als Zu-/Abschlag eingerechnet:")
-                for detail in visible_context:
+            for detail in visible_context:
+                if detail:
                     st.write(detail)
 
 

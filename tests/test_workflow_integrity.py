@@ -757,6 +757,15 @@ def test_manual_surface_promotes_useful_market_and_keeps_all_others(
     )
     rendered = []
 
+    # Removing the generic method footer must not remove the real opposing
+    # sporting argument from manual cards, where it used to live only there.
+    counterargument = 'Die Gegenseite hat die bessere Bilanz der letzten fünf Spiele.'
+    monkeypatch.setattr('football_customer_facts.manual_football_customer_analysis',
+        lambda *_args, **_kwargs: SimpleNamespace(
+            summary='Erwartete Tore: 1,6 : 1,2',
+            facts=(('Basis', '12 Heim · 12 Gast'),), fact_details=(),
+            counterargument=counterargument, details=('INTERNAL_MANUAL_AUDIT_NOTE',)))
+
     monkeypatch.setattr(market_tab, "st", recording_st)
     monkeypatch.setattr(
         market_tab,
@@ -804,6 +813,12 @@ def test_manual_surface_promotes_useful_market_and_keeps_all_others(
         for group, _key in rendered[2:]
     )
     assert len({key for _group, key in rendered}) == len(forecasts)
+    html = '\n'.join(value for value, kwargs, _context in recording_st.markdown_calls
+                     if kwargs.get('unsafe_allow_html'))
+    assert html.count(counterargument) == len(forecasts)
+    assert html.count('Gegenargument') == len(forecasts)
+    assert 'INTERNAL_MANUAL_AUDIT_NOTE' not in html
+    assert 'Statistik &amp; Details' not in html
 
 
 def test_wettfinder_defaults_to_automatic_and_hides_custom_search_controls(
@@ -985,7 +1000,8 @@ def test_automatic_all_surface_has_one_game_block_and_exact_price_actions(
     assert all(not expanded for _label, expanded in recording_st.expanders)
     assert len(set(recording_st.expander_keys)) == 4
     assert html.count('class="wf-analysis-short"') == len(forecasts)
-    assert html.count("Modellgrundlagen fehlen") == len(forecasts)
+    assert html.count("Modellgrundlagen unvollständig") == len(forecasts)
+    assert "Modellgrundlagen fehlen" not in html  # Raw analysis note stays internal.
     action_order = [
         kind
         for kind, _value in recording_st.event_log
@@ -1274,7 +1290,7 @@ def test_automatic_strict_release_replaces_same_key_once(monkeypatch):
     assert rendered[0][0].evidence_stage == forecast.evidence_stage
     assert "price_evaluation" not in rendered[0][1]
     assert html.count('data-key="released-row"') == 1
-    assert "Evidenzprüfung" in html
+    assert "Evidenzprüfung" not in html
     assert "another-row" not in html
 
 

@@ -684,7 +684,7 @@ def _render_match_card(row: dict) -> None:
                 st.caption(surface_text)
             details = customer_record_details(context, row['player_a'], row['player_b'], modeled_at=modeled_at)
             if details or counter:
-                with st.expander('Statistik & Details', expanded=False):
+                with st.expander('Gegner & Ergebnisse', expanded=False):
                     if counter:
                         st.write(counter)
                     for name, rows in details.items():
@@ -700,13 +700,7 @@ def _render_match_card(row: dict) -> None:
             return
 
         st.info(f"Modellfavorit: {likely_player}")
-        conservative_probability = max(
-            0.0, likely_probability - WINNER_PROBABILITY_HAIRCUT
-        )
-        metrics = st.columns(2)
-        metrics[0].metric("Modell", f"{likely_probability:.1%}")
-        metrics[1].metric("Sicherheitswert", f"{conservative_probability:.1%}")
-        st.caption("Sicherheitswert: heuristischer Abschlag, keine statistisch bestätigte Mindestchance.")
+        st.metric("Modell", f"{likely_probability:.1%}")
         st.caption("Deine Mindestquote für eine tatsächliche Wette: 1,20")
         return
 

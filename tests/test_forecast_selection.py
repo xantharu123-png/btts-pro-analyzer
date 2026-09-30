@@ -81,8 +81,10 @@ def test_tennis_data_age_is_not_replaced_by_recalculation_time(kind, label):
     assert not catalog.featured
     assert not daily3_choices([signal], now=NOW)
     markup = render_compact_row_html(catalog.additional[0])
-    assert '01.01.2000' in markup and label in markup
-    assert 'Berechnet' in markup and '2030' in markup
+    assert '01.01.2000' not in markup and label not in markup
+    assert '01.01.2000' in catalog.additional[0].analysis_data_age
+    assert label in catalog.additional[0].analysis_data_age
+    assert 'Berechnet' not in markup
     assert '31.12.2029' not in markup  # internal build date is not a sports fact
     assert 'operative' not in markup and '14 Tage' not in markup
 
@@ -91,7 +93,8 @@ def test_tennis_unknown_data_date_stays_unknown_and_neutral():
     signal = tennis(coverage=False)
     catalog = compose_wettfinder_catalog(cards([signal]))
     assert not catalog.featured
-    assert 'Datenstand unbekannt' in render_compact_row_html(catalog.additional[0])
+    assert 'Datenstand unbekannt' in catalog.additional[0].analysis_data_age
+    assert 'Datenstand nicht aktuell belegt' in render_compact_row_html(catalog.additional[0])
 
 
 def test_opposing_lower_goal_rate_is_called_out_as_outsider():
@@ -229,11 +232,13 @@ def test_tennis_foreign_players_or_observation_clock_are_not_explanatory_evidenc
         assert not compose_wettfinder_catalog(cards([signal])).featured
 
 
-def test_model_dates_are_readable_local_dates_not_raw_internal_diagnostics():
+def test_model_dates_are_retained_internally_not_customer_footers():
     card = cards([tennis()])[0]
     markup = render_compact_row_html(card)
-    assert 'Berechnet: 01.01.2030 13:00' in markup
-    assert 'Ergebnisse bis 01.01.2030' in markup
+    assert 'Berechnet:' not in markup
+    assert 'Ergebnisse bis 01.01.2030' not in markup
+    assert card.compact_analysis.model_clock == '01.01.2030 13:00'
+    assert 'Ergebnisse bis 01.01.2030' in card.analysis_data_age
     assert 'Modellaufbau' not in markup
     assert 'Trainingsstichtag' not in markup
     assert '2030-01-01T' not in markup

@@ -1,5 +1,16 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg – Kundenkarten ohne interne Modellnotizen, 30.09.2026
+
+Zuerst den obersten Block in [TODO_AKTUELL.md](TODO_AKTUELL.md) lesen.
+Technische Footer, heuristischer Sicherheitswert und Evidenz-Badges aus den
+Kundenkarten entfernt; tatsächliche Form-/Gegner-/Ergebnisdaten bleiben.
+Interne Belege und signierte Wettsnapshots unverändert, keine neuen Kopien.
+611 Tests und neun lokale Browserkombinationen bestanden; unabhängiges Review
+ohne Befund. Git-/VPS-Veröffentlichungsstand direkt prüfen, nicht aus älteren
+Designnotizen ableiten. Tennis-Quotenanbindung bleibt eine separate offene
+Aufgabe; kein zusätzlicher Scan oder neues Backup gestartet.
+
 ## Aktueller Einstieg – Sports-Editorial-Korrektur, 30.09.2026
 
 Die erste Designumsetzung wurde vom Nutzer ausdrücklich als nicht vorlagentreu

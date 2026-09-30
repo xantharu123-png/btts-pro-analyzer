@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import AbstractContextManager
+from copy import deepcopy
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -551,6 +552,75 @@ def test_esports_form_is_visible_without_opening_analysis_and_not_duplicated(mon
     assert len(mentions) == 1
     assert mentions[0][0] == "caption"
     assert not any(kind == "expander" for kind, _ in mentions[0][2])
+    assert 'Im Elo berücksichtigt' not in _all_text(fake)
+    assert 'Im Elo berücksichtigt' in snapshot.factors[0].summary
+
+
+def test_full_ui_keeps_sport_facts_in_opened_details_and_method_notes_internal(monkeypatch):
+    base, candidate = _bundle('sport-facts', sport='tennis')
+    facts = (
+        ('tennis_calibrated_match_model',
+         'Kalibriertes Sieger-Modell plus Satzsimulation; Außenseiter 36,0 %.', FactorRole.MODEL),
+        ('football_fixture_id:55',
+         'Vollständige gemeinsame Marktverteilung; mindestens 12 Venue-Beobachtungen je Team.', FactorRole.MODEL),
+        ('esports_subgraph_elo',
+         'Subgraph-Elo 1600/1500, Best-of-3; abgeleitete Mapchance 35,0 %.', FactorRole.MODEL),
+        ('prematch_model_0',
+         'Erwartete Tore in regulärer Spielzeit: 2.10/1.80.', FactorRole.MODEL),
+        ('prematch_model_1',
+         'Aus den Punktedifferenzen geschätzte Streuung: 12.10 Punkte.', FactorRole.MODEL),
+        ('prematch_model_2',
+         'Gegnerbereinigte T20-Stärkedifferenz: 0.300; ausschließlich explizite Matchsieger.', FactorRole.MODEL),
+        ('tennis_surface_evidence',
+         'Hartplatz: Alpha 25 erfasste Spiele · Beta 21 erfasste Spiele', FactorRole.DISPLAY_ONLY),
+        ('customer_recent_a',
+         'Alpha: 4/5 Siege; Gegner Gamma 2:1.', FactorRole.DISPLAY_ONLY),
+        ('customer_counter_'+candidate.selection_key,
+         'Beta gewann beide Direktduelle.', FactorRole.DISPLAY_ONLY),
+        ('tennis_workload_a_0',
+         'Alpha: zuletzt drei Sätze gegen Gamma.', FactorRole.DISPLAY_ONLY),
+        ('football_context_0_injuries',
+         'Ausfälle: Heim A fällt aus; Gast B fraglich.', FactorRole.DISPLAY_ONLY),
+        ('football_context_0_lineups',
+         'Aufstellungen: required_missing', FactorRole.DISPLAY_ONLY),
+    )
+    factors = tuple(replace(base.factors[0], factor_key=key, summary=summary, role=role)
+                    for key, summary, role in facts)
+    snapshot = replace(base, factors=factors)
+    candidate = replace(candidate, snapshot_id=snapshot.snapshot_id, context_state=ContextState.PARTIAL)
+    view = _view((snapshot, candidate))
+    before = deepcopy(view)
+    fake = RecordingStreamlit()
+    monkeypatch.setattr(ui, 'st', fake)
+    monkeypatch.setattr(ui, 'load_riskobet_view', lambda _path=None: view)
+
+    ui.render_riskobet()
+
+    # RecordingStreamlit enters collapsed expanders too, checking all emitted
+    # detail text, not merely the initially visible card.
+    text = _all_text(fake)
+    for fact in ('Hartplatz: Alpha 25 erfasste Spiele', 'Alpha: 4/5 Siege',
+                 'Gegner Gamma 2:1', 'Gegenargument: Beta gewann beide Direktduelle.',
+                 'Alpha: zuletzt drei Sätze gegen Gamma.',
+                 'Ausfälle: Heim A fällt aus; Gast B fraglich.',
+                 'Aufstellungen: noch nicht bestätigt',
+                 'Erwartete Tore in regulärer Spielzeit: 2.10/1.80.',
+                 'Kontext teilweise offen'):
+        assert fact in text
+    for technical in ('Modellstand:', 'Berechnet:', 'Sicherheitswert', 'Evidenzprüfung',
+                      'Im Test · noch nicht historisch bestätigt',
+                      'Beobachtet, noch nicht als Zu-/Abschlag eingerechnet',
+                      'Kalibriertes Sieger-Modell', 'Satzsimulation', 'Marktverteilung',
+                      'Venue-Beobachtungen', 'Subgraph-Elo', 'Mapchance', 'Streuung',
+                      'Stärkedifferenz', 'required_missing'):
+        assert technical not in text
+    detail_rows = [row for row in fake.messages if row[0] == 'write']
+    assert detail_rows
+    assert all(any(kind == 'expander' for kind, _ in row[2]) for row in detail_rows)
+    assert view == before
+    assert candidate.cautious_probability == 0.30
+    assert candidate.stage is EvidenceStage.SHADOW
+    assert snapshot.factors == factors
 
 
 def test_tennis_surface_evidence_is_visible_without_opening_analysis(monkeypatch):
@@ -606,7 +676,9 @@ def test_production_like_payload_hides_internal_stage_and_factor_status(
     ui.render_riskobet()
 
     text = _all_text(fake)
-    assert "Im Test · noch nicht historisch bestätigt" in text
+    assert "Im Test · noch nicht historisch bestätigt" not in text
+    assert "Sicherheitswert" not in text
+    assert "Heuristischer Abschlag" not in text
     assert "Wetter: geprüft" in text
     assert "Aufstellungen: noch nicht bestätigt" in text
     for internal in ("Shadow", "passed", "required_missing"):

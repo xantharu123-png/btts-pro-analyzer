@@ -687,10 +687,9 @@ def _price_markup(card: RiskBetCard, *, compact: bool) -> str:
 
 
 def render_riskobet_card_html(card: RiskBetCard, *, show_price: bool = True) -> str:
-    """Render an escaped full card with all decision fields immediately visible."""
+    """Render sport facts; evidence and cautious estimates stay internal."""
 
     probability = format_riskobet_probability(card.model_probability)
-    cautious = format_riskobet_probability(card.cautious_probability)
     missing = ""
     if card.missing_core_data:
         missing_items = ", ".join(card.missing_core_data)
@@ -708,7 +707,6 @@ def render_riskobet_card_html(card: RiskBetCard, *, show_price: bool = True) -> 
         f'aria-label="Risiko-Szenario für {escape(card.event_label, quote=True)}">'
         '<div class="rb-status-row">'
         f"{_badge('sport', 'neutral', card.sport)}"
-        f"{_badge('evidence', card.evidence_tone, card.evidence_label)}"
         f"{_badge('context', card.context_tone, card.context_label)}"
         "</div>"
         '<p class="rb-meta">'
@@ -720,11 +718,7 @@ def render_riskobet_card_html(card: RiskBetCard, *, show_price: bool = True) -> 
         f'<p class="rb-selection">{escape(card.selection)}</p>'
         '<div class="rb-probabilities">'
         '<div><span>Modellwahrscheinlichkeit</span>'
-        f"<strong>{escape(probability)}</strong></div>"
-        '<div><span>Sicherheitswert</span>'
-        f"<strong>{escape(cautious)}</strong></div></div>"
-        '<p class="rb-uncertainty-note">Heuristischer Abschlag, keine '
-        'statistisch bestätigte Mindestchance.</p>'
+        f"<strong>{escape(probability)}</strong></div></div>"
         '<div class="rb-reasons">'
         f"{_reason_block('pro', 'Modellgrundlage', card.pros)}"
         f"{_reason_block('contra', 'Spricht dagegen', card.cons)}"
@@ -737,10 +731,9 @@ def render_riskobet_card_html(card: RiskBetCard, *, show_price: bool = True) -> 
 
 
 def render_riskobet_compact_row_html(card: RiskBetCard, *, show_price: bool = True) -> str:
-    """Render one genuinely flat row while retaining every decision field."""
+    """Render a flat sport-first row without internal evidence or safety values."""
 
     probability = format_riskobet_probability(card.model_probability)
-    cautious = format_riskobet_probability(card.cautious_probability)
     missing = ""
     if card.missing_core_data:
         missing = (
@@ -757,7 +750,6 @@ def render_riskobet_compact_row_html(card: RiskBetCard, *, show_price: bool = Tr
         f"{escape(card.scheduled_start_label)}</span>"
         f"<strong>{escape(card.event_label)}</strong>"
         '<span class="rb-row-status">'
-        f"{_badge('evidence', card.evidence_tone, card.evidence_label)}"
         f"{_badge('context', card.context_tone, card.context_label)}"
         "</span></div>"
         '<div class="rb-row-pick">'
@@ -765,9 +757,7 @@ def render_riskobet_compact_row_html(card: RiskBetCard, *, show_price: bool = Tr
         f"<strong>{escape(card.selection)}</strong></div>"
         '<div class="rb-row-probabilities">'
         '<span>Modell <strong>'
-        f"{escape(probability)}</strong></span>"
-        '<span>Sicherheitswert <strong>'
-        f"{escape(cautious)}</strong></span></div>"
+        f"{escape(probability)}</strong></span></div>"
         '<div class="rb-row-reasons">'
         '<span class="rb-row-pro"><b>Grundlage:</b> '
         f"{escape(card.pros[0])}</span>"

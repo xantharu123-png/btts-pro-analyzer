@@ -9,7 +9,7 @@ into safe consumer-facing data. The user floor excludes known offers below
 from __future__ import annotations
 
 from collections import OrderedDict
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from html import escape
 import math
@@ -658,13 +658,6 @@ def _status_badges(card: WettfinderCard, *, featured: bool, show_price: bool = T
             '<span class="wf-badge wf-badge-top" '
             'aria-label="Aktuelle Modell-Auswahl">MODELL-AUSWAHL</span>'
         )
-    badges.extend(
-        (
-            '<span class="wf-badge wf-badge-evidence '
-            f'wf-evidence-{escape(card.evidence_tone, quote=True)}">'
-            f"{escape(card.evidence_label)}</span>",
-        )
-    )
     if show_price:
         badges.append(
             '<span class="wf-badge wf-badge-price '
@@ -702,23 +695,11 @@ def _analysis_markup(card: WettfinderCard, *, featured: bool = False) -> str:
     if card.compact_analysis is not None:
         return render_compact_analysis_html(card.compact_analysis, supporting_fact=supporting_fact, instance_key=card.key)
     support = f'<p class="wf-analysis-support">{escape(supporting_fact)}</p>' if supporting_fact else ''
-    samples = (
-        f'<p class="wf-analysis-samples">{escape(card.analysis_samples)}</p>'
-        if card.analysis_samples else ""
-    )
-    clocks = f'Berechnet: {format_model_clock(card.modeled_at)}'
-    if card.analysis_data_age:
-        clocks += ' · ' + card.analysis_data_age
-    if card.highlight_reason:
-        clocks += ' · Ohne Hervorhebung: ' + card.highlight_reason
     return (
         '<section class="wf-analysis">'
         '<h4>Warum diese Auswahl?</h4>'
-        f'<p class="wf-analysis-basis">{escape(card.analysis_basis)}</p>'
         f'{support}'
-        f'<p class="wf-analysis-caution">{escape(card.analysis_caution)}</p>'
-        f"{samples}"
-        f'<p class="wf-analysis-age">{escape(clocks)}</p>'
+        '<p>Für diese Auswahl liegen keine weiteren Spielstatistiken vor.</p>'
         '</section>'
     )
 
@@ -737,7 +718,7 @@ def quote_display_note(card: WettfinderCard) -> Optional[str]:
 
 
 def _top_card_markup(card: WettfinderCard, *, show_price: bool = True) -> str:
-    metrics = _metric("Sicherheitswert", format_probability(card.cautious_probability))
+    metrics = ''
     price_details = ''
     if show_price:
         price = format_decimal_odds(card.observed_odds)
@@ -750,10 +731,6 @@ def _top_card_markup(card: WettfinderCard, *, show_price: bool = True) -> str:
         )
         price_note = _PRICE_NOTES.get(card.price_code, "Wettpreis separat prüfen. Die Prognose bleibt unverändert.")
         price_details = (
-            '<details class="wf-fact wf-price-explain"><summary>Preisberechnung</summary>'
-            '<div class="wf-fact-detail"><p>Sicherheitswert: Modell mit heuristischem '
-            'Abschlag, keine statistisch bestätigte Mindestchance. Der Risikopreis '
-            'ist eine Rechenschwelle, keine erwartete Buchmacherquote.</p></div></details>'
             f'<p class="wf-price-note wf-price-note-{escape(card.price_tone, quote=True)}" '
             f'data-price-code="{escape(card.price_code, quote=True)}">{escape(price_note)}</p>'
         )
@@ -775,8 +752,7 @@ def _top_card_markup(card: WettfinderCard, *, show_price: bool = True) -> str:
         "</div>"
         f"{_analysis_markup(card, featured=True)}"
         f'<div class="wf-metric-grid">{metrics}</div>'
-        '<p class="wf-uncertainty-note">Rechenwerte, keine gesicherte Mindestchance.</p>'
-        f'{price_details if show_price else "<p class=\"wf-uncertainty-note\">Sicherheitswert: heuristischer Abschlag, keine statistisch bestätigte Mindestchance.</p>"}'
+        f'{price_details}'
         "</article>"
     )
 
@@ -799,12 +775,10 @@ def _compact_row_markup(card: WettfinderCard, *, grouped: bool = False, featured
             f'{_row_value("Letzte Quote" if card.price_code == "STALE" else "Quote" if card.price_code == "OBSERVED" else "Aktuell", price, note=bookmaker_note)}'
         )
     uncertainty_note = ''
-    if featured:
+    if featured and show_price:
         message = _PRICE_NOTES.get(card.price_code, 'Wettpreis separat prüfen.') if show_price else ''
         uncertainty_note = (
-            '<p class="wf-group-price-note">Sicherheitswert: heuristischer Abschlag, '
-            'keine gesicherte Mindestchance. '
-            f'{escape(message)}</p>'
+            f'<p class="wf-group-price-note">{escape(message)}</p>'
         )
     price_attribute = f' data-price-code="{escape(card.price_code, quote=True)}"' if show_price else ''
     return (
@@ -815,7 +789,6 @@ def _compact_row_markup(card: WettfinderCard, *, grouped: bool = False, featured
         f'<span class="wf-row-label">{escape(card.market)}</span>'
         f"<strong>{escape(card.selection)}</strong></div>"
         f'{_row_value("Modell", format_probability(card.model_probability))}'
-        f'{_row_value("Sicherheitswert", format_probability(card.cautious_probability))}'
         f'{price_columns}'
         f"{_status_badges(card, featured=featured, show_price=show_price)}"
         f"{_analysis_markup(card, featured=featured)}"
@@ -852,21 +825,15 @@ def render_match_header_html(card: WettfinderCard) -> str:
 
 
 def render_editorial_card_html(card: WettfinderCard, *, grouped=False, featured=False, supporting_fact='', show_form=True, include_match=False) -> str:
-    """The sport-first card retains method limits in reachable details."""
+    """Sport-first customer facts; raw model notes stay on the card object."""
     has_match = not grouped or include_match
     head = render_match_header_html(card) if has_match else ''
     note = quote_display_note(card)
     quote_label = 'Letzte Quote' if card.price_code == 'STALE' else 'Quote'
-    quote_html = f'<div class="se-number se-number-quote"><span>{quote_label}</span><strong>{escape(format_decimal_odds(card.observed_odds))}</strong></div>'
+    quote_note = f' title="{escape(note, quote=True)}"' if note else ''
+    quote_html = f'<div class="se-number se-number-quote"{quote_note}><span>{quote_label}</span><strong>{escape(format_decimal_odds(card.observed_odds))}</strong></div>'
     if card.compact_analysis is not None:
-        original = card.compact_analysis
-        limits = ('Sicherheitswert: ' + format_probability(card.cautious_probability)
-                  + ' mit heuristischem Abschlag, keine gesicherte Mindestchance.',)
-        if card.evidence_label:
-            limits += (card.evidence_label,)
-        if note:
-            limits += (quote_label + ': ' + note,)
-        compact = replace(original, explanation=original.explanation + limits)
+        compact = card.compact_analysis
         if not supporting_fact and featured and _can_feature(card) and card.highlight_comparison is not None:
             supporting_fact = card.highlight_comparison.summary
         analysis_html = render_compact_analysis_html(compact,

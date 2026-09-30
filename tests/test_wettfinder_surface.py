@@ -519,7 +519,6 @@ def test_top_card_markup_exposes_the_decision_hierarchy_in_reading_order():
 
     expected_fragments = (
         'class="wf-badge wf-badge-top" aria-label="Aktuelle Modell-Auswahl">MODELL-AUSWAHL</span>',
-        'class="wf-badge wf-badge-evidence wf-evidence-warning"',
         'class="wf-badge wf-badge-price wf-price-neutral"',
         'class="wf-meta"',
         'class="wf-event"',
@@ -534,9 +533,10 @@ def test_top_card_markup_exposes_the_decision_hierarchy_in_reading_order():
     assert positions == sorted(positions)
     assert '<article class="wf-top-card"' in markup
     assert "Modellwahrscheinlichkeit" in markup
-    assert "Sicherheitswert" in markup
-    assert "keine statistisch bestätigte Mindestchance" in markup
-    assert "keine erwartete Buchmacherquote" in markup
+    assert "Sicherheitswert" not in markup
+    assert "keine statistisch bestätigte Mindestchance" not in markup
+    assert "keine erwartete Buchmacherquote" not in markup
+    assert "wf-badge-evidence" not in markup
     assert "Vorsichtige Trefferchance" not in markup
     assert "Risikopreis ab" in markup
     assert "Aktuell" in markup
@@ -550,6 +550,7 @@ def test_featured_and_compact_analysis_is_visible_once_and_escapes_all_copy():
 
     signal = replace(_signal(market_key="RESULT_HOME", market="Endergebnis", selection="Heimsieg"),
                      home_team='<Alpha & "home">', home_team_id=10, away_team_id=11,
+                     event_label='<Alpha & "home"> vs Beta',
                      model_scope="same_competition", modeled_at="2030-01-01T10:00:00+00:00",
                      input_cutoff_at="2030-01-01T09:59:00+00:00",
                      context_summary="H2H geprüft · kein Veto · Wirkung nicht modelliert · Wetter geprüft")
@@ -625,13 +626,13 @@ def test_compact_row_is_semantic_flat_and_keeps_the_same_decision_fields():
 
     assert '<article class="wf-row"' in markup
     assert 'class="wf-badge wf-badge-top"' not in markup
-    assert 'class="wf-badge wf-badge-evidence' in markup
+    assert 'class="wf-badge wf-badge-evidence' not in markup
     assert 'class="wf-badge wf-badge-price' in markup
     assert 'class="wf-row-event"' in markup
     assert 'class="wf-row-pick"' in markup
-    assert markup.count('class="wf-row-value"') == 4
+    assert markup.count('class="wf-row-value"') == 3
     assert '>Modell</span>' in markup
-    assert '>Sicherheitswert</span>' in markup
+    assert '>Sicherheitswert</span>' not in markup
     assert '>Risikopreis ab</span>' in markup
     assert '>Aktuell</span>' in markup
     assert 'class="wf-primary-probability"' not in markup

@@ -138,6 +138,33 @@ def test_real_user_flow_start_reserve_place_settle_is_flat_and_persistent(tmp_pa
     assert any(m.label == 'Netto abgerechnet' and m.value == 'CHF 4.00' for m in app.metric)
 
 
+def _render_saved_bet_with_internal_notes():
+    import streamlit as st
+    from copy import deepcopy
+    from daily3_ui import _saved_bet
+    bet = dict(id='saved-note-test', revision=1, status='cancelled', stake_cents=1000,
+        odds='1.50', external_deviation=False, under_review=False,
+        snapshot=dict(event_label='Arthur Gea vs Zhang Zhizhen', market='Match Winner',
+            selection='Sieg Arthur Gea', analysis_basis='INTERNAL_MODEL_BASIS',
+            analysis_caution='INTERNAL_EFFECT_REVIEW'))
+    before = deepcopy(bet)
+    _saved_bet(st, None, 'a'*32, '2030-01-01', bet)
+    st.session_state['snapshot_unchanged'] = bet == before
+    st.session_state['internal_notes'] = bet['snapshot']['analysis_basis'], bet['snapshot']['analysis_caution']
+
+
+def test_saved_daily3_money_card_does_not_expose_or_rewrite_original_model_notes():
+    app = AppTest.from_function(_render_saved_bet_with_internal_notes).run(timeout=30)
+    assert not app.exception
+    visible = ' '.join(item.value for items in (app.markdown, app.caption, app.subheader) for item in items)
+    assert 'Arthur Gea vs Zhang Zhizhen' in visible and 'Sieg Arthur Gea' in visible
+    assert 'CHF 10.00 Einsatz' in visible and 'angenommene Quote 1.50' in visible
+    assert 'INTERNAL_MODEL_BASIS' not in visible and 'INTERNAL_EFFECT_REVIEW' not in visible
+    assert not any(item.label == 'Statistik & Details' for item in app.expander)
+    assert app.session_state['snapshot_unchanged']
+    assert app.session_state['internal_notes'] == ('INTERNAL_MODEL_BASIS', 'INTERNAL_EFFECT_REVIEW')
+
+
 def test_observed_quote_below_floor_hides_daily3_proposal(tmp_path):
     app = AppTest.from_function(
         _render, args=(str(tmp_path/'daily3.db'), False, 'too_low')

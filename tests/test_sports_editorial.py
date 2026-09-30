@@ -98,7 +98,51 @@ def test_second_market_stays_visible_without_repeating_the_whole_match():
     headline, details = html.split('<details class="se-market-details">', 1)
     assert card.selection in headline and 'Modellchance' in headline and 'Quote' in headline
     assert 'class="se-match"' not in html and 'class="sports-form"' not in html
-    assert 'class="wf-analysis-short"' in details and 'Statistik &amp; Details' in details
+    assert 'class="wf-analysis-short"' in details and 'Gegenrisiko' in details
+    assert 'Statistik &amp; Details' not in details
+
+
+@pytest.mark.parametrize('signal_factory', [editorial_football, editorial_tennis])
+@pytest.mark.parametrize('stage', ['RELEASED', 'SHADOW', 'RESEARCH'])
+@pytest.mark.parametrize('renderer', ['editorial', 'top', 'compact'])
+def test_customer_renderers_keep_sport_facts_and_do_not_export_internal_model_notes(signal_factory, stage, renderer):
+    from wettfinder_surface import render_top_card_html, render_compact_row_html
+    signal = replace(signal_factory(), evidence_stage=stage)
+    before_signal = deepcopy(vars(signal))
+    card = build_wettfinder_card(signal, now=NOW)
+    before_card = deepcopy(card)
+    sentinel = 'Interner Prüfbeleg · Trainingsstichtag · Erfasste Turniere bis 25.09.2026'
+    compact = replace(card.compact_analysis, explanation=card.compact_analysis.explanation + (sentinel,))
+    card = replace(card, compact_analysis=compact)
+    render = {'editorial': render_editorial_card_html,
+              'top': render_top_card_html, 'compact': render_compact_row_html}[renderer]
+    markup = render(card)
+    for text in ('Sicherheitswert', 'heuristisch', 'Mindestchance', 'Evidenzprüfung',
+                 'Berechnet:', 'Statistik &amp; Details', sentinel):
+        assert text not in markup
+    assert card.selection in markup
+    assert 'sports-form' in markup and 'Gegner & Ergebnisse' in markup
+    assert card.compact_analysis.forms[0].results[0].opponent in markup
+    if signal_factory is editorial_football:
+        assert 'Gegenargument' in markup
+    assert sentinel in card.compact_analysis.explanation
+    assert card == replace(before_card, compact_analysis=compact)
+    assert vars(signal) == before_signal
+
+
+def test_legacy_card_without_typed_sport_facts_never_exports_raw_method_notes():
+    from wettfinder_surface import render_top_card_html, render_compact_row_html
+    card = replace(build_wettfinder_card(editorial_tennis(), now=NOW), compact_analysis=None,
+        analysis_basis='Interner Modellaufbau und Trainingsstichtag',
+        analysis_caution='Interne Effektprüfung', analysis_data_age='Turnierstart-Proxy',
+        analysis_samples='Interne Stichprobe')
+    before = deepcopy(card)
+    for render in (render_editorial_card_html, render_top_card_html, render_compact_row_html):
+        html = render(card)
+        assert 'keine weiteren Spielstatistiken' in html
+        for value in (card.analysis_basis, card.analysis_caution, card.analysis_data_age, card.analysis_samples):
+            assert value not in html
+    assert card == before
 
 
 @pytest.mark.parametrize('status_none', [True, False])

@@ -56,8 +56,9 @@ def compact(row=None):
     return build_compact_analysis(signal, build_forecast_analysis(signal, now=NOW), now=NOW)
 
 
-def test_short_visible_facts_keep_context_limitations_in_optional_details():
+def test_sporting_facts_stay_visible_and_raw_model_notes_stay_internal():
     result = compact()
+    before = deepcopy(result)
     markup = render_compact_analysis_html(result)
     visible = InitialText(markup).visible
     assert 'Erwartete Tore: 1,53 : 1,13 (Heim : Gast)' in visible
@@ -65,14 +66,18 @@ def test_short_visible_facts_keep_context_limitations_in_optional_details():
                  '22,4 %', 'Basis', '12 Heim · 12 Gast'):
         assert text in visible
     assert 'Ausfallwirkung nicht eingerechnet' not in visible
-    assert 'ihre Wirkung ist in dieser Wahrscheinlichkeit nicht eingerechnet' in markup
+    assert 'ihre Wirkung ist in dieser Wahrscheinlichkeit nicht eingerechnet' not in markup
+    assert 'ihre Wirkung ist in dieser Wahrscheinlichkeit nicht eingerechnet' in ' '.join(result.explanation)
     assert 'Heim A' not in visible and 'Das Modell erwartet' not in visible
     assert len(visible.split()) < 65
     assert 'Alpha · 3 Ausfälle: Heim A, Heim B, Heim C' in markup
     assert 'Alpha · 1 fraglich: Heim fraglich' in markup
     assert 'Beta · 7 Ausfälle: Gast 0, Gast 1' in markup
     assert '12 Heimspiele' in markup and 'je 6 letzte Spiele' in markup
-    assert 'Berechnet: 01.01.2030 11:00' in visible
+    assert 'Berechnet:' not in markup
+    assert 'Statistik &amp; Details' not in markup
+    assert result.model_clock == '01.01.2030 11:00'
+    assert result == before
     assert 'Kaderstand: 01.01.2030 12:30' in markup
     assert '<details class="wf-fact"><summary>' in markup
     assert ' onclick' not in markup and '<button' not in markup
@@ -89,7 +94,7 @@ def test_team_goal_estimate_has_explicit_unit_not_ambiguous_decimal():
     'Ausfallwirkung nicht eingerechnet',
     'Ausfallwirkung nicht vollständig belegt',
 ])
-def test_legacy_method_notes_are_optional_without_hiding_time_sensitive_alerts(legacy_note):
+def test_legacy_method_notes_stay_internal_without_hiding_time_sensitive_alerts(legacy_note):
     from forecast_compact import CompactAnalysis
     original = CompactAnalysis('Belegte Statistik', (),
         (legacy_note, 'Datenstand nicht aktuell belegt'), (), '01.01.2030 13:00')
@@ -99,8 +104,9 @@ def test_legacy_method_notes_are_optional_without_hiding_time_sensitive_alerts(l
     assert legacy_note not in markup
     assert 'Prognose' not in visible and 'Chance nicht eingerechnet' not in visible
     assert 'Datenstand nicht aktuell belegt' in visible
-    assert 'Statistik & Details' in visible
-    assert ('Prognose' in markup or 'Chance nicht eingerechnet' in markup)
+    assert 'Statistik & Details' not in visible
+    assert 'Prognose' not in markup and 'Chance nicht eingerechnet' not in markup
+    assert legacy_note in original.warnings
     assert original == before
 
 
@@ -111,22 +117,26 @@ def test_no_generic_context_limitation_is_added_without_an_actual_note():
         assert word not in markup
 
 
-def test_existing_context_explanation_is_not_repeated_as_an_extra_detail():
+def test_existing_context_explanation_is_retained_but_not_rendered():
     from forecast_compact import CompactAnalysis
     explanation = 'Verletzungen und Belastung: kein geprüfter Einfluss auf diese Prognose hinterlegt.'
-    markup = render_compact_analysis_html(CompactAnalysis('Belag: Sand', (),
-        ('Verletzungs-/Müdigkeitseffekte nicht belegt',), (explanation,), 'heute'))
-    assert markup.count(explanation) == 1
-    assert explanation not in InitialText(markup).visible
+    original = CompactAnalysis('Belag: Sand', (),
+        ('Verletzungs-/Müdigkeitseffekte nicht belegt',), (explanation,), 'heute')
+    markup = render_compact_analysis_html(original)
+    assert explanation not in markup
+    assert original.explanation == (explanation,)
 
 
-def test_esports_caution_is_retained_only_in_optional_details():
+def test_esports_sporting_counterargument_stays_without_a_method_footer():
     from test_forecast_selection import esports
     signal = esports()
     analysis = build_forecast_analysis(signal, now=NOW)
-    markup = render_compact_analysis_html(build_compact_analysis(signal, analysis, now=NOW))
-    assert analysis.caution in markup
-    assert analysis.caution not in InitialText(markup).visible
+    result = build_compact_analysis(signal, analysis, now=NOW)
+    markup = render_compact_analysis_html(result)
+    assert analysis.caution in markup  # Actual opposing-side probability, not methodology.
+    assert markup.count(analysis.caution) == 1
+    assert 'wf-analysis-footer' not in markup
+    assert analysis.caution in result.explanation
     assert 'Kader-/Belastungseffekte nicht belegt' not in markup
 
 

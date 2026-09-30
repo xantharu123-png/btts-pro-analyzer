@@ -99,7 +99,8 @@ def test_actual_forecast_and_daily3_share_customer_copy_without_changing_selecti
     analysis = build_forecast_analysis(signal, now=NOW)
     markup = render_compact_analysis_html(build_compact_analysis(signal, analysis, now=NOW))
     assert '5/5 Siege' in markup and '0/5 Siege' in markup and 'Sand' in markup
-    assert 'Statistik &amp; Details' in markup
+    assert 'Statistik &amp; Details' not in markup
+    assert '5 erfasste Spiele' in markup  # Sporting sample scope remains on the form fact.
     for internal in ('Elo', 'Modellaufbau', 'Trainingsstichtag', 'Proxy', 'numerischer Vorteil'):
         assert internal not in markup
     assert vars(signal) == original

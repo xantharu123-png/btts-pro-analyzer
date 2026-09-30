@@ -1,7 +1,7 @@
 """Short, typed card facts with optional native click/touch/keyboard details.
 
 Presentation only: no new data requests, ranking, probabilities or money rules.
-The full original explanation remains available without opening the whole card.
+Original model notes remain in the analysis object, not in customer HTML.
 """
 from dataclasses import dataclass
 from datetime import timedelta
@@ -34,18 +34,15 @@ class CompactAnalysis:
     forms: tuple[TeamForm, ...] = ()
 
 
-# Model-method limitations belong in optional details, not as repeated alerts.
-# Keep this at the render boundary too, so older in-session card objects follow
-# the same presentation rule without rewriting stored forecasts.
-_DETAIL_ONLY_NOTES = {
-    'Verletzungs-/Müdigkeitseffekte nicht belegt':
-        'Verletzungen und Belastung: kein geprüfter Einfluss auf diese Prognose hinterlegt.',
-    'Kader-/Belastungseffekte nicht belegt':
-        'Kader und Belastung: kein geprüfter Einfluss auf diese Prognose hinterlegt.',
-    'Ausfallwirkung nicht eingerechnet':
-        'Die gemeldeten Ausfälle sind in der angezeigten Chance nicht eingerechnet.',
-    'Ausfallwirkung nicht vollständig belegt':
-        'Nicht alle gemeldeten Ausfälle konnten für diese Prognose bewertet werden.',
+# Presentation only, including older in-session cards. Do not rewrite the
+# original notes or silently turn unknown/stale sporting facts into confirmations.
+_INTERNAL_NOTES = {
+    'Verletzungs-/Müdigkeitseffekte nicht belegt',
+    'Kader-/Belastungseffekte nicht belegt',
+    'Ausfallwirkung nicht eingerechnet',
+    'Ausfallwirkung nicht vollständig belegt',
+    'Modell noch nicht unabhängig bestätigt',
+    'Ligavergleich nicht bestätigt',
 }
 
 
@@ -137,7 +134,7 @@ def build_compact_analysis(signal, analysis, *, now):
             if customer:
                 facts.append(Fact('Gegenargument', 'Spielvergleich', (customer.counterargument,)))
                 fact_details = dict(customer.fact_details)
-                facts.extend(Fact(label, value, fact_details.get(label, customer.details))
+                facts.extend(Fact(label, value, fact_details.get(label, ()))
                              for label, value in customer.facts)
         def fresh(axis):
             clock = _clock(axis.get('checked_at'))
@@ -223,18 +220,9 @@ def render_compact_analysis_html(compact, *, supporting_fact='', instance_key=''
     if compact.forms:
         form_labels.add('Letzte Spiele')
     facts = ''.join(_fact_html(fact) for fact in compact.facts if fact.label not in form_labels)
-    notes = list(compact.explanation)
-    alerts = []
-    for text in compact.warnings:
-        note = _DETAIL_ONLY_NOTES.get(text)
-        if note:
-            if note not in notes:
-                notes.append(note)
-        else:
-            alerts.append(text)
+    alerts = [text for text in compact.warnings if text not in _INTERNAL_NOTES]
     warnings = ' · '.join(escape(text) for text in alerts)
     warning_html = f'<p class="wf-analysis-alert">{warnings}</p>' if warnings else ''
-    explanation = _fact_html(Fact('Statistik & Details', '', tuple(notes)))
     support = f'<p class="wf-analysis-support">{escape(supporting_fact)}</p>' if supporting_fact and show_summary else ''
     summary = f'<p class="wf-analysis-short">{escape(compact.summary)}</p>' if show_summary else ''
     return ('<section class="wf-analysis" aria-label="Kurzcheck">'
@@ -242,5 +230,4 @@ def render_compact_analysis_html(compact, *, supporting_fact='', instance_key=''
             f'{support}'
             f'{render_form_html(compact.forms, instance_key=instance_key) if show_form else ""}'
             f'<div class="wf-facts">{facts}</div>{warning_html}'
-            f'<div class="wf-analysis-footer"><span>Berechnet: {escape(compact.model_clock)}</span>{explanation}</div>'
             '</section>')

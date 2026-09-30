@@ -1,5 +1,28 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 30.09.2026 – Modellnotizen intern, Sportfakten für Kunden
+
+- Kundenkarten zeigen keine wiederholten `Statistik & Details`-Modellabsätze,
+  `Berechnet`-Footer, heuristischen Sicherheitswerte oder Evidenz-Badges mehr.
+  Gilt für Wettfinder, Daily3 einschließlich gespeicherter Wetten, manuelle
+  Suche und RisikoBet einschließlich seiner separaten Detailausgaben.
+- Echte Form-/Belag-/Gegner-/Ergebnisdaten, Kaderfakten und Gegenargumente bleiben
+  erreichbar. Fehlende oder veraltete Sportdaten werden nicht als vollständig
+  oder aktuell umdeklariert. Keine Änderung an Modellen, Auswahl, Quoten oder Geld.
+- Originalbelege bleiben in Prognosen und RisikoBet-Snapshots, den
+  `analysis_*`-Feldern/`CompactAnalysis.explanation` und signierten Daily3-
+  Wettsnapshots erhalten. Keine zusätzliche Datenbank oder Nachweiskopie nötig.
+- Prüfung: 611 betroffene Tests bestanden; unabhängiges Randfallreview mit 80
+  Tests ohne Befund. Neun lokale Browserkombinationen (Wettfinder/Daily3/
+  RisikoBet bei 1440/390/320 px), Formwechsel 5/10 und zehn echte Ergebniszeilen
+  geprüft. Keine Page-/Console-Fehler; bekannte iframe-Warnungen unverändert.
+- Separat weiterhin offen: Der automatische Tennis-Quotenpfad ist im aktuellen
+  Tageslauf ausdrücklich deaktiviert (`disabled_for_model_only_tips`, 0 geprüft).
+  Die Anzeige `Quote –` bei Gea/Zhang kommt nicht aus dieser UI-Korrektur;
+  seine Anbindung wurde in dieser Aufgabe nicht verändert.
+- Veröffentlichung anhand tatsächlichem Git-/VPS-Stand prüfen; kein neues
+  Backup, Sport-/API-Scan oder Finanzvorgang Bestandteil dieses Patches.
+
 ## 30.09.2026 – Sports Editorial nach Nutzerbeanstandung korrigiert
 
 - Der Nutzer hat die erste Oberfläche als nicht vorlagentreu beanstandet.

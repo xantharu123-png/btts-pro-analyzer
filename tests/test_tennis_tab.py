@@ -217,8 +217,9 @@ def test_match_card_shows_plain_gates_and_markets():
     # market metrics visible without any click
     labels = [m.label for m in at.metric]
     assert "Modell" in labels
-    assert "Sicherheitswert" in labels
+    assert "Sicherheitswert" not in labels
     assert "Value-Grenze" not in labels
+    assert not any('heuristisch' in item.value or 'Mindestchance' in item.value for item in at.caption)
 
 
 def test_blocked_card_hides_raw_probability_and_price_controls():

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import replace
 from datetime import datetime, timezone
 
@@ -128,7 +129,7 @@ def test_missing_research_probability_is_honestly_open_in_both_surfaces():
     assert surface.format_riskobet_probability(None) == "offen"
     for markup in (full, compact):
         assert "offen" in markup
-        assert "Frühe Analyse · noch nicht historisch geprüft" in markup
+        assert "Frühe Analyse · noch nicht historisch geprüft" not in markup
         assert "Kontext offen" in markup
         assert "Belastbare Pitch-Historie" in markup
         assert "Quote fehlt" in markup
@@ -155,12 +156,10 @@ def test_full_and_genuinely_compact_markup_keep_every_decision_field_visible():
         for visible in (
             "Fußball",
             "01.01. 16:00",
-            "Im Test · noch nicht historisch bestätigt",
             "Kontext frisch",
             "Außenseitersieg",
             "Sieg Alpha",
             "34.0 %",
-            "28.0 %",
             "Pro eins",
             "Contra eins",
             "Quote niedrig",
@@ -180,17 +179,66 @@ def test_full_and_genuinely_compact_markup_keep_every_decision_field_visible():
     assert len(compact) < len(full)
 
 
-def test_model_probability_is_primary_and_safety_value_is_explicitly_heuristic():
+def test_model_probability_is_visible_without_internal_safety_or_method_notes():
     card = _card(_candidate())
     full = surface.render_riskobet_card_html(card)
     compact = surface.render_riskobet_compact_row_html(card)
-    assert full.index("Modellwahrscheinlichkeit") < full.index("Sicherheitswert")
-    assert compact.index("Modell") < compact.index("Sicherheitswert")
-    assert "Heuristischer Abschlag, keine statistisch bestätigte Mindestchance" in full
+    assert "Modellwahrscheinlichkeit" in full
+    assert "Modell" in compact
     for markup in (full, compact):
         assert "Vorsichtige Trefferchance" not in markup
         assert "34.0 %" in markup
-        assert "28.0 %" in markup
+        assert "28.0 %" not in markup
+        assert "Sicherheitswert" not in markup
+        assert "Heuristischer Abschlag" not in markup
+        assert "statistisch bestätigte Mindestchance" not in markup
+    assert card.cautious_probability == 0.28
+
+
+@pytest.mark.parametrize('stage', list(EvidenceStage))
+@pytest.mark.parametrize('show_price', [False, True])
+@pytest.mark.parametrize('renderer', [
+    surface.render_riskobet_card_html,
+    surface.render_riskobet_compact_row_html,
+])
+def test_customer_render_keeps_sport_facts_and_internal_evidence_unchanged(
+    stage, show_price, renderer,
+):
+    candidate = _candidate(
+        stage=stage,
+        context_state=ContextState.PARTIAL,
+        pros=('Alpha gewann 4 der letzten 5 Spiele.',),
+        cons=('Beta gewann beide Direktduelle.',),
+        missing_core_data=('Startaufstellung',),
+    )
+    card = _card(
+        candidate,
+        status='AVAILABLE',
+        observed_odds=3.45,
+        bookmaker='Book One',
+        observed_at='2030-01-01T13:00:00+00:00',
+    )
+    candidate_before, card_before = deepcopy(candidate), deepcopy(card)
+
+    markup = renderer(card, show_price=show_price)
+
+    for fact in ('Alpha vs Beta', 'Außenseitersieg', 'Sieg Alpha', '34.0 %',
+                 'Alpha gewann 4 der letzten 5 Spiele.',
+                 'Beta gewann beide Direktduelle.', 'Startaufstellung',
+                 'Kontext teilweise offen'):
+        assert fact in markup
+    for internal in ('rb-badge-evidence', card.evidence_label, 'Sicherheitswert',
+                     'heuristischer Abschlag', 'Heuristischer Abschlag',
+                     'statistisch bestätigte Mindestchance', '28.0 %'):
+        assert internal not in markup
+    assert 'Kontext frisch' not in markup
+    for price_fact in ('3.45', 'Book One', '01.01. 14:00', 'Quote beobachtet'):
+        assert (price_fact in markup) is show_price
+    assert candidate == candidate_before
+    assert card == card_before
+    assert card.evidence_code == stage.value
+    assert card.evidence_label
+    assert card.cautious_probability == candidate.cautious_probability == 0.28
 
 
 def test_internal_context_statuses_are_translated_without_promoting_evidence():

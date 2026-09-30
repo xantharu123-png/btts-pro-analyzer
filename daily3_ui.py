@@ -63,10 +63,8 @@ def _saved_bet(st, store, scope, day, bet):
         st.write(f'{snap["market"]} · {snap["selection"]}')
         st.write(f'{format_chf(bet["stake_cents"])} Einsatz · angenommene Quote {bet["odds"]}')
         st.caption(status)
-        st.write(snap['analysis_basis'])
-        if snap.get('analysis_caution'):
-            with st.expander('Statistik & Details'):
-                st.write(snap['analysis_caution'])
+        # The signed bet snapshot retains its original model notes internally.
+        # A saved bet needs its selection and money status, not method prose.
         if bet['external_deviation']:
             st.warning('Nachträglich erfasste externe Wette. Die App dokumentiert diesen Einsatz nur.')
         if bet['under_review']:
