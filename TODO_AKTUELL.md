@@ -20,8 +20,14 @@
   Tageslauf ausdrücklich deaktiviert (`disabled_for_model_only_tips`, 0 geprüft).
   Die Anzeige `Quote –` bei Gea/Zhang kommt nicht aus dieser UI-Korrektur;
   seine Anbindung wurde in dieser Aufgabe nicht verändert.
-- Veröffentlichung anhand tatsächlichem Git-/VPS-Stand prüfen; kein neues
-  Backup, Sport-/API-Scan oder Finanzvorgang Bestandteil dieses Patches.
+- UI-Code `d62d5d998d978aa96e00129fa88b118215aa2d0b` auf GitHub main und
+  per geprüftem Fast-forward auf dem VPS veröffentlicht. Produktionsnachweis
+  am 30.09. gegen 08:32 CEST: echte Gea/Zhang-Karte bei 1440/390/320 px ohne
+  Techniktexte, zehn Gegnerergebnisse erreichbar, Daily3 (eine Auswahl) und
+  RisikoBet (23 Karten) ebenfalls geprüft. Keine neuen Page-/Console-/Request-
+  Fehler, beide Healthchecks `ok`, App/Caddy und sieben Timer aktiv.
+  Folgender Nachweiscommit nur Dokumentation; kein neues Backup, zusätzlicher
+  Sport-/API-Scan oder Finanzvorgang.
 
 ## 30.09.2026 – Sports Editorial nach Nutzerbeanstandung korrigiert
 
