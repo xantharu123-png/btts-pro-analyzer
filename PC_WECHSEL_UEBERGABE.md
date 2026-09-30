@@ -6,8 +6,12 @@ Oberster TODO-Block ist maßgeblich. Bereits gestartete RisikoBet-Szenarien
 werden ausschließlich aus der kommenden Kartenansicht entfernt; Historie,
 Modelle, Quoten und Geldbelege bleiben erhalten. Filter beim Aufruf/Neurendern,
 keine neuen Scans/Timer. E-Sport zeigt reale S/N-Serienbilanz statt leerer
-Gegnerlisten. 548 Integrationstests und unabhängiger Review grün.
-Produktionsnachweis folgt nach kontrolliertem Code-Pull ohne neues Backup.
+Gegnerlisten. 769 gezielte Tests und unabhängiger Review grün. Code `c9de1e9`
+auf main/VPS live; echte Karten bei 1440/390/320, 5↔10 und unveränderte
+Modell-/RisikoBet-Dateien geprüft. Beide Healthchecks `ok`, sieben Timer geplant.
+Vollsuite aus Zeitgründen bei 22 % beendet, nicht als bestanden behauptet.
+Kein Backup oder zusätzlicher API-/Sportscan. Fachliche Kontexteffekte bleiben
+getrennt offen; keine Behauptung verbesserter Wettqualität aus diesen UI-Tests.
 
 ## Aktueller Einstieg – Teamlogos aller Sportarten, 30.09.2026
 
@@ -58,8 +62,9 @@ RisikoBet hat kurze Spielerbilanzen statt der beanstandeten Protokollabsätze.
 767 Tests plus 26 Untertests sowie lokale/produktive Drei-Breiten-Prüfung grün.
 Code `7b60496` auf main/VPS; nachfolgender Nachweiscommit nur Dokumentation.
 Keine neuen Sicherungen, zusätzlichen Sportscans oder Geld-/Modelländerungen.
-Numerische Kontexteffekte, Gesamt-Wettqualität und RisikoBet-Projektion bereits
-begonnener Tagesszenarien bleiben gesondert offen. Ungetrackte Artefakte erhalten.
+Numerische Kontexteffekte und Gesamt-Wettqualität bleiben gesondert offen.
+Die damals offene RisikoBet-Zeitprojektion ist im obersten Block repariert.
+Ungetrackte Artefakte erhalten.
 
 ## Aktueller Einstieg – Kundenkarten ohne interne Modellnotizen, 30.09.2026
 

@@ -12,10 +12,19 @@
 - E-Sport-Form: Sieg/Niederlage-Plättchen und Bilanzen bleiben erhalten,
   leere Gegner-/Ergebniszeilen entfallen. Ein kurzer Hinweis statt vielfacher
   Leertexte. Tatsächlich vorhandene Gegner, Resultate und Termine bleiben.
-- 548 betroffene Integrationstests bestanden; unabhängiger Gegenreview ohne
-  Befund, zusätzliche 150 Tests. Vollsuite gestartet, noch nicht abgeschlossen.
-  Veröffentlichung und sichtbarer Produktionsnachweis werden anschließend
-  ergänzt. Keine API-Abfrage, Modell-/Geldänderung, Sicherung oder Bereinigung.
+- 769 betroffene Integrationstests bestanden (548 Karten/RisikoBet/Logos plus
+  221 Daily3/Auswahl/Untergrenze); unabhängiger Gegenreview ohne Befund.
+  Vollsuite mit 11.878 gesammelten Tests bei 22 % für das ausdrücklich
+  begrenzte 30-Minuten-Fenster abgebrochen, nicht als Vollsuite-Erfolg gewertet.
+- Code `c9de1e9` committed, gepusht und per kontrolliertem Pull auf VPS live.
+  Live 7 kommende Szenarien aus 6 Events; 63 gestartete Szenarien ausgeblendet.
+  Tsitsipas/Gea/Djokovic und inzwischen gestartete Vitality/LOUD nicht mehr im
+  kommenden Katalog. Reale E-Sport-Form ohne leere Gegnerzeilen, 5↔10 funktioniert.
+  1440/390/320 ohne horizontalen Überlauf. Beide Healthchecks `ok`, sieben Timer
+  geplant; Modell-/RisikoBet-Dateien bytegleich. Keine API-Abfrage, Modell-/
+  Geldänderung, Sicherung oder Bereinigung.
+- [Prüfbericht](docs/audits/2026-09-30-kundenansicht-zeitfilter.md) enthält
+  Reproduktion, Software- und sichtbare Produktionsbelege sowie klare Grenzen.
 - Empirische Kontexteffekte und bessere Wettqualität bleiben eigene offene
   Aufgaben; diese Darstellungsreparatur belegt keine Verbesserung der Modelle.
 
@@ -118,8 +127,8 @@
   von Sicherungen, Datenbereinigung oder weiteren API-Abfragen.
 - [Ursachen, Reparatur und Produktionsnachweis](docs/audits/2026-09-30-tennisquoten-riskobet-kurzform.md).
   Separat offen bleiben empirisch belegte Kontexteffekte und Gesamt-Wettqualität.
-  RisikoBet führt außerdem schon begonnene Tagesszenarien noch im Katalog;
-  diese zeitliche Auswahlprojektion ist nicht Teil der Text-/Quotenreparatur.
+  Damals führte RisikoBet bereits begonnene Tagesszenarien noch im Katalog;
+  diese separat behandelte Lücke ist durch den obersten Zeitfilter-Block behoben.
 
 ## 30.09.2026 – Modellnotizen intern, Sportfakten für Kunden
 
