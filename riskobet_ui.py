@@ -330,6 +330,24 @@ def load_riskobet_view(path: str | Path | None = None) -> Optional[RiskBetView]:
     )
 
 
+def upcoming_riskobet_candidates(
+    view: RiskBetView,
+    *,
+    now: Optional[datetime] = None,
+) -> tuple[RiskCandidate, ...]:
+    """Project upcoming suggestions without mutating the published history.
+
+    The exact snapshot-bound start is authoritative for this read-only view.
+    A schedule change needs its own published revision; a clock comparison
+    must not silently rewrite an old forecast or imply a finished result.
+    """
+    current = datetime.now(timezone.utc) if now is None else now
+    if not isinstance(current, datetime) or current.tzinfo is None or current.utcoffset() is None:
+        raise RiskBetViewError("upcoming comparison clock must be timezone-aware")
+    current = current.astimezone(timezone.utc)
+    return tuple(candidate for candidate in view.candidates if candidate.starts_at > current)
+
+
 def _widget_suffix(candidate: RiskCandidate) -> str:
     return f"{candidate.candidate_id}-{candidate.snapshot_id}"
 
@@ -580,12 +598,17 @@ def _render_additional(
                 _render_detail(candidate, snapshots[candidate.snapshot_id])
 
 
-def render_riskobet(path: str | Path | None = None) -> None:
+def render_riskobet(
+    path: str | Path | None = None,
+    *,
+    now: Optional[datetime] = None,
+) -> None:
     """Render the read-only RisikoBet page without any provider/model calls."""
 
     with st.container(key="riskobet_page"):
         try:
             view = load_riskobet_view(path)
+            upcoming = () if view is None else upcoming_riskobet_candidates(view, now=now)
         except (OSError, TypeError, ValueError):
             st.error(
                 "RisikoBet-Daten können aktuell nicht sicher angezeigt "
@@ -611,11 +634,11 @@ def render_riskobet(path: str | Path | None = None) -> None:
         if sport_filter not in SPORT_FILTERS:
             sport_filter = "Alle"
         # Reuse only already stored, exactly bound prices. No provider call.
-        overlays = load_shared_price_overlays(view.candidates, view.snapshots.values())
+        overlays = load_shared_price_overlays(upcoming, view.snapshots.values()) if upcoming else {}
         cards = tuple(
             _display_card(candidate, manual) if (manual := _stored_manual_quote(candidate)) is not None
             else build_riskobet_card(candidate, overlays.get(candidate.candidate_id))
-            for candidate in view.candidates
+            for candidate in upcoming
         )
         catalog = compose_riskobet_catalog(
             cards,
@@ -641,7 +664,7 @@ def render_riskobet(path: str | Path | None = None) -> None:
                     f"{event_label} · Stand: {completed}"
                 )
         candidate_by_id = {
-            candidate.candidate_id: candidate for candidate in view.candidates
+            candidate.candidate_id: candidate for candidate in upcoming
         }
         _render_featured(catalog.featured, candidate_by_id, view.snapshots)
         _render_additional(catalog.additional, candidate_by_id, view.snapshots)
@@ -653,5 +676,6 @@ __all__ = [
     "RiskBetView",
     "RiskBetViewError",
     "load_riskobet_view",
+    "upcoming_riskobet_candidates",
     "render_riskobet",
 ]

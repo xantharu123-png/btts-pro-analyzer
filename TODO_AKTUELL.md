@@ -1,5 +1,24 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 30.09.2026 – RisikoBet-Zeitfilter und kompakte Serienform
+
+- Reproduziert am echten Bestand: 70 RisikoBet-Szenarien, davon 60 bereits
+  nach angesetztem Beginn. Der reine Leser behält alle Originalbelege; nur
+  kommende Vorschlagskarten werden vor Katalog, Preisen und Seiteneinteilung
+  nach `starts_at > now` gefiltert. Kein Ergebnis aus der Uhrzeit erfunden.
+- Alle sechs Sportarten, exakter Beginn, Zeitzonen/DST, gültige neue
+  Terminrevision und unveränderter alter Kontext getestet. Die Ansicht wird
+  beim Aufruf/Neurendern aktualisiert; kein zusätzlicher Browser-/Sporttimer.
+- E-Sport-Form: Sieg/Niederlage-Plättchen und Bilanzen bleiben erhalten,
+  leere Gegner-/Ergebniszeilen entfallen. Ein kurzer Hinweis statt vielfacher
+  Leertexte. Tatsächlich vorhandene Gegner, Resultate und Termine bleiben.
+- 548 betroffene Integrationstests bestanden; unabhängiger Gegenreview ohne
+  Befund, zusätzliche 150 Tests. Vollsuite gestartet, noch nicht abgeschlossen.
+  Veröffentlichung und sichtbarer Produktionsnachweis werden anschließend
+  ergänzt. Keine API-Abfrage, Modell-/Geldänderung, Sicherung oder Bereinigung.
+- Empirische Kontexteffekte und bessere Wettqualität bleiben eigene offene
+  Aufgaben; diese Darstellungsreparatur belegt keine Verbesserung der Modelle.
+
 ## 30.09.2026 – Teamlogos für die weiteren Sportarten
 
 - E-Sport, NBA, NHL, EuroLeague und Cricket nutzen jetzt dieselben externen

@@ -373,7 +373,76 @@ def test_esports_never_invents_opponents_scores_or_time_order():
         'schema': 'esports-recent-results-v1', 'provider_event_id': '55', 'source_input_hash': 'a'*64,
         'competitor_a': 'Alpha', 'competitor_b': 'Beta', 'a_results': [True]*10, 'b_results': [False]*10})
     forms = team_forms(signal, team_customer_explanation(signal))
+    before = deepcopy(forms)
     html = render_form_html(forms)
     assert 'Erfasste Reihenfolge' in html and 'Neueste zuerst' not in html
-    assert 'Gegner und Einzelresultat nicht hinterlegt' in html
+    # Two teams in both the 5-/10-game windows: one honest scope note per
+    # team/window, never an invented opponent row for every win/loss flag.
+    assert html.count('Nur Serienbilanz verfügbar') == 4
+    assert 'form-opponent-preview' not in html and 'form-opponents' not in html
+    assert 'Gegner nicht hinterlegt' not in html
+    assert 'Keine weiteren Einzelspieldaten' not in html
+    assert 'Gegner und Einzelresultat nicht hinterlegt' not in html
+    assert html.count('class="form-result form-s"') == 15
+    assert html.count('class="form-result form-n"') == 15
+    assert '10S · 0N · 10 Spiele' in html and '0S · 10N · 10 Spiele' in html
+    assert forms == before
     assert all(not r.opponent and not r.score and not r.date for f in forms for r in f.results)
+
+
+def test_outcome_only_non_series_form_has_one_neutral_coverage_note():
+    forms = (TeamForm('Alpha', 'Hartplatz', tuple(FormResult('S') for _ in range(5))),)
+    before = deepcopy(forms)
+    html = render_form_html(forms)
+    assert html.count('Nur Bilanz verfügbar') == 1
+    assert 'Nur Serienbilanz' not in html and 'form-opponent-row' not in html
+    assert html.count('class="form-result form-s"') == 5
+    assert '5S · 0N · 5 Spiele' in html
+    assert forms == before
+
+
+def test_mixed_form_keeps_real_details_without_empty_opponent_rows():
+    results = (
+        FormResult('S', '2:0', 'Gegner A', '2026-09-29'),
+        FormResult('N'),
+        FormResult('S', '1:0', 'Gegner B'),
+        FormResult('N', date='2026-09-27'),
+        FormResult('S', '3:1'),
+    )
+    forms = (TeamForm('Alpha', 'Serien · erfasste Reihenfolge', results),)
+    before = deepcopy(forms)
+    html = render_form_html(forms)
+    assert html.count('class="form-opponent-row"') == 4
+    assert html.count('1 Ergebnis ohne Spieldetails') == 1
+    assert 'Nur Serienbilanz verfügbar' not in html
+    assert 'Gegner A' in html and 'Gegner B' in html
+    assert '27.09.2026' in html and '3:1' in html
+    assert html.count('Gegner offen') == 2
+    assert '1 weitere Spieldetails' in html and 'Alle 5 Spiele' not in html
+    assert '3S · 2N · 5 Spiele' in html
+    assert html.count('class="form-result form-s"') == 3
+    assert html.count('class="form-result form-n"') == 2
+    assert forms == before
+
+
+def test_partial_form_window_counts_its_own_missing_details():
+    results = tuple(FormResult('S', '2:0', f'Gegner {i}') if i in (0, 7)
+                    else FormResult('N') for i in range(10))
+    html = render_form_html((TeamForm('Alpha', 'Serien · erfasste Reihenfolge', results),))
+    five, ten = html.split('class="form-window form-window-10"', 1)
+    assert '4 Ergebnisse ohne Spieldetails' in five
+    assert '8 Ergebnisse ohne Spieldetails' in ten
+    assert five.count('class="form-opponent-row"') == 1
+    assert ten.count('class="form-opponent-row"') == 2
+    assert 'Gegner 7' not in five and 'Gegner 7' in ten
+
+
+def test_rank_or_location_only_remains_a_real_observation_not_an_empty_row():
+    forms = (TeamForm('Alpha', 'Hartplatz', (
+        FormResult('S', rank=12), FormResult('N', venue='Auswärts'), FormResult('S'),
+    )),)
+    html = render_form_html(forms)
+    assert html.count('class="form-opponent-row"') == 2
+    assert 'Weltrang 12' in html and 'Auswärts' in html
+    assert html.count('1 Ergebnis ohne Spieldetails') == 1
+    assert '2S · 1N · 3 Spiele' in html

@@ -1,5 +1,14 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg – RisikoBet-Zeitfilter und Serienform, 30.09.2026
+
+Oberster TODO-Block ist maßgeblich. Bereits gestartete RisikoBet-Szenarien
+werden ausschließlich aus der kommenden Kartenansicht entfernt; Historie,
+Modelle, Quoten und Geldbelege bleiben erhalten. Filter beim Aufruf/Neurendern,
+keine neuen Scans/Timer. E-Sport zeigt reale S/N-Serienbilanz statt leerer
+Gegnerlisten. 548 Integrationstests und unabhängiger Review grün.
+Produktionsnachweis folgt nach kontrolliertem Code-Pull ohne neues Backup.
+
 ## Aktueller Einstieg – Teamlogos aller Sportarten, 30.09.2026
 
 Oberster TODO-Block und letzter Schildbilder-Bericht sind maßgeblich. E-Sport,

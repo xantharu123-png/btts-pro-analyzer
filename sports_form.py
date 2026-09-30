@@ -132,8 +132,6 @@ def _result_html(result):
     fields += [x for x in (result.opponent, _date_label(result.date), result.competition, result.venue) if x]
     if result.rank is not None:
         fields.append(f'Damaliger Weltrang: {result.rank}')
-    if not result.opponent:
-        fields.append('Gegner und Einzelresultat nicht hinterlegt.')
     body = ''.join(f'<span>{escape(str(field))}</span>' for field in fields)
     label = name + (f' {result.score}' if result.score else '') + (f' gegen {result.opponent}' if result.opponent else '')
     return (f'<details class="form-result form-{result.outcome.lower()}">'
@@ -143,7 +141,7 @@ def _result_html(result):
 
 
 def _opponent_line(result):
-    name = result.opponent or 'Gegner nicht hinterlegt'
+    name = result.opponent or 'Gegner offen'
     mark = next((letter for letter in name if letter.isalnum()), '?').upper()
     metadata = ' · '.join(x for x in (_date_label(result.date), result.competition,
         result.venue, f'Weltrang {result.rank}' if result.rank is not None else '') if x)
@@ -151,8 +149,13 @@ def _opponent_line(result):
         f'<span class="form-opponent-mark" aria-hidden="true">{escape(mark)}</span>'
         f'<strong>{escape(name)}</strong><b>{escape(result.score or "–")}</b>'
         f'<span class="form-outcome form-outcome-{result.outcome.lower()}">{result.outcome}</span>'
-        '</summary>' + (f'<p>{escape(metadata)}</p>' if metadata else
-            '<p>Keine weiteren Einzelspieldaten hinterlegt.</p>') + '</details></li>')
+        '</summary>' + (f'<p>{escape(metadata)}</p>' if metadata else '') + '</details></li>')
+
+
+def _has_result_details(result):
+    """A win/loss flag alone is a real result, not a known opponent/score row."""
+    return any((result.opponent, result.score, result.date, result.competition,
+                result.venue)) or result.rank is not None
 
 
 def _window_html(forms, count):
@@ -161,15 +164,25 @@ def _window_html(forms, count):
         rows = form.results[:count]
         wins, draws, losses = (sum(r.outcome == mark for r in rows) for mark in ('S', 'U', 'N'))
         record = f'{wins}S · {draws}U · {losses}N' if any(r.outcome == 'U' for r in form.results) or 'Spielorte' in form.scope else f'{wins}S · {losses}N'
-        preview = ''.join(_opponent_line(r) for r in rows[:3])
-        remainder = ''.join(_opponent_line(r) for r in rows[3:])
-        more = ('<details class="form-opponents"><summary>Alle ' + str(len(rows)) + ' Spiele</summary>'
+        known_rows = tuple(r for r in rows if _has_result_details(r))
+        preview = ''.join(_opponent_line(r) for r in known_rows[:3])
+        remainder = ''.join(_opponent_line(r) for r in known_rows[3:])
+        more_label = ('Alle ' + str(len(rows)) + ' Spiele' if len(known_rows) == len(rows)
+                      else str(len(known_rows) - 3) + ' weitere Spieldetails')
+        more = ('<details class="form-opponents"><summary>' + more_label + '</summary>'
             f'<ol>{remainder}</ol></details>') if remainder else ''
+        opponents = ('<div class="form-opponent-preview"><h5>Gegner & Ergebnisse</h5>'
+                     f'<ol>{preview}</ol></div>{more}') if known_rows else ''
+        missing = len(rows) - len(known_rows)
+        coverage = ''
+        if missing:
+            note = ('Nur Serienbilanz verfügbar' if 'Serien' in form.scope else 'Nur Bilanz verfügbar') if not known_rows else (
+                f'{missing} Ergebnis' + ('se' if missing != 1 else '') + ' ohne Spieldetails')
+            coverage = f'<small class="form-coverage">{escape(note)}</small>'
         teams.append(f'<section class="form-team"><div class="form-team-heading"><strong>{escape(form.team)}</strong>'
             f'<span>{record} · {len(rows)} Spiele</span></div><small>{escape(form.scope)}</small>'
             f'<div class="form-results">{"".join(_result_html(r) for r in rows)}</div>'
-            '<div class="form-opponent-preview"><h5>Gegner & Ergebnisse</h5>'
-            f'<ol>{preview}</ol></div>{more}</section>')
+            f'{opponents}{coverage}</section>')
     return f'<div class="form-window form-window-{count}">{"".join(teams)}</div>'
 
 

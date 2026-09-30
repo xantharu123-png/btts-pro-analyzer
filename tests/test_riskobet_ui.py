@@ -925,3 +925,155 @@ def test_filter_options_are_exact_and_filtering_does_not_load_again(monkeypatch)
     markup = "\n".join(item[0] for item in fake.markdown_calls)
     assert "Außenseiter tennis-filter" in markup
     assert "Außenseiter football-filter" not in markup
+
+
+@pytest.mark.parametrize("sport", ("football", "tennis", "basketball", "ice_hockey", "cricket", "esports"))
+@pytest.mark.parametrize("elapsed", (timedelta(0), timedelta(microseconds=1), timedelta(days=1)))
+def test_started_scenarios_are_not_upcoming_proposals_for_any_sport(monkeypatch, sport, elapsed):
+    view = _view(_bundle("started-" + sport, sport=sport))
+    before = deepcopy(view)
+    fake = RecordingStreamlit()
+    overlay_reads = []
+    monkeypatch.setattr(ui, "st", fake)
+    monkeypatch.setattr(ui, "load_riskobet_view", lambda _path=None: view)
+    monkeypatch.setattr(ui, "load_shared_price_overlays", lambda *args: overlay_reads.append(args) or {})
+
+    ui.render_riskobet(now=START + elapsed)
+
+    assert not _rendered_candidate_ids(fake)
+    assert "kein passendes Risiko-Szenario" in _all_text(fake)
+    assert "## Szenarien nach Datenqualität" not in _all_text(fake)
+    assert "## Weitere Szenarien" not in _all_text(fake)
+    assert overlay_reads == []
+    assert view == before
+
+
+def test_upcoming_projection_uses_exact_aware_start_and_preserves_order_and_evidence():
+    from zoneinfo import ZoneInfo
+
+    bundles = (_bundle("future-1"), _bundle("future-2", sport="tennis"))
+    view = _view(*bundles)
+    before = deepcopy(view)
+    # Compare instants, not Zurich/UTC clock labels; include the last microsecond.
+    zurich_now = (START - timedelta(microseconds=1)).astimezone(ZoneInfo("Europe/Zurich"))
+    assert ui.upcoming_riskobet_candidates(view, now=zurich_now) == view.candidates
+    assert ui.upcoming_riskobet_candidates(view, now=START) == ()
+    assert ui.upcoming_riskobet_candidates(view, now=START.astimezone(ZoneInfo("America/New_York"))) == ()
+    assert view == before
+    assert all(candidate is original for candidate, original in zip(
+        ui.upcoming_riskobet_candidates(view, now=MODELED), view.candidates))
+
+
+def test_default_render_clock_filters_started_match_without_user_refreshing_data(monkeypatch):
+    class AtStartClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls.fromtimestamp(START.timestamp(), tz)
+
+    view = _view(_bundle("default-clock"))
+    fake = RecordingStreamlit()
+    monkeypatch.setattr(ui, "st", fake)
+    monkeypatch.setattr(ui, "datetime", AtStartClock)
+    monkeypatch.setattr(ui, "load_riskobet_view", lambda _path=None: view)
+
+    ui.render_riskobet()
+
+    assert not _rendered_candidate_ids(fake)
+    assert "kein passendes Risiko-Szenario" in _all_text(fake)
+
+
+def test_upcoming_projection_handles_repeated_dst_clock_hour_as_two_instants():
+    from zoneinfo import ZoneInfo
+
+    snapshot, candidate = _bundle("zurich-dst")
+    start = datetime(2030, 10, 27, 1, 30, tzinfo=timezone.utc)
+    snapshot = replace(snapshot, starts_at=start)
+    candidate = replace(candidate, starts_at=start, snapshot_id=snapshot.snapshot_id)
+    view = _view((snapshot, candidate))
+    first_two_thirty = datetime(2030, 10, 27, 2, 30, tzinfo=ZoneInfo("Europe/Zurich"), fold=0)
+    second_two_thirty = datetime(2030, 10, 27, 2, 30, tzinfo=ZoneInfo("Europe/Zurich"), fold=1)
+
+    assert ui.upcoming_riskobet_candidates(view, now=first_two_thirty) == (candidate,)
+    assert ui.upcoming_riskobet_candidates(view, now=second_two_thirty) == ()
+
+
+@pytest.mark.parametrize("bad_now", (datetime(2030, 1, 2, 18), "2030-01-02T18:00:00Z", False))
+def test_upcoming_projection_rejects_ambiguous_comparison_clock(bad_now):
+    with pytest.raises(ui.RiskBetViewError, match="timezone-aware"):
+        ui.upcoming_riskobet_candidates(_view(_bundle("bad-clock")), now=bad_now)
+
+
+@pytest.mark.parametrize("bad_start", (None, "", "not-a-time", "2030-01-02T18:00:00", 1893616800))
+def test_missing_or_invalid_starts_are_not_silently_rendered_as_upcoming(monkeypatch, bad_start):
+    payload = _payload(_bundle("bad-start"))
+    payload["snapshots"][0]["starts_at"] = bad_start
+    payload["candidates"][0]["starts_at"] = bad_start
+    monkeypatch.setattr(ui, "_read_latest", lambda _path=None: payload)
+    fake = RecordingStreamlit()
+    monkeypatch.setattr(ui, "st", fake)
+
+    ui.render_riskobet(now=MODELED)
+
+    assert not _rendered_candidate_ids(fake)
+    assert "nicht sicher angezeigt" in _all_text(fake)
+
+
+def test_future_revision_of_rescheduled_event_remains_visible_without_rewriting_old_snapshot(monkeypatch):
+    old_snapshot, old_candidate = _bundle("rescheduled")
+    revised_snapshot = replace(old_snapshot, starts_at=START + timedelta(hours=2),
+        input_hash=hashlib.sha256(b"new-native-schedule-input").hexdigest())
+    revised_candidate = replace(old_candidate, snapshot_id=revised_snapshot.snapshot_id,
+        starts_at=revised_snapshot.starts_at)
+    payload = _payload((old_snapshot, old_candidate), (revised_snapshot, revised_candidate))
+    # Latest publishes one revision per stable candidate identity, while its
+    # retained snapshots can still include the immutable previous schedule.
+    payload["candidates"] = payload["candidates"][1:]
+    monkeypatch.setattr(ui, "_read_latest", lambda _path=None: payload)
+    view = ui.load_riskobet_view()
+    before = deepcopy(payload), deepcopy(view)
+    fake = RecordingStreamlit()
+    monkeypatch.setattr(ui, "st", fake)
+
+    ui.render_riskobet(now=START + timedelta(minutes=30))
+
+    assert _rendered_candidate_ids(fake) == [revised_candidate.candidate_id]
+    assert "02.01. 21:00" in _all_text(fake)
+    assert len(view.candidates) == 1
+    assert view.snapshots[old_snapshot.snapshot_id] == old_snapshot
+    assert ui.upcoming_riskobet_candidates(_view((old_snapshot, old_candidate)),
+        now=START + timedelta(minutes=30)) == ()
+    assert (payload, view) == before
+
+
+def test_future_start_does_not_infer_a_fresh_context_or_reset_old_model_times(monkeypatch):
+    snapshot, candidate = _bundle("stale-context")
+    candidate = replace(candidate, context_state=ContextState.STALE)
+    view = _view((snapshot, candidate))
+    before = deepcopy(view)
+    fake = RecordingStreamlit()
+    monkeypatch.setattr(ui, "st", fake)
+    monkeypatch.setattr(ui, "load_riskobet_view", lambda _path=None: view)
+
+    ui.render_riskobet(now=START - timedelta(minutes=1))
+
+    assert _rendered_candidate_ids(fake) == [candidate.candidate_id]
+    assert "Kontext veraltet" in _all_text(fake)
+    assert "Kontext frisch" not in _all_text(fake)
+    assert view == before
+
+
+def test_started_scenarios_do_not_take_event_cap_featured_or_pagination_slots(monkeypatch):
+    started = _bundle("elapsed")
+    snapshot, candidate = _bundle("next")
+    snapshot = replace(snapshot, starts_at=START + timedelta(hours=1))
+    candidate = replace(candidate, starts_at=snapshot.starts_at, snapshot_id=snapshot.snapshot_id)
+    view = _view(started, (snapshot, candidate))
+    fake = RecordingStreamlit()
+    monkeypatch.setattr(ui, "st", fake)
+    monkeypatch.setattr(ui, "load_riskobet_view", lambda _path=None: view)
+
+    ui.render_riskobet(now=START)
+
+    assert _rendered_candidate_ids(fake) == [candidate.candidate_id]
+    assert "1 Szenario aus 1 Event" in _all_text(fake)
+    assert "riskobet_additional" not in fake.containers
