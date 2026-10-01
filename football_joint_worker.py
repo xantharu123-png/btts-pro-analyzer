@@ -209,12 +209,13 @@ def publish_joint_comparison(path, binding_ref, *, decision_at, max_payload_byte
     revision_key = digest(revision)
     pointer = {**revision, "decision_at": decision}
     pointer_bytes = len(canonical_bytes(pointer))
-    if pointer_bytes >= max_payload_bytes:
-        return {**summary, "status": "payload-budget-exhausted", "decision_at": decision}
     with _reader(Path(path)) as connection:
         frozen = _stored_pointer(connection, revision_key)
+    pointer_was_stored = frozen is not None
     precomputed = None
     if frozen is None:
+        if pointer_bytes >= max_payload_bytes:
+            return {**summary, "status": "payload-budget-exhausted", "decision_at": decision}
         inputs = {"event": binding["native_event"], "base": base, "features": features,
                   "observation_refs": refs, "preprocessing_refs": [],
                   "effect_artifact": effect, "effect_hash": effect_hash, "approval": None}
@@ -245,6 +246,9 @@ def publish_joint_comparison(path, binding_ref, *, decision_at, max_payload_byte
               "observation_refs": refs, "preprocessing_refs": [],
               "effect_artifact": effect, "effect_hash": effect_hash, "approval": None}
     key = context_payload_key({"schema": 1, "kind": KIND, **inputs, "approval_hash": None})
+    with _reader(Path(path)) as connection:
+        payload = _stored_pointer(connection, key)
+    publication_reused = pointer_was_stored and payload is not None
     required_bytes = None
     def calculate():
         nonlocal required_bytes
@@ -254,17 +258,19 @@ def publish_joint_comparison(path, binding_ref, *, decision_at, max_payload_byte
         if required_bytes > max_payload_bytes:
             raise StorageBudgetExceeded("joint comparison exceeds its finite payload budget")
         return payload
-    try:
-        payload = compute_once(Path(path), key, calculate)
-    except StorageBudgetExceeded:
-        return {**summary, "status": "payload-budget-exhausted", "decision_at": frozen["decision_at"],
-                "required_payload_bytes": required_bytes}
+    if payload is None:
+        try:
+            payload = compute_once(Path(path), key, calculate)
+        except StorageBudgetExceeded:
+            return {**summary, "status": "payload-budget-exhausted", "decision_at": frozen["decision_at"],
+                    "required_payload_bytes": required_bytes}
     expected = {"schema": 1, "kind": KIND, **inputs, "approval_hash": None}
     if canonical_bytes({name: payload.get(name) for name in expected}) != canonical_bytes(expected):
         raise ContextIntegrityError("stored joint comparison differs from resolved original inputs")
     if payload["result"]["role"] == "applied":
         raise ContextIntegrityError("experimental worker cannot activate a context effect")
     return deepcopy({**summary, "status": "comparison-stored", "decision_at": frozen["decision_at"],
+        "publication_reused": publication_reused,
         "role": payload["result"]["role"], "reference": context_consumer_reference(key, payload),
         "comparison_delta_pp": {market: 100 * (p - base["markets"][market])
             for market, p in (payload["result"]["comparison_markets"] or base["markets"]).items()}})
@@ -290,9 +296,11 @@ def publish_joint_capture_report(path, capture_report, *, decision_at,
         event = publish_joint_comparison(path, row["binding_ref"], decision_at=decision_at,
                                          max_payload_bytes=allowance)
         result.append(event)
-        # Reserve the maximum even after a crash/partial publication. No
-        # refund needed for absent effects/features, which perform zero writes.
-        if event["status"] in {"comparison-stored", "payload-budget-exhausted"}:
+        # Reserve the maximum even after a crash/partial publication. Verified
+        # existing pointer+comparison reuse is read-only, so it must not starve
+        # later captured siblings by spending a fictitious storage allowance.
+        if (event["status"] in {"comparison-stored", "payload-budget-exhausted"}
+                and event.get("publication_reused") is not True):
             remaining -= allowance
     return {"schema": 1, "scope": "football-post-capture-internal-joint-comparison",
             "events": result, "unprocessed_events": len(events) - len(result),
@@ -319,7 +327,7 @@ def joint_comparison_report_fields(snapshot):
     for row in report["events"]:
         require_object(row, {"binding_ref", "status", "role", "reference"},
             optional={"event_key", "decision_at", "available_features", "missing_features",
-                      "comparison_delta_pp", "required_payload_bytes", "reason"}, label="joint worker event")
+                      "comparison_delta_pp", "required_payload_bytes", "reason", "publication_reused"}, label="joint worker event")
         require_digest(row["binding_ref"], "joint worker original binding")
         if row["status"] not in statuses or row["role"] not in {"not_applied", "experimental"}:
             raise ContextContractError("joint worker report cannot claim applied effects")
@@ -337,6 +345,8 @@ def joint_comparison_report_fields(snapshot):
             if len(row["reason"]) > 256:
                 raise ContextContractError("joint source-unavailability reason is too long")
         stored = row["status"] == "comparison-stored"
+        if "publication_reused" in row and (type(row["publication_reused"]) is not bool or not stored):
+            raise ContextContractError("joint worker reuse claim requires a stored comparison")
         if stored != (row["reference"] is not None) or row["role"] == "experimental" and not stored:
             raise ContextContractError("joint worker stored/reference status differs")
         if stored:

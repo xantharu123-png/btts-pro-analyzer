@@ -93,11 +93,22 @@ def test_header_has_game_count_and_escapes_markdown_but_not_identity():
 
 def test_grouped_market_does_not_repeat_game_heading_but_keeps_exact_price_binding():
     c = card()
+    assert c.compact_analysis is not None
+    internal_note = 'Interner Sicherheitswert: heuristischer Abschlag, keine gesicherte Mindestchance.'
+    c = replace(c, compact_analysis=replace(c.compact_analysis,
+        explanation=c.compact_analysis.explanation + (internal_note,)))
+    before = deepcopy(c)
     markup = render_compact_row_html(c, grouped=True, featured=True)
     visible = InitialText(markup).visible
     assert c.event_label not in visible
     assert c.selection in visible and c.market in visible
-    assert 'MODELL-AUSWAHL' in visible and 'keine gesicherte Mindestchance' in visible
+    assert 'MODELL-AUSWAHL' in visible and 'Modell 75.0 %' in visible
+    # The approved customer projection omits method notes; the original
+    # internal facts and numerical model fields must remain unchanged.
+    for text in ('Sicherheitswert', 'heuristisch', 'keine gesicherte Mindestchance'):
+        assert text not in markup
+    assert internal_note in c.compact_analysis.explanation
+    assert c == before
     assert f'data-key="{c.key}"' in markup and 'data-price-code="UNAVAILABLE"' in markup
     assert 'data-grouped="true"' in markup
     assert c.event_label in markup  # aria-label still identifies the complete bet
@@ -110,11 +121,11 @@ def test_each_market_action_stays_inside_its_game_once_and_highlight_games_open(
     recording = _RecordingStreamlit()
     actions = []
     monkeypatch.setattr(app, 'st', recording)
-    original_render = app.render_compact_row_html
+    original_render = app.render_editorial_card_html
     def record_render(c, **kwargs):
         actions.append((c.key, recording.current_expander))
         return original_render(c, **kwargs)
-    monkeypatch.setattr(app, 'render_compact_row_html', record_render)
+    monkeypatch.setattr(app, 'render_editorial_card_html', record_render)
     app._render_wettfinder_games(catalog, rows, sport_filter='Alle')
     assert len(recording.expanders) == 3
     assert [opened for _label, opened in recording.expanders] == [True, False, False]

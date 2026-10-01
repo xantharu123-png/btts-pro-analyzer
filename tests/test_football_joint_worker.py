@@ -94,6 +94,7 @@ def test_fitted_unqualified_model_is_internal_and_baseline_stays_exact(isolated,
     monkeypatch.setattr("requests.get", lambda *_a, **_k: pytest.fail("source fetch forbidden"))
     first = compare(isolated)
     assert first["status"] == "comparison-stored" and first["role"] == "experimental", first
+    assert first["publication_reused"] is False
     assert first["decision_at"] == canonical_timestamp(NOW + timedelta(minutes=2))
     assert first["reference"] is not None and len(snapshots(path)) == 2
     key = first["reference"]["key"]
@@ -114,8 +115,31 @@ def test_identical_sources_at_later_clock_reuse_first_actual_decision(isolated, 
     def forbidden(**_kwargs):
         pytest.fail("unchanged revision must not rerun joint numerical comparison")
     monkeypatch.setattr(worker, "calculate_context_payload", forbidden)
+    monkeypatch.setattr(worker, "compute_once", lambda *_a, **_k: pytest.fail("verified reuse must not write"))
     later = compare(isolated, later=12)
-    assert later == first and snapshots(isolated[0]) == stored
+    assert later == {**first, "publication_reused": True} and snapshots(isolated[0]) == stored
+
+
+def test_cached_comparison_needs_no_new_payload_allowance(isolated, monkeypatch):
+    fitted(isolated)
+    first = compare(isolated)
+    monkeypatch.setattr(worker, "compute_once", lambda *_a, **_k: pytest.fail("cached revision must be read-only"))
+    later = compare(isolated, later=12, max_payload_bytes=1)
+    assert later == {**first, "publication_reused": True}
+
+
+def test_pointer_without_comparison_still_reserves_new_publication(isolated):
+    path, case, _ = isolated
+    fitted(isolated)
+    first = compare(isolated)
+    with sqlite3.connect(path) as connection:
+        connection.execute("DELETE FROM context_snapshots WHERE key=?", (first["reference"]["key"],))
+    result = worker.publish_joint_capture_report(path,
+        capture_report([case["case"]["payload"]["replay_ref"]]), decision_at=NOW + timedelta(minutes=12))
+    assert result["events"][0]["status"] == "comparison-stored"
+    assert result["events"][0]["publication_reused"] is False
+    assert result["reserved_payload_bytes"] == worker.MAX_EVENT_BYTES
+    assert len(snapshots(path)) == 2
 
 
 def test_real_later_weather_revision_creates_new_context_not_backdated(isolated):
@@ -263,6 +287,35 @@ def test_batch_reservation_is_finite_even_for_many_fitted_revisions(monkeypatch)
     assert all(allowance == worker.MAX_EVENT_BYTES for _, allowance in visited)
 
 
+def test_cached_first_two_events_do_not_starve_fresh_third(monkeypatch):
+    visited = []
+    refs = [f"{i:064x}" for i in range(1, 6)]
+    def publish(_path, binding, **kwargs):
+        visited.append((binding, kwargs["max_payload_bytes"]))
+        return {"status": "comparison-stored", "publication_reused": binding in refs[:2]}
+    monkeypatch.setattr(worker, "publish_joint_comparison", publish)
+    result = worker.publish_joint_capture_report("unused.db", capture_report(refs), decision_at=NOW)
+    assert [binding for binding, _ in visited] == refs[:4]
+    assert result["events"][2]["publication_reused"] is False
+    assert result["reserved_payload_bytes"] == worker.MAX_RUN_BYTES
+    assert result["unprocessed_events"] == 1
+    assert all(allowance == worker.MAX_EVENT_BYTES for _, allowance in visited)
+
+
+def test_real_cached_batch_reserves_zero_and_never_writes(isolated, monkeypatch):
+    path, case, _ = isolated
+    fitted(isolated)
+    compare(isolated)
+    before = path.read_bytes()
+    monkeypatch.setattr(worker, "compute_once", lambda *_a, **_k: pytest.fail("cached batch must not write"))
+    result = worker.publish_joint_capture_report(path,
+        capture_report([case["case"]["payload"]["replay_ref"]]), decision_at=NOW + timedelta(minutes=12))
+    assert result["events"][0]["publication_reused"] is True
+    assert result["reserved_payload_bytes"] == 0 and result["unprocessed_events"] == 0
+    assert path.read_bytes() == before
+    assert worker.joint_comparison_report_fields({"football_joint_comparison": result})["football_joint_comparison"] == result
+
+
 def test_started_original_is_skipped_and_future_sibling_completes(isolated, tmp_path):
     import context_training_helpers as support
     path, old_case, _ = isolated
@@ -312,6 +365,16 @@ def test_admin_report_rejects_unbounded_or_malformed_fields(field, value):
 
 def test_admin_report_never_accepts_an_activation_claim():
     row = {"status": "effect-unavailable", "role": "applied", "binding_ref": "a" * 64, "reference": None}
+    report = {"schema": 1, "scope": "football-post-capture-internal-joint-comparison",
+              "events": [row], "unprocessed_events": 0, "reserved_payload_bytes": 0}
+    with pytest.raises(ContextContractError):
+        worker.joint_comparison_report_fields({"football_joint_comparison": report})
+
+
+@pytest.mark.parametrize("value", [True, False, 0, 1, None])
+def test_admin_report_reuse_flag_requires_actual_stored_comparison(value):
+    row = {"status": "effect-unavailable", "role": "not_applied", "binding_ref": "a" * 64,
+           "reference": None, "publication_reused": value}
     report = {"schema": 1, "scope": "football-post-capture-internal-joint-comparison",
               "events": [row], "unprocessed_events": 0, "reserved_payload_bytes": 0}
     with pytest.raises(ContextContractError):

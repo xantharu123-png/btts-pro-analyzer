@@ -137,6 +137,24 @@ def test_missing_native_identity_preserves_normal_return_without_unbound_price_r
     assert not errors and quotes[row['candidate_id']].best_odds == 1.52 and not observations
 
 
+@pytest.mark.parametrize('field', ['fixture_source', 'provider_event_id'])
+def test_unencodable_native_identity_never_changes_ordinary_quote_return_or_request_count(monkeypatch, field):
+    row, event = _native_fixture()
+    row[field] = 'native-\ud800'
+    before = deepcopy(row)
+    calls = _transport(monkeypatch, event)
+    ordinary = markets.fetch_tennis_h2h_consensus('dummy', [row], now=NOW)
+    ordinary_calls = deepcopy(calls)
+    calls.clear()
+    observations = []
+    collected = markets.fetch_tennis_h2h_consensus(
+        'dummy', [row], now=NOW, price_observations=observations)
+    assert collected == ordinary
+    assert not collected[1] and collected[0][row['candidate_id']].best_odds == 1.52
+    assert calls == ordinary_calls and len(calls) == 3
+    assert observations == [] and row == before
+
+
 def test_legacy_model_row_and_dedicated_row_do_not_false_conflict_on_ids():
     legacy, candidate = _fixture()
     observations = _observations()

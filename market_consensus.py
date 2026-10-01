@@ -1699,6 +1699,13 @@ def _tennis_observation_identity(row: object) -> Optional[tuple[str, str, str, s
             or values[2] == values[3] or values[4] not in values[2:4]):
         return None
     try:
+        for value in values:
+            value.encode("utf-8")
+    except UnicodeError:
+        # Optional collection must not turn a valid ordinary quote response
+        # into a loader failure while hashing malformed native metadata.
+        return None
+    try:
         start = _parse_utc(row.get("scheduled_start"))
     except (ValueError, OverflowError):
         return None
