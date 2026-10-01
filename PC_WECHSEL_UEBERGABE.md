@@ -1,5 +1,15 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Accountwechsel – 01.10.2026, 20:29 CEST
+
+Maßgeblich ist der neue oberste [TODO-Block](TODO_AKTUELL.md).
+Frisch geprüft: lokal/GitHub/VPS `01a79b4`, Code `1ae37d9` live;
+App/Healthchecks gesund, sieben Timer geplant, heutige Tennis-/Wettfinderläufe
+mit Exit 0 beendet. Nächster Nachweis nach den regulären Läufen am 02.10.
+(Tennis 00:05, Wettfinder 03:35 CEST), ohne Extra-Scan. Gegenpreis-Befüllung,
+qualifizierte Kontexteffekte und vier Tennis-Ergebnisse bleiben offen.
+Nur Dokumentationsübergabe; keine neuen Backups, Bereinigungen oder Migrationen.
+
 ## Aktueller Einstieg – Gegenquoten und Kontextanschluss, 01.10.2026
 
 Oberster [TODO-Block](TODO_AKTUELL.md) und die

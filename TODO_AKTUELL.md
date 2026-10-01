@@ -1,5 +1,39 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## Accountwechsel – verifiziert am 01.10.2026, 20:29 CEST
+
+**Technische Reparaturen veröffentlicht; fachliche Kontexteffekte noch offen.**
+
+- Frischer Abgleich vor diesem Dokumentations-Commit: lokal, GitHub `main`
+  und VPS exakt `01a79b40bc3526b0b3ab7e6b42be200dd56bb21a`, VPS tracked-clean.
+  Funktionaler Code: `1ae37d9`; App/Caddy aktiv, beide Healthchecks `ok`,
+  alle sieben Timer geplant. Die Tests unten sind der abgeschlossene Morgenlauf,
+  kein neuer Testlauf dieser Übergabe: 11.929 bestanden / 97 Skips / 111 Untertests.
+- Letzte reguläre Läufe heute: Tennis 00:05:12–00:28:52 und Wettfinder
+  03:35:06–03:58:51 CEST, jeweils `Result=success`, Exit 0, inzwischen inaktiv.
+- **Als Nächstes:** regulären Tennis-Lauf am 02.10. um 00:05 und Wettfinder um
+  03:35 CEST abwarten. Danach vorhandene Produktionsberichte und
+  `tennis_price_observations` read-only prüfen: tatsächlich gelieferte Gegenpreise,
+  exakte Spiel-/Seiten-/Zeit-/Marktbindung und 1,20-Filter. Die neue Speicherung
+  ist getestet; ihre Befüllung im nächsten echten Lauf ist noch nicht nachgewiesen.
+  Keine zusätzliche Sport-, Modell-, Quoten- oder API-Abfrage starten.
+- **Offen:** numerisch qualifizierte Verletzungs-, Müdigkeits- und Wettereffekte
+  samt unabhängigem Qualitätsnachweis. Der Football-Jointanschluss bleibt ein
+  interner Vergleich, keine aktivierte Verbesserung des öffentlichen Modells.
+  Morgenprüfung: null freigegebene Kontext-Effekt-Slots. Inventur vom 28.09.
+  ist historische Evidenz, nicht eine aktuelle Datenabdeckung. Nächster enger
+  Messschritt: WTA-Erholungsuntergrenze mit vorhandenen Belegen; Hypothese und
+  zeitlich getrennte Training-/Abstimmungs-/Testpartition vor Auswertung einfrieren.
+  Bei zu wenigen unabhängigen Testfällen konkrete Lücke dokumentieren; keine
+  erfundenen Effekte, gelockerten Qualitätskriterien oder neue Generalplattform.
+  Cricket bleibt ausgenommen. Bessere Wettqualität ist noch nicht belegt.
+- Vier ungeklärte Tennis-Ergebnisse weiter verfolgen: ATP 183397/186254 und
+  WTA 184266/186216. Kein Löschen von Prognosebelegen oder Geldbuchungen.
+- Übergabe verändert nur diese Dokumentation: keine Sicherung, Bereinigung,
+  Migration, Timeränderung oder neuer Scan. Bestehende ungetrackte Audit-/Browser-
+  Dateien erhalten. Produktionswriter ausschließlich auf dem VPS; keine lokalen
+  produktiven Worker starten. Details und Prüfnachweise stehen im Block darunter.
+
 ## 01.10.2026 – Tennis-Gegenquoten und Kontextanschluss live, Vollsuite grün
 
 - Funktionaler Code `1ae37d9ac0736bfeaf76e511c9602ab32b1c4d37` auf GitHub-main
