@@ -1,11 +1,13 @@
 """Read-only reuse of exact existing odds; no extra request or model write."""
 from datetime import datetime, timezone
+from dataclasses import replace
 import json
 from pathlib import Path
 
 from market_consensus import (
     MarketConsensus, observed_consensus, quote_below_publication_floor,
     quote_matches_candidate, wettfinder_consensus,
+    bounded_tennis_price_observations,
 )
 from riskobet_domain import stable_event_key
 from riskobet_surface import RiskBetPriceOverlay
@@ -31,7 +33,7 @@ def football_market(candidate):
     return None
 
 
-def shared_price_overlays(candidates, rows, *, now=None):
+def shared_price_overlays(candidates, rows, *, now=None, tennis_price_observations=()):
     """Join by native event, kickoff and exact settlement market, not names."""
     now = now or datetime.now(timezone.utc)
     candidates, rows = tuple(candidates), tuple(rows)
@@ -53,7 +55,9 @@ def shared_price_overlays(candidates, rows, *, now=None):
         else:
             index[key] = (row, quote)
     overlays = team_price_overlays(candidates, rows, now=now)
-    overlays.update(tennis_price_overlays(candidates, rows, now=now))
+    overlays.update(tennis_price_overlays(
+        candidates, rows, now=now, price_observations=tennis_price_observations,
+    ))
     for candidate in candidates:
         match = index.get((candidate.event_key, football_market(candidate)))
         if match is None:
@@ -77,14 +81,7 @@ def shared_price_overlays(candidates, rows, *, now=None):
     return overlays
 
 
-def tennis_price_overlays(candidates, rows, *, now):
-    """Reuse a stored winner quote only for the same native tennis match.
-
-    Provider participants are already checked by the common H2H binder. The
-    native event, original player order, exact scheduled start and selected
-    side must additionally agree with the frozen RisikoBet scenario. A winner
-    quote never supplies the price of a set, handicap or total market.
-    """
+def _tennis_price_index(rows):
     index = {}
     for row in rows:
         if not isinstance(row, dict) or str(row.get('sport') or '').casefold() != 'tennis':
@@ -111,7 +108,29 @@ def tennis_price_overlays(candidates, rows, *, now):
         key = event, side
         value = row, quote, start.astimezone(timezone.utc)
         # Conflicting observations cannot select a convenient offer.
-        index[key] = value if key not in index or index[key] == value else None
+        if key in index:
+            previous = index[key]
+            # A model ID and a price-only ID can describe the same real quote.
+            # Neither ID is part of the native event/price identity.
+            if previous is None or (
+                    previous[2] != value[2]
+                    or any(previous[0][field] != row[field] for field in (
+                        'competitor_a', 'competitor_b', 'selected_competitor'))
+                    or replace(previous[1], candidate_id='') != replace(quote, candidate_id='')):
+                index[key] = None
+                continue
+        index[key] = value
+    return index
+
+
+def tennis_price_overlays(candidates, rows, *, now, price_observations=()):
+    """Exact native winner prices; dedicated both-side facts precede legacy rows.
+
+    An explicit conflicting pair blocks fallback rather than selecting a
+    convenient model-row price. Winner prices never become set/total prices.
+    """
+    index = _tennis_price_index(rows)
+    index.update(_tennis_price_index(bounded_tennis_price_observations(price_observations, now=now)))
     overlays = {}
     for candidate in candidates:
         if (candidate.sport != 'tennis' or candidate.market_key != 'match_winner'
@@ -191,8 +210,10 @@ def load_shared_price_overlays(candidates, snapshots=(), *, now=None, path=None)
     try:
         data = json.loads(source.read_text(encoding='utf-8'))
         rows = data.get('model_candidates', ())
+        tennis_prices = data.get('tennis_price_observations', ())
     except (OSError, TypeError, ValueError, AttributeError):
         rows = []
+        tennis_prices = []
     rows = [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
     from team_sport_prices import attach_cached_team_prices, snapshot_price_rows
     # Full identity rows also cover research events absent from the normal pool.
@@ -205,4 +226,4 @@ def load_shared_price_overlays(candidates, snapshots=(), *, now=None, path=None)
         rows = [row for row in rows if str(row.get('sport') or '').casefold()
                 not in {'e-sport', 'esports', 'e sport'}] + esports_snapshot_rows(snapshots)
     rows = attach_cached_esports_prices(rows, now=now, path=source.parent / 'esports_quotes.json')
-    return shared_price_overlays(candidates, rows, now=now)
+    return shared_price_overlays(candidates, rows, now=now, tennis_price_observations=tennis_prices)

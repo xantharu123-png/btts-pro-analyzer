@@ -57,6 +57,7 @@ from challenge_engine import (
 from config_loader import AppConfig, load_app_config
 from context_sources.football_capture import capture_report_fields, capture_football_worker
 from context_models.football_original_publication import original_capture_report_fields
+from football_joint_worker import joint_comparison_report_fields
 from forecast_analysis import project_football_analysis
 from football_model_refresh import MODEL_REFRESH_VERSION, refresh_fixture_models
 from ev_signal_sources import (
@@ -82,6 +83,7 @@ from market_consensus import (
     exact_market_target,
     fetch_football_consensus,
     fetch_tennis_h2h_consensus,
+    merge_tennis_price_observations,
     quote_matches_candidate,
     wettfinder_consensus,
     wettfinder_reference_price_status,
@@ -1313,6 +1315,7 @@ def _football_state_from_snapshot(
         "errors": errors,
         **capture_report_fields(snapshot),
         **original_capture_report_fields(snapshot),
+        **joint_comparison_report_fields(snapshot),
     }
 
 
@@ -1822,6 +1825,7 @@ def _merge_context_refresh(
             "last_context_at": checked_at.isoformat(),
             **capture_report_fields(result),
             **original_capture_report_fields(result),
+            **joint_comparison_report_fields(result),
             "context_checks": checks,
             "candidates": merged_records,
             "basis_candidates": merged_basis_records,
@@ -2357,6 +2361,16 @@ def write_state(document: dict[str, Any], path: str | Path = STATE_PATH) -> None
             pass
 
 
+def _finish_football_joint_capture(snapshot, capture, publication):
+    """Use only committed prematch receipts at the actual later decision clock."""
+    if capture is None or publication is None:
+        return
+    from football_joint_worker import publish_joint_capture_report
+    snapshot["football_joint_comparison"] = publish_joint_capture_report(
+        capture.path, publication.report(), decision_at=datetime.now(timezone.utc),
+    )
+
+
 def _default_football_scan(
     search_date: date,
     config: AppConfig,
@@ -2387,6 +2401,7 @@ def _default_football_scan(
         )
     if capture is not None:
         snapshot["context_capture"] = capture.report()
+    _finish_football_joint_capture(snapshot, capture, publication)
     return snapshot
 
 
@@ -2407,9 +2422,9 @@ def _default_football_context_refresh(
         config.weather_key,
     )
     from context_sources.football_capture import capture_football_worker
+    publication = None
     with capture_football_worker(provider, baseline_enabled=recompute_models and original_capture_limits is not None) as capture:
         if recompute_models:
-            publication = None
             if original_capture_limits is not None:
                 from context_models.football_original_publication import publication_for_worker
                 publication = publication_for_worker(capture, original_capture_limits, shared_budget=original_capture_budget)
@@ -2421,6 +2436,7 @@ def _default_football_context_refresh(
             )
     if capture is not None:
         snapshot["context_capture"] = capture.report()
+    _finish_football_joint_capture(snapshot, capture, publication)
     return snapshot
 
 
@@ -3682,12 +3698,14 @@ def run_wettfinder(
         row for row in source_rows if row.get("source") == "tennis_shadow"
     ]
     tennis_price_provider_status = "not_requested_for_isolated_run"
+    tennis_price_observations: list[dict[str, Any]] = []
     if production_state and tennis_quote_loader is None:
         price_config = config or load_app_config()
         tennis_price_provider_status = "missing_api_key"
         if price_config.odds_api_key:
             tennis_quote_loader = lambda rows: fetch_tennis_h2h_consensus(
                 price_config.odds_api_key, rows, now=current,
+                price_observations=tennis_price_observations,
             )
     if tennis_quote_loader is not None:
         tennis_price_provider_status = "configured"
@@ -3992,6 +4010,10 @@ def run_wettfinder(
         "football": football_state,
         "sources": source_status,
         "model_candidates": model_candidates,
+        "tennis_price_observations": merge_tennis_price_observations(
+            previous.get("tennis_price_observations"), tennis_price_observations,
+            tennis_price_rows, now=current,
+        ),
         "candidates": candidates,
         "challenge_release_candidates": challenge_release_candidates,
         "price_check_attempts": {
@@ -4283,6 +4305,7 @@ def refresh_prices_only(*, state_path=STATE_PATH, config=None, now=None, quote_l
             now=current, target_date=target_search_date(current), preserve_order=True,
             previous_checks=document.get('price_check_attempts') or {}, max_markets_per_fixture=100)
     quotes, errors = {}, []
+    tennis_price_observations = []
     provider_status = 'configured'
     if quote_loader is None and (selected or quote_sport == 'football'):
         cfg = config or load_app_config()
@@ -4290,7 +4313,10 @@ def refresh_prices_only(*, state_path=STATE_PATH, config=None, now=None, quote_l
             provider_status = 'configured' if cfg.odds_api_key else 'missing_api_key'
             if cfg.odds_api_key:
                 try:
-                    quotes, errors = fetch_tennis_h2h_consensus(cfg.odds_api_key, selected, now=current)
+                    quotes, errors = fetch_tennis_h2h_consensus(
+                        cfg.odds_api_key, selected, now=current,
+                        price_observations=tennis_price_observations,
+                    )
                 except Exception as exc:
                     errors = _safe_quote_loader_error(exc)
             else:
@@ -4322,6 +4348,10 @@ def refresh_prices_only(*, state_path=STATE_PATH, config=None, now=None, quote_l
     summary = dict(updated_at=current.isoformat(), fixtures=len({r.get('event_identity') or r.get('fixture_id') or r['key'] for r in selected}),
                    checked=len(selected), quotes=len(quotes), errors=len(errors), status_counts=counts)
     if quote_sport == 'tennis':
+        document['tennis_price_observations'] = merge_tennis_price_observations(
+            document.get('tennis_price_observations'), tennis_price_observations,
+            selected, now=current,
+        )
         summary['sport'] = quote_sport
         summary['operational_errors'] = len(_operational_quote_errors(errors))
         document['bookmaker_data_used'] = bool(document.get('bookmaker_data_used') or quotes)

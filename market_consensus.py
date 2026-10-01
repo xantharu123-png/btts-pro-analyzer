@@ -12,7 +12,10 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
+import hashlib
+import json
 import math
 import re
 from statistics import median
@@ -53,6 +56,9 @@ FOOTBALL_QUOTE_START_TOLERANCE = timedelta(minutes=5)
 TENNIS_QUOTE_START_TOLERANCE = timedelta(minutes=30)
 MAX_TENNIS_EVENT_DISCOVERY_KEYS = 8
 TENNIS_EVENT_DISCOVERY_TIMEOUT = 5
+TENNIS_PRICE_MAX_EVENTS = 10
+TENNIS_PRICE_MAX_SIDES = 20
+TENNIS_PRICE_MAX_BYTES = 256 * 1024
 # Both Echtgeld consumers require a realistically executable quote when the
 # user sees it.  Keeping a wider 15K window made a recently fetched aggregate
 # appear current even when one or more contributing offers were many hours old.
@@ -1682,12 +1688,111 @@ def _bounded_tennis_sport_keys(
     return sorted(selected), None
 
 
+def _tennis_observation_identity(row: object) -> Optional[tuple[str, str, str, str, str, str]]:
+    """Native event identity, separate from the odds provider's event ID."""
+    if not isinstance(row, Mapping) or row.get("fixture_id") is not None:
+        return None
+    fields = ("fixture_source", "provider_event_id", "competitor_a", "competitor_b", "selected_competitor")
+    values = tuple(row.get(field) for field in fields)
+    if (not all(isinstance(value, str) and value.strip() and len(value) <= 300 for value in values)
+            or _normalize(row.get("sport")) != "tennis" or row.get("market_key") != "H2H"
+            or values[2] == values[3] or values[4] not in values[2:4]):
+        return None
+    try:
+        start = _parse_utc(row.get("scheduled_start"))
+    except (ValueError, OverflowError):
+        return None
+    if start is None:
+        return None
+    return values[0], values[1], start.isoformat(), values[2], values[3], values[4]
+
+
+def bounded_tennis_price_observations(rows: object, *, now: datetime) -> list[dict[str, Any]]:
+    """Validate a small current-price artifact; never retain a price history."""
+    if not isinstance(rows, (list, tuple)) or len(rows) > TENNIS_PRICE_MAX_SIDES:
+        return []
+    try:
+        if len(json.dumps(rows, ensure_ascii=False, allow_nan=False).encode("utf-8")) > TENNIS_PRICE_MAX_BYTES:
+            return []
+    except (TypeError, ValueError, RecursionError):
+        return []
+    result, events = [], set()
+    for row in rows:
+        identity = _tennis_observation_identity(row)
+        if identity is None or _parse_utc(identity[2]) <= _as_utc(now):
+            continue
+        try:
+            quote = MarketConsensus.from_dict(row.get("reference_quote"))
+            observed = observed_consensus(quote, candidate=row, now=now)
+        except (ValueError, TypeError, OverflowError, RecursionError):
+            continue
+        if (quote is None or not isinstance(row.get("quote_provider_event_id"), str)
+                or row["quote_provider_event_id"] != quote.provider_event_id
+                or observed is None):
+            continue
+        events.add(identity[:2])
+        if len(events) > TENNIS_PRICE_MAX_EVENTS:
+            return []
+        # Persist only identity and actual price facts, never model/statistics payloads.
+        result.append({field: deepcopy(row[field]) for field in (
+            "sport", "fixture_id", "fixture_source", "provider_event_id", "competitor_a",
+            "competitor_b", "selected_competitor", "scheduled_start", "market_key",
+            "candidate_id", "quote_provider_event_id", "reference_quote",
+        ) if field in row})
+    return result
+
+
+def merge_tennis_price_observations(previous: object, fresh: object, checked_rows: Iterable[object],
+                                    *, now: datetime) -> list[dict[str, Any]]:
+    """Replace checked events and retain at most ten other current event pairs."""
+    incoming = bounded_tennis_price_observations(fresh, now=now)
+    checked = {identity[:2] for row in checked_rows
+               if (identity := _tennis_observation_identity(row)) is not None}
+    retained = [row for row in bounded_tennis_price_observations(previous, now=now)
+                if _tennis_observation_identity(row)[:2] not in checked]
+    merged, events = list(incoming), {_tennis_observation_identity(row)[:2] for row in incoming}
+    for row in retained:
+        event = _tennis_observation_identity(row)[:2]
+        if len(merged) >= TENNIS_PRICE_MAX_SIDES or (event not in events and len(events) >= TENNIS_PRICE_MAX_EVENTS):
+            continue
+        events.add(event)
+        merged.append(row)
+    return bounded_tennis_price_observations(merged, now=now)
+
+
+def _collect_tennis_event_prices(event: Mapping[str, object], candidates: Iterable[object], *,
+                                 now: datetime) -> list[dict[str, Any]]:
+    """Both actual H2H outcomes from the already received exact event response."""
+    rows = {}
+    for candidate in candidates:
+        if not isinstance(candidate, Mapping):
+            continue
+        for selected in (candidate.get("competitor_a"), candidate.get("competitor_b")):
+            row = {field: candidate.get(field) for field in (
+                "fixture_source", "provider_event_id", "competitor_a", "competitor_b", "scheduled_start",
+            )}
+            row.update(sport="Tennis", fixture_id=None, market_key="H2H", selected_competitor=selected)
+            identity = _tennis_observation_identity(row)
+            if identity is None:
+                continue
+            digest = hashlib.sha256(json.dumps(identity, ensure_ascii=False).encode("utf-8")).hexdigest()
+            row["candidate_id"] = f"tennis-price:{digest}"
+            row["quote_provider_event_id"] = str(event.get("id") or "")
+            rows.setdefault(identity, row)
+    parsed = parse_h2h_event_consensus(event, rows.values(), fetched_at=now)
+    return bounded_tennis_price_observations([
+        {**row, "reference_quote": parsed[row["candidate_id"]].to_dict()}
+        for row in rows.values() if row["candidate_id"] in parsed
+    ], now=now)
+
+
 def fetch_tennis_h2h_consensus(
     api_key: str,
     candidates: Iterable[object],
     *,
     timeout: int = 20,
     now: Optional[datetime] = None,
+    price_observations: Optional[list[dict[str, Any]]] = None,
 ) -> tuple[dict[str, MarketConsensus], list[str]]:
     """Fetch exact current H2H prices for persisted tennis model rows.
 
@@ -1846,6 +1951,12 @@ def fetch_tennis_h2h_consensus(
                     returned[event_id], event_candidates, fetched_at=current,
                 )
             )
+            if price_observations is not None:
+                fresh = _collect_tennis_event_prices(returned[event_id], event_candidates, now=current)
+                # Collection adds no discovery/odds request and does not change normal results.
+                price_observations[:] = merge_tennis_price_observations(
+                    price_observations, fresh, event_candidates, now=current,
+                )
     return result, errors
 
 
