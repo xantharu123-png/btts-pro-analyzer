@@ -29,6 +29,13 @@
   Cricket bleibt ausgenommen. Bessere Wettqualität ist noch nicht belegt.
 - Vier ungeklärte Tennis-Ergebnisse weiter verfolgen: ATP 183397/186254 und
   WTA 184266/186216. Kein Löschen von Prognosebelegen oder Geldbuchungen.
+- Abschlusscheck: tatsächlicher App-Dienst `betboy-app.service` aktiv, Health `ok`.
+  Fünf alte Wartungsunits stehen weiterhin auf `failed`: `betboy-release-afc8a10-20260918`,
+  `betboy-release-afc8a10-20260918b`, `betboy-release-context-c64218b-20260918`,
+  `betboy-release-product-53f2e2c-20260919`, `betboy-storage-repair-20260919`
+  (jeweils `.service`). Historische Fehlstatus, kein Nachweis eines heutigen
+  App-Ausfalls; nicht zurückgesetzt oder erneut ausgeführt. Bei späterem
+  Wartungsaudit die ursprünglichen Journale prüfen, nicht blind neu starten.
 - Übergabe verändert nur diese Dokumentation: keine Sicherung, Bereinigung,
   Migration, Timeränderung oder neuer Scan. Bestehende ungetrackte Audit-/Browser-
   Dateien erhalten. Produktionswriter ausschließlich auf dem VPS; keine lokalen
