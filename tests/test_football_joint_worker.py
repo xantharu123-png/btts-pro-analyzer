@@ -220,6 +220,7 @@ def test_small_budget_cannot_write_oversized_revision(isolated):
     before = isolated[0].read_bytes()
     result = compare(isolated, max_payload_bytes=100)
     assert result["status"] == "payload-budget-exhausted" and result["reference"] is None
+    assert result["publication_started"] is False
     assert isolated[0].read_bytes() == before
 
 
@@ -235,6 +236,7 @@ def test_complete_payload_oversize_is_detected_before_pointer_write(isolated, mo
     before = isolated[0].read_bytes()
     result = compare(isolated)
     assert result["status"] == "payload-budget-exhausted" and result["required_payload_bytes"] > worker.MAX_EVENT_BYTES
+    assert result["publication_started"] is False
     assert isolated[0].read_bytes() == before
 
 
@@ -274,11 +276,12 @@ def capture_report(bindings):
             "inserted_payload_bytes": 0, "source_inserted_payload_bytes": 0, "events": rows}
 
 
-def test_batch_reservation_is_finite_even_for_many_fitted_revisions(monkeypatch):
+@pytest.mark.parametrize("status", ["comparison-stored", "payload-budget-exhausted"])
+def test_batch_reservation_is_finite_even_for_many_fitted_revisions(monkeypatch, status):
     visited = []
     def publish(_path, binding, **kwargs):
         visited.append((binding, kwargs["max_payload_bytes"]))
-        return {"status": "comparison-stored"}
+        return {"status": status}
     monkeypatch.setattr(worker, "publish_joint_comparison", publish)
     refs = [f"{i:064x}" for i in range(1, 50)]
     result = worker.publish_joint_capture_report("unused.db", capture_report(refs), decision_at=NOW)
@@ -300,6 +303,37 @@ def test_cached_first_two_events_do_not_starve_fresh_third(monkeypatch):
     assert result["reserved_payload_bytes"] == worker.MAX_RUN_BYTES
     assert result["unprocessed_events"] == 1
     assert all(allowance == worker.MAX_EVENT_BYTES for _, allowance in visited)
+
+
+def test_two_zero_write_oversize_preflights_allow_valid_third(monkeypatch):
+    visited = []
+    refs = [f"{i:064x}" for i in range(1, 4)]
+    def publish(_path, binding, **kwargs):
+        visited.append((binding, kwargs["max_payload_bytes"]))
+        if binding in refs[:2]:
+            return {"status": "payload-budget-exhausted", "publication_started": False}
+        return {"status": "comparison-stored", "publication_reused": False}
+    monkeypatch.setattr(worker, "publish_joint_comparison", publish)
+    result = worker.publish_joint_capture_report("unused.db", capture_report(refs), decision_at=NOW)
+    assert [binding for binding, _ in visited] == refs
+    assert result["events"][2]["status"] == "comparison-stored"
+    assert result["reserved_payload_bytes"] == worker.MAX_EVENT_BYTES
+    assert result["unprocessed_events"] == 0
+
+
+def test_partial_pointer_budget_failure_keeps_conservative_reservation(isolated):
+    path, case, _ = isolated
+    fitted(isolated)
+    first = compare(isolated)
+    with sqlite3.connect(path) as connection:
+        connection.execute("DELETE FROM context_snapshots WHERE key=?", (first["reference"]["key"],))
+    result = worker.publish_joint_capture_report(path,
+        capture_report([case["case"]["payload"]["replay_ref"]]),
+        decision_at=NOW + timedelta(minutes=12), max_run_bytes=100)
+    assert result["events"][0]["status"] == "payload-budget-exhausted"
+    assert result["events"][0]["publication_started"] is True
+    assert result["reserved_payload_bytes"] == 100 and len(snapshots(path)) == 1
+    assert worker.joint_comparison_report_fields({"football_joint_comparison": result})["football_joint_comparison"] == result
 
 
 def test_real_cached_batch_reserves_zero_and_never_writes(isolated, monkeypatch):
@@ -375,6 +409,18 @@ def test_admin_report_never_accepts_an_activation_claim():
 def test_admin_report_reuse_flag_requires_actual_stored_comparison(value):
     row = {"status": "effect-unavailable", "role": "not_applied", "binding_ref": "a" * 64,
            "reference": None, "publication_reused": value}
+    report = {"schema": 1, "scope": "football-post-capture-internal-joint-comparison",
+              "events": [row], "unprocessed_events": 0, "reserved_payload_bytes": 0}
+    with pytest.raises(ContextContractError):
+        worker.joint_comparison_report_fields({"football_joint_comparison": report})
+
+
+@pytest.mark.parametrize("status,value", [("payload-budget-exhausted", 0),
+    ("payload-budget-exhausted", 1), ("payload-budget-exhausted", None),
+    ("effect-unavailable", True), ("effect-unavailable", False)])
+def test_admin_report_publication_flag_is_strict_and_status_scoped(status, value):
+    row = {"status": status, "role": "not_applied", "binding_ref": "a" * 64,
+           "reference": None, "publication_started": value}
     report = {"schema": 1, "scope": "football-post-capture-internal-joint-comparison",
               "events": [row], "unprocessed_events": 0, "reserved_payload_bytes": 0}
     with pytest.raises(ContextContractError):
