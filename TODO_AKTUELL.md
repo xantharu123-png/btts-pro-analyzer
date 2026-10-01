@@ -1,5 +1,55 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 01.10.2026 – Tennis-Gegenquoten und Kontextanschluss live, Vollsuite grün
+
+- Funktionaler Code `1ae37d9ac0736bfeaf76e511c9602ab32b1c4d37` auf GitHub-main
+  und um 08:45 CEST auf dem VPS veröffentlicht; lokal identische getestete Basis.
+- Beide tatsächlich gelieferten Tennis-Siegerpreise werden aus derselben
+  vorhandenen Antwort separat im bestehenden Wettfinder-Schnappschuss bewahrt.
+  Keine zusätzliche HTTP-Abfrage, Modellkarte, Datenbank oder Preisberechnung.
+  RisikoBet liest nur exakt gebundene native Spiel-/Seiten-/Zeit-/Marktbelege;
+  kein Favoritenpreis für den Gegner und keine Siegerquote für Satzmärkte.
+  Höchstens zehn Ereignisse / 20 Seiten / 256 KiB, Originalzeit, maximal 24 h.
+- Football-Jointvergleich nach persistiertem regulärem Capture angeschlossen:
+  echte spätere Vor-Anpfiff-Uhrzeit, unverändertes Grundmodell, nur interner
+  experimenteller Vergleich. Ohne vorhandenen passenden Fit keine neuen
+  Speicherzeilen. Wiederverwendung und abgelehnte Größen-Vorprüfung reservieren
+  nichts; neue/teilweise Veröffentlichungen maximal 512 KiB/Event / 1 MiB/Lauf.
+- Vollsuite-Diagnose passierte die früher verdächtigen 40–44-/76-%-Bereiche;
+  bei 97 % zwei veraltete Editorial-Testverträge konkret gefunden und korrigiert.
+  Kundenansicht, interne Belege, Modellwerte und genaue Quotenbindung bleiben
+  abgesichert; keine Appänderung oder zusätzliche Skips aus dieser Testkorrektur.
+  Alte Fehlerursache ohne Originaltrace nicht bewiesen. Diagnose: 11.615
+  bestanden / 97 Skips / 111 Untertests, ein Fehler; ausdrücklich kein PASS.
+- Vollsuite auf eingefrorenem `1ae37d9`: 12.026 gesammelt, **11.929 bestanden,
+  97 Skips, 111 Untertests bestanden**, Exit 0 in 37:26. JUnit null Fehler /
+  Failures, neun Metadatenwarnungen. Die beiden zuvor gezielt gestoppten
+  Freeze-Läufe sind STOPPED, nicht bestanden. 95 Integrationsprüfungen vor der
+  letzten Korrektur und zuletzt 54 Helper-/Integrationstests grün; nicht addieren.
+- Eigener Offline-Browser: echte Gegenpreis-Fixture 1,12 ausgeblendet,
+  1,20/2,70 sichtbar bei unverändert 36 %; 1440/390/320 ohne Überlauf.
+- Noch offen: empirisch qualifizierte Verletzungs-/Müdigkeits-/Wetterwirkung.
+  Aktiver Produktionsmanifest enthält nur ATP/WTA, null Kontext-Effekt-Slots.
+  Der Anschluss ersetzt keine fehlenden Daten oder unabhängigen Qualitätstests.
+  Keine behauptete Verbesserung der Trefferquote/Rendite. Vollständige
+  Merkmalsinventur bleibt die datierte 28.09.-Auswertung, nicht neu gescannt.
+- Regulärer Tennislauf 01.10. 00:05–00:28 CEST und Wettfinder 03:35–03:58:
+  erfolgreich, Exit 0. Vier ungeklärte Tennis-Ergebnisse bleiben separat offen.
+  Heute vor Veröffentlichung null gespeicherte reine Gegenpreis-Belege:
+  Befüllung erst durch nächste reguläre Anbieterantwort, keine Extraabfrage.
+- Keine Sicherung, Bereinigung, Migration, zusätzlicher Sport-/API-/Modellscan
+  oder Timeränderung. Ungetrackte Audit-/Browserdateien erhalten.
+- Deployment unter bestehendem Lock: acht geprüfte Code-/Testdateien, alle
+  Writer inaktiv und >120 s bis nächstem Termin, nur App neu gestartet.
+  Beide Healthchecks `ok`, App/Caddy aktiv, sieben Timer geplant. Modell- und
+  RisikoBet-JSON vor/nach Deployment bytegleich. VPS-Offline-Fixture bestätigt
+  beide real gelieferten Beispielpreise, ohne Netzwerk oder Datenbankschreiben.
+- Frischer Produktionsbrowser nach vollständigem Rendern: 63 kommende
+  Szenarien / 38 Events; 1440/390/320 ohne Überlauf, null Console-Fehler.
+  Zehn bekannte Framework-/Iframe-Warnungen. Erste zu frühe Screenshots zeigten
+  nur den Kopf; zustandsgebunden mit sichtbaren Karten wiederholt und geprüft.
+- Nachweis: [Fortsetzung im bestehenden Prüfbericht](docs/audits/2026-09-30-wetter-tennis-preiszuordnung.md#fortsetzung-01102026).
+
 ## 30.09.2026 – weitere 60 Minuten: Wetterzeitpunkt und Tennis-Preiszuordnung
 
 - Code `707e2f802f9d14a849bd1d3ad74fb5e23e722f3f` committed, auf main gepusht

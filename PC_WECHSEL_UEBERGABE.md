@@ -1,5 +1,25 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg – Gegenquoten und Kontextanschluss, 01.10.2026
+
+Oberster [TODO-Block](TODO_AKTUELL.md) und die
+[Fortsetzung des Prüfberichts](docs/audits/2026-09-30-wetter-tennis-preiszuordnung.md#fortsetzung-01102026)
+sind maßgeblich. Code `1ae37d9` auf main/VPS live, um 08:45 CEST kontrolliert
+gezogen. Vollsuite: 11.929 bestanden, 97 Skips, 111 Untertests, Exit 0; Quellcode
+und Tests unverändert. Beide Healthchecks `ok`, sieben Timer geplant, Modell-/
+RisikoBet-Dateien bytegleich. Echte Tennis-
+Gegenpreise aus derselben vorhandenen Antwort separat begrenzt gespeichert;
+Football-Jointanschluss nach Capture am tatsächlichen späteren Stichtag,
+experimentell und ohne Änderung der öffentlichen Grundwahrscheinlichkeit.
+Zwei konkret veraltete Editorial-Testverträge korrigiert, keine Skips ergänzt.
+Alte Vollsuite-Fehlerursache nicht nachträglich erfunden. Numerisch qualifizierte
+Verletzungs-/Müdigkeits-/Wetterwirkung weiterhin offen, keine Qualitätsbehauptung.
+Keine Sicherung, Bereinigung, Migration oder zusätzlichen API-/Sportscan.
+Bestehende Gegenpreise werden nicht nachträglich erfunden: regulärer Abruf
+02.10., 03:35 CEST übernimmt die dann tatsächlich verfügbaren Anbieterbelege.
+Eigener frischer Produktionsbrowser: sichtbare Karten bei 1440/390/320 ohne
+Überlauf oder Console-Fehler geprüft; keine echte neue Gegenquote behauptet.
+
 ## Aktueller Einstieg – Wetterzeitpunkt und Tennispreise, 30.09.2026
 
 Oberster TODO-Block und [neuer Prüfbericht](docs/audits/2026-09-30-wetter-tennis-preiszuordnung.md)

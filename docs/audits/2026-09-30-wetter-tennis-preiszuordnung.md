@@ -156,3 +156,151 @@ und bestanden. Kein Appfehler aus diesem falschen Testwait abgeleitet.
 
 Browserbilder und Hilfsscripte unter `output/playwright/continue60-*` bleiben
 unversioniert. Inherited untracked Audit-/Output-Dateien bleiben unberührt.
+
+## Fortsetzung 01.10.2026
+
+### Reparierter Code und verbleibende fachliche Grenze
+
+Funktionaler Stand `1ae37d9ac0736bfeaf76e511c9602ab32b1c4d37`,
+mit `3da96d4` und `ef8780c` als Vorfahren, auf main/VPS veröffentlicht.
+Finaler vollständiger Softwaretest grün; empirische Effektfreigabe bleibt offen.
+
+Der bestehende Tennis-Quotenabruf sammelt jetzt beide tatsächlich gelieferten
+H2H-Seiten aus derselben eindeutig gebundenen Antwort. Der normale Rückgabewert,
+die HTTP-Anzahl, Modellreihenfolge und Wahrscheinlichkeiten bleiben unverändert.
+Preisbelege stehen separat als `tennis_price_observations` im vorhandenen
+Wettfinder-JSON, nicht im Modellpool. Höchstens zehn Ereignisse / 20 Seiten /
+256 KiB, Originalzeitstempel, maximal 24 Stunden und nur kommende Spiele.
+Keine neue Datei, Datenbank oder Quote aus einer Gegenwahrscheinlichkeit.
+Ungültige UTF-8-Identitäten dürfen die normale Quote nicht scheitern lassen.
+
+RisikoBet übernimmt diese Belege nur für denselben nativen Anbieter/Spiel-ID,
+Spielerreihenfolge, Anpfiff, die tatsächliche gewählte Seite und den gleichen
+Sieger-Wettvertrag. Dedizierte eindeutige Beobachtungen haben Vorrang vor alten
+Modellzeilen; explizite Konflikte blockieren deren Rückfall. Keine Siegerquote
+für Satz-, Gesamt- oder Handicapmärkte. Fehlende Gegenpreise bleiben unbekannt.
+Die bestehende 1,20-Untergrenze wird damit auch auf die echte Gegenquote angewandt.
+
+Der Football-Joint-Worker ist nach dem Schließen und Persistieren des regulären
+Captures an Scan und Modellrefresh angeschlossen. Er verwendet die tatsächliche
+spätere UTC-Entscheidungszeit, nicht einen alten Scanzeitpunkt. Quellen,
+nativer Spielvertrag, ORIGINAL-Bindung, Modellpopulation und physische
+Modell-/Manifestveröffentlichung bleiben gebunden. Geänderte Wetterbelege werden
+nicht an einen früheren Zeitpunkt zurückdatiert.
+
+Ohne passenden bestehenden Fit keine großen ORIGINAL-/Featuredaten und keine
+neuen Speicherzeilen. Auch mit Fit nur interner experimenteller Vergleich,
+`approval=None`; die öffentliche Grundwahrscheinlichkeit bleibt identisch.
+Maximal 32 Ereignisse, 4 MiB / 4.096 Eingangsbelege vor Body-Decoding geprüft,
+512 KiB vollständiger Vergleich je Event / 1 MiB reservierter Speicher je Lauf.
+Übergroße Eingaben werden ganz abgelehnt, nicht günstig zurechtgekürzt.
+Identische revisionsgebundene Vergleiche werden schreibfrei wiederverwendet.
+Wiederverwendung und Größen-Vorprüfungen ohne Schreibzugriff verbrauchen kein
+fiktives Laufbudget; neue/teilweise Veröffentlichungen bleiben konservativ
+reserviert. Die beiden unabhängig gefundenen Fairnessfälle sind getestet.
+
+**Das schließt keine empirische Modelllücke.** Am 01.10. read-only bestätigter
+Produktionsmanifest `0f70f44d2ada705a776fee9c081a729e05753a090b93190d053d9e1b1da6d0f1`
+enthält nur `tennis:ATP` und `tennis:WTA`, null Kontext-Effekt-Slots. Die vorhandene
+Aktivierung verlangt unter anderem 200 unabhängige unangetastete Testspiele in
+drei Zeitblöcken, mindestens 2 % relative Brier-Verbesserung mit positivem
+zeitabhängigem Test-Unterrand, Mehrfachtestkorrektur, nicht schlechtere Logloss
+und bestandene Markt-Kalibrierung. Softwaretests beweisen das nicht.
+
+Die letzte vollständige Merkmalsinventur stammt weiterhin vom 28.09.: vier
+vollständige Fußballpakete, keine gemessenen Tennis-Matchminuten oder verwertbaren
+akuten Verletzungsmerkmale. Die damaligen WTA-Gesamtzahlen belegen keine 200
+unabhängigen Testfälle zusätzlich zu Training und Abstimmung. Keine neue
+Inventur, Zusatzabfrage oder erfundenen Gewichte. Kleinster fachlicher Folgeschritt:
+ein enges WTA-Erholungsuntergrenzen-Experiment mit vorher eingefrorener zeitlicher
+Aufteilung prüfen; bei Fehlbestand vorhandenen planmäßigen Datenzulauf nutzen.
+Für Fußball zuerst rechtzeitig quellgebundene Kader-/Ersatzspieler-/Wetterdaten.
+
+### Vollsuite: konkrete Diagnose statt alter Hypothesen
+
+Die neue Diagnose passierte die früher verdächtigen 40–44-/76-%-Bereiche und
+fand bei 97 % einen veralteten UI-Testvertrag. Resultat: **11.615 bestanden,
+97 Skips, 111 Untertests bestanden, ein Fehler**, 2.761,16 Sekunden.
+Er verlangte den vom Nutzer ausdrücklich entfernten öffentlichen Hinweis
+`keine gesicherte Mindestchance`. Der zweite isolierte Fehler beobachtete
+den früheren Compact-Renderer statt des aktuellen Sports-Editorial-Renderers.
+Beide Tests sind eng auf die freigegebene Kundenansicht aktualisiert;
+unveränderte interne Fakten, Modellwert, Markt, Schlüssel, genaue Preisbindung,
+ARIA-Identität und Spielgruppierung bleiben abgesichert. Keine neuen Skips,
+Produktänderungen oder gelockerten Modellvalidierungen daraus.
+
+113 Kunden-/Gruppierungsregressionen und der gesamte letzte Testabschnitt
+mit 241 Fällen bestanden. 95 Root-Integrationsprüfungen und abschließend
+54 Football-Helper-/Integrationstests bestanden. Zahlen überlappen und werden
+nicht addiert. Die frühere Originalursache bei 40–44/76 % bleibt ohne deren
+Trace unbewiesen; weder Windows-Pfadlänge noch Berechtigungen als Ursache behauptet.
+
+Zwischenläufe auf `3da96d4` (17 %) und `ef8780c` (7 %) ausdrücklich gestoppt,
+nicht bestanden: erst wegen der nachgewiesenen veralteten UI-Tests, dann vor
+der engen Fairnesskorrektur. Final eingefrorener Lauf auf `1ae37d9`:
+**12.026 gesammelt, 11.929 bestanden, 97 Skips, 111 Untertests bestanden**,
+Exit 0, 2.246,03 Sekunden (37:26). Neun Pytest-JUnit-Metadatenwarnungen.
+JUnit: 12.137 Fälle inklusive der 111 Untertests, null Fehler / Failures.
+Quellcode-/Test-SHA nach dem Lauf weiterhin `1ae37d9`, keine Python-/Testdiffs.
+JUnit-SHA256: `088b6e42ac330ffbc61eb3c8918f3e1b5c36143e65991b38cce188597576715b`.
+
+```powershell
+.\.codex_test_venv\quality\Scripts\python.exe -m pytest tests -q -x --tb=short -p no:cacheprovider --basetemp=.pytest_tmp/final101c --junitxml=output/playwright/full-frozen-1ae37d9-20261001.xml
+```
+
+Eigener Offline-Browser verwendet die tatsächliche Anbieter-Namensreihenfolge
+`Zhizhen Zhang`: Gegenquote 1,12 ohne Karte, 1,20 / 2,70 mit Karte und
+unverändert 36 %. 1440/390/320 Pixel ohne Überlauf; keine Console-Fehler,
+bekannte Streamlit-Iframe-Warnungen. Browserartefakte bleiben unversioniert.
+
+### Produktionsstand vor der Veröffentlichung
+
+Regulärer Tennislauf 01.10. 00:05:12–00:28:52 CEST: Erfolg / Exit 0,
+65 Berechnungen verarbeitet, 23 neue Prognosen, Scan/Gesamt OK.
+`unresolved_outcome_events`: ATP183397, ATP186254, WTA184266, WTA186216.
+WTA183992 natives Ergebnis nicht verfügbar; WTA183831/183844/183854 aufgegeben,
+keine erfundenen Ergebnisse. Wettfinder 03:35:06–03:58:51: Erfolg / Exit 0.
+Sieben Timer unverändert geplant, App/Caddy aktiv. Datenbankgröße etwa 5 GiB,
+18 GiB frei; keine Bereinigung oder Speicheroperation erforderlich.
+
+Read-only-Probe um 07:29 CEST, vor Veröffentlichung: 41 Fußball-/22 Tennis-Modellzeilen, keine dedizierten
+Gegenpreis-Belege; 71 kommende RisikoBet-Szenarien, darunter 30 Tennis und null
+passende Tennispreis-Overlays. Die Reparatur ergänzt keine alte fehlende Quote.
+Erst die nächste ohnehin geplante Anbieterantwort kann echte Gegenpreise liefern.
+Nächster regulärer Wettfinder 02.10., 03:35 CEST; kein zusätzlicher Scan gestartet.
+
+### Kontrollierte Veröffentlichung und tatsächliche Grenzen
+
+Um 08:45 CEST `7acc2da` → `1ae37d9` per Git-Fast-forward auf dem VPS.
+Remote-URL, exakter GitHub-main-Zielcommit, Abstammung, tracked-clean und
+Acht-Dateien-Allowlist kontrolliert. Bestehender Deployment-Lock; alle sechs
+Sportwriter inaktiv, >120 Sekunden bis ihren nächsten Terminen. Nur App neu
+gestartet, keine Timeränderung, Sicherung, Bereinigung oder Migration.
+
+Vier Python-Module auf dem VPS kompiliert; reiner Offline-Collector bestätigt
+die beiden tatsächlich in einer Dummyantwort enthaltenen Preise 1,52 / 2,70.
+Aktiver Fußball-Effektbestand weiterhin null. Kein Provideraufruf,
+Fit, Datenbankschreiben oder historischer Prognoseumbau. Beide Healthchecks
+`ok`; zwei anfänglich erwartete lokale Verbindungsversuche während des
+App-Neustarts abgelehnt, danach gesund. App/Caddy aktiv, sieben Timer geplant.
+
+Wettfinder-JSON vor/nach Deployment bytegleich:
+`b402263cf4e0557a715151b0c5f7a7f9d81989c0da7820cf527ac690052152a7`.
+RisikoBet-JSON bytegleich:
+`c999bdfdaa5df6a06405d14c6c00fd56f0066cf6f85b1276b50500bb55298cb7`.
+Der neue Code kann die vorher verworfene Gegenquote nicht aus dem vorhandenen
+einseitigen Beleg rekonstruieren. Neue echte Preise werden beim nächsten
+regulären Abruf gesammelt; deren Produktionsabdeckung ist noch nicht bewiesen.
+Numerische Verletzungs-/Müdigkeits-/Wetterwirkung und bessere Wettqualität
+bleiben ausdrücklich unvollständig. Technischer Anschluss ist keine Freigabe.
+
+Eigener frischer Produktionsbrowser nach App-Neustart: RisikoBet fertig
+gerendert, Navigation tatsächlich ausgewählt; 63 kommende Szenarien / 38 Events.
+Sichtbare Karten bei 1440/390/320 Pixeln angesehen, ohne horizontalen Überlauf.
+Null Console-Fehler, zehn bekannte Framework-/Iframe-Warnungen. Ein früher
+`check()`-Versuch auf dem asynchronen Segmented-Button prüfte den Zustand zu
+früh; die ersten schnellen Screenshots zeigten nur den Kopf. Die Prüfung wurde
+am sichtbaren Kartentitel und ausgewählten Navigationszustand wiederholt;
+die korrigierten kleinen Viewport-Screenshots enthalten die echten Karten.
+Keine daraus erfundene Navigation-Reparatur oder Behauptung echter Gegenpreise.
+Artefakte `output/playwright/live-counter-*-20261001.png` unversioniert.
