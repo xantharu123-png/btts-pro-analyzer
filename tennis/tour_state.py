@@ -18,6 +18,7 @@ from .model_state import ModelState, load_state
 from .serve_model import (ServeAdmissionDiagnostics, ServeReturnModel, WTA_TOUR_HOLD_AVG,
                           WTA_TOUR_BREAK_AVG, is_tour_level)
 from .state_codec import decode_state, encode_state
+from .simulator import POINT_MODEL_VERSION, LEGACY_MODEL_VERSION
 
 
 class TourUnavailable(LookupError):
@@ -110,6 +111,7 @@ def build_tour_state(tour: str, *, as_of: datetime,
         serve_half_life_days=365., serve_split_indoor=True,
         end_cutoff=cutoff, calibration_only=True,
         diagnostics=calibration_diagnostics,
+        market_model_version=POINT_MODEL_VERSION,
     ) if calibration_years else None
     cal = WalkForwardCalibrator(min_samples=1500, refit_every=250)
     rows = report.rows if report is not None else []
@@ -130,6 +132,7 @@ def build_tour_state(tour: str, *, as_of: datetime,
         serve_weight=.3 if tour == "ATP" else 0., tour_scope=tour,
         stats_through_kind="tournament_start_proxy" if tour == "ATP" else "result_date",
         training_cutoff=cutoff.isoformat(),
+        market_model_version=POINT_MODEL_VERSION,
     )
     _validate_coverage(encode_state(result, tour=tour), cutoff)
     _check_predictions(result)
@@ -250,7 +253,8 @@ def _record(status, state=None, error=None):
 def refresh_tours(*, path: Path, as_of: datetime,
                   builder: Callable[[str], ModelState],
                   publication_clock: Callable[[], datetime] | None = None,
-                  if_stale_days: float | None = None) -> dict:
+                  if_stale_days: float | None = None,
+                  required_market_version: str | None = None) -> dict:
     """Attempt each tour independently and CAS-publish only validated states.
 
     A failed tour retains its exact previous identity and metadata. Conflict
@@ -258,6 +262,8 @@ def refresh_tours(*, path: Path, as_of: datetime,
     """
     cutoff = _utc(as_of)
     clock = publication_clock or _now
+    if required_market_version not in (None, LEGACY_MODEL_VERSION, POINT_MODEL_VERSION):
+        raise ValueError("unknown required tennis market version")
     if if_stale_days is not None and (isinstance(if_stale_days, bool) or
             not math.isfinite(if_stale_days) or if_stale_days < 0):
         raise ValueError("stale days must be finite and nonnegative")
@@ -276,11 +282,14 @@ def refresh_tours(*, path: Path, as_of: datetime,
                 decode_state(encode_state(previous, tour=tour), decision_cutoff=decision.timestamp())
                 age = (decision.timestamp() - previous.built_at) / 86400.
                 coverage_age = (decision.date() - date.fromisoformat(previous.stats_through)).days
-                if 0 <= age < if_stale_days and 0 <= coverage_age < if_stale_days:
+                if (0 <= age < if_stale_days and 0 <= coverage_age < if_stale_days
+                        and (required_market_version is None or previous.market_model_version == required_market_version)):
                     _check_predictions(previous)
                     result["tours"][tour] = _record("retained_fresh", previous)
                     continue
             state = builder(tour)
+            if required_market_version is not None and state.market_model_version != required_market_version:
+                raise ValueError("builder did not produce required tennis market version")
             payload = encode_state(state, tour=tour)
             if state.training_cutoff is not None and state.training_cutoff != cutoff.isoformat():
                 raise ValueError("builder training cutoff does not match refresh")

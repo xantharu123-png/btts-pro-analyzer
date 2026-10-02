@@ -287,6 +287,8 @@ def validate_esports_reference(value, history_refs):
         if len(rows) != 20 or any(_legacy_projection(row) != row for row in rows):
             raise ContextContractError("original Elo requires its exact twenty-row team windows")
     selected_windows = esports_history_window({"status": "upcoming", "begin_at": event["scheduled_start"],
+        "team1_id": int(event["home_id"].rsplit(":", 1)[1]),
+        "team2_id": int(event["away_id"].rsplit(":", 1)[1]),
         "team1_history": value["windows"]["home"], "team2_history": value["windows"]["away"]}, now=datetime.fromisoformat(value["cutoff"]))
     if list(selected_windows) != [value["windows"]["home"], value["windows"]["away"]]:
         raise ContextIntegrityError("original native history order or causal selection differs")

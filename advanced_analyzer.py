@@ -17,6 +17,7 @@ from datetime import date, datetime, timedelta
 import pickle
 from pathlib import Path
 import math
+import time
 from collections import defaultdict
 
 from config_loader import load_app_config
@@ -39,6 +40,8 @@ ML_HISTORY_WINDOW = 20
 ML_MIN_TRAINING_ROWS = 200
 ML_MIN_VALIDATION_ROWS = 100
 ML_MODEL_PATH = Path(__file__).resolve().parent / "ml_model.pkl"
+STATS_CACHE_TTL_SECONDS = 24 * 60 * 60
+STATS_CACHE_RETRY_SECONDS = 15 * 60
 
 
 def beta_smoothed_percentage(
@@ -1141,9 +1144,9 @@ class AdvancedBTTSAnalyzer:
         """Get season statistics from API or cache"""
         season = current_season_start_year_for_id(league_id) - season_offset
         cache_key = f"season_{team_id}_{league_id}_{season}"
-        stats = self._team_stats_cache.get(cache_key)
+        stats = self._fresh_stats_cache("_team_stats_cache", cache_key)
 
-        if stats is None and self.api_football_key:
+        if stats is None and self.api_football_key and self._stats_refresh_due("_team_stats_cache", cache_key):
             try:
                 from api_football import APIFootball
                 api = APIFootball(self.api_football_key)
@@ -1153,7 +1156,7 @@ class AdvancedBTTSAnalyzer:
                     season,
                 )
                 if stats:
-                    self._team_stats_cache[cache_key] = stats
+                    self._store_stats_cache("_team_stats_cache", cache_key, stats)
             except Exception as e:
                 print(f"WARNING: API error: {e}")
 
@@ -1190,15 +1193,45 @@ class AdvancedBTTSAnalyzer:
             'failed_to_score': stats.get(f'failed_to_score_{venue}', 0),
         }
 
+    def _fresh_stats_cache(self, cache_name: str, key: str) -> Optional[Dict]:
+        """An app-lifetime resource must not make its data app-lifetime fresh."""
+        observed = getattr(self, "_stats_cache_observed", {}).get((cache_name, key))
+        if observed is None or not 0 <= time.monotonic() - observed < STATS_CACHE_TTL_SECONDS:
+            return None
+        return getattr(self, cache_name, {}).get(key)
+
+    def _stats_refresh_due(self, cache_name: str, key: str) -> bool:
+        attempts = getattr(self, "_stats_cache_attempts", None)
+        if attempts is None:
+            attempts = self._stats_cache_attempts = {}
+        now = time.monotonic()
+        last = attempts.get((cache_name, key))
+        if last is not None and 0 <= now - last < STATS_CACHE_RETRY_SECONDS:
+            return False
+        attempts[cache_name, key] = now
+        return True
+
+    def _store_stats_cache(self, cache_name: str, key: str, value: Dict) -> None:
+        cache = getattr(self, cache_name, None)
+        if cache is None:
+            cache = {}
+            setattr(self, cache_name, cache)
+        observed = getattr(self, "_stats_cache_observed", None)
+        if observed is None:
+            observed = self._stats_cache_observed = {}
+        cache[key] = value
+        observed[cache_name, key] = time.monotonic()
+
     def _get_form_stats(self, team_id: int, league_id: int) -> Dict:
         """Get last 5 matches form from API or cache"""
         cache_key = f"form_{team_id}_{league_id}"
         
-        if cache_key in self._form_cache:
-            return self._form_cache[cache_key]
+        cached = self._fresh_stats_cache("_form_cache", cache_key)
+        if cached is not None:
+            return cached
         
         # Try API
-        if self.api_football_key:
+        if self.api_football_key and self._stats_refresh_due("_form_cache", cache_key):
             try:
                 from api_football import APIFootball
                 api = APIFootball(self.api_football_key)
@@ -1210,7 +1243,7 @@ class AdvancedBTTSAnalyzer:
                 )
                 
                 if form and form.get('matches_played', 0) > 0:
-                    self._form_cache[cache_key] = form
+                    self._store_stats_cache("_form_cache", cache_key, form)
                     print(
                         f"   Form: {form.get('form_string', '?')} "
                         f"({form.get('btts_rate'):.0f}% BTTS)"

@@ -16,7 +16,8 @@ from red_card_impact_predictor import RedCardImpactPredictor
 
 
 class UltraLiveScanner:
-    MATCH_END_MINUTE = 93
+    REGULATION_MINUTES = 90
+    MAX_LIVE_MINUTE = 130
     PRIOR_PSEUDO_MINUTES = 30
     MAX_RED_CARDS_PER_TEAM = 3
     # Continental competitions and cups never serve as a domestic fallback
@@ -284,16 +285,25 @@ class UltraLiveScanner:
         prior_home: Optional[float] = None,
         prior_away: Optional[float] = None,
         red_card_state: Optional[Dict] = None,
+        clock: Optional[Dict] = None,
     ) -> Tuple[Optional[float], Optional[float], str]:
         if (
             isinstance(minute, bool)
             or not isinstance(minute, (int, float))
             or not math.isfinite(float(minute))
             or minute < 0
-            or minute > self.MATCH_END_MINUTE
+            or minute > self.MAX_LIVE_MINUTE
         ):
-            raise ValueError("minute must be between 0 and 93")
-        remaining = max(0.0, self.MATCH_END_MINUTE - float(minute))
+            raise ValueError("minute must be between 0 and 130")
+        # Before 90 this is the known regulation-time floor, not an invented
+        # 93-minute whistle. In stoppage time elapsed/extra are not remaining
+        # time: without a final whistle or verified horizon there is no finite
+        # remainder to turn into a certain no-goal forecast.
+        remaining = (clock.get('remaining_minutes') if clock is not None else
+                     self.REGULATION_MINUTES - float(minute) if minute < 90 else None)
+        if remaining is None:
+            return None, None, 'INSUFFICIENT'
+        exposure = float(clock.get('elapsed_minutes', minute)) if clock is not None else float(minute)
         observed = [
             self._optional_nonnegative(xg_home),
             self._optional_nonnegative(xg_away),
@@ -306,16 +316,16 @@ class UltraLiveScanner:
         means = []
         for observed_xg, prior_full_match in zip(observed, priors):
             rate = None
-            if observed_xg is not None and minute > 0:
+            if observed_xg is not None and exposure > 0:
                 if prior_full_match is not None:
-                    prior_rate = prior_full_match / self.MATCH_END_MINUTE
+                    prior_rate = prior_full_match / self.REGULATION_MINUTES
                     rate = (
                         prior_rate * self.PRIOR_PSEUDO_MINUTES + observed_xg
-                    ) / (self.PRIOR_PSEUDO_MINUTES + float(minute))
-                elif minute >= 15:
-                    rate = observed_xg / float(minute)
+                    ) / (self.PRIOR_PSEUDO_MINUTES + exposure)
+                elif exposure >= 15:
+                    rate = observed_xg / exposure
             elif prior_full_match is not None:
-                rate = prior_full_match / self.MATCH_END_MINUTE
+                rate = prior_full_match / self.REGULATION_MINUTES
             means.append(rate * remaining if rate is not None else None)
 
         if all(value is not None for value in observed) and all(
@@ -340,6 +350,40 @@ class UltraLiveScanner:
         ):
             quality = 'LOW'
         return means[0], means[1], quality
+
+    @classmethod
+    def _regulation_clock(cls, status: Dict) -> Optional[Dict]:
+        """Provider phase + elapsed time; do not reinterpret injury time as ET.
+
+        ``extra`` is an elapsed injury-time clock, not a guaranteed final
+        whistle. At/beyond 90 the provider does not establish remaining time.
+        No other live phase (ET, shootout, suspended) shares this model.
+        """
+        if not isinstance(status, dict) or status.get('short') not in {'1H', 'HT', '2H'}:
+            return None
+        minute = status.get('elapsed')
+        extra = status.get('extra')
+        if (isinstance(minute, bool) or not isinstance(minute, int)
+                or not 0 <= minute <= cls.MAX_LIVE_MINUTE):
+            return None
+        if extra is not None and (isinstance(extra, bool) or not isinstance(extra, int)
+                                  or not 0 <= extra <= 40):
+            return None
+        phase = status['short']
+        if phase in {'1H', 'HT'} and minute > 60:
+            return None
+        if phase == 'HT' and minute < 45:
+            return None
+        if phase == '2H' and minute < 45:
+            return None
+        elapsed = minute + (extra or 0) if minute in {45, 90} else minute
+        if phase in {'1H', 'HT'} and minute >= 45:
+            remaining = 45.0
+        else:
+            remaining = float(90 - minute) if minute < 90 else None
+        return {'status': phase, 'elapsed_minutes': elapsed,
+                'remaining_minutes': remaining,
+                'horizon': 'REGULATION_MINIMUM' if remaining is not None else 'REGULATION_END_UNKNOWN'}
 
     def analyze_live_match_ultra(self, match: Dict) -> Optional[Dict]:
         try:
@@ -382,12 +426,15 @@ class UltraLiveScanner:
             ):
                 return None
             minute = raw_minute
+            clock = self._regulation_clock(fixture.get('status'))
+            if clock is None:
+                return None
             if goals.get('home') is None or goals.get('away') is None:
                 return None
             home_score = raw_home_score
             away_score = raw_away_score
             if (
-                not 0 <= minute <= self.MATCH_END_MINUTE
+                not 0 <= minute <= self.MAX_LIVE_MINUTE
                 or home_score < 0
                 or away_score < 0
                 or home_score > 30
@@ -429,6 +476,7 @@ class UltraLiveScanner:
                 prior_home,
                 prior_away,
                 red_card_state,
+                clock,
             )
             totals = self._calculate_over_under(
                 home_score,
@@ -439,6 +487,7 @@ class UltraLiveScanner:
                 prior_home,
                 prior_away,
                 red_card_state,
+                clock,
             )
             remaining_goals = self._calculate_remaining_goal_markets(
                 xg_home,
@@ -447,6 +496,7 @@ class UltraLiveScanner:
                 prior_home,
                 prior_away,
                 red_card_state,
+                clock,
             )
             next_goal = self._calculate_next_goal(
                 home_score,
@@ -458,6 +508,7 @@ class UltraLiveScanner:
                 prior_home,
                 prior_away,
                 red_card_state,
+                clock,
             )
             base_home_mean, base_away_mean, _ = self._remaining_goal_means(
                 xg_home,
@@ -465,6 +516,7 @@ class UltraLiveScanner:
                 minute,
                 prior_home,
                 prior_away,
+                clock=clock,
             )
 
             return {
@@ -515,7 +567,9 @@ class UltraLiveScanner:
                     'home_prior': prior_home,
                     'away_prior': prior_away,
                 },
-                'phase_data': {'phase': self._get_phase(minute)},
+                'phase_data': {'phase': ('HALF_TIME' if clock['status'] == 'HT' else
+                                       'PRE_HT' if clock['status'] == '1H' and minute >= 30 else
+                                       self._get_phase(minute)), **clock},
                 'recommendation_type': 'EXPLORATORY_ESTIMATE',
                 'calibrated': False,
                 'actionable': False,
@@ -533,6 +587,7 @@ class UltraLiveScanner:
         prior_home: Optional[float] = None,
         prior_away: Optional[float] = None,
         red_card_state: Optional[Dict] = None,
+        clock: Optional[Dict] = None,
     ) -> Dict:
         if home_score > 0 and away_score > 0:
             return {
@@ -553,6 +608,7 @@ class UltraLiveScanner:
             prior_home,
             prior_away,
             red_card_state,
+            clock,
         )
         if remaining_home is None or remaining_away is None:
             return {
@@ -608,6 +664,7 @@ class UltraLiveScanner:
         prior_home: Optional[float] = None,
         prior_away: Optional[float] = None,
         red_card_state: Optional[Dict] = None,
+        clock: Optional[Dict] = None,
     ) -> Dict:
         current_goals = home_score + away_score
         remaining_home, remaining_away, quality = self._remaining_goal_means(
@@ -617,6 +674,7 @@ class UltraLiveScanner:
             prior_home,
             prior_away,
             red_card_state,
+            clock,
         )
         if remaining_home is None or remaining_away is None:
             return {
@@ -664,6 +722,7 @@ class UltraLiveScanner:
         prior_home: Optional[float] = None,
         prior_away: Optional[float] = None,
         red_card_state: Optional[Dict] = None,
+        clock: Optional[Dict] = None,
     ) -> Dict:
         """Calculate markets settled only on goals scored after this snapshot."""
         remaining_home, remaining_away, quality = self._remaining_goal_means(
@@ -673,6 +732,7 @@ class UltraLiveScanner:
             prior_home,
             prior_away,
             red_card_state,
+            clock,
         )
         if remaining_home is None or remaining_away is None:
             return {
@@ -738,6 +798,7 @@ class UltraLiveScanner:
         prior_home: Optional[float] = None,
         prior_away: Optional[float] = None,
         red_card_state: Optional[Dict] = None,
+        clock: Optional[Dict] = None,
     ) -> Dict:
         remaining_home, remaining_away, quality = self._remaining_goal_means(
             xg_home,
@@ -746,6 +807,7 @@ class UltraLiveScanner:
             prior_home,
             prior_away,
             red_card_state,
+            clock,
         )
         if remaining_home is None or remaining_away is None:
             return {
@@ -824,6 +886,7 @@ def display_ultra_opportunity(match: Dict):
         'OPENING': 'Anfangsphase',
         'PROBING': 'Frühe Phase',
         'PRE_HT': 'Vor der Pause',
+        'HALF_TIME': 'Halbzeit',
         'POST_HT': 'Nach der Pause',
         'LATE': 'Späte Phase',
         'CLOSING': 'Schlussphase',

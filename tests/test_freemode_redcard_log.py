@@ -205,7 +205,8 @@ class RedCardSignalLogTests(unittest.TestCase):
                     return {
                         "response": [
                             {
-                                "fixture": {"status": {"short": "FT"}},
+                                "fixture": {"id": 424242, "status": {"short": "FT"}},
+                                "goals": {"home": 1, "away": 1},
                                 "teams": {
                                     "home": {"id": 10},
                                     "away": {"id": 20},
@@ -216,6 +217,7 @@ class RedCardSignalLogTests(unittest.TestCase):
                 if endpoint == "events":
                     return {
                         "response": [
+                            {"type": "Goal", "time": {"elapsed": 30}, "team": {"id": 10}},
                             {
                                 "type": "Goal",
                                 "time": {"elapsed": 75},
@@ -236,7 +238,7 @@ class RedCardSignalLogTests(unittest.TestCase):
         self.assertEqual(stats["top_pick_hit_rate"], 1.0)
 
     def test_settle_no_goal_outcome(self):
-        log_signal(_entry(), db_path=self.db)
+        log_signal(_entry(score="0-0"), db_path=self.db)
 
         class _FakeAPI:
             def _request(self, endpoint, params):
@@ -244,7 +246,8 @@ class RedCardSignalLogTests(unittest.TestCase):
                     return {
                         "response": [
                             {
-                                "fixture": {"status": {"short": "FT"}},
+                                "fixture": {"id": 424242, "status": {"short": "FT"}},
+                                "goals": {"home": 0, "away": 0},
                                 "teams": {
                                     "home": {"id": 10},
                                     "away": {"id": 20},
@@ -278,6 +281,11 @@ class RedCardHorizonSettlementTests(unittest.TestCase):
 
     def _settle_with(self, status, events):
         log_signal(_entry(), db_path=self.db)
+        regulation_away = sum(1 for event in events
+                              if isinstance(event.get("time", {}).get("elapsed"), int)
+                              and event["time"]["elapsed"] <= (120 if status == "FT" else 90)
+                              and event.get("team", {}).get("id") == 20)
+        events = [{"type": "Goal", "time": {"elapsed": 30}, "team": {"id": 10}}, *events]
 
         class _FakeAPI:
             def _request(self, endpoint, params):
@@ -285,7 +293,9 @@ class RedCardHorizonSettlementTests(unittest.TestCase):
                     return {
                         "response": [
                             {
-                                "fixture": {"status": {"short": status}},
+                                "fixture": {"id": 424242, "status": {"short": status}},
+                                "score": {"fulltime": {"home": 1, "away": regulation_away}},
+                                "goals": {"home": 1, "away": regulation_away},
                                 "teams": {
                                     "home": {"id": 10},
                                     "away": {"id": 20},
@@ -328,7 +338,7 @@ class RedCardHorizonSettlementTests(unittest.TestCase):
             "PEN",
             [
                 {"type": "Goal", "time": {"elapsed": 121}, "team": {"id": 20}},
-                {"type": "Goal", "time": {"elapsed": None}, "team": {"id": 10}},
+                {"type": "Goal", "detail": "Penalty Shootout", "time": {"elapsed": None}, "team": {"id": 10}},
             ],
         )
         self.assertEqual(stats["by_outcome"]["no_goal"]["n"], 1)

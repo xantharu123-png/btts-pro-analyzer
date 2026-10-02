@@ -181,15 +181,29 @@ class CompletedHistoryStore:
         observed = self.clock()
         with closing(self._connect()) as connection, connection:
             for row in rows:
+                identity = text(row.get("event_id"))
+                if row.get("provider") != provider or not identity:
+                    continue
+                previous = connection.execute(
+                    "SELECT digest,payload FROM history_result_revisions WHERE provider=? AND event_id=? "
+                    "ORDER BY observed_at DESC LIMIT 1", (provider, identity),
+                ).fetchone()
+                if row.get("status") == "retracted":
+                    # Only an explicit native correction to an existing result
+                    # creates a tombstone. Absence from another page never does.
+                    if previous is None:
+                        continue
+                    prior = json.loads(previous[1])
+                    row = {
+                        **prior, "status": "retracted", "winner_side": None,
+                        "home_score": None, "away_score": None,
+                        "retraction_reason": row["retraction_reason"],
+                    }
                 played = utc_time(row.get("start_time"))
-                if row.get("provider") != provider or played is None or played >= observed:
+                if played is None or played >= observed:
                     continue
                 payload = json.dumps(row, sort_keys=True, separators=(",", ":"), allow_nan=False)
                 digest = hashlib.sha256(payload.encode()).hexdigest()
-                previous = connection.execute(
-                    "SELECT digest FROM history_result_revisions WHERE provider=? AND event_id=? "
-                    "ORDER BY observed_at DESC LIMIT 1", (provider, row["event_id"]),
-                ).fetchone()
                 if previous and previous[0] == digest:
                     continue
                 connection.execute(
@@ -221,6 +235,8 @@ class CompletedHistoryStore:
             latest[(provider, event_id)] = (observed, json.loads(payload))
         accepted = []
         for observed, row in latest.values():
+            if row.get("status") != "completed":
+                continue
             played = utc_time(row["start_time"])
             if played is not None and played < cutoff and start <= played.astimezone(SEARCH_TIMEZONE).date() <= end:
                 accepted.append({**row, "result_observed_at": observed, "fetched_at": observed})
@@ -254,7 +270,12 @@ def fetch_page(store, provider, key, url, parser, *, params=None, headers=None, 
             raise ValueError(f"HTTP {response.status_code}")
         payload = response.json()
         observe_completed_team_sports_response(provider, key, url, params, payload, response)
-        rows = parser(payload)
+        parsed = parser(payload)
+        withdrawals = _native_result_retractions(provider, payload)
+        withdrawn_ids = {row["event_id"] for row in withdrawals}
+        # Contradictory copies in one page cannot restore a final while that
+        # same response explicitly withdraws it. No payload-order guessing.
+        rows = [row for row in parsed if row["event_id"] not in withdrawn_ids] + withdrawals
         store.record(provider, key, rows)
         return True, None
     except (requests.RequestException, ValueError, TypeError, KeyError) as exc:
@@ -262,6 +283,81 @@ def fetch_page(store, provider, key, url, parser, *, params=None, headers=None, 
         error = str(exc) if isinstance(exc, ValueError) and str(exc).startswith("HTTP ") else type(exc).__name__
         store.record(provider, key, (), error=error)
         return True, error
+
+
+def _native_result_retractions(provider: str, payload: object) -> list[dict]:
+    """Explicit native result withdrawals, not inferred missing-page deletes.
+
+    These markers contain only provider identity and the observed status. The
+    store attaches them to the previous final, even if its kickoff was moved
+    into the future. Existing positive-only parser APIs remain unchanged.
+    """
+    if not isinstance(payload, dict):
+        return []
+    withdrawals = []
+
+    def add(identity, reason):
+        identity = text(identity)
+        if identity:
+            withdrawals.append({
+                "provider": provider, "event_id": identity,
+                "status": "retracted", "retraction_reason": reason,
+            })
+
+    if provider == "ESPN":
+        for event in payload.get("events", []):
+            if not isinstance(event, dict) or not isinstance(event.get("competitions"), list):
+                continue
+            for game in event["competitions"]:
+                if not isinstance(game, dict):
+                    continue
+                status = game.get("status")
+                kind = status.get("type") if isinstance(status, dict) else None
+                if (
+                    isinstance(kind, dict) and kind.get("completed") is False
+                    and kind.get("state") in {"pre", "in", "post"}
+                ):
+                    add(game.get("id") or event.get("id"), f"completed=false;state={kind['state']}")
+    elif provider == "EuroLeague":
+        for game in payload.get("data", []):
+            if isinstance(game, dict) and game.get("played") is False:
+                add(game.get("id") or game.get("identifier"), "played=false")
+    elif provider == "NHL":
+        for day in payload.get("gameWeek", []):
+            games = day.get("games", []) if isinstance(day, dict) else []
+            if not isinstance(games, list):
+                continue
+            for game in games:
+                if isinstance(game, dict) and game.get("gameState") in {"FUT", "PRE", "LIVE", "CRIT", "PST", "CANC", "SUSP"}:
+                    add(game.get("id"), f"gameState={game['gameState']}")
+    elif provider == "Cricbuzz":
+        for group in payload.get("typeMatches", []):
+            series = group.get("seriesMatches", []) if isinstance(group, dict) else []
+            if not isinstance(series, list):
+                continue
+            for item in series:
+                wrapper = item.get("seriesAdWrapper") if isinstance(item, dict) else None
+                games = wrapper.get("matches", []) if isinstance(wrapper, dict) else []
+                if not isinstance(games, list):
+                    continue
+                for game in games:
+                    info = game.get("matchInfo") if isinstance(game, dict) else None
+                    if not isinstance(info, dict):
+                        continue
+                    state, status = text(info.get("state")).casefold(), text(info.get("status")).casefold()
+                    if state in {"preview", "upcoming", "scheduled", "in progress", "live", "innings break", "stumps", "delay", "delayed", "abandoned", "cancelled", "canceled", "postponed"}:
+                        add(info.get("matchId"), f"state={state}")
+                    elif state == "complete" and any(token in status for token in _NO_CRICKET_WINNER):
+                        add(info.get("matchId"), "completed-without-winner")
+    elif provider == "CricketData":
+        for game in payload.get("data", []):
+            if not isinstance(game, dict):
+                continue
+            if game.get("matchEnded") is False:
+                add(game.get("id"), "matchEnded=false")
+            elif game.get("matchEnded") is True and any(token in text(game.get("status")).casefold() for token in _NO_CRICKET_WINNER):
+                add(game.get("id"), "completed-without-winner")
+    return withdrawals
 
 
 def parse_espn_results(payload) -> list[dict]:
@@ -486,6 +582,9 @@ def completed_nhl(scanner, start, end, *, as_of=None, store=None):
     return rows
 
 
+_NO_CRICKET_WINNER = ("no result", "abandon", "cancel", "match drawn", "match tied")
+
+
 def cricket_winner(info, home, away):
     """Use explicit winner identity/result text, never compare innings runs.
 
@@ -493,7 +592,7 @@ def cricket_winner(info, home, away):
     Draws, ties, abandonments and no-results have no binary winner history.
     """
     status = text(info.get("status")).casefold()
-    if any(token in status for token in ("no result", "abandon", "cancel", "match drawn", "match tied")):
+    if any(token in status for token in _NO_CRICKET_WINNER):
         return None
     winner = text(info.get("matchWinner") or info.get("winner"))
     if winner.casefold() in {text(home).casefold(), text(away).casefold()}:

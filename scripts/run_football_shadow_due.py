@@ -19,21 +19,27 @@ import shadow_clv_automation as shadow  # noqa: E402
 
 
 def main() -> int:
-    if not shadow.should_fire(None):
-        print(json.dumps({"status": "idle", "reason": "no_shadow_work_due"}))
-        return 0
-
-    result = shadow.run(
-        {
-            "input": {
-                "league_ids": [],
-                "max_fixtures": 60,
-                "force_schedule": False,
+    try:
+        if not shadow.should_fire(None):
+            print(json.dumps({"status": "idle", "reason": "no_shadow_work_due"}))
+            return 0
+        result = shadow.run(
+            {
+                "input": {
+                    "league_ids": [],
+                    "max_fixtures": 60,
+                    "force_schedule": False,
+                }
             }
-        }
-    )
+        )
+    except Exception as exc:
+        print(json.dumps({"status": "error", "error_type": type(exc).__name__}))
+        return 1
     print(json.dumps(result, ensure_ascii=False))
-    return 0
+    artifact = result.get('artifact') if isinstance(result, dict) else None
+    if not isinstance(artifact, dict):
+        return 1
+    return 1 if artifact.get('errors') or artifact.get('status') not in ('completed', 'ok', None) else 0
 
 
 if __name__ == "__main__":

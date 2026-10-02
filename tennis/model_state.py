@@ -69,6 +69,9 @@ class ModelState:
     stats_through_kind: str = "tournament_start_proxy"
     artifact_hash: str | None = None
     training_cutoff: str | None = None
+    # Absent in immutable v1 artifacts/pickles: their exact legacy replay stays
+    # unchanged. New tour builds explicitly bind the revised simulator contract.
+    market_model_version: str = "hold-proxy-v1"
 
     def calibrate(self, p: float, tour: str = "ATP") -> float:
         from .backtest import _sigmoid, _logit

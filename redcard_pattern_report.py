@@ -28,13 +28,15 @@ OUT_MD = REPORT_DIR / "rot_karten_musteranalyse.md"
 OUT_PNG = REPORT_DIR / "rot_karten_musteranalyse.png"
 
 MATCH_MINUTES = 93
-PHASES = ((0, 20, "0-20"), (21, 40, "21-40"), (41, 200, "41+"))
+# Continuous exposure is partitioned at 20/40, not 21/41. Integer event
+# timestamps retain the human labels: (0,20], (20,40], (40,200].
+PHASES = ((0, 20, "0-20"), (20, 40, "21-40"), (40, 200, "41+"))
 FINE_PHASES = (
     (0, 10, "0-10"),
-    (11, 20, "11-20"),
-    (21, 30, "21-30"),
-    (31, 45, "31-45"),
-    (46, 200, "46+"),
+    (10, 20, "11-20"),
+    (20, 30, "21-30"),
+    (30, 45, "31-45"),
+    (45, 200, "46+"),
 )
 LATE_SHELL_MINUTE = 75
 
@@ -114,7 +116,7 @@ def _phase_bucket_stats(cases, phases):
         for goal in case["goals_after"]:
             since = goal["since_card"]
             for lo, hi, label in phases:
-                if lo <= since <= hi:
+                if (lo < since <= hi) or (lo == 0 and since == 0):
                     key = "goals_11" if goal["by_11_team"] else "goals_10"
                     stats[label][key] += 1
                     break

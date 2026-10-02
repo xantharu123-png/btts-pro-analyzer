@@ -49,8 +49,8 @@ class ScanJobTests(unittest.TestCase):
         job = _wait_for_state("test", {"done"})
         self.assertEqual(job["result"], {"value": 42})
 
-        # _persist läuft im Worker NACH dem done-Status: auf die Datei warten,
-        # bevor der JOBS_DIR-Patch im tearDown endet.
+        # done wird erst nach generationsgebundener Persistierung veröffentlicht.
+        # Der zusätzliche Datei-Watchdog hält die Testdiagnose bei Fehlern begrenzt.
         target = self.tmp / "testjob.json"
         deadline = time.time() + 2.0
         while not target.exists() and time.time() < deadline:

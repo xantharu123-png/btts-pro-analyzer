@@ -165,6 +165,16 @@ def start_job(
     def _run() -> None:
         try:
             result = fn(*args, progress_cb=_progress_cb, **call_kwargs)
+            if persist_name and persist_fn is not None:
+                try:
+                    payload = persist_fn(result)
+                except Exception:
+                    payload = None
+                if payload is not None and not _persist(
+                    persist_name, payload, scope=persist_scope,
+                    job_generation=(key, generation),
+                ):
+                    return
         except _ScanJobCancelled:
             return
         except Exception as exc:
@@ -196,14 +206,6 @@ def start_job(
                 "result": result,
                 "generation": generation,
             }
-
-        if persist_name and persist_fn is not None:
-            try:
-                payload = persist_fn(result)
-            except Exception:
-                payload = None
-            if payload is not None:
-                _persist(persist_name, payload, scope=persist_scope)
 
     threading.Thread(
         target=_run,
@@ -240,7 +242,10 @@ def _safe_file_part(value: str) -> str:
     return clean
 
 
-def _persist(name: str, payload: dict, *, scope: Optional[str] = None) -> None:
+def _persist(
+    name: str, payload: dict, *, scope: Optional[str] = None,
+    job_generation: Optional[tuple[str, str]] = None,
+) -> bool:
     JOBS_DIR.mkdir(parents=True, exist_ok=True)
     document = {"finished_at": _now(), **payload}
     file_name = _safe_file_part(name)
@@ -248,11 +253,27 @@ def _persist(name: str, payload: dict, *, scope: Optional[str] = None) -> None:
         file_name = f"{_safe_file_part(scope)}__{file_name}"
     target = JOBS_DIR / f"{file_name}.json"
     temporary = JOBS_DIR / f".{file_name}.{uuid.uuid4().hex}.tmp"
-    temporary.write_text(
-        json.dumps(document, ensure_ascii=False, default=str),
-        encoding="utf-8",
-    )
-    temporary.replace(target)
+    try:
+        # Serialization and temporary I/O stay outside the registry lock.
+        temporary.write_text(
+            json.dumps(document, ensure_ascii=False, default=str),
+            encoding="utf-8",
+        )
+        if job_generation is None:
+            temporary.replace(target)
+        else:
+            key, generation = job_generation
+            # Check and atomic publication are one critical section. clear/start
+            # cannot introduce a later generation between these two operations.
+            with _LOCK:
+                _expire_locked(key)
+                current = _JOBS.get(key)
+                if not current or current.get("state") != "running" or current.get("generation") != generation:
+                    return False
+                temporary.replace(target)
+        return True
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def load_persisted(

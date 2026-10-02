@@ -51,7 +51,7 @@ from .serve_model import (
     WTA_TOUR_HOLD_AVG,
     WTA_TOUR_BREAK_AVG,
 )
-from .simulator import simulate_match
+from .simulator import simulate_match, LEGACY_MODEL_VERSION, POINT_MODEL_VERSION, point_match_win_probability
 
 GRAND_SLAMS = ("Australian Open", "Roland Garros", "Wimbledon", "US Open")
 CUTOFF_DAYS = 10
@@ -494,6 +494,7 @@ def run_backtest(
     end_cutoff: datetime | None = None,
     calibration_only: bool = False,
     diagnostics: dict | None = None,
+    market_model_version: str = LEGACY_MODEL_VERSION,
 ) -> BacktestReport | CalibrationReport:
     """Full walk-forward backtest.
 
@@ -531,6 +532,8 @@ def run_backtest(
     if diagnostics is not None and not calibration_only:
         raise ValueError("serve diagnostics are available only for calibration")
     admission = ServeAdmissionDiagnostics(diagnostics) if calibration_only else None
+    if market_model_version not in (LEGACY_MODEL_VERSION, POINT_MODEL_VERSION):
+        raise ValueError("unknown tennis calibration simulator version")
 
     def bounded(frame, column, tour):
         if calibration_only and "tour" in frame and not frame["tour"].eq(tour.upper()).all():
@@ -667,7 +670,9 @@ def run_backtest(
                     hold_w, hold_l = serve_model.expected_hold_probabilities(
                         w_key, l_key, surface, as_of=row.Date, indoor=indoor
                     )
-                    p_serve = simulate_match(hold_w, hold_l, best_of=best_of).p_a_win
+                    p_serve = (point_match_win_probability(hold_w, hold_l, best_of)
+                        if market_model_version == POINT_MODEL_VERSION else
+                        simulate_match(hold_w, hold_l, best_of=best_of).p_a_win)
             p_model = (
                 (1.0 - serve_weight) * p_elo + serve_weight * p_serve
                 if p_serve is not None

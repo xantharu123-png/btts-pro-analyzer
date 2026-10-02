@@ -437,7 +437,7 @@ def test_espn_results_accept_only_explicit_terminal_statuses(monkeypatch):
 
 def test_default_scan_date_uses_zurich_calendar():
     now = datetime(2030, 1, 1, 23, 30, tzinfo=timezone.utc)
-    assert tennis_daily._default_scan_date(now) == "2030-01-03"
+    assert tennis_daily._default_scan_date(now) == "2030-01-02"
 
 
 def test_national_bank_open_resolves_to_current_montreal_hardcourt():
@@ -580,6 +580,9 @@ def test_espn_duplicate_cannot_rewrite_published_sofascore_identity(
             }
         ],
     )
+    # The unrelated ESPN duplicate is deliberately not resolved in this test;
+    # no live provider call may be used as an implicit empty-response fixture.
+    monkeypatch.setattr(tennis_daily, "fetch_results_espn", lambda *a: [])
     assert tennis_daily.auto_settle_completed(today="2030-01-02") == 1
 
     published_snapshot = published["snapshots"][0]

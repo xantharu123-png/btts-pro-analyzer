@@ -8,6 +8,7 @@ import math
 from .elo import SurfaceElo
 from .model_state import ModelState
 from .serve_model import ServeReturnModel
+from .simulator import LEGACY_MODEL_VERSION, POINT_MODEL_VERSION
 
 
 _TOURS = {"ATP", "WTA"}
@@ -100,6 +101,11 @@ def encode_state(state: ModelState, *, tour: str) -> dict:
         ),
         "serve_weight": state.serve_weight,
     }
+    version = getattr(state, "market_model_version", LEGACY_MODEL_VERSION)
+    if version == POINT_MODEL_VERSION:
+        payload.update(schema=2, market_model_version=version)
+    elif version != LEGACY_MODEL_VERSION:
+        raise ValueError("unknown tennis market model version")
     decode_state(payload)
     return payload
 
@@ -118,12 +124,16 @@ def decode_state(
 
     if not isinstance(payload, dict):
         raise TypeError("state payload must be a dictionary")
-    if set(payload) != _STATE_KEYS:
+    schema = payload.get("schema")
+    expected = _STATE_KEYS | ({"market_model_version"} if schema == 2 else set())
+    if set(payload) != expected:
         raise ValueError("state payload has missing or unexpected keys")
     if not isinstance(payload["schema"], int) or isinstance(
         payload["schema"], bool
-    ) or payload["schema"] != 1:
+    ) or payload["schema"] not in (1, 2):
         raise ValueError("unsupported state schema")
+    if schema == 2 and payload["market_model_version"] != POINT_MODEL_VERSION:
+        raise ValueError("unknown tennis market model version")
 
     tour = _tour(payload["tour"])
     built_at = _finite_number(payload["built_at"], label="built_at")
@@ -159,4 +169,5 @@ def decode_state(
             payload["stats_through_kind"], label="stats_through_kind"
         ),
         artifact_hash=None,
+        market_model_version=payload.get("market_model_version", LEGACY_MODEL_VERSION),
     )

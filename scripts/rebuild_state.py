@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from tennis.model_state import build_state, save_state, load_state, state_exists
 from tennis.tour_state import build_tour_state, refresh_tours
 from runtime_paths import CONTEXT_MODEL_DB_PATH
+from tennis.simulator import POINT_MODEL_VERSION
 
 
 def _compact_serve_diagnostics(diagnostics: dict) -> dict:
@@ -62,6 +63,7 @@ def main() -> int:
                 path=CONTEXT_MODEL_DB_PATH, as_of=cutoff,
                 builder=build,
                 if_stale_days=None if args.force else args.if_stale_days,
+                required_market_version=POINT_MODEL_VERSION,
             )
         except Exception as exc:
             print(f"REFRESH_FAILED: {type(exc).__name__}; bisherige Tour-Artefakte bleiben erhalten.")

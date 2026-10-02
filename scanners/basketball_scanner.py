@@ -221,6 +221,7 @@ class BasketballScanner:
                     'away_team_id': self._team_code(road_club, 'code'),
                     'status': 'upcoming',
                     'start_time': start.isoformat(),
+                    'neutral_site': row.get('isNeutralVenue') if isinstance(row.get('isNeutralVenue'), bool) else None,
                     'venue': venue_name or 'Unknown',
                     'source': 'EuroLeague',
                 })
@@ -354,6 +355,7 @@ class BasketballScanner:
             'away_team_id': self._team_code(away_data, 'id'),
             'status': 'upcoming',
             'start_time': start,
+            'neutral_site': competition.get('neutralSite') if isinstance(competition.get('neutralSite'), bool) else None,
             'venue': (
                 str(venue.get('fullName') or 'Unknown').strip()
                 if isinstance(venue, dict)

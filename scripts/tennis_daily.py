@@ -1,6 +1,6 @@
 """Daily tennis scan: fixtures -> model -> shadow store.
 
-Fetches tomorrow's (or a given date's) ATP/WTA fixtures, maps each
+Fetches today's Zurich (or an explicitly given date's) ATP/WTA fixtures, maps each
 tournament to its surface, runs the full model stack (Surface-Elo +
 serve simulator + calibrator) and stores every prediction in the
 tennis shadow DB BEFORE the matches.
@@ -127,7 +127,45 @@ def _default_scan_date(now: datetime | None = None) -> str:
     if current.tzinfo is None:
         current = current.replace(tzinfo=ZURICH_TZ)
     local_day = current.astimezone(ZURICH_TZ).date()
-    return (local_day + timedelta(days=1)).isoformat()
+    return local_day.isoformat()
+
+
+class ProviderFetchError(RuntimeError):
+    """A failed response is not a valid empty scoreboard."""
+    def __init__(self, issues, *, fixtures=()):
+        self.issues = list(issues)
+        self.fixtures = list(fixtures)
+        super().__init__("; ".join(self.issues))
+
+
+class SettlementBatchError(RuntimeError):
+    def __init__(self, issues, settled=0):
+        self.issues = list(issues)
+        self.settled = settled
+        super().__init__("tennis result settlement failed")
+
+
+def match_format(tour: str, tournament: str, catalog_best_of: int, fixture: dict) -> int:
+    """Tour/draw rules, not an ATP catalogue silently applied to women.
+
+    Explicit native Bo3/Bo5 and qualification labels are admitted only as
+    observed metadata; no result-derived retrospective format is manufactured.
+    """
+    if tour not in ("ATP", "WTA"):
+        raise ValueError("unknown singles tour")
+    explicit = fixture.get("best_of")
+    if explicit is not None and (type(explicit) is not int or explicit not in (3, 5)):
+        raise ValueError("invalid native best-of")
+    if tour == "WTA":
+        if explicit == 5:
+            raise ValueError("WTA singles cannot be Best-of-5")
+        return 3
+    qualifying = fixture.get("qualifying") is True or "qualif" in _norm(tournament)
+    if qualifying:
+        if explicit == 5:
+            raise ValueError("qualification format conflicts with native Best-of-5")
+        return 3
+    return explicit if explicit is not None else catalog_best_of
 
 
 def tournament_surface_map(year: int) -> dict:
@@ -179,6 +217,8 @@ def fetch_fixtures_sofascore(date: str, *, observe_status=None) -> list:
     response = requests.get(url, headers=HEADERS, timeout=20)
     response.raise_for_status()
     payload = response.json()
+    if not isinstance(payload, dict) or not isinstance(payload.get("events"), list):
+        raise ProviderFetchError(["SofaScore: invalid scoreboard"])
     received_at = _refresh_now()
     fixtures = []
     for ev in payload.get("events", []):
@@ -236,8 +276,13 @@ def _espn_fixture_status(competition: dict) -> str | None:
 def fetch_fixtures_espn(date: str, *, observe_status=None) -> list:
     """ESPN scoreboard fallback (tournaments with nested match lists)."""
     fixtures = []
+    errors = []
     for tour in ("atp", "wta"):
-        events = _fetch_espn_events(tour, date)
+        try:
+            events = _fetch_espn_events(tour, date)
+        except ProviderFetchError as exc:
+            errors.extend(exc.issues)
+            continue
         received_at = _refresh_now()
         want_slug = "mens-singles" if tour == "atp" else "womens-singles"
         for ev in events:
@@ -289,6 +334,8 @@ def fetch_fixtures_espn(date: str, *, observe_status=None) -> list:
                         live_batch.bind_fixture(fixture, tour=tour.upper(), tournament_id=ev.get("id"),
                             competition=comp, grouping_slug=want_slug)
                     fixtures.append(fixture)
+    if errors:
+        raise ProviderFetchError(errors, fixtures=fixtures)
     return fixtures
 
 
@@ -304,9 +351,13 @@ def _fetch_espn_events(tour: str, date: str) -> list:
         payload = response.json()
         from context_sources.tennis_capture import observe_espn_response
         observe_espn_response(tour, payload)
-        return payload.get("events", [])
-    except (requests.RequestException, ValueError):
-        return []
+        if not isinstance(payload, dict) or not isinstance(payload.get("events"), list):
+            raise ProviderFetchError([f"ESPN {tour}: invalid scoreboard"])
+        return payload["events"]
+    except (requests.RequestException, ValueError) as exc:
+        from context_sources.tennis_capture import observe_espn_failure
+        observe_espn_failure(tour)
+        raise ProviderFetchError([f"ESPN {tour}: {type(exc).__name__}"]) from exc
 
 
 def fetch_results_sofascore(date: str) -> list:
@@ -315,9 +366,12 @@ def fetch_results_sofascore(date: str) -> list:
     try:
         response = requests.get(url, headers=HEADERS, timeout=20)
         response.raise_for_status()
-        events = response.json().get("events", [])
-    except (requests.RequestException, ValueError, AttributeError):
-        return []
+        payload = response.json()
+        if not isinstance(payload, dict) or not isinstance(payload.get("events"), list):
+            raise ProviderFetchError(["SofaScore: invalid results scoreboard"])
+        events = payload["events"]
+    except (requests.RequestException, ValueError) as exc:
+        raise ProviderFetchError([f"SofaScore: {type(exc).__name__}"]) from exc
     result_observed_at = datetime.now(timezone.utc).isoformat()
     results = []
     for event in events:
@@ -540,12 +594,17 @@ def auto_settle_completed(today: str | None = None) -> int:
 
     result_cache = {}
     settled = 0
+    errors = []
     for row in pending:
         fixture_source = str(row.get("fixture_source") or "").strip().casefold()
         if fixture_source == "sofascore":
             cache_key = ("sofascore", row["match_date"])
             if cache_key not in result_cache:
-                result_cache[cache_key] = fetch_results_sofascore(row["match_date"])
+                try:
+                    result_cache[cache_key] = fetch_results_sofascore(row["match_date"])
+                except ProviderFetchError as exc:
+                    result_cache[cache_key] = []
+                    errors.append({"reason": "result_source_failed", "issues": exc.issues})
         elif fixture_source == "espn":
             cache_key = (
                 "espn",
@@ -553,10 +612,11 @@ def auto_settle_completed(today: str | None = None) -> int:
                 str(row["tour"]).upper(),
             )
             if cache_key not in result_cache:
-                result_cache[cache_key] = fetch_results_espn(
-                    row["match_date"],
-                    str(row["tour"]).upper(),
-                )
+                try:
+                    result_cache[cache_key] = fetch_results_espn(row["match_date"], str(row["tour"]).upper())
+                except ProviderFetchError as exc:
+                    result_cache[cache_key] = []
+                    errors.append({"reason": "result_source_failed", "issues": exc.issues})
         else:
             continue
         row_players = {
@@ -594,7 +654,8 @@ def auto_settle_completed(today: str | None = None) -> int:
                     termination=termination,
                     result_observed_at=result_observed_at,
                 )
-            except (TypeError, ValueError):
+            except (TypeError, ValueError) as exc:
+                errors.append({"prediction_id": row["id"], "reason": "settlement_rejected", "error_type": type(exc).__name__})
                 continue
             for bet in shadow.side_bets_for([row["id"]]):
                 if not bet["settled"]:
@@ -625,21 +686,22 @@ def auto_settle_completed(today: str | None = None) -> int:
                 player_b_sets=player_b_sets,
                 match_duration_minutes=match.get("duration_minutes"),
             )
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as exc:
+            errors.append({"prediction_id": row["id"], "reason": "settlement_rejected", "error_type": type(exc).__name__})
             continue
         for bet in shadow.side_bets_for([row["id"]]):
             if not bet["settled"]:
                 shadow.settle_side_bet(bet["id"], set_result)
         settled += 1
+    if errors:
+        raise SettlementBatchError(errors, settled=settled)
     return settled
 
 
 def fetch_fixtures(date: str, *, observe_status=None) -> list:
     try:
-        fixtures = fetch_fixtures_sofascore(date, observe_status=observe_status)
-        if fixtures:
-            return fixtures
-    except requests.RequestException:
+        return fetch_fixtures_sofascore(date, observe_status=observe_status)
+    except (requests.RequestException, ValueError, ProviderFetchError):
         pass
     return fetch_fixtures_espn(date, observe_status=observe_status)
 
@@ -851,7 +913,8 @@ def refresh_pending_predictions(
             prediction = predict_match(
                 state, row["player_a"], row["player_b"],
                 surface if surface in ("Hard", "Clay", "Grass", "Carpet") else None,
-                row["best_of"], tour=row["tour"], indoor=indoor,
+                match_format(row["tour"], str(row.get("tournament") or ""), row["best_of"], {}),
+                tour=row["tour"], indoor=indoor,
                 as_of=modeled_at, workload_history=workload,
                 **capture_options,
             )
@@ -966,6 +1029,7 @@ def scan_fixtures(
             catalog_surface, best_of, _, catalog_indoor = resolve_surface(
                 fx["tournament"], surfaces
             )
+            best_of = match_format(tour, fx["tournament"], best_of, fx)
             surface = merge_surface(fx.get("surface"), catalog_surface)
             indoor = fx.get("indoor")
             if indoor is None:
@@ -1063,11 +1127,20 @@ def _run_daily(args) -> int:
     """Existing daily sequence, executed inside the explicit capture scope."""
     date = args.date
     print(f"=== TENNIS DAILY SCAN {date} ===")
-    settled = auto_settle_completed()
+    operational_errors = []
+    try:
+        settled = auto_settle_completed()
+    except SettlementBatchError as exc:
+        settled = exc.settled
+        operational_errors.extend(exc.issues)
     print(f"Automatisch abgerechnet (normale ESPN-Finals): {settled}")
 
     surfaces = tournament_surface_map(int(date[:4]))
-    fixtures = fetch_fixtures(date, observe_status=shadow.record_fixture_status)
+    try:
+        fixtures = fetch_fixtures(date, observe_status=shadow.record_fixture_status)
+    except ProviderFetchError as exc:
+        fixtures = exc.fixtures
+        operational_errors.append({"reason": "fixture_source_failed", "issues": exc.issues})
     print(f"Fixtures (ATP/WTA Singles, noch nicht gestartet): {len(fixtures)}\n")
     result = scan_fixtures(
         date,
@@ -1076,6 +1149,7 @@ def _run_daily(args) -> int:
         surfaces=surfaces,
         allow_legacy_model=args.allow_legacy_model,
     )
+    result["errors"].extend(operational_errors)
     for tour, record in result["models"].items():
         print(
             f"Modell {tour}: {record['status']}; "

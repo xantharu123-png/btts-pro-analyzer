@@ -36,7 +36,8 @@ from betting_math import (
 from .backtest import MIN_ELO_MATCHES, MIN_SERVE_GAMES
 from .data_loader import resolve_player_name_key
 from .model_state import ModelState
-from .simulator import MatchMarkets, simulate_match
+from .simulator import (MatchMarkets, simulate_match, point_match_win_probability,
+                       LEGACY_MODEL_VERSION, POINT_MODEL_VERSION)
 from .workload import observed_workload_context
 
 ALLOWED_SURFACES = ("Hard",)       # backtest evidence: clay/grass negative
@@ -193,18 +194,27 @@ def predict_match(
     have_serve = serve_games_a >= MIN_SERVE_GAMES and serve_games_b >= MIN_SERVE_GAMES
 
     markets = None
+    market_version = getattr(state, "market_model_version", LEGACY_MODEL_VERSION)
+    if market_version not in (LEGACY_MODEL_VERSION, POINT_MODEL_VERSION):
+        raise ValueError("unknown tennis market model version")
     if have_serve:
         hold_a, hold_b = state.serve.expected_hold_probabilities(
             key_a, key_b, surface_model, as_of=now, indoor=indoor
         )
-        markets = simulate_match(hold_a, hold_b, best_of=best_of)
-        p_serve = markets.p_a_win
+        if market_version == POINT_MODEL_VERSION:
+            p_serve = point_match_win_probability(hold_a, hold_b, best_of)
+        else:
+            markets = simulate_match(hold_a, hold_b, best_of=best_of)
+            p_serve = markets.p_a_win
     p_raw = (
         (1.0 - state.serve_weight) * p_elo + state.serve_weight * p_serve
         if p_serve is not None
         else p_elo
     )
     p_cal = state.calibrate_match(p_raw, key_a, key_b, tour=tour)
+    if have_serve and market_version == POINT_MODEL_VERSION:
+        markets = simulate_match(hold_a, hold_b, best_of=best_of, strict=True,
+            model_version=market_version, winner_probability=round(p_cal, 4))
     if original_capture is not None:
         # Opt-in owning worker receives the actual same-call original before
         # presentation rounding. It neither recalibrates nor modifies output.
@@ -232,6 +242,8 @@ def predict_match(
         ),
         "training_cutoff": getattr(state, "training_cutoff", None),
     }
+    if market_version != LEGACY_MODEL_VERSION:
+        context_evidence["model_inputs"]["market_model_version"] = market_version
 
     # --- gates ---------------------------------------------------------------
     matches_a = state.elo.overall.matches(key_a)

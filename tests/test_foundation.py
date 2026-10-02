@@ -488,16 +488,16 @@ class GoalModelTests(unittest.TestCase):
         self.assertAlmostEqual(model.tau(0, 0, 1.4, 1.1), 1.077)
         self.assertAlmostEqual(model.tau(1, 0, 1.4, 1.1), 0.945)
 
-    def test_no_remaining_time_means_no_future_goal_probability(self):
+    def test_unknown_running_stoppage_time_is_not_a_final_whistle(self):
         scanner = UltraLiveScanner.__new__(UltraLiveScanner)
 
         btts = scanner._calculate_btts_probability(1, 0, 1.4, 1.1, 93)
         next_goal = scanner._calculate_next_goal(1, 0, 1.4, 1.1, 93, {})
 
-        self.assertEqual(btts['probability'], 0.0)
-        self.assertEqual(next_goal['home_prob'], 0.0)
-        self.assertEqual(next_goal['away_prob'], 0.0)
-        self.assertEqual(next_goal['no_goal_prob'], 100.0)
+        self.assertIsNone(btts['probability'])
+        self.assertIsNone(next_goal['home_prob'])
+        self.assertIsNone(next_goal['away_prob'])
+        self.assertIsNone(next_goal['no_goal_prob'])
 
     def test_count_distributions_are_normalized_and_have_expected_mean(self):
         self.assertEqual(poisson_probability(0, 0), 1.0)
@@ -1476,7 +1476,7 @@ class UltraDataGateTests(unittest.TestCase):
 
         scanner = UltraLiveScanner(None, FakeAPI())
         result = scanner.analyze_live_match_ultra({
-            "fixture": {"id": 1, "status": {"elapsed": 45}},
+            "fixture": {"id": 1, "status": {"elapsed": 45, "short": "HT"}},
             "teams": {
                 "home": {"id": 10, "name": "Home"},
                 "away": {"id": 20, "name": "Away"},
@@ -1658,7 +1658,7 @@ class UltraDataGateTests(unittest.TestCase):
                 }
 
         result = UltraLiveScanner(FakeAnalyzer(), FakeAPI()).analyze_live_match_ultra({
-            "fixture": {"id": 1, "status": {"elapsed": 60}},
+            "fixture": {"id": 1, "status": {"elapsed": 60, "short": "2H"}},
             "teams": {
                 "home": {"id": 10, "name": "Home"},
                 "away": {"id": 20, "name": "Away"},

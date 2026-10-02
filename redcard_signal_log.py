@@ -28,7 +28,7 @@ from typing import Any, Dict, Optional
 from red_card_impact_predictor import RED_CARD_MODEL_VERSION
 
 DB_PATH = Path(__file__).resolve().parent / "redcard_signals.db"
-RED_CARD_POLICY_VERSION = "next-goal-shadow-v1"
+RED_CARD_POLICY_VERSION = "next-goal-shadow-v2"
 
 FINISHED_STATUSES = {"FT", "AET", "PEN"}
 
@@ -213,6 +213,8 @@ def _first_goal_after(
     for index, event in enumerate(events or []):
         if not isinstance(event, dict) or event.get("type") != "Goal":
             continue
+        if any(word in str(event.get("detail") or "").casefold() for word in ("missed", "shootout")):
+            continue
         event_time = event.get("time") or {}
         elapsed = event_time.get("elapsed")
         extra = event_time.get("extra")
@@ -232,6 +234,92 @@ def _first_goal_after(
     return (first[0], first[1]) if first is not None else None
 
 
+def _response_rows(response: Any, api) -> Optional[list]:
+    """A successful empty response is not the API wrapper's {} error value."""
+    if (not isinstance(response, dict) or getattr(api, "last_error", None)
+            or response.get("errors") or not isinstance(response.get("response"), list)):
+        return None
+    return response["response"]
+
+
+def _score_pair(value: Any) -> Optional[tuple[int, int]]:
+    if not isinstance(value, dict):
+        return None
+    home, away = value.get("home"), value.get("away")
+    if any(isinstance(n, bool) or not isinstance(n, int) or not 0 <= n <= 30
+           for n in (home, away)):
+        return None
+    return home, away
+
+
+def _verified_regulation_events(fixture: Dict, events: list, row) -> Optional[list]:
+    """Verify complete regulation goal evidence against the regulation score.
+
+    AET/PEN require the explicit fulltime score; the final score can include
+    extra time. Invalid/missing goal times cannot silently mean no goal.
+    This verification does not rewrite historic outcomes or money ledgers.
+    """
+    native_fixture, teams, score = fixture.get("fixture"), fixture.get("teams"), fixture.get("score")
+    if (not isinstance(native_fixture, dict) or not isinstance(native_fixture.get("status"), dict)
+            or not isinstance(teams, dict) or not isinstance(teams.get("home"), dict)
+            or not isinstance(teams.get("away"), dict) or (score is not None and not isinstance(score, dict))):
+        return None
+    status = native_fixture["status"].get("short")
+    home = teams["home"].get("id")
+    away = teams["away"].get("id")
+    if (any(isinstance(n, bool) or not isinstance(n, int) or n <= 0 for n in (home, away))
+            or home == away or row["red_side"] not in {"home", "away"}):
+        return None
+    final = _score_pair((score or {}).get("fulltime"))
+    goals = _score_pair(fixture.get("goals"))
+    if status == "FT":
+        if final is None:
+            final = goals
+        elif goals is not None and final != goals:
+            return None
+    baseline = _score_pair({"home": row["score_home"], "away": row["score_away"]})
+    if final is None or baseline is None or any(f < b for f, b in zip(final, baseline)):
+        return None
+    totals = {home: 0, away: 0}
+    after_snapshot = {home: 0, away: 0}
+    regulation_events = []
+    for event in events:
+        if not isinstance(event, dict):
+            return None
+        if event.get("type") != "Goal":
+            continue
+        detail = str(event.get("detail") or "").casefold()
+        if "missed" in detail or "shootout" in detail:
+            continue
+        timing = event.get("time")
+        if not isinstance(timing, dict):
+            return None
+        elapsed, extra = timing.get("elapsed"), timing.get("extra")
+        if isinstance(elapsed, bool) or not isinstance(elapsed, int) or not 0 <= elapsed <= 130:
+            return None
+        if extra is None:
+            extra = 0
+        if isinstance(extra, bool) or not isinstance(extra, int) or not 0 <= extra <= 40:
+            return None
+        # Regulation injury time is explicit as 45+x/90+x. With AET/PEN,
+        # unqualified 91+ timestamps belong to ET, not regulation.
+        if (status != "FT" and elapsed > 90) or elapsed > 120:
+            continue
+        team = event.get("team")
+        team = team.get("id") if isinstance(team, dict) else None
+        if isinstance(team, bool) or not isinstance(team, int) or team not in totals:
+            return None
+        totals[team] += 1
+        if elapsed + extra > row["minute"]:
+            after_snapshot[team] += 1
+        regulation_events.append(event)
+    if (totals[home], totals[away]) != final:
+        return None
+    if (after_snapshot[home], after_snapshot[away]) != tuple(f - b for f, b in zip(final, baseline)):
+        return None
+    return regulation_events
+
+
 def settle_open_signals(
     api,
     *,
@@ -245,7 +333,8 @@ def settle_open_signals(
     traf zuerst) oder 'no_goal'. Brier = Summe (p_i - o_i)^2 ueber 3 Klassen.
     """
     conn = _connect(db_path)
-    stats = {"settled": 0, "still_running": 0, "skipped": 0}
+    stats = {"settled": 0, "still_running": 0, "skipped": 0,
+             "provider_errors": 0, "unverified_events": 0}
     try:
         rows = conn.execute(
             "SELECT * FROM signals WHERE status = 'open' ORDER BY ts_utc LIMIT ?",
@@ -255,11 +344,19 @@ def settle_open_signals(
             fixture_id = row["fixture_id"]
             try:
                 fixture_response = api._request("fixtures", {"id": fixture_id})
-                payload = (fixture_response or {}).get("response") or []
-                if not payload:
+                payload = _response_rows(fixture_response, api)
+                if payload is None:
+                    stats["provider_errors"] += 1
+                    stats["skipped"] += 1
+                    continue
+                if len(payload) != 1 or not isinstance(payload[0], dict):
                     stats["skipped"] += 1
                     continue
                 fixture_data = payload[0]
+                native_id = (fixture_data.get("fixture") or {}).get("id")
+                if isinstance(native_id, bool) or not isinstance(native_id, int) or native_id != fixture_id:
+                    stats["skipped"] += 1
+                    continue
                 status = (
                     ((fixture_data.get("fixture") or {}).get("status") or {})
                     .get("short")
@@ -269,9 +366,20 @@ def settle_open_signals(
                     stats["still_running"] += 1
                     continue
                 events_response = api._request("events", {"fixture": fixture_id})
-                events = (events_response or {}).get("response") or []
+                events = _response_rows(events_response, api)
+                if events is None:
+                    stats["provider_errors"] += 1
+                    stats["skipped"] += 1
+                    continue
                 time.sleep(sleep_seconds)
             except Exception:
+                stats["provider_errors"] += 1
+                stats["skipped"] += 1
+                continue
+
+            events = _verified_regulation_events(fixture_data, events, row)
+            if events is None:
+                stats["unverified_events"] += 1
                 stats["skipped"] += 1
                 continue
 
@@ -379,12 +487,13 @@ def settlement_stats(
         conn.close()
 
 
-def main() -> None:
+def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--settle", action="store_true")
     parser.add_argument("--stats", action="store_true")
     parser.add_argument("--max", type=int, default=25)
     args = parser.parse_args()
+    exit_status = 0
 
     if args.settle:
         from api_football import APIFootball
@@ -397,9 +506,12 @@ def main() -> None:
         )
         result = settle_open_signals(api, max_fixtures=args.max)
         print(f"Settlement: {result}")
+        if result.get("provider_errors", 0) > 0:
+            exit_status = 1
     if args.stats or not (args.settle or args.stats):
         print(json.dumps(settlement_stats(), indent=2, ensure_ascii=False))
+    return exit_status
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

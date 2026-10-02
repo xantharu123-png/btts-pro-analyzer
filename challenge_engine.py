@@ -1802,6 +1802,11 @@ def _fixture_count_model(
         [row[0] for row in away_venue] + [row[1] for row in home_venue]
     )
     max_count = 25 if family == "corners" else 12
+    # Count markets must date the actual count observations, not unrelated
+    # goal-only games. All four team/venue series feed the active count law.
+    oldest_required_observation = min(
+        home_venue[0][2], away_venue[0][2], home_form[0][2], away_form[0][2],
+    )
     return {
         "active_counts": (active_home, active_away),
         "season_counts": (season_home, season_away),
@@ -1815,6 +1820,8 @@ def _fixture_count_model(
         "dispersion": (home_alpha, away_alpha),
         "referee_sample": referee_sample,
         "referee_mean": referee_mean,
+        "freshness_days": max(0.0, (kickoff - oldest_required_observation).total_seconds() / 86_400.0),
+        "freshness_observed_at": oldest_required_observation.isoformat(),
     }
 
 
@@ -1855,12 +1862,14 @@ def fixture_market_probabilities(
     model["probabilities"] = {}
     model["raw_probabilities"] = {}
     model["projection_success"] = True
+    model["market_projection_success"] = {}
     model["probability_variants"] = ("active",) if _validation_only else ("active", "season", "form")
     model["distribution_capture"] = {"law_version": LAW_VERSION, "recipe": dict(RECIPE), "families": {}}
 
     def project_family(family, specs, family_model, means_suffix):
         records = {}
         raw_values, effective_values = [], []
+        family_success = True
         for variant in model["probability_variants"]:
             mean_key = variant + means_suffix
             raw_means = family_model[mean_key]
@@ -1884,8 +1893,10 @@ def fixture_market_probabilities(
                 "diagnostics": diagnostics,
             }
             model["projection_success"] = model["projection_success"] and diagnostics["success"]
+            family_success = family_success and diagnostics["success"]
         model["distribution_capture"]["families"][family] = records
         for spec in specs:
+            model["market_projection_success"][spec.key] = family_success
             model["raw_probabilities"][spec.key] = tuple(p[spec.key] for p in raw_values)
             model["probabilities"][spec.key] = tuple(p[spec.key] for p in effective_values)
 
@@ -1928,6 +1939,15 @@ def fixture_market_probabilities(
             model_contract_signature=CHALLENGE_MODEL_CONTRACT_SIGNATURE,
         ))
     return model
+
+
+def _market_projection_succeeded(model: dict[str, Any], market_key: str) -> bool:
+    """Qualification follows the law actually used by this market family."""
+    per_market = model.get("market_projection_success")
+    if isinstance(per_market, dict):
+        return per_market.get(market_key) is True
+    # Historical/testing model packets have only the global diagnostic.
+    return model.get("projection_success") is True
 
 
 def _calibration_diagnostics(
@@ -2285,7 +2305,9 @@ def _walk_forward_market_records(
                 records[spec.key]["outcomes"].append(outcome)
                 records[spec.key]["baselines"].append(baseline)
                 records[spec.key]["raw"].append(raw_probability)
-                records[spec.key]["projection_success"].append(prediction["projection_success"])
+                records[spec.key]["projection_success"].append(
+                    _market_projection_succeeded(prediction, spec.key)
+                )
 
         for fixture in day_fixtures:
             if (_venue_home_edge_unknown(fixture)
@@ -2568,7 +2590,6 @@ def build_fixture_candidates(
     if identity is None or model is None:
         return []
 
-    freshness_days = float(model["freshness_days"])
     active_home, active_away = model["active_lambdas"]
     comparisons = {}
     if candidate_profile == CANDIDATE_PROFILE_WETTFINDER and model_scope in {
@@ -2589,18 +2610,21 @@ def build_fixture_candidates(
         referee_sample = 0
         if spec.kind in {"corner_total", "team_corners"}:
             count_model = model["count_models"]["corners"]
+            freshness_days = float(count_model["freshness_days"])
             venue_samples = count_model["venue_samples"]
             form_samples = count_model["form_samples"]
             expected_market_home, expected_market_away = count_model["active_counts"]
             expected_unit = "Ecken"
         elif spec.kind in {"yellow_total", "team_yellow"}:
             count_model = model["count_models"]["yellow"]
+            freshness_days = float(count_model["freshness_days"])
             venue_samples = count_model["venue_samples"]
             form_samples = count_model["form_samples"]
             expected_market_home, expected_market_away = count_model["active_counts"]
             expected_unit = "Gelbe Karten"
             referee_sample = int(count_model.get("referee_sample", 0))
         else:
+            freshness_days = float(model["freshness_days"])
             venue_samples = model["venue_samples"]
             form_samples = model["form_samples"]
             expected_market_home = None
@@ -2636,7 +2660,7 @@ def build_fixture_candidates(
         evidence = min(100.0, sample_score + form_score + agreement_score + freshness_score + validation_score)
 
         blocked: list[str] = []
-        if not model["projection_success"]:
+        if not _market_projection_succeeded(model, spec.key):
             blocked.append("Gemeinsame Kalibrierung fehlgeschlagen; kohärente Rohverteilung ohne Freigabe")
         if model_scope == MODEL_SCOPE_CROSS_COMPETITION_UNVALIDATED:
             blocked.append(UNVALIDATED_TRANSFER_REASON)

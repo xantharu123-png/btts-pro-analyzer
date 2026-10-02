@@ -158,6 +158,13 @@ def observe_espn_response(tour, payload):
         current.record(tour, payload, observed_at=_receipt_now())
 
 
+def observe_espn_failure(tour):
+    """Record an existing failed request; never initiate a request or a write."""
+    current = _CURRENT.get()
+    if current is not None:
+        current.issues.add(f"native-response-unavailable:{tour}")
+
+
 @contextmanager
 def capture_tennis_worker(*, path=None):
     """Explicit CLI batch ownership; always drain received facts/reset scope."""

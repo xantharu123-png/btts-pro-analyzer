@@ -168,7 +168,12 @@ def esports_history_window(
 
 
 def _esports_history_selection(match: dict, *, now: Optional[datetime] = None):
-    """Same legacy selection, retaining actual raw positions before slicing."""
+    """Unique causal series, retaining actual raw positions before slicing.
+
+    The sample/form gate and Elo must consume the same real series. Repeated
+    provider rows do not fill the window; contradictory copies of one series
+    are excluded rather than choosing a winner by payload order.
+    """
     reference = now or datetime.now(timezone.utc)
     if reference.tzinfo is None:
         reference = reference.replace(tzinfo=timezone.utc)
@@ -178,12 +183,21 @@ def _esports_history_selection(match: dict, *, now: Optional[datetime] = None):
     is_prematch = str(match.get("status") or "") == "upcoming"
     scheduled_start = _utc_datetime(match.get("begin_at")) if is_prematch else None
 
-    def completed_history(rows: Any):
-        if not isinstance(rows, list):
-            return []
-        verified: list[tuple[datetime, int, dict]] = []
+    def completed_history(rows: Any, team_id: Any):
+        if not isinstance(rows, list) or team_id is None or team_id <= 0:
+            return [], set()
+        unique: dict[int, tuple[datetime, int, dict]] = {}
+        signatures: dict[int, tuple] = {}
+        conflicting: set[int] = set()
         for index, row in enumerate(rows):
             if not isinstance(row, dict) or not isinstance(row.get("won"), bool):
+                continue
+            match_id, opponent_id = row.get("match_id"), row.get("opponent_id")
+            if (
+                not isinstance(match_id, int) or isinstance(match_id, bool) or match_id <= 0
+                or not isinstance(opponent_id, int) or isinstance(opponent_id, bool)
+                or opponent_id <= 0 or opponent_id == team_id
+            ):
                 continue
             played_at = _utc_datetime(row.get("begin_at"))
             completed_at = _utc_datetime(row.get("end_at"))
@@ -197,17 +211,41 @@ def _esports_history_selection(match: dict, *, now: Optional[datetime] = None):
                 )
             ):
                 continue
-            verified.append((completed_at, index, row))
-        verified.sort(key=lambda item: item[0], reverse=True)
-        return [
-            (index, row)
-            for _completed_at, index, row in verified[:ESPORTS_HISTORY_WINDOW]
-        ]
+            signature = (played_at, completed_at, opponent_id, row["won"], row.get("number_of_games") == 1)
+            if match_id in signatures:
+                if signatures[match_id] != signature:
+                    conflicting.add(match_id)
+                continue
+            signatures[match_id] = signature
+            unique[match_id] = (completed_at, index, row)
+        verified = [entry for identity, entry in unique.items() if identity not in conflicting]
+        return verified, conflicting
 
-    return (
-        completed_history(match.get("team1_history")),
-        completed_history(match.get("team2_history")),
-    )
+    teams = (_whole_non_negative(match.get("team1_id")), _whole_non_negative(match.get("team2_id")))
+    selected = [completed_history(match.get(f"team{side}_history"), team_id)
+                for side, team_id in enumerate(teams, 1)]
+    conflicting = set().union(*(conflicts for _rows, conflicts in selected))
+    canonical = {}
+    # A direct encounter is legitimately present once in each team's sample,
+    # but both perspectives must describe the same event and actual winner.
+    # Check all causal rows before either side's window can hide a conflict.
+    for team_id, (rows, _conflicts) in zip(teams, selected):
+        for completed_at, _index, row in rows:
+            identity, opponent_id = row["match_id"], row["opponent_id"]
+            signature = (tuple(sorted((team_id, opponent_id))),
+                         team_id if row["won"] else opponent_id,
+                         _utc_datetime(row["begin_at"]), completed_at,
+                         row.get("number_of_games") == 1)
+            if identity in canonical and canonical[identity] != signature:
+                conflicting.add(identity)
+            else:
+                canonical[identity] = signature
+    result = []
+    for rows, _conflicts in selected:
+        verified = [entry for entry in rows if entry[2]["match_id"] not in conflicting]
+        verified.sort(key=lambda item: item[0], reverse=True)
+        result.append([(index, row) for _completed_at, index, row in verified[:ESPORTS_HISTORY_WINDOW]])
+    return tuple(result)
 
 
 def _event_key(item: dict, *fallback_parts: Any) -> str:

@@ -14,6 +14,7 @@ bookmaker and source for opening and closing quotes.
 """
 
 import json
+import hashlib
 import math
 import os
 import pickle
@@ -88,6 +89,8 @@ MIN_HISTORY_GAMES = 220  # darunter wird die Vorsaison vorangestellt (Cold-Start
 SHADOW_MODEL_VERSION = "challenge-engine-coherent-joint-calibration-v14"
 SHADOW_POLICY_VERSION = "shadow-model-first-v5"
 SHADOW_REVIEW_MIN_CLV_BETS = 300
+SCHEDULE_MAX_ATTEMPTS = 3
+SCHEDULE_RETRY_DELAY = timedelta(minutes=20)
 
 # Tor-basierte Märkte mit eindeutigem Buchmacher-Pendant (Bet365 via API-Football).
 # Nur diese Märkte werden geloggt: Settlement braucht Endstände, Ecken/Karten-
@@ -139,11 +142,43 @@ def _redacted_request_error(exc: requests.RequestException) -> str:
     return type(exc).__name__
 
 
-def _schedule_marker(target_date: date) -> str:
+def _schedule_marker(target_date: date, league_ids=None) -> str:
+    scope = sorted(set(league_ids if league_ids is not None else (league.league_id for league in LEAGUES)))
+    scope_token = hashlib.sha256(','.join(map(str, scope)).encode('ascii')).hexdigest()[:12]
     return (
         f"schedule:{target_date.isoformat()}:"
-        f"{SHADOW_MODEL_VERSION}:{SHADOW_POLICY_VERSION}"
+        f"{SHADOW_MODEL_VERSION}:{SHADOW_POLICY_VERSION}:complete-v2:{scope_token}"
     )
+
+
+def _schedule_league_key(target_date: date, league_id: int, kind: str) -> str:
+    return f"schedule-v2:{target_date.isoformat()}:{league_id}:{kind}"
+
+
+def _schedule_attempt(connection, target_date: date, league_id: int) -> dict:
+    raw = _meta_get(connection, _schedule_league_key(target_date, league_id, 'attempt'))
+    try:
+        state = json.loads(raw) if raw else {}
+        count = state.get('count', 0)
+        if type(count) is not int or not 0 <= count <= SCHEDULE_MAX_ATTEMPTS:
+            return {'count': SCHEDULE_MAX_ATTEMPTS, 'at': None}
+        return {'count': count, 'at': _parse_iso(state.get('at'))}
+    except (TypeError, ValueError, AttributeError):
+        # Malformed local attempt metadata must not unlock unlimited requests.
+        return {'count': SCHEDULE_MAX_ATTEMPTS, 'at': None}
+
+
+def _schedule_retry_due(connection, target_date: date, now: datetime, league_ids=None) -> bool:
+    scope = league_ids if league_ids is not None else [league.league_id for league in LEAGUES]
+    for league_id in scope:
+        if _meta_get(connection, _schedule_league_key(target_date, league_id, 'success')):
+            continue
+        attempt = _schedule_attempt(connection, target_date, league_id)
+        if attempt['count'] < SCHEDULE_MAX_ATTEMPTS and (
+            attempt['at'] is None or now - attempt['at'] >= SCHEDULE_RETRY_DELAY
+        ):
+            return True
+    return False
 
 
 def _settlement_marker(target_date: date) -> str:
@@ -205,7 +240,10 @@ def _shadow_work_due(now: datetime, db_path: Path = SHADOW_DB) -> bool:
                         ).fetchone()
                         is not None
                     )
-                    if not schedule_loaded:
+                    if not schedule_loaded and (
+                        'shadow_meta' not in tables
+                        or _schedule_retry_due(connection, target_date, now)
+                    ):
                         return True
 
             if "shadow_fixtures" not in tables:
@@ -222,7 +260,8 @@ def _shadow_work_due(now: datetime, db_path: Path = SHADOW_DB) -> bool:
         finally:
             connection.close()
     except (OSError, sqlite3.Error):
-        return False
+        # A broken local ledger is not evidence that there is no due work.
+        raise
 
 
 def should_fire(_ctx) -> bool:
@@ -830,23 +869,55 @@ def step_closing(tracker: CLVTracker, provider: ShadowProvider, now: datetime) -
 def step_schedule(provider: ShadowProvider, league_ids: list[int], zurich_today: date,
                   force: bool) -> int:
     with _connect() as connection:
-        marker = _schedule_marker(zurich_today)
+        marker = _schedule_marker(zurich_today, league_ids)
         if _meta_get(connection, marker) and not force:
             return 0
         loaded = 0
-        for league_id in league_ids:
+        failed = False
+        now = datetime.now(timezone.utc)
+        for league_id in sorted(set(league_ids)):
+            success_key = _schedule_league_key(zurich_today, league_id, 'success')
+            if _meta_get(connection, success_key) and not force:
+                continue
+            attempt = _schedule_attempt(connection, zurich_today, league_id)
+            if attempt['count'] >= SCHEDULE_MAX_ATTEMPTS or (
+                not force and attempt['at'] is not None and now - attempt['at'] < SCHEDULE_RETRY_DELAY
+            ):
+                if not _meta_get(connection, success_key):
+                    failed = True
+                    reason = ('Wiederholungslimit erreicht' if attempt['count'] >= SCHEDULE_MAX_ATTEMPTS
+                              else 'begrenzte Wiederholung noch nicht fällig')
+                    errors.append(f"Fixtures Liga {league_id}: Spielplanprüfung unvollständig ({reason})")
+                continue
+            _meta_set(connection, _schedule_league_key(zurich_today, league_id, 'attempt'),
+                      json.dumps({'count': attempt['count'] + 1, 'at': _utc_iso(now)}))
+            connection.commit()  # reserve the bounded attempt before transport
             season = current_season_start_year_for_id(league_id, zurich_today)
             fixtures = provider.fixtures_by_date(league_id, season, zurich_today)
-            for fixture in fixtures or []:
+            if not isinstance(fixtures, list):
+                failed = True
+                errors.append(f"Fixtures Liga {league_id}: Spielplanabruf fehlgeschlagen")
+                continue
+            league_complete = True
+            for fixture in fixtures:
                 if not _valid_fixture(fixture, league_id):
+                    league_complete = False
                     continue
                 fixture_data = fixture["fixture"]
                 teams = fixture["teams"]
                 connection.execute(
-                    """INSERT OR REPLACE INTO shadow_fixtures
+                    """INSERT INTO shadow_fixtures
                        (fixture_id, zurich_date, league_id, season, home_team,
                         away_team, kickoff, evaluated)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, 0)""",
+                       VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+                       ON CONFLICT(fixture_id) DO UPDATE SET
+                         zurich_date=excluded.zurich_date, league_id=excluded.league_id,
+                         season=excluded.season, home_team=excluded.home_team,
+                         away_team=excluded.away_team, kickoff=excluded.kickoff,
+                         evaluated=CASE WHEN shadow_fixtures.kickoff=excluded.kickoff
+                           AND shadow_fixtures.home_team=excluded.home_team
+                           AND shadow_fixtures.away_team=excluded.away_team
+                           THEN shadow_fixtures.evaluated ELSE 0 END""",
                     (
                         fixture_data["id"], zurich_today.isoformat(), league_id, season,
                         teams["home"]["name"].strip(), teams["away"]["name"].strip(),
@@ -854,7 +925,14 @@ def step_schedule(provider: ShadowProvider, league_ids: list[int], zurich_today:
                     ),
                 )
                 loaded += 1
-        _meta_set(connection, marker, _utc_iso(datetime.now(timezone.utc)))
+            if league_complete:
+                _meta_set(connection, success_key, _utc_iso(now))
+            else:
+                failed = True
+                errors.append(f"Fixtures Liga {league_id}: unvollständige Spielplandaten")
+        if not failed and all(_meta_get(connection, _schedule_league_key(zurich_today, league_id, 'success'))
+               for league_id in league_ids):
+            _meta_set(connection, marker, _utc_iso(now))
         connection.commit()
     return loaded
 
@@ -1211,6 +1289,7 @@ def run(ctx):
         "pending_closing": pending_closing,
         "recent": _recent(tracker),
         "errors": errors[-15:],
+        "status": "partial" if errors else "completed",
         "verdict": _verdict(stats_all),
         "reference_bookmaker": BOOKMAKER_NAME,
         "quote_source": QUOTE_SOURCE,

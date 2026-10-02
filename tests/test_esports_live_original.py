@@ -153,7 +153,7 @@ def test_actual_parent_prediction_bytes_and_offline_replay(old_modules, status, 
     assert replay_esports_original(output["original"]) == output["original"].to_dict()
 
 
-def test_raw_positions_preserve_distinct_equal_and_same_object_occurrences(old_modules):
+def test_raw_positions_keep_first_unique_series_not_equal_or_same_object_duplicates(old_modules):
     match = legacy_match()
     rows = match["team1_history"]
     equal, same = deepcopy(rows[-1]), deepcopy(rows[-1])
@@ -161,10 +161,13 @@ def test_raw_positions_preserve_distinct_equal_and_same_object_occurrences(old_m
     match["team1_history"] = [future, equal, None, same, same, *rows[:-1]]
     output = capture(match)
     body = output["original"].to_dict()
-    assert body["consumed"]["history_indices"]["team1"][:3] == [1, 3, 4]
+    assert body["consumed"]["history_indices"]["team1"][:3] == [1, 23, 22]
+    assert not {0, 3, 4}.intersection(body["consumed"]["history_indices"]["team1"])
     assert body["consumed"]["matches1"] == 20
-    assert body["outputs"]["subgraph_size"] == 38
-    assert asdict(output["candidate"]) == asdict(old_modules[0].esports_match_winner_candidate(match, now=NOW))
+    assert body["outputs"]["subgraph_size"] == 40
+    # Unique input keeps the legacy result; polluted input no longer removes
+    # two legitimate series from the sample simply by repeating one row.
+    assert asdict(output["candidate"]) == asdict(old_modules[0].esports_match_winner_candidate(legacy_match(), now=NOW))
 
 
 @pytest.mark.parametrize("offset", [-1, 0, 1])
