@@ -12,8 +12,9 @@ in `61f3627` und ausdrücklicher Fixture-Formattransport in `7e8ba91` korrigiert
 Aktueller Code-/Testfreeze: `7e8ba9149269a909a08a802a7bddd1a8009191c0`.
 
 Alle 16 Fehler sind im Code korrigiert, mit regressionsfähigen Offline-Fällen
-und unabhängigen Gegenprüfungen. Veröffentlichung und Vollsuite werden unten
-erst nach ihrem tatsächlichen Abschluss belegt. Dieser Bericht behauptet keine
+und unabhängigen Gegenprüfungen. Vollständige Testabdeckung und kontrolliertes
+VPS-Deployment sind unten nach ihrem tatsächlichen Abschluss belegt.
+Dieser Bericht behauptet keine
 Verbesserung von Rendite, Trefferquote oder Verletzungs-/Wettereffekten.
 
 ## Änderungen je Befund
@@ -189,8 +190,12 @@ Auch Exit 0, unveränderte Quellidentität und 85+26 separate Untertests bestät
 
 ## Veröffentlichung
 
-Noch nicht veröffentlicht. Lokaler Reparaturcommit vorhanden; GitHub/VPS bleiben
-bis zum Abschluss der Prüfung auf `4df3e1d`.
+**Veröffentlicht und auf dem VPS geprüft, 02.10.2026 ca. 14:53 CEST.**
+Release `e233ac4b99e3ad3a014c35148d61b322b3c13f80` wurde nach unabhängigem
+QA-Abschluss auf GitHub-main gepusht und explizit per ff-only Pull auf dem VPS
+deployed. Der getestete Code-/Testfreeze `7e8ba91` ist enthalten. Dieser
+abschließende Produktionsnachweis ist ausschließlich Dokumentation;
+anschließender Dokumentations-Pull benötigt keinen weiteren Appneustart.
 
 Read-only VPS-Preflight 11:08 CEST: 18 GB frei, ungefähr 3,3 GB verfügbarer RAM;
 App aktiv, geprüfte Sportdienste inaktiv, sieben Timer geplant. Keine neue
@@ -212,6 +217,23 @@ Keine Sportdienste
 zusätzlich starten. Bestehende Wettfinder-/RisikoBet-Snapshots
 vorher/nachher per SHA-256 vergleichen. Healthchecks und exakte Commitgleichheit
 erst nach Ausführung dokumentieren.
+
+Tatsächlicher Ablauf: Deploylock übernommen, exakter Remote-/Dateiumfang und
+inaktive Sportdienste mit ausreichend Reserve geprüft; App gestoppt, ff-only
+gezogen. Reine Linux-QA bestand (`OFFLINE_FUNCTION_QA_OK`), mit verbotenem
+Providerzugriff und ohne Datenbank-Schreiben. App erfolgreich gestartet.
+Lokaler Healthcheck brauchte zwei erwartete Connection-Retries beim Start,
+danach lokal und öffentlich `ok`; App/Caddy aktiv, sieben Timer weiterhin geplant.
+Wettfinder-/RisikoBet-Snapshots vor/nach Deploy identisch:
+
+- Wettfinder SHA-256:
+  `5dbe03d190f6599c0274b5329e95040df465c4b4636703630718c172adec6a12`.
+- RisikoBet SHA-256:
+  `3c17199599730568f421277d0a526474aa9c1b8f584817231e2ec1e2ce265935`.
+
+18 GB frei im frischen Preflight; keine Speicherbereinigung erforderlich.
+Keine neue Sicherung, kein Zusatzscan, kein Paketeinbau, keine Datenmigration,
+kein historischer Abrechnungs-/Geld- oder Prognoseeingriff durchgeführt.
 
 ## Aktivierung und verbleibende Nachweisgrenzen
 

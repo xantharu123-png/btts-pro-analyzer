@@ -3,7 +3,7 @@
 ## 02.10.2026 – alle 16 Scanner-Befunde im Code repariert
 
 **Alle 16 Scanner-Befunde repariert, vollständige Testabdeckung und unabhängiger
-Abschlussabgleich bestanden; Veröffentlichung folgt.**
+Abschlussabgleich bestanden; committed, gepusht und auf dem VPS deployed.**
 Code-/Testfreeze: `7e8ba9149269a909a08a802a7bddd1a8009191c0`.
 Maßgeblich ist der [Reparaturbericht](docs/audits/2026-10-02-scanner-reparaturen.md);
 der darunterstehende Auditblock dokumentiert den früheren, unreparierten Stand.
@@ -43,9 +43,14 @@ der darunterstehende Auditblock dokumentiert den früheren, unreparierten Stand.
   Grundprognose und Belege bleiben normal veröffentlicht. Policytest ist kein
   empirischer Nachweis. Vorherige breite Runde 62 Fehler, alle drei Gruppen
   genau eingegrenzt; nicht als grün oder finale Vollsuite ausgegeben.
-- GitHub und VPS bis zum geprüften Push/Deploy weiterhin `4df3e1d`.
-  Danach ff-only Pull, Appneustart, reine Linux-Offlinetests, Healthchecks und
-  exakte Commitgleichheit prüfen. Keine neuen Backups, Pakete, Bereinigungen,
+- Release `e233ac4b99e3ad3a014c35148d61b322b3c13f80` ca. 14:53 CEST
+  identisch lokal/GitHub/VPS: ff-only Pull unter Deploylock/inaktiven Schreibern,
+  kontrollierter Appneustart, reine netzwerkgesperrte Linux-QA bestanden,
+  beide Healthchecks `ok`, App/Caddy aktiv, sieben Timer geplant. Wettfinder-
+  und RisikoBet-Snapshots per SHA-256 unverändert; 18 GB frei.
+  Dieser abschließende Dokumentationsstand wird danach separat ohne
+  Codeänderung/Appneustart auf main und VPS übernommen.
+  Keine neuen Backups, Pakete, Bereinigungen,
   SQL-Migrationen, Timeränderungen oder zusätzlichen Sport-/API-Scans.
 - Neue Tennisverteilung `serve-points-joint-v2` entsteht beim regulären
   Rebuild **03.10., 00:05 Zürich** mit eigener Kalibrierung und Schema 2.

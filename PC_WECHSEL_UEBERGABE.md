@@ -22,7 +22,11 @@ Restlauf 14:45:23 CEST Exit 0; finaler Aggregator belegt alle 12.183 IDs genau
 einmal: 12.086 bestanden/97 Skips/null Fehler, dazu 111 Untertests.
 Vollständige Testabdeckung in zwei disjunkten Dateigruppen, kein einzelner
 erfolgreicher Vollsuite-Aufruf. Sourcefreeze/Fingerprint unverändert.
-GitHub/VPS noch `4df3e1d`, bis der geprüfte Push/ff-only Deploy tatsächlich erfolgt.
+Release `e233ac4b99e3ad3a014c35148d61b322b3c13f80` ca.14:53 CEST
+lokal/GitHub/VPS identisch, explizit ff-only deployed. Reine Linux-QA grün,
+App/Caddy aktiv, sieben Timer geplant, beide Healthchecks `ok`, Ergebnissnapshots
+unverändert. Nachfolgend nur dieser Abschluss-Dokumentationsstand commit/push/pull,
+kein weiterer Codeeingriff/Appneustart nötig.
 Keine Backups, Pakete, Cleanup, SQL-Migration oder Extra-Sport-/API-Scans.
 Tennis v2 wird erst beim nächsten regulären Rebuild 03.10., 00:05 Zürich aktiv;
 alte Prognosen/Geldbelege nicht überschreiben. Fachlicher Kontext-/Qualitätsnachweis
