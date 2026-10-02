@@ -5,7 +5,7 @@
 Oberster [TODO-Block](TODO_AKTUELL.md) und
 [Reparaturbericht](docs/audits/2026-10-02-scanner-reparaturen.md) sind maßgeblich.
 Alle 16 Befunde implementiert, mit Regressionen und unabhängigen Reviews.
-Code eingefroren als `ce6e07e3881df61696dd15e54cbb38ec8fda175f` nach zusätzlicher
+Zwischenfreeze war `ce6e07e3881df61696dd15e54cbb38ec8fda175f` nach zusätzlicher
 Rotkarten-Periodenprüfung und korrigierter historischer Tennis-Replayintegration;
 Runtime-/Trainingsvertrag und POINT-Workergrenze vollständig integriert;
 450 Integrations-/254 unabhängige Tests bestanden. Eine gemeinsam verwendete
@@ -28,7 +28,8 @@ App/Caddy aktiv, sieben Timer geplant, beide Healthchecks `ok`, Ergebnissnapshot
 unverändert. Nachfolgend nur dieser Abschluss-Dokumentationsstand commit/push/pull,
 kein weiterer Codeeingriff/Appneustart nötig.
 Keine Backups, Pakete, Cleanup, SQL-Migration oder Extra-Sport-/API-Scans.
-Tennis v2 wird erst beim nächsten regulären Rebuild 03.10., 00:05 Zürich aktiv;
+Tennis-v2-Aufbau beim regulären Rebuild 03.10., 00:05 Zürich vorgesehen;
+Aktivierung und Produktionsnachweis erst nach erfolgreichem Lauf bestätigen.
 alte Prognosen/Geldbelege nicht überschreiben. Fachlicher Kontext-/Qualitätsnachweis
 und fünf ungeklärte Tennis-Ergebnisse bleiben getrennte offene Grenzen.
 

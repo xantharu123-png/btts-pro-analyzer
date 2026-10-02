@@ -52,8 +52,9 @@ der darunterstehende Auditblock dokumentiert den früheren, unreparierten Stand.
   Codeänderung/Appneustart auf main und VPS übernommen.
   Keine neuen Backups, Pakete, Bereinigungen,
   SQL-Migrationen, Timeränderungen oder zusätzlichen Sport-/API-Scans.
-- Neue Tennisverteilung `serve-points-joint-v2` entsteht beim regulären
-  Rebuild **03.10., 00:05 Zürich** mit eigener Kalibrierung und Schema 2.
+- Aufbau der neuen Tennisverteilung `serve-points-joint-v2` beim regulären
+  Rebuild **03.10., 00:05 Zürich** mit eigener Kalibrierung und Schema 2 vorgesehen;
+  Aktivierung und Produktionsnachweis erst nach erfolgreichem Lauf bestätigen.
   Vorhandene v1-Artefakte/Prognosen bleiben exakt replaybar und unverändert.
   Nach v2-Publikation ist bloßer Rücksprung auf alten Code nicht schemafähig.
 - Historische falsche WTA-Bo5-Belege und abgeschlossene Rotkartensignale
