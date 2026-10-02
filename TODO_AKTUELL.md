@@ -1,5 +1,66 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 02.10.2026 – Account übernommen und Scanner tief auditiert
+
+**Audit abgeschlossen, Reparaturen daraus noch nicht begonnen.** Maßgeblich:
+[Scanner-Tiefenaudit mit Repros und Reparaturreihenfolge](docs/audits/2026-10-02-scanner-tiefenaudit.md).
+
+- Frisch abgeglichen vor diesem Dokumentations-Commit: lokal/GitHub-main/VPS
+  `bfb934422e960dd18128cb7e1519b1301c098cdc`, funktionaler Code `1ae37d9`,
+  keine Pythonquellen-Differenz. App/Caddy aktiv, beide Healthchecks `ok`, sieben
+  Timer geplant. Keine durch Tokenabbruch verlorene aktuelle Codeänderung entdeckt.
+  58 Worktrees geprüft; drei Dirty-Meldungen nur gleiche Blobinhalte/leerem Diff.
+  Nicht behauptet, dass sämtliche historischen Branches integriert sind.
+- Reguläre Produktion heute: Tennis 00:05:17–00:26:56, Wettfinder
+  03:35:03–04:03:08, E-Sport 03:10:11–03:10:27 CEST jeweils Erfolg/Exit 0.
+  Wettfinder meldet null technische Aktualisierungsfehler. Shadow 07:02 war
+  erfolgreich idle, kein neuer Sportscan. Exit 0 allein beweist wegen T3/S1 unten
+  nicht generell erfolgreiche Anbieteraufnahme.
+- **Gegenpreis-Nachweis erledigt:** 16 tatsächlich gelieferte Tennis-Seitenpreise
+  aus acht Events gespeichert. Reiner RisikoBet-Leser bindet fünf vorhandene
+  Siegerpreise exakt; keine andere Seite/Satzmarkt-Verwechslung. Kein Extraabruf.
+  Morgenprüfung ist abgeschlossen; nicht weiter als fehlenden Nachweis führen.
+- Snapshot: 87 Modellkandidaten, davon 68 im reinen zukünftigen Kunden-Auswahl-
+  und 1,20-Filterpfad. Das ist kein neuer Browsernachweis. Accountlose Daily3-
+  Modellvorschau leer. Altes streng gefiltertes Feld `candidates=0` ist nicht
+  gleichbedeutend mit null sichtbaren Modellprognosen.
+- **16 neue reproduzierte Befunde (8 P1, 8 P2):** P1 zuerst:
+  T1 Tennis-00:05-Lauf entdeckt morgen statt heute;
+  T3 kompletter Tennis-Providerfehler kann erfolgreicher Null-Lauf werden;
+  S1 Shadow-Spielplanfehler schreibt Fertigmarker und verhindert Wiederholung;
+  R1 Rotkarten-Torabruf HTTP-Fehler kann fälschlich `no_goal` abrechnen;
+  T2 WTA-Grand-Slam-Format übernimmt Bo5 und blockiert korrekte 2:0-Abrechnung;
+  H1 explizit zurückgezogene Finals bleiben im Sporthistorien-Cache;
+  B1 Basketball-Neutralflag geht verloren; L1 Live-Restzeit endet starr bei 93.
+  Offline-Repros, nicht pauschal nachgewiesene aktuelle Produktionsschäden.
+  R1 betrifft Shadow-/Kalibrierungsbelege, kein belegter Echtgeldbuchungsfehler.
+- P2 danach: Count-Marktfrische aus falscher Torhistorie (F1), globaler
+  Familien-Kalibrierungsfehler (F2), verspätete Scan-Persistierung (J1),
+  E-Sport-Rohduplikate vor Stichprobengrenze (E1), Tiebreak-Halte-/Punktproxy
+  (T4), getrennte Sieger-/Satzwahrscheinlichkeiten (T5), fehlende Expositions-
+  minuten im Rotkarten-Phasenbericht (R2), dauerhaft veraltete Live-Torgrundlage
+  im Analyzer-Saisoncache (F3). Jeweiliger Repro im Auditbericht. Der separate
+  aktive BTTS-Live-Prior wurde ebenfalls geprüft; dessen RF-Wert wird nicht
+  als Live-Torwert genutzt. Kein taggleicher Trainings-Leakage-Befund.
+- Tennis jetzt **fünf**, nicht vier ungeklärte Ergebnisse: ATP 183397/183448/186254,
+  WTA 184266/186216. ATP 183448 neu gegenüber der Übergabe; nichts gelöscht.
+  Kalibrierungswatch bleibt der datierte Driftbericht vom 28.09., keine heutige
+  Neukalibrierung. Shadow null Benchmarkfälle, kein ROI-/Qualitätsbeleg.
+- Verletzungs-/Müdigkeits-/Wetterwirkung und unabhängiger Qualitätsnachweis
+  weiterhin offen. Bestehender experimenteller Anschluss ist keine qualifizierte
+  öffentliche Modellverbesserung. WTA-/weitere Sport-Daily3-Vergleiche offen;
+  Cricket bleibt von Implementierung ausgenommen. Keine Plätze künstlich füllen.
+- Heute gezielt: 356 Auswahl-/Daily3-/Preis-/Jobtests, 194 weitere Sport-/History-
+  Tests, 166 Tennistests, 19 Rotkarten-Logtests und 9 BTTS-Inputtests bestanden. Gruppen überlappen,
+  nicht addieren. Vollsuite 11.929/97 Skips/111 Untertests ist vom 01.10.,
+  nicht neu ausgeführt; JUnit-Hash nochmals bestätigt. Neue Fehler-Repros sind
+  noch keine eingebauten Regressionstests und wurden nicht repariert.
+- Kein zusätzlicher API-/Sport-/Modell-/Quotenscan, Backup, Cleanup, Migration,
+  Timer- oder Produktionscodeänderung. Nur Audit/TODO/Übergabe dokumentieren
+  und unter bestehender Freigabe committen/pushen sowie auf dem VPS ziehen.
+  **Nächster Implementierungsschritt erst bei Reparaturauftrag:** kleine Tests
+  für T1/T3/S1, dann gezielte Korrekturen; keine neue Generalplattform.
+
 ## Accountwechsel – verifiziert am 01.10.2026, 20:29 CEST
 
 **Technische Reparaturen veröffentlicht; fachliche Kontexteffekte noch offen.**

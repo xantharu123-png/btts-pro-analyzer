@@ -1,5 +1,22 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg – Scanner-Tiefenaudit, 02.10.2026
+
+Maßgeblich: oberster [TODO-Block](TODO_AKTUELL.md) und
+[Auditbericht mit 16 Repros](docs/audits/2026-10-02-scanner-tiefenaudit.md).
+Vor diesem Dokumentations-Commit lokal/GitHub/VPS `bfb9344`, Code `1ae37d9`
+unverändert. App/Healthchecks gesund; Tennis/Wettfinder/E-Sport heute Exit 0.
+Gegenpreis-Nachweis abgeschlossen: 16 reale Seitenpreise/acht Events, fünf exakt
+gebundene RisikoBet-Overlays. Kein Extraabruf. Jetzt fünf ungeklärte Tennisfälle.
+58 Worktrees ohne neu verlorenes aktuelles WIP abgeglichen, Altdateien erhalten.
+**8 P1-/8 P2-Befunde noch unrepariert:** zuerst falscher Tennis-Tag, maskierte
+Provider-/Shadow-Fehler; danach falsche Abrechnungs-/Format-/Neutral-/Live-Inputs.
+Details und kleine Reparaturreihenfolge im Audit, keine pauschale Fertigmeldung.
+Gezielte Gruppen 356/194/166/19/9 grün, teils überlappend; Vollsuite bleibt vom 01.10.
+Kontexteffekt-/Wettqualitätsnachweis weiterhin offen. Keine Code-, Backup-, Cleanup-,
+Migrations-, Timer- oder API-Scanänderung durch diesen Audit. Nicht ungefragt
+implementieren; für Reparaturen zuerst Regressionsfall, dann enger Patch/Review.
+
 ## Accountwechsel – 01.10.2026, 20:29 CEST
 
 Maßgeblich ist der neue oberste [TODO-Block](TODO_AKTUELL.md).
