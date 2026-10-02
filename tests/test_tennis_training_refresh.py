@@ -656,6 +656,7 @@ def test_cli_default_publishes_tours_independently_without_touching_legacy(tmp_p
         result.tour_scope = tour
         result.stats_through_kind = "result_date" if tour == "WTA" else "tournament_start_proxy"
         result.serve_weight = 0. if tour == "WTA" else .3
+        result.market_model_version = rebuild_state.POINT_MODEL_VERSION
         return result
     monkeypatch.setattr(rebuild_state, "build_tour_state", build, raising=False)
     monkeypatch.setattr(sys, "argv", ["rebuild_state", "--force"])
@@ -676,7 +677,9 @@ def test_cli_default_publishes_tours_independently_without_touching_legacy(tmp_p
     assert 'WTA serve_admission={"serve_build":{"admitted":0' in output
     for tour in ("ATP", "WTA"):
         if broken not in (tour, "both"):
-            assert tour_state.load_tour_state(tour, path=path).tour_scope == tour
+            state = tour_state.load_tour_state(tour, path=path)
+            assert state.tour_scope == tour
+            assert state.market_model_version == rebuild_state.POINT_MODEL_VERSION
 
 
 def test_cli_retains_only_fresh_tour_and_force_overrides_skip(tmp_path, monkeypatch, capsys):
@@ -691,6 +694,7 @@ def test_cli_retains_only_fresh_tour_and_force_overrides_skip(tmp_path, monkeypa
         result.tour_scope = tour
         result.stats_through_kind = "result_date" if tour == "WTA" else "tournament_start_proxy"
         result.serve_weight = 0. if tour == "WTA" else .3
+        result.market_model_version = rebuild_state.POINT_MODEL_VERSION
         return result
     assert tour_state.refresh_tours(path=path, as_of=clock, builder=initial,
         publication_clock=lambda: clock)["status"] == "complete"
@@ -712,6 +716,77 @@ def test_cli_retains_only_fresh_tour_and_force_overrides_skip(tmp_path, monkeypa
     assert rebuild_state.main() == 1
     assert calls == [("ATP", False), ("WTA", False)]
     assert load_manifest(path) == before
+
+
+def _cli_scoped_state(tour, version):
+    result = old_state()
+    result.built_at = NOW
+    result.stats_through = "2026-09-06"
+    result.tour_scope = tour
+    result.stats_through_kind = "result_date" if tour == "WTA" else "tournament_start_proxy"
+    result.serve_weight = 0. if tour == "WTA" else .3
+    result.market_model_version = version
+    return result
+
+
+def test_regular_cli_upgrades_fresh_legacy_tours_and_preserves_original_artifacts(tmp_path, monkeypatch, capsys):
+    from model_artifacts import load_artifact, load_manifest
+    from tennis import tour_state
+    from tennis.simulator import LEGACY_MODEL_VERSION, POINT_MODEL_VERSION
+    path = tmp_path / "models.db"
+    clock = datetime.fromtimestamp(NOW, timezone.utc)
+    assert tour_state.refresh_tours(path=path, as_of=clock,
+        builder=lambda tour: _cli_scoped_state(tour, LEGACY_MODEL_VERSION),
+        publication_clock=lambda: clock)["status"] == "complete"
+    _, prior_slots = load_manifest(path)
+    original_artifacts = {ref: load_artifact(path, ref) for ref in prior_slots.values()}
+    calls = []
+    def build(tour, **kwargs):
+        calls.append((tour, kwargs["refresh_training_data"]))
+        return _cli_scoped_state(tour, POINT_MODEL_VERSION)
+    monkeypatch.setattr(rebuild_state, "CONTEXT_MODEL_DB_PATH", path, raising=False)
+    monkeypatch.setattr(rebuild_state, "build_tour_state", build, raising=False)
+    monkeypatch.setattr(rebuild_state.time, "time", lambda: NOW)
+    monkeypatch.setattr(sys, "argv", ["rebuild_state", "--if-stale-days", "7", "--no-refresh-data"])
+    assert rebuild_state.main() == 0
+    assert calls == [("ATP", False), ("WTA", False)]
+    output = capsys.readouterr().out
+    assert "REFRESH_COMPLETE" in output and "retained_fresh" not in output
+    _, current_slots = load_manifest(path)
+    for tour in ("ATP", "WTA"):
+        assert current_slots["tennis:"+tour] != prior_slots["tennis:"+tour]
+        assert tour_state.load_tour_state(tour, path=path).market_model_version == POINT_MODEL_VERSION
+        assert load_artifact(path, current_slots["tennis:"+tour])["payload"]["state"]["schema"] == 2
+    assert {ref: load_artifact(path, ref) for ref in original_artifacts} == original_artifacts
+
+
+@pytest.mark.parametrize("prior_version", ["hold-proxy-v1", "serve-points-joint-v2"])
+def test_regular_cli_rejects_legacy_builder_without_overwriting_either_tour(tmp_path, monkeypatch, capsys, prior_version):
+    from model_artifacts import load_artifact, load_manifest
+    from tennis import tour_state
+    from tennis.simulator import LEGACY_MODEL_VERSION
+    path = tmp_path / "models.db"
+    clock = datetime.fromtimestamp(NOW, timezone.utc)
+    assert tour_state.refresh_tours(path=path, as_of=clock,
+        builder=lambda tour: _cli_scoped_state(tour, prior_version),
+        publication_clock=lambda: clock)["status"] == "complete"
+    prior_manifest = load_manifest(path)
+    original_artifacts = {ref: load_artifact(path, ref) for ref in prior_manifest[1].values()}
+    calls = []
+    def legacy_builder(tour, **kwargs):
+        calls.append(tour)
+        return _cli_scoped_state(tour, LEGACY_MODEL_VERSION)
+    monkeypatch.setattr(rebuild_state, "CONTEXT_MODEL_DB_PATH", path, raising=False)
+    monkeypatch.setattr(rebuild_state, "build_tour_state", legacy_builder, raising=False)
+    monkeypatch.setattr(rebuild_state.time, "time", lambda: NOW)
+    monkeypatch.setattr(sys, "argv", ["rebuild_state", "--force", "--no-refresh-data"])
+    assert rebuild_state.main() == 1
+    assert calls == ["ATP", "WTA"]
+    output = capsys.readouterr().out
+    assert "ATP: failed;" in output and "WTA: failed;" in output
+    assert output.count("error_type=ValueError") == 2 and "REFRESH_FAILED" in output
+    assert load_manifest(path) == prior_manifest
+    assert {ref: load_artifact(path, ref) for ref in original_artifacts} == original_artifacts
 
 
 @pytest.mark.parametrize("tour", ["ATP", "WTA"])

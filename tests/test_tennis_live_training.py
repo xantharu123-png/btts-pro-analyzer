@@ -59,13 +59,30 @@ def live_config(tour="ATP"):
         "alpha_grid": [.01, .1, 1., 10., 100.]}
 
 
-def packet(tmp_path, tour="ATP"):
+def packet(tmp_path, tour="ATP", *, point=False):
     from context_runtime_tennis import _native_event
     from tennis.predict import predict_match
     from tennis.tour_state import _decode_wrapper
     db = tmp_path / "live-training.db"
     state_ref = publish_state(db, tour=tour)
     state = _decode_wrapper(load_artifact(db, state_ref)["payload"], tour)
+    if point:
+        from tennis.simulator import POINT_MODEL_VERSION
+        from tennis.state_codec import encode_state
+        state.market_model_version = POINT_MODEL_VERSION
+        if tour == "ATP":
+            state.serve_weight = .3
+            for _ in range(25):
+                state.serve.update_from_match_row({
+                    "winner_key": "alpha a", "loser_key": "beta b", "surface": "Hard",
+                    "win_service_games_played": 10, "win_return_games_played": 10,
+                    "win_break_points_converted": 3, "los_break_points_converted": 1,
+                    "los_service_games_played": 10, "los_return_games_played": 10,
+                    "win_break_points_saved": 2})
+        state_ref = put_artifact(db, kind="tennis-tour-state", payload={
+            "schema": 1, "training_cutoff": state.training_cutoff,
+            "state": encode_state(state, tour=tour)}, created_at=NOW-timedelta(hours=1))
+        state = _decode_wrapper(load_artifact(db, state_ref)["payload"], tour)
     grouping = "mens-singles" if tour == "ATP" else "womens-singles"
     root = Path(__file__).resolve().parents[1]
     hashes = {name: hashlib.sha256((root/name).read_bytes()).hexdigest() for name in CODE_PATHS}
@@ -210,6 +227,44 @@ def test_builder_is_read_only_and_uses_complete_relevant_revisions(tmp_path):
     full = select_tennis_observations(all_rows, cutoff=datetime.fromisoformat(payload["base"]["cutoff"]), tour="ATP")
     assert tennis_features_v3(payload["event"], full, payload["base"],
         cutoff=datetime.fromisoformat(payload["base"]["cutoff"])) == payload["features"]
+
+
+@pytest.mark.parametrize("tour", ["ATP", "WTA"])
+def test_point_original_replays_through_real_read_only_training_builder(tmp_path, monkeypatch, tour):
+    from context_models.tennis_training import build_live_training_case
+    from context_models.training_contracts import validate_resolved_case
+    from tennis.simulator import POINT_MODEL_VERSION
+    from tennis.tour_state import _decode_wrapper
+    import requests
+    db, originals, outcomes, identity, built = packet(tmp_path, tour=tour, point=True)
+    before = db.read_bytes()
+    monkeypatch.setattr(requests, "get", lambda *a, **k: pytest.fail("training replay requested a provider"))
+    config = live_config(tour)
+    case = build_live_training_case(db, original_ref=originals[0], outcome_ref=outcomes[0],
+        identity_ref=identity, config=config, as_of=built)
+    state = case["artifacts"][case["case"]["payload"]["base"]["model_hash"]]["payload"]
+    assert state["state"]["schema"] == 2
+    assert _decode_wrapper(state, tour).market_model_version == POINT_MODEL_VERSION
+    assert validate_resolved_case(case, config=config) == case
+    assert db.read_bytes() == before
+
+
+@pytest.mark.parametrize("tour", ["ATP", "WTA"])
+def test_point_training_original_cannot_borrow_legacy_source_identity(tmp_path, tour):
+    from context_models.tennis_training import build_live_training_case
+    from context_models.training_contracts import validate_resolved_case
+    from context_runtime_tennis import _REVIEWED_RECENT_TRAINING_MANIFEST
+    db, originals, outcomes, identity, built = packet(tmp_path, tour=tour, point=True)
+    before = db.read_bytes()
+    config = live_config(tour)
+    case = build_live_training_case(db, original_ref=originals[0], outcome_ref=outcomes[0],
+        identity_ref=identity, config=config, as_of=built)
+    legacy = {name: {"LF": sorted(hashes)[0]} for name, hashes in
+              _REVIEWED_RECENT_TRAINING_MANIFEST.items()}
+    changed = with_source_manifest(case, legacy)
+    with pytest.raises(ContextIntegrityError, match="point joint Tennis state lacks its reviewed versioned code identity"):
+        validate_resolved_case(changed, config=config)
+    assert db.read_bytes() == before
 
 
 @pytest.mark.parametrize("source_manifest", _REVIEWED_PRIOR_SOURCE_MANIFESTS,

@@ -130,6 +130,22 @@ def _code_manifest_supported(recorded, running):
         for executor, predecessors in transitions)
 
 
+def _state_code_manifest_supported(recorded, state):
+    """Bind the selected state law to its exact reviewed owning source set.
+
+    Historical schema1 states retain their frozen legacy path; schema2 may
+    not claim that a pre-point implementation produced its new distribution.
+    The caller must independently verify executor compatibility above.
+    """
+    from tennis.simulator import LEGACY_MODEL_VERSION, POINT_MODEL_VERSION
+    version = state.market_model_version
+    if version == LEGACY_MODEL_VERSION:
+        return True
+    return (version == POINT_MODEL_VERSION and set(recorded) == set(CODE_PATHS)
+            and all(recorded[name] in _REVIEWED_POINT_JOINT_MANIFEST[name]
+                    for name in CODE_PATHS))
+
+
 def _native_event(row):
     data = row["payload"]
     return live_event({"event_key": row["event_key"], "sport": "tennis", "competition": row["competition"],
@@ -234,10 +250,7 @@ def _verify_live_original(ref, publication, artifacts, created_at, receipts, var
             or canonical_timestamp(created_at[state_ref]) > cutoff):
         raise ArtifactIntegrityError("live original lacks its actual predecision tour state")
     state = _decode_wrapper(envelope["payload"], event["tour"])
-    from tennis.simulator import POINT_MODEL_VERSION
-    if (state.market_model_version == POINT_MODEL_VERSION
-            and not all(origin["code_hashes"][name] in _REVIEWED_POINT_JOINT_MANIFEST[name]
-                        for name in CODE_PATHS)):
+    if not _state_code_manifest_supported(origin["code_hashes"], state):
         raise ArtifactIntegrityError("point joint Tennis state lacks its reviewed versioned code identity")
     if state.built_at > decision.timestamp():
         raise ArtifactIntegrityError("live original state was built after its decision")
