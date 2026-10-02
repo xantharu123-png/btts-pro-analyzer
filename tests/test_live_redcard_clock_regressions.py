@@ -186,6 +186,98 @@ def test_confirmed_goal_outcome_is_scored_from_complete_goal_evidence(tmp_path):
     conn.close()
 
 
+@pytest.mark.parametrize("phase,extra", [("1H", 3), ("HT", None)])
+def test_native_first_half_clock_is_bound_and_past_injury_goal_can_settle(tmp_path, phase, extra):
+    import json
+    db = tmp_path / "signals.db"
+    entry = _signal()
+    entry.update(prediction_minute=45, score="1-0")
+    entry["card"]["match"]["fixture"]["status"] = {"short": phase, "elapsed": 45, "extra": extra}
+    assert log_signal(entry, db_path=db)
+    event = {"type": "Goal", "time": {"elapsed": 45, "extra": 1}, "team": {"id": 10}}
+    result = settle_open_signals(_SettlementAPI({"response": [event]}, final=(1, 0)),
+                                 sleep_seconds=0, db_path=db)
+    assert result["settled"] == 1
+    conn = _connect(db)
+    row = conn.execute("SELECT outcome,context_json FROM signals").fetchone()
+    conn.close()
+    assert row["outcome"] == "no_goal"
+    assert json.loads(row["context_json"])["snapshot_clock"] == {
+        "phase": phase, "elapsed": 45, "extra": extra or 0}
+
+
+def test_first_half_stoppage_goal_precedes_second_half_goal_in_settlement(tmp_path):
+    db = tmp_path / "signals.db"
+    entry = _signal()
+    entry["prediction_minute"] = 40
+    entry["card"]["match"]["fixture"]["status"] = {"short": "1H", "elapsed": 40, "extra": None}
+    assert log_signal(entry, db_path=db)
+    events = [{"type": "Goal", "time": {"elapsed": 45, "extra": 4}, "team": {"id": 10}},
+              {"type": "Goal", "time": {"elapsed": 46}, "team": {"id": 20}}]
+    result = settle_open_signals(_SettlementAPI({"response": events}, final=(1, 1)),
+                                 sleep_seconds=0, db_path=db)
+    assert result["settled"] == 1
+    conn = _connect(db)
+    assert conn.execute("SELECT outcome FROM signals").fetchone()[0] == "red_team"
+    conn.close()
+
+
+def test_second_half_snapshot_does_not_count_first_half_added_goal_again(tmp_path):
+    db = tmp_path / "signals.db"
+    entry = _signal()
+    entry.update(prediction_minute=46, score="1-0")
+    entry["card"]["match"]["fixture"]["status"] = {"short": "2H", "elapsed": 46, "extra": None}
+    assert log_signal(entry, db_path=db)
+    events = [{"type": "Goal", "time": {"elapsed": 45, "extra": 4}, "team": {"id": 10}},
+              {"type": "Goal", "time": {"elapsed": 75}, "team": {"id": 20}}]
+    result = settle_open_signals(_SettlementAPI({"response": events}, final=(1, 1)),
+                                 sleep_seconds=0, db_path=db)
+    assert result["settled"] == 1
+    conn = _connect(db)
+    assert conn.execute("SELECT outcome FROM signals").fetchone()[0] == "opponent"
+    conn.close()
+
+
+def test_legacy_snapshot_without_native_first_half_clock_stays_open_if_ambiguous(tmp_path):
+    db = tmp_path / "signals.db"
+    entry = _signal()
+    entry.update(prediction_minute=45, score="1-0")
+    assert log_signal(entry, db_path=db)
+    event = {"type": "Goal", "time": {"elapsed": 45, "extra": 1}, "team": {"id": 10}}
+    result = settle_open_signals(_SettlementAPI({"response": [event]}, final=(1, 0)),
+                                 sleep_seconds=0, db_path=db)
+    assert result["settled"] == 0
+
+
+@pytest.mark.parametrize("clock", [
+    {"phase": [], "elapsed": 60, "extra": 0},
+    {"phase": "2H", "elapsed": 59, "extra": 0},
+    {"phase": "ET", "elapsed": 60, "extra": 0},
+    {"phase": "2H", "elapsed": 60, "extra": False},
+])
+def test_invalid_bound_snapshot_clock_stays_open_without_crashing(tmp_path, clock):
+    import json
+    db = tmp_path / "signals.db"
+    assert log_signal(_signal(), db_path=db)
+    conn = _connect(db)
+    conn.execute("UPDATE signals SET context_json=?", (json.dumps({"snapshot_clock": clock}),))
+    conn.commit()
+    conn.close()
+    result = settle_open_signals(_SettlementAPI({"response": []}), sleep_seconds=0, db_path=db)
+    assert result["settled"] == 0
+    assert result["unverified_events"] == 1
+
+
+def test_first_goal_result_minute_comes_from_validated_period_clock():
+    from redcard_signal_log import _first_goal_after
+    event = {"type": "Goal", "time": {"elapsed": 92}, "team": {"id": 20}}
+    assert _first_goal_after([event], 90, "FT") == (92, 20)
+    # A packed clock plus a positive extra field is not a native Goal clock:
+    # reject ambiguity rather than count those minutes twice.
+    event["time"]["extra"] = 2
+    assert _first_goal_after([event], 90, "FT") is None
+
+
 @pytest.mark.parametrize("provider_errors,unverified,expected", [(1, 0, 1), (0, 1, 0), (0, 0, 0)])
 def test_settlement_cli_reports_provider_failure_without_treating_pending_as_crash(
         monkeypatch, provider_errors, unverified, expected):

@@ -68,6 +68,17 @@ _REVIEWED_RECENT_TRAINING_MANIFEST = {
        if name != "tennis/model_state.py"},
     "tennis/model_state.py": frozenset({"e2725e19bcebc59251bcd6ded2ff94e4712f2da5d55ebcf3d0688c878dc5e7aa", "d51a407c13f6ea804cc1e7b96652597dfb9b14916a6d8ec436d36f89fae33a62"}),
 }
+_REVIEWED_POINT_JOINT_MANIFEST = {
+    # Exact LF/CRLF owner identities reviewed at 34c146fa2ff9a72fc06975b575ea1dc7376a965f.
+    # Schema1 still executes the frozen hold-proxy-v1 path byte-exactly; Schema2
+    # explicitly selects serve-points-joint-v2 from its sealed state artifact.
+    # The old source may never be claimed as executor of this new state schema.
+    **{name: hashes for name, hashes in _REVIEWED_RECENT_TRAINING_MANIFEST.items()
+       if name not in {"tennis/predict.py", "tennis/model_state.py", "tennis/simulator.py"}},
+    "tennis/predict.py": frozenset({"035fcc262392a5e7e749c12f25844c149bb1b1a716832f8920463bad9e67a6ff", "29a5593af3665d954b370e596afb85817a2aee8bc76573bf9d333d22466e5cea"}),
+    "tennis/model_state.py": frozenset({"2e39c823a43cffb1c651edc605d26628bc25b37c8684424cff2f2e1dc90a3ef3", "38178d47c9ef7176f71ec8387bbe53fb7f431d37a35d0ca72ea18e7a1fa68c8f"}),
+    "tennis/simulator.py": frozenset({"b4a327f328fd11f3d9327aff3a747ca95d5a48db528bc6d9d29272b9f117471b", "da1a971e934fd0ee47fb4174cad9c06826c300df69b0da9da4c34c33675cfbca"}),
+}
 
 
 def _same(actual, expected, label):
@@ -108,6 +119,9 @@ def _code_manifest_supported(recorded, running):
         (_REVIEWED_RECENT_TRAINING_MANIFEST,
          (*duration_predecessors, _REVIEWED_RECONCILED_DURATION_MANIFEST,
           _REVIEWED_RESULTS_PLACEHOLDER_MANIFEST)),
+        (_REVIEWED_POINT_JOINT_MANIFEST,
+         (*duration_predecessors, _REVIEWED_RECONCILED_DURATION_MANIFEST,
+          _REVIEWED_RESULTS_PLACEHOLDER_MANIFEST, _REVIEWED_RECENT_TRAINING_MANIFEST)),
     )
     return any(
         all(executor[name] <= running[name] for name in CODE_PATHS)
@@ -220,6 +234,11 @@ def _verify_live_original(ref, publication, artifacts, created_at, receipts, var
             or canonical_timestamp(created_at[state_ref]) > cutoff):
         raise ArtifactIntegrityError("live original lacks its actual predecision tour state")
     state = _decode_wrapper(envelope["payload"], event["tour"])
+    from tennis.simulator import POINT_MODEL_VERSION
+    if (state.market_model_version == POINT_MODEL_VERSION
+            and not all(origin["code_hashes"][name] in _REVIEWED_POINT_JOINT_MANIFEST[name]
+                        for name in CODE_PATHS)):
+        raise ArtifactIntegrityError("point joint Tennis state lacks its reviewed versioned code identity")
     if state.built_at > decision.timestamp():
         raise ArtifactIntegrityError("live original state was built after its decision")
     count, candidate = _original_native_candidate(receipts, event, decision, history_max_bytes, history_cache)

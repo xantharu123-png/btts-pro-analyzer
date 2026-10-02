@@ -22,6 +22,71 @@ from model_artifacts import ArtifactIntegrityError, canonical_bytes
 from test_tennis_live_worker import NOW, competition, configure, context_rows, run_batch
 
 
+def _point_stored(monkeypatch, tmp_path, *, tour="ATP"):
+    """Actual Schema2 A1 -> owning live ORIGINAL -> sealed context image."""
+    from tennis.tour_state import load_tour_state
+    from tennis.state_codec import encode_state
+    from tennis.simulator import POINT_MODEL_VERSION
+    from model_artifacts import put_artifact, publish_slots, load_manifest
+    db, predictions, _, _ = configure(monkeypatch, tmp_path, tours=(tour,))
+    state = load_tour_state(tour, path=db)
+    state.market_model_version = POINT_MODEL_VERSION
+    if tour == "ATP":
+        state.serve_weight = .3
+        for _ in range(25):
+            state.serve.update_from_match_row({
+                "winner_key": "alpha a", "loser_key": "beta b", "surface": "Hard",
+                "win_service_games_played": 10, "win_return_games_played": 10,
+                "win_break_points_converted": 3, "los_break_points_converted": 1,
+                "los_service_games_played": 10, "los_return_games_played": 10,
+                "win_break_points_saved": 2,
+            })
+    packet = {"schema": 1, "training_cutoff": state.training_cutoff,
+              "state": encode_state(state, tour=tour)}
+    assert packet["state"]["schema"] == 2
+    ref = put_artifact(db, kind="tennis-tour-state", payload=packet,
+        created_at=NOW-timedelta(hours=1))
+    current, _ = load_manifest(db)
+    publish_slots(db, {"tennis:"+tour: ref}, expected_manifest=current,
+        published_at=NOW-timedelta(minutes=50))
+    result, rows = run_batch(db, predictions)
+    assert not result["errors"] and len(rows) == 1
+    assert context_rows(db)[0][1]["base"]["model_hash"] == ref
+    return db, rows
+
+
+@pytest.mark.parametrize("tour", ["ATP", "WTA"])
+def test_schema2_point_live_original_replays_read_only_without_rebuild(monkeypatch, tmp_path, tour):
+    from tennis.simulator import POINT_MODEL_VERSION
+    db, rows = _point_stored(monkeypatch, tmp_path, tour=tour)
+    context = json.loads(rows[0]["context_json"])
+    assert context["model_inputs"]["market_model_version"] == POINT_MODEL_VERSION
+    before = db.read_bytes()
+    def forbidden(*args, **kwargs):
+        pytest.fail("Schema2 replay downloaded, trained or repaired a database")
+    monkeypatch.setattr("requests.sessions.Session.request", forbidden)
+    monkeypatch.setattr("requests.get", forbidden)
+    monkeypatch.setattr("tennis.tour_state.build_tour_state", forbidden)
+    monkeypatch.setattr("tennis.model_state.build_state", forbidden)
+    report = verify_context_database(db)
+    assert report["verification_level"] == "transport_only"
+    assert not report["empirical_approval_verified"]
+    assert report["counts"]["snapshots"] == 1
+    assert db.read_bytes() == before
+
+
+def test_schema2_point_original_cannot_borrow_legacy_source_identity(monkeypatch, tmp_path):
+    from context_runtime_tennis import _REVIEWED_RECENT_TRAINING_MANIFEST
+    db, _ = _point_stored(monkeypatch, tmp_path)
+    _replace_origin(db, lambda origin: origin.__setitem__("code_hashes", {
+        name: sorted(hashes)[0] for name, hashes in _REVIEWED_RECENT_TRAINING_MANIFEST.items()}))
+    before = db.read_bytes()
+    with pytest.raises(ArtifactIntegrityError) as failure:
+        verify_context_database(db)
+    assert str(failure.value.__cause__) == "point joint Tennis state lacks its reviewed versioned code identity"
+    assert db.read_bytes() == before
+
+
 _REVIEWED_OLD_SOURCE_MANIFEST = {
     "tennis/predict.py": {
         "LF": "bd1c2c8f7666e3de5f32d754eac09967edde566c1d7b48c298635f2b3d989ecc",
@@ -374,8 +439,11 @@ def test_results_loader_transition_is_exact_and_not_reverse_compatible():
         _code_manifest_supported, _code_variants,
         _REVIEWED_RECONCILED_DURATION_MANIFEST,
         _REVIEWED_RESULTS_PLACEHOLDER_MANIFEST,
+        _REVIEWED_RECENT_TRAINING_MANIFEST,
     )
-    running = _code_variants()
+    # This assertion owns the prior loader -> training-window transition,
+    # not a claim that later prediction owners are unchanged forever.
+    running = _REVIEWED_RECENT_TRAINING_MANIFEST
     assert all(hashes <= running[name] for name, hashes in
                _REVIEWED_RESULTS_PLACEHOLDER_MANIFEST.items() if name != "tennis/model_state.py")
     assert not (_REVIEWED_RESULTS_PLACEHOLDER_MANIFEST["tennis/model_state.py"]
@@ -393,16 +461,34 @@ def test_recent_training_window_transition_replays_old_state_but_not_reverse():
         _code_manifest_supported, _code_variants,
         _REVIEWED_RECENT_TRAINING_MANIFEST,
         _REVIEWED_RESULTS_PLACEHOLDER_MANIFEST,
+        _REVIEWED_POINT_JOINT_MANIFEST,
     )
     running = _code_variants()
     assert all(hashes <= running[name]
-               for name, hashes in _REVIEWED_RECENT_TRAINING_MANIFEST.items())
+               for name, hashes in _REVIEWED_POINT_JOINT_MANIFEST.items())
     previous = {name: sorted(hashes)[0]
                 for name, hashes in _REVIEWED_RESULTS_PLACEHOLDER_MANIFEST.items()}
     current = {name: sorted(hashes)[0]
                for name, hashes in _REVIEWED_RECENT_TRAINING_MANIFEST.items()}
-    assert _code_manifest_supported(previous, running)
+    assert _code_manifest_supported(previous, _REVIEWED_RECENT_TRAINING_MANIFEST)
+    assert _code_manifest_supported(current, running)
     assert not _code_manifest_supported(current, _REVIEWED_RESULTS_PLACEHOLDER_MANIFEST)
+
+
+def test_point_joint_transition_is_exact_directional_and_rejects_mixed_owners():
+    from context_runtime_tennis import (
+        _code_manifest_supported, _code_variants,
+        _REVIEWED_POINT_JOINT_MANIFEST, _REVIEWED_RECENT_TRAINING_MANIFEST,
+    )
+    running = _code_variants()
+    assert all(hashes <= running[name] for name, hashes in _REVIEWED_POINT_JOINT_MANIFEST.items())
+    previous = {name: sorted(hashes)[0] for name, hashes in _REVIEWED_RECENT_TRAINING_MANIFEST.items()}
+    current = {name: sorted(hashes)[0] for name, hashes in _REVIEWED_POINT_JOINT_MANIFEST.items()}
+    assert _code_manifest_supported(previous, running)
+    assert _code_manifest_supported(current, running)
+    assert not _code_manifest_supported(current, _REVIEWED_RECENT_TRAINING_MANIFEST)
+    mixed = {**previous, "tennis/predict.py": current["tennis/predict.py"]}
+    assert not _code_manifest_supported(mixed, running)
 
 
 @pytest.mark.parametrize("tour", ["ATP", "WTA"])

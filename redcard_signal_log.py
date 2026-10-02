@@ -118,6 +118,58 @@ def _parse_score(score: Any) -> tuple[Optional[int], Optional[int]]:
         return None, None
 
 
+def _period_clock(phase: str, elapsed: int, extra: int = 0) -> Optional[tuple[int, int, int]]:
+    """Order football clocks by half, then minute, then added time.
+
+    1H 45+4 precedes 2H 46 even though 45+4 is numerically greater than 46.
+    HT is after every first-half event, not an unknown second-half minute.
+    """
+    if (not isinstance(phase, str) or isinstance(elapsed, bool) or not isinstance(elapsed, int) or not 0 <= elapsed <= 130
+            or isinstance(extra, bool) or not isinstance(extra, int) or not 0 <= extra <= 40):
+        return None
+    if phase == "HT":
+        return (1, 91, 0) if 45 <= elapsed <= 60 else None
+    if phase not in {"1H", "2H"}:
+        return None
+    boundary, period = (45, 1) if phase == "1H" else (90, 2)
+    if (phase == "1H" and elapsed > 60) or (phase == "2H" and elapsed < 45):
+        return None
+    if elapsed > boundary:
+        # Providers using a packed elapsed clock must not double-count extra.
+        if extra not in {0, elapsed - boundary}:
+            return None
+        return period, boundary, elapsed - boundary
+    if extra and elapsed != boundary:
+        return None
+    return period, elapsed, extra
+
+
+def _snapshot_order(row) -> Optional[tuple[int, int, int]]:
+    minute = row["minute"]
+    raw = row["context_json"] if "context_json" in row.keys() else None
+    try:
+        context = json.loads(raw) if raw is not None else {}
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(context, dict):
+        return None
+    native = context.get("snapshot_clock")
+    if native is not None:
+        if (not isinstance(native, dict) or set(native) != {"phase", "elapsed", "extra"}
+                or native["elapsed"] != minute):
+            return None
+        return _period_clock(native["phase"], native["elapsed"], native["extra"])
+    # Legacy rows have no native phase. The score/timeline consistency check
+    # below keeps ambiguous 45+x snapshots open instead of inventing a phase.
+    return _period_clock("1H" if minute <= 45 else "2H", minute)
+
+
+def _goal_order(elapsed: int, extra: int) -> Optional[tuple[int, int, int]]:
+    if extra and elapsed not in {45, 90}:
+        return None
+    return _period_clock("1H" if elapsed <= 45 else "2H", elapsed, extra)
+
+
 def log_signal(entry: Dict[str, Any], db_path: Path = DB_PATH) -> bool:
     """Loggt einen Rotkarten-Snapshot-Eintrag (app.py _red_card_entry).
 
@@ -156,7 +208,18 @@ def log_signal(entry: Dict[str, Any], db_path: Path = DB_PATH) -> bool:
         context = {
             "league": league.get("name"),
             "context_effects": prediction.get("context_effects"),
+            "snapshot_clock": None,
         }
+        native_status = fixture.get("status")
+        if native_status is not None:
+            if not isinstance(native_status, dict):
+                return False
+            if "short" in native_status:
+                native = {"phase": native_status["short"], "elapsed": native_status.get("elapsed"),
+                          "extra": 0 if native_status.get("extra") is None else native_status["extra"]}
+                if native["elapsed"] != minute or _period_clock(**native) is None:
+                    return False
+                context["snapshot_clock"] = native
         conn = _connect(db_path)
         try:
             conn.execute("BEGIN IMMEDIATE")
@@ -201,7 +264,8 @@ def log_signal(entry: Dict[str, Any], db_path: Path = DB_PATH) -> bool:
 
 
 def _first_goal_after(
-    events: list, minute: int, status: Optional[str] = None
+    events: list, minute: int, status: Optional[str] = None,
+    *, snapshot_order: Optional[tuple[int, int, int]] = None,
 ) -> Optional[tuple[int, Optional[int]]]:
     """(elapsed, team_id) des ersten Tors nach dem Modell-Snapshot, sonst None.
 
@@ -209,7 +273,10 @@ def _first_goal_after(
     _goal_in_model_horizon) — Verlängerung und Elfmeterschießen sind
     kein Modell-Outcome.
     """
-    first: Optional[tuple[int, Optional[int], int]] = None
+    snapshot_order = snapshot_order or _period_clock("1H" if minute <= 45 else "2H", minute)
+    if snapshot_order is None:
+        return None
+    first = None
     for index, event in enumerate(events or []):
         if not isinstance(event, dict) or event.get("type") != "Goal":
             continue
@@ -222,16 +289,17 @@ def _first_goal_after(
             continue
         if not isinstance(extra, int) or isinstance(extra, bool) or extra < 0:
             extra = 0
-        effective_minute = elapsed + extra
-        if effective_minute <= minute:
+        clock = _goal_order(elapsed, extra)
+        if clock is None or clock <= snapshot_order:
             continue
+        effective_minute = clock[1] + clock[2]
         if not _goal_in_model_horizon(elapsed, extra, status):
             continue
         team_id = (event.get("team") or {}).get("id")
-        candidate = (effective_minute, team_id, index)
-        if first is None or (candidate[0], candidate[2]) < (first[0], first[2]):
+        candidate = (clock, index, effective_minute, team_id)
+        if first is None or candidate[:2] < first[:2]:
             first = candidate
-    return (first[0], first[1]) if first is not None else None
+    return (first[2], first[3]) if first is not None else None
 
 
 def _response_rows(response: Any, api) -> Optional[list]:
@@ -278,7 +346,8 @@ def _verified_regulation_events(fixture: Dict, events: list, row) -> Optional[li
         elif goals is not None and final != goals:
             return None
     baseline = _score_pair({"home": row["score_home"], "away": row["score_away"]})
-    if final is None or baseline is None or any(f < b for f, b in zip(final, baseline)):
+    snapshot_order = _snapshot_order(row)
+    if final is None or baseline is None or snapshot_order is None or any(f < b for f, b in zip(final, baseline)):
         return None
     totals = {home: 0, away: 0}
     after_snapshot = {home: 0, away: 0}
@@ -305,12 +374,15 @@ def _verified_regulation_events(fixture: Dict, events: list, row) -> Optional[li
         # unqualified 91+ timestamps belong to ET, not regulation.
         if (status != "FT" and elapsed > 90) or elapsed > 120:
             continue
+        clock = _goal_order(elapsed, extra)
+        if clock is None:
+            return None
         team = event.get("team")
         team = team.get("id") if isinstance(team, dict) else None
         if isinstance(team, bool) or not isinstance(team, int) or team not in totals:
             return None
         totals[team] += 1
-        if elapsed + extra > row["minute"]:
+        if clock > snapshot_order:
             after_snapshot[team] += 1
         regulation_events.append(event)
     if (totals[home], totals[away]) != final:
@@ -385,7 +457,8 @@ def settle_open_signals(
 
             home_id = ((fixture_data.get("teams") or {}).get("home") or {}).get("id")
             away_id = ((fixture_data.get("teams") or {}).get("away") or {}).get("id")
-            first_goal = _first_goal_after(events, row["minute"], status)
+            first_goal = _first_goal_after(events, row["minute"], status,
+                                           snapshot_order=_snapshot_order(row))
             if first_goal is None:
                 outcome = "no_goal"
             elif first_goal[1] not in {home_id, away_id}:
