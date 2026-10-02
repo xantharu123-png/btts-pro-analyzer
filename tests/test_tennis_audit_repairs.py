@@ -27,6 +27,77 @@ def test_wta_slam_is_bo3_and_atp_qualifying_is_not_main_draw():
         daily.match_format('WTA', 'Wimbledon', 5, {'best_of': 5})
 
 
+@pytest.mark.parametrize('provider', ['SofaScore', 'ESPN'])
+@pytest.mark.parametrize('tour,tournament,metadata,expected', [
+    ('ATP', 'Wimbledon', {'qualifying': True, 'best_of': 3}, 3),
+    ('ATP', 'Wimbledon', {'qualifying': True}, 3),
+    ('ATP', 'Wimbledon', {'qualifying': False, 'best_of': 5}, 5),
+    ('ATP', 'Wimbledon', {'qualifying': False, 'best_of': 3}, 3),
+    ('WTA', 'Wimbledon', {'best_of': 3}, 3),
+    ('WTA', 'Wimbledon', {'best_of': 5}, None),
+    ('ATP', 'Wimbledon', {'qualifying': True, 'best_of': 5}, None),
+    ('ATP', 'Wimbledon Qualifying', {}, 3),
+    ('ATP', 'Wimbledon', {}, 5),
+])
+def test_real_fixture_parser_preserves_explicit_format_through_scan(
+        monkeypatch, provider, tour, tournament, metadata, expected):
+    """Synthetic supplied metadata through actual parsers, not real-feed evidence.
+
+    Only the existing best_of/qualifying contract is tested. No unobserved
+    provider alias, native draw rule, HTTP request or production game is claimed.
+    """
+    start = datetime(2026, 10, 3, 12, tzinfo=timezone.utc)
+    if provider == 'SofaScore':
+        payload = {'events': [{'id': 123, 'startTimestamp': int(start.timestamp()),
+            'status': {'type': 'notstarted'},
+            'tournament': {'name': tournament, 'category': {'slug': tour.lower()}},
+            'homeTeam': {'name': 'Alpha'}, 'awayTeam': {'name': 'Beta'}, **metadata}]}
+    else:
+        competition = {'id': '123', 'date': start.isoformat(),
+            'status': {'type': {'state': 'pre'}},
+            'competitors': [{'athlete': {'displayName': 'Alpha'}},
+                            {'athlete': {'displayName': 'Beta'}}], **metadata}
+        payload = {'events': [{'id': '101', 'name': tournament, 'groupings': [
+            {'grouping': {'slug': 'mens-singles' if tour == 'ATP' else 'womens-singles'},
+             'competitions': [competition]}]}]}
+    class Reply:
+        def __init__(self, body):
+            self.body = body
+        def raise_for_status(self):
+            pass
+        def json(self):
+            return self.body
+    def get(url, **kwargs):
+        if provider == 'ESPN' and ('/'+tour.lower()+'/') not in url:
+            return Reply({'events': []})
+        return Reply(payload)
+    monkeypatch.setattr(daily.requests, 'get', get)
+    monkeypatch.setattr('tennis.live_context.active_worker', lambda: None)
+    parser = daily.fetch_fixtures_sofascore if provider == 'SofaScore' else daily.fetch_fixtures_espn
+    fixture, = parser('2026-10-03')
+    captured = []
+    def predict(state, a, b, surface, best_of, **kwargs):
+        captured.append((kwargs['tour'], best_of))
+        return SimpleNamespace(context_evidence={})
+    monkeypatch.setattr(daily, '_load_models', lambda *a, **k: ({tour: object()}, {}, []))
+    monkeypatch.setattr(daily, 'predict_match', predict)
+    monkeypatch.setattr('tennis.surface_evidence.build_surface_evidence', lambda *a: None)
+    monkeypatch.setattr('tennis.customer_facts.attach_customer_statistics', lambda *a, **k: None)
+    monkeypatch.setattr(daily.shadow, 'store_prediction', lambda *a, **k: 1)
+    result = daily.scan_fixtures('2026-10-03', [fixture],
+        decision_at=datetime(2026, 10, 2, tzinfo=timezone.utc),
+        surfaces={'wimbledon': ('Grass', 5, 'Wimbledon', False)}, workload_history=[])
+    if expected is None:
+        with pytest.raises(ValueError):
+            daily.match_format(tour, tournament, 5, fixture)
+        assert not captured and result['stored'] == 0 and result['errors']
+    else:
+        assert daily.match_format(tour, tournament, 5, fixture) == expected
+        assert captured == [(tour, expected)] and result['stored'] == 1 and not result['errors']
+    assert {name: fixture[name] for name in metadata} == metadata
+    assert all(name not in fixture for name in ('best_of', 'qualifying') if name not in metadata)
+
+
 def test_all_fixture_transports_failed_are_not_an_empty_day(monkeypatch):
     def unavailable(*args, **kwargs):
         raise requests.HTTPError('offline 503')

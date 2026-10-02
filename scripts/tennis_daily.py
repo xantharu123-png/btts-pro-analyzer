@@ -255,6 +255,8 @@ def fetch_fixtures_sofascore(date: str, *, observe_status=None) -> list:
                 "fixture_source": "SofaScore",
                 "surface": surface,
                 "indoor": indoor,
+                # Preserve only supplied match metadata; match_format owns validation.
+                **{name: ev[name] for name in ("best_of", "qualifying") if name in ev},
             }
         )
     return fixtures
@@ -327,6 +329,7 @@ def fetch_fixtures_espn(date: str, *, observe_status=None) -> list:
                             "fixture_source": "ESPN",
                             "surface": surface,
                             "indoor": indoor,
+                            **{name: comp[name] for name in ("best_of", "qualifying") if name in comp},
                         }
                     from tennis.live_context import active_worker
                     live_batch = active_worker()
