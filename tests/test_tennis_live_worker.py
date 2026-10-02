@@ -79,7 +79,8 @@ def configure(monkeypatch, tmp_path, *, comp=None, tours=("ATP",), same_id=False
     return db, predictions, refs, calls
 
 
-def run_batch(db, predictions, *, decision=NOW, before_finish=None, feature_version="tennis-performed-load-v4"):
+def run_batch(db, predictions, *, decision=NOW, before_finish=None, feature_version="tennis-performed-load-v4",
+              append_observed_at=None):
     from context_sources.tennis_capture import capture_tennis_worker
     from tennis.live_context import live_worker
     with live_worker(path=db, feature_version=feature_version) as batch:
@@ -88,11 +89,12 @@ def run_batch(db, predictions, *, decision=NOW, before_finish=None, feature_vers
             fixtures = daily.fetch_fixtures_espn("2026-09-09")
             result = daily.scan_fixtures("2026-09-09", fixtures, decision_at=decision,
                 db_path=predictions, surfaces={}, workload_history=(),
-                append_observed_at=decision+timedelta(seconds=2))
+                append_observed_at=NOW+timedelta(seconds=2) if append_observed_at is None else append_observed_at)
             assert result["stored"] == 0
             if before_finish: before_finish(batch, fixtures, result)
         batch.finish()
-    return result, shadow.latest_predictions(predictions, as_of=decision+timedelta(seconds=3))
+    view_at = NOW+timedelta(seconds=3) if append_observed_at is None else append_observed_at+timedelta(seconds=1)
+    return result, shadow.latest_predictions(predictions, as_of=view_at)
 
 
 def context_rows(db):
@@ -440,7 +442,8 @@ def test_legacy_effect_policy_does_not_transfer_to_new_point_winner_law(monkeypa
     later = NOW+timedelta(hours=1)
     monkeypatch.setattr(live_context, "_now", lambda: later+timedelta(seconds=1))
     # Exercise a genuine later decision, not ambiguous equal-time revisions.
-    result, _ = run_batch(db, predictions, decision=later, feature_version=feature_version)
+    result, _ = run_batch(db, predictions, decision=later, feature_version=feature_version,
+        append_observed_at=later+timedelta(seconds=2))
     assert not result["errors"]
     packet = next(p for _, p in context_rows(db) if p["base"]["cutoff"] == canonical_timestamp(later))
     assert packet["features"]["states"]["observed_recovery_minimum_hours_delta"] == "available"
