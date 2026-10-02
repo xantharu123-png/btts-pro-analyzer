@@ -88,11 +88,11 @@ def run_batch(db, predictions, *, decision=NOW, before_finish=None, feature_vers
             fixtures = daily.fetch_fixtures_espn("2026-09-09")
             result = daily.scan_fixtures("2026-09-09", fixtures, decision_at=decision,
                 db_path=predictions, surfaces={}, workload_history=(),
-                append_observed_at=NOW+timedelta(seconds=2))
+                append_observed_at=decision+timedelta(seconds=2))
             assert result["stored"] == 0
             if before_finish: before_finish(batch, fixtures, result)
         batch.finish()
-    return result, shadow.latest_predictions(predictions, as_of=NOW+timedelta(seconds=3))
+    return result, shadow.latest_predictions(predictions, as_of=decision+timedelta(seconds=3))
 
 
 def context_rows(db):
@@ -369,3 +369,93 @@ def test_pending_refresh_appends_confirmed_schedule_revision_without_rewriting_o
     historical = shadow.latest_predictions(predictions, as_of=NOW+timedelta(seconds=3))[0]
     assert historical["model_revision_id"] == old[0]["model_revision_id"]
     assert json.loads(historical["context_json"])["context_model"] == old_link
+
+
+@pytest.mark.parametrize("point", [False, True], ids=["legacy-law", "point-law"])
+@pytest.mark.parametrize("feature_version", ["tennis-performed-load-v3", "tennis-performed-load-v4"])
+def test_legacy_effect_policy_does_not_transfer_to_new_point_winner_law(monkeypatch, tmp_path, point, feature_version):
+    """Actual worker/state/fit, but an explicit approval-verifier POLICY stand-in.
+
+    This proves version routing only, never a genuinely qualified fatigue
+    effect or a production activation. The legacy fit remains separately scoped.
+    """
+    from context_models.tennis_live import TRAINING_VARIANT as V3_VARIANT
+    from context_models.tennis_v4 import TRAINING_VARIANT as V4_VARIANT
+    from context_sources.tennis_status import normalize_tennis_status
+    from context_observations import append_observation
+    from model_artifacts import load_artifact, load_manifest
+    from tennis import live_context
+    from tennis.simulator import POINT_MODEL_VERSION
+    from tennis.tour_state import _decode_wrapper
+    from test_context_tennis_capture import competition as completed
+    from test_context_snapshots import approval_payload
+    from test_tennis_context_model import artifact as actual_synthetic_fit
+
+    db, predictions, refs, _ = configure(monkeypatch, tmp_path)
+    for index, hours in enumerate((48, 24)):
+        received = NOW-timedelta(hours=hours)
+        native = completed(id=str(1001+index), date=(received-timedelta(hours=4)).isoformat())
+        native["competitors"][0]["id"] = str(1+index)
+        native["competitors"][1]["id"] = str(81+index)
+        for record in normalize_tennis_status("ATP", "189-2026", native,
+                grouping_slug="mens-singles", observed_at=received):
+            append_observation(db, record, observed_at=received)
+    _, rows = run_batch(db, predictions, feature_version=feature_version)
+    legacy_key, legacy_packet = context_rows(db)[0]
+    original_row = deepcopy(rows[0])
+    original_state = load_artifact(db, refs["ATP"])
+    features = legacy_packet["features"]
+    assert features["values"]["observed_recovery_minimum_hours_delta"] == 24.
+    fitted = actual_synthetic_fit(legacy_packet["base"], features, legacy_packet["event"])
+    fitted.update(feature_version=feature_version, feature_names=["observed_recovery_minimum_hours_delta"],
+        model_variant=V3_VARIANT if feature_version.endswith("v3") else V4_VARIANT)
+    created = NOW-timedelta(minutes=30)
+    effect_ref = put_artifact(db, kind="context-effect-v1", payload=fitted, created_at=created)
+    claim = approval_payload(effect_ref)
+    claim.update({name: deepcopy(fitted[name]) for name in
+        ("sport", "family", "feature_version", "population", "coverage", "model_variant")})
+    claim.update(base_versions=[legacy_packet["base"]["version"]],
+        target_markets=sorted(legacy_packet["base"]["markets"]), evaluated_at=canonical_timestamp(created))
+    approval_ref = put_artifact(db, kind="context-approval-v1", payload=claim, created_at=created)
+    updates = {"context-effect:policy-fixture": effect_ref, "context-approval:"+effect_ref: approval_ref}
+    if point:
+        state = _decode_wrapper(original_state["payload"], "ATP")
+        state.market_model_version = POINT_MODEL_VERSION
+        point_ref = put_artifact(db, kind="tennis-tour-state", payload={
+            "schema": 1, "training_cutoff": state.training_cutoff, "state": encode_state(state, tour="ATP")},
+            created_at=created)
+        updates["tennis:ATP"] = point_ref
+        assert load_artifact(db, point_ref)["payload"]["state"]["schema"] == 2
+    current, _ = load_manifest(db)
+    publish_slots(db, updates, expected_manifest=current, published_at=created+timedelta(seconds=1))
+    # Approval qualification is deliberately outside this policy regression.
+    # The actual owning inventory/selector/compute/publishing path still runs.
+    def policy_verified(connection, ref):
+        assert ref == approval_ref
+        return {"digest": ref, **live_context._load_artifact(connection, ref)}
+    monkeypatch.setattr(live_context, "verify_approval", policy_verified)
+    if point:
+        monkeypatch.setattr(live_context._Inventory, "select", lambda *a, **k:
+            pytest.fail("POINT original entered the legacy residual selector"))
+    later = NOW+timedelta(hours=1)
+    monkeypatch.setattr(live_context, "_now", lambda: later+timedelta(seconds=1))
+    # Exercise a genuine later decision, not ambiguous equal-time revisions.
+    result, _ = run_batch(db, predictions, decision=later, feature_version=feature_version)
+    assert not result["errors"]
+    packet = next(p for _, p in context_rows(db) if p["base"]["cutoff"] == canonical_timestamp(later))
+    assert packet["features"]["states"]["observed_recovery_minimum_hours_delta"] == "available"
+    assert packet["base"]["version"] == legacy_packet["base"]["version"]
+    if point:
+        assert packet["base"]["model_hash"] == point_ref
+        assert packet["effect_artifact"] is None and packet["effect_hash"] is None
+        assert packet["approval"] is None
+        assert packet["result"]["role"] != "applied"
+        assert packet["result"]["used_markets"] == packet["base"]["markets"]
+    else:
+        assert packet["approval"]["digest"] == approval_ref
+        assert packet["result"]["role"] == "applied"
+        assert packet["result"]["used_markets"] != packet["base"]["markets"]
+    assert dict(context_rows(db))[legacy_key] == legacy_packet
+    assert load_artifact(db, refs["ATP"]) == original_state
+    historical = shadow.latest_predictions(predictions, as_of=NOW+timedelta(seconds=3))[0]
+    assert historical["player_a"] == original_row["player_a"]

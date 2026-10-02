@@ -394,7 +394,16 @@ class LiveWorker:
                     if self.feature_version == "tennis-performed-load-v3":
                         observation_refs = history.observation_refs
                 feature_seconds = monotonic()-feature_start
-                effect, effect_hash, approval, reason = inventory.select(event, base, features)
+                from tennis.simulator import POINT_MODEL_VERSION
+                if item["state"].market_model_version == POINT_MODEL_VERSION:
+                    # A v1 residual was evaluated against the old winner law,
+                    # not this point-joint baseline. Retain the new original
+                    # and real context receipts; neither apply nor compare an
+                    # old coefficient until a distinct POINT contract exists.
+                    effect, effect_hash, approval = None, None, None
+                    reason = "point-winner-law-needs-own-effect-contract"
+                else:
+                    effect, effect_hash, approval, reason = inventory.select(event, base, features)
                 inputs = {"event": event, "base": base, "features": features,
                     "observation_refs": observation_refs, "preprocessing_refs": [],
                     "effect_artifact": effect, "effect_hash": effect_hash, "approval": approval}
