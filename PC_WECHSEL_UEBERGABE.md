@@ -1,5 +1,33 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg – Scanner-Reparaturstand, 02.10.2026
+
+Oberster [TODO-Block](TODO_AKTUELL.md) und
+[Reparaturbericht](docs/audits/2026-10-02-scanner-reparaturen.md) sind maßgeblich.
+Alle 16 Befunde implementiert, mit Regressionen und unabhängigen Reviews.
+Code eingefroren als `ce6e07e3881df61696dd15e54cbb38ec8fda175f` nach zusätzlicher
+Rotkarten-Periodenprüfung und korrigierter historischer Tennis-Replayintegration;
+Runtime-/Trainingsvertrag und POINT-Workergrenze vollständig integriert;
+450 Integrations-/254 unabhängige Tests bestanden. Eine gemeinsam verwendete
+Testhelper-Uhrregression separat reproduziert und korrigiert (976 betroffene
+Tests/neun Skips; unabhängig 1.120/neun), kein Produktions-/Speicherfehler.
+Beide Tennisparser erhalten ausdrücklich vorhandene Formatmetadaten; 18 neue
+Parser→Scan-Fälle, 121 Tests grün, keine reale Feed-Abdeckung erfunden.
+Finale Vollsuite auf Code-/Testfreeze
+`7e8ba9149269a909a08a802a7bddd1a8009191c0`: dauerhafter Erstlauf 13:37–14:12
+CEST mit einem lokalen WSL-Alias-Umgebungsfehler, Git-Bash-Shelltests bestanden.
+Seit 14:32:55 konservativer Restlauf mit PowerShell 7/Git-Bash: 105 vollständig
+grüne Dateien/4.844 IDs übernommen, 198 Dateien/7.339 IDs vollständig neu.
+Restlauf 14:45:23 CEST Exit 0; finaler Aggregator belegt alle 12.183 IDs genau
+einmal: 12.086 bestanden/97 Skips/null Fehler, dazu 111 Untertests.
+Vollständige Testabdeckung in zwei disjunkten Dateigruppen, kein einzelner
+erfolgreicher Vollsuite-Aufruf. Sourcefreeze/Fingerprint unverändert.
+GitHub/VPS noch `4df3e1d`, bis der geprüfte Push/ff-only Deploy tatsächlich erfolgt.
+Keine Backups, Pakete, Cleanup, SQL-Migration oder Extra-Sport-/API-Scans.
+Tennis v2 wird erst beim nächsten regulären Rebuild 03.10., 00:05 Zürich aktiv;
+alte Prognosen/Geldbelege nicht überschreiben. Fachlicher Kontext-/Qualitätsnachweis
+und fünf ungeklärte Tennis-Ergebnisse bleiben getrennte offene Grenzen.
+
 ## Aktueller Einstieg – Scanner-Tiefenaudit, 02.10.2026
 
 Maßgeblich: oberster [TODO-Block](TODO_AKTUELL.md) und

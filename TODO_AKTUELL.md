@@ -1,5 +1,64 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 02.10.2026 – alle 16 Scanner-Befunde im Code repariert
+
+**Alle 16 Scanner-Befunde repariert, vollständige Testabdeckung und unabhängiger
+Abschlussabgleich bestanden; Veröffentlichung folgt.**
+Code-/Testfreeze: `7e8ba9149269a909a08a802a7bddd1a8009191c0`.
+Maßgeblich ist der [Reparaturbericht](docs/audits/2026-10-02-scanner-reparaturen.md);
+der darunterstehende Auditblock dokumentiert den früheren, unreparierten Stand.
+
+- T1–T5, S1, L1, B1, H1, R1/R2, F1–F3, J1 und E1 implementiert, Regressionen
+  und unabhängige Gegenprüfungen abgeschlossen. Zwei zusätzliche Reviewkanten
+  (SofaScore-Ergebnisfehler und erschöpfte Shadowversuche) red-first repariert.
+- Root 97, Tennis 372, Live/Rotkarten 309, E-Sport/Context 225 Tests bestanden;
+  überlappende Gruppen nicht addieren. Die breite Runde fand eine echte
+  historische Tennis-Replayintegration; exakte gerichtete Quellfreigabe und
+  Schema-2-Abgrenzung korrigiert (149 Kontext-/196 Versionsprüfungen, unabhängig
+  149). Nachprüfung der Rotkarten-Perioden ebenfalls integriert. Die breite
+  Runde auf `ce6e07e` wegen reproduzierter Testhelfer-Publikationsuhrfehler
+  unterbrochen; keine Produktions-/Speicherfehler. Ursprüngliche Helferdefaults
+  wiederhergestellt, vier neue Policyfälle explizit zeitgebunden; 976 betroffene
+  Tests/neun Skips, unabhängig 1.120 Tests/neun Skips bestanden. Die folgende
+  Runde ohne beobachteten Fehler bei ca. 18 % wegen zusätzlicher T2-Transport-
+  korrektur beendet: Beide Parser erhalten ausdrücklich vorhandene Format-
+  metadaten (18 Parser→Scan-Matrixfälle, 121 Tests grün; synthetische Metadaten,
+  kein tatsächlicher Feed-Abdeckungsnachweis). Der folgende Lauf auf `7e8ba91`
+  bei Tool-/Prozessverbindungsverlust ohne vollständiges JUnit beendet (ca. 34 %,
+  kein beobachteter Fehler, kein PASS). Dauerhafter Lauf 13:37–14:12 CEST:
+  4.884 bestanden/26 Skips/ein WSL-Alias-Umgebungsfehler. Beide Shell-Hooks mit
+  Git-Bash bestanden, kein Codepatch/Skip. Konservative dateiweise Fortsetzung
+  seit 14:32:55 CEST (PowerShell 7, Git-Bash): 105 vollständig grüne Dateien/
+  4.844 Primärfälle übernommen, 198 Dateien/7.339 Fälle vollständig neu;
+  12.183 eindeutige Gesamt-IDs unabhängig geprüft. Hook-Datei komplett wiederholt.
+  Restlauf 14:45:23 CEST Exit 0: 7.268 bestanden/71 Skips/26 Untertests.
+  Aggregator: alle 12.183 IDs exakt einmal, **12.086 bestanden, 97 Skips,
+  null Fehler/Errors**, 303 Dateien; Codefreeze/Fingerprint unverändert.
+  Vollständige Testabdeckung in zwei disjunkten Dateigruppen, kein einzelner
+  erfolgreicher Vollsuite-Aufruf. 111 Untertests zusätzlich, nicht als Primär-IDs
+  gezählt. JUnit-/Coverage-/Exit-Hashes stehen im Reparaturbericht.
+  Vier CLI-Altfixtures plus echte Legacy-Upgrades/V1-Builder-Reject abgesichert;
+  450 Integrations-/254 unabhängige Tests bestanden. POINT-Worker übernimmt
+  keine alte Kontexteffekt-Freigabe (29 Endstandtests, statisch unabhängig),
+  Grundprognose und Belege bleiben normal veröffentlicht. Policytest ist kein
+  empirischer Nachweis. Vorherige breite Runde 62 Fehler, alle drei Gruppen
+  genau eingegrenzt; nicht als grün oder finale Vollsuite ausgegeben.
+- GitHub und VPS bis zum geprüften Push/Deploy weiterhin `4df3e1d`.
+  Danach ff-only Pull, Appneustart, reine Linux-Offlinetests, Healthchecks und
+  exakte Commitgleichheit prüfen. Keine neuen Backups, Pakete, Bereinigungen,
+  SQL-Migrationen, Timeränderungen oder zusätzlichen Sport-/API-Scans.
+- Neue Tennisverteilung `serve-points-joint-v2` entsteht beim regulären
+  Rebuild **03.10., 00:05 Zürich** mit eigener Kalibrierung und Schema 2.
+  Vorhandene v1-Artefakte/Prognosen bleiben exakt replaybar und unverändert.
+  Nach v2-Publikation ist bloßer Rücksprung auf alten Code nicht schemafähig.
+- Historische falsche WTA-Bo5-Belege und abgeschlossene Rotkartensignale
+  nicht umgeschrieben. Aktive Historienrücknahmen nur nach tatsächlicher nativer
+  Korrektur; kein Löschen von Geld-/Prognosehistorie. Fünf ungeklärte Tennisfälle
+  bleiben ohne passenden neuen Ergebnisbeleg offen.
+- Verletzungs-/Müdigkeits-/Wettereffekte und unabhängige bessere Wettqualität
+  weiterhin nicht nachgewiesen; WTA-/weitere Daily3-Vergleiche offen.
+  Cricket bleibt ausgenommen. Keine künstliche Besetzung von Auswahlplätzen.
+
 ## 02.10.2026 – Account übernommen und Scanner tief auditiert
 
 **Audit abgeschlossen, Reparaturen daraus noch nicht begonnen.** Maßgeblich:
