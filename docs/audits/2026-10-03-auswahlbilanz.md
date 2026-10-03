@@ -81,5 +81,36 @@ Wettfinderlauf; die vorhandenen Scanner-Endstatus werden nicht künstlich zurüc
 
 ## Release-Nachweis
 
-Endgültige Tests, Git-SHA, VPS-Pull, Healthchecks und unveränderte Modellartefakte
-werden nach dem abgeschlossenen Release in TODO_AKTUELL.md nachgetragen.
+Auswahl-/Historien-Code `25e79a5c71bcd763fd0d5b66e7bb937c98aef427` ist seit
+03.10. 21:53 UTC live. 510 betroffene Tests am finalen Commit bestanden. Linux-
+Offline-QA blockierte Provideraufrufe; App/Caddy, beide Healthchecks und sieben
+Timer geprüft. Kein Backup, keine Bereinigung, keine zusätzliche Modellabfrage.
+Wettfinder-Artefakt `17f8d60e04caeda9e8d09e4879e742c42dbf292f765a91f9ab1c22160d33c0cf`
+und Risiko-Artefakt `c669c09792f08185c3080c75039659c408fa2bf308840376405cc07d1ba3ac19`
+blieben unverändert. Die ersten echten UI-Inventare liegen in 20.480 Bytes,
+derzeit drei leere Oberflächeninventare; keine historischen Kundentipps erfunden.
+Browser nach Reload ohne neue Fehler; die Neustart-WebSocket-Unterbrechung ist
+kein verschwiegenes dauerhaftes Browserproblem.
+
+Die während der Änderungen gestartete breite Suite endete mit 12.256 bestanden,
+97 Skips, 111 Untertests und zwei Fehlern in früher importierten Testfixtures.
+Aktuelle Dateien dieser beiden Fälle frisch geprüft: 70 bestanden. Nicht als
+komplett neu durchgelaufene grüne Vollsuite des späteren Standes darstellen.
+
+## Zusätzlich gefundener Tennis-Vertragsfehler
+
+Beide produktiven ATP-/WTA-Artefakte verwenden intern Schema 2 und zusätzlich
+`market_model_version=serve-points-joint-v2`. Der Consumer verlangte bislang
+exakt die Schema-1-Felder und Schema 1. Daraus stammen die zwei Tennis-bedingten
+operativen Fehlmeldungen im letzten Wettfinder; Fußball selbst hatte null.
+Der enge Headerfix unterstützt beide kanonischen Formate, keine unbekannten
+Keys/Versionen. Keine Modellrekonstruktion oder numerische Änderung. 229 Tests
+und unabhängig 54 Tests grün; beim Eintrag wegen aktivem regulären Tennisjob noch
+nicht deployed. Das ist getrennt vom bereits veröffentlichten Auswahlrelease.
+
+Im gekürzten alten Tennislog sind außerdem 24 verschiedene WTA-Prognosen vom
+04.–11.09. fälschlich als Best-of-5 gespeichert. Ihr strenger Settlement-Validator
+lehnt normale Best-of-3-Endstände korrekt ab. Die volle Anzahl ist aus dem
+gespeicherten 2.500-Zeichen-Tail nicht belegbar. Originalprognosen/Geldbuchungen
+wurden nicht geändert. Neue Tippqualität oder ein fehlerfreier neuer Tageslauf
+wird daraus nicht behauptet.

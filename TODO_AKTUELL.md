@@ -28,7 +28,38 @@
   Schutzfälle gegen Modellpool-Fallback und ungebundene Surfacefilter grün
   (24 Publisher-Tests). Unabhängige Abschlussrunde: 127 bestanden. Breite Suite
   läuft noch; nicht als abgeschlossen oder als neue Wettqualitätsmessung zählen.
-  Finale Release-Belege werden nach tatsächlichem Abschluss ergänzt.
+  Finale Codefreeze-Integration für `25e79a5`: 510 bestanden. Breite Runde:
+  12.256 bestanden, 97 Skips, 111 Untertests; 2 Fehler in vor deren Korrektur
+  importierten Testfixtures (Quotenuhr und Fußball-Testanpfiff). Beide Dateien
+  frisch erneut geprüft: 70 bestanden. Dies ist keine neue komplett grüne
+  Vollsuite des letzten Standes; überlappende Mengen nicht addieren.
+- Auswahl-/Historien-Release `25e79a5c71bcd763fd0d5b66e7bb937c98aef427`
+  auf GitHub main und am 03.10. 21:53 UTC per ff-only auf dem VPS live.
+  App/Caddy aktiv, App und sieben Timer enabled, beide Healthchecks `ok`.
+  Vorab Deploylock/Schreiber-/Timerreservecheck und reine Linux-Offline-QA;
+  erster Versuch korrekt am nahen Timer zurückgehalten, App nicht gestoppt.
+  Keine Sicherung, Bereinigung, Zusatzscans oder Produktionsdatenbankmigration.
+  Modell-/Risikoartefakte bytegleich; Browser nach frischem Reload ohne neue
+  Fehler (während Apprestart erwarteter WebSocket-Abbruch separat protokolliert).
+  Echte UI-Inventare nach Reload: drei Oberflächen, derzeit null aktuelle Tipps,
+  neue Datenbank 20.480 Bytes. Kein angeblicher Nachweis alter Kundentipps.
+- Neuer enger Tennis-Folgefix: `tennis/context_consumer.py` akzeptierte nur
+  Schema 1, beide aktuellen ATP-/WTA-Produzenten liefern Schema 2 mit
+  `market_model_version=serve-points-joint-v2`. Exakte geschlossene Headerprüfung
+  für beide Varianten ergänzt; unbekannte Keys/Versionen weiterhin abgelehnt.
+  Keine Modellrekonstruktion, Wahrscheinlichkeit, API oder historischen Daten
+  geändert. 229 Tests, unabhängig 54 Tests bestanden (überlappend).
+  Beim Eintrag noch nicht auf dem VPS: planmäßiger Tennisjob läuft seit
+  04.10. 00:05:12 CEST. Nicht stoppen/neustarten; erst nach seinem echten Ende
+  und sicherem Timerfenster den Folgecommit per ff-only übernehmen und prüfen.
+- Scannerdiagnose: letzter Wettfinder hatte genau zwei operative Meldungen,
+  beide am oben genannten Tennisformat; Fußball hatte null operative Fehler.
+  Separater alter Tennis-Abschlussfehler: mindestens 24 im gekürzten Log belegte
+  WTA-Prognosen vom 04.–11.09. sind fälschlich Best-of-5. Nicht nachträglich zu
+  Gewinnen/Verlusten erklären oder Format/Geldbücher umschreiben. Gesamtzahl wegen
+  gespeichertem 2.500-Zeichen-Logtail unbekannt. Die Altformatfälle müssen sauber
+  als nicht auswertbare ursprüngliche Prognosen behandelt werden; Geldbindungen
+  vorher prüfen. Der laufende neue Job ist noch kein erfolgreicher Abschluss.
 - Maßgeblich: [Reparatur- und Bilanzbericht](docs/audits/2026-10-03-auswahlbilanz.md).
   Herkunfts-/Teilnehmer-/Alias-, Zeitfenster- und Query-Laufzeitkanten wurden durch
   unabhängige Gegenprüfung gefunden und abgesichert. Historische Geldbücher bleiben

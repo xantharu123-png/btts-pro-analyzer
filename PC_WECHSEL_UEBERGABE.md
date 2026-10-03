@@ -11,8 +11,20 @@ Gegenposition nachrücken lassen; Quoten beeinflussen die Modellchance nicht.
 0,561 Sekunden für echte VPS-Bilanz, 181/107/71/3 unverändert. Kein Profit- oder
 Kontextwirkung-Nachweis daraus. Automatische Inventarerfassung erst durch den
 nächsten normalen Wettfinderlauf real bestätigen; keine Zusatzscans starten.
-Git-/VPS-Release und endgültige Tests beim Eintrag noch offen; nach Abschluss
-werden deren tatsächliche Belege hier/TODO ergänzt. Keine Backups oder Bereinigung.
+Auswahl-/Historien-Code `25e79a5c71bcd763fd0d5b66e7bb937c98aef427` ist auf main
+und VPS live; reine Linux-QA, App/Caddy, beide Healthchecks und sieben Timer geprüft.
+Modellartefakte unverändert. Frische Integration: 510 bestanden; breite Runde
+12.256 bestanden/97 Skips/111 Untertests und zwei vorab importierte alte Testfixtures,
+deren aktuelle Dateien separat mit 70 Tests grün sind. Keine vollständige neue
+grüne Vollsuite behaupten. UI-Historie 20.480 Bytes, drei tatsächlich erfasste
+Oberflächen, aktuell null Tipps. Kein alter Kundentipp-/Renditenachweis.
+Zusätzlicher enger Tennis-Schema-1/2-Leserfix liegt getestet vor (229, unabhängig
+54 überlappende Tests), beim Eintrag wegen seit 00:05:12 CEST aktivem Tennisjob
+noch nicht deployed. Nächste Aktion: dessen echten Abschluss lesen, dann sicheren
+ff-only Pull des Folgecommits und Healthchecks; keine zusätzlichen API-Scans.
+24 sichtbare alte WTA-Best-of-5-Fälle bleiben separat ungeklärt, keine Geld- oder
+Historienumschreibung. Exakte aktuelle SHA-Differenz vor Wiederaufnahme prüfen.
+Keine Backups oder Bereinigung.
 
 ## Aktueller Einstieg – Daily3-Tagesfolge, 03.10.2026
 

@@ -24,7 +24,7 @@ from context_models.tennis_live import (
 from context_models.training_contracts import validate_artifact_envelope
 from context_transport import project_context_market
 from model_artifacts import _decode_artifact_row, canonical_bytes
-from tennis.state_codec import _STATE_KEYS
+from tennis.state_codec import _STATE_KEYS, POINT_MODEL_VERSION
 
 
 def _same(left, right):
@@ -72,10 +72,14 @@ def _state_header(payload, *, tour):
     training provenance and model replay still belong to the producer/D4.
     """
     require_object(payload, {"schema", "training_cutoff", "state"}, label="tennis state envelope")
-    state = require_object(payload["state"], _STATE_KEYS, label="tennis state")
+    state = payload["state"]
+    if type(state) is not dict or type(state.get("schema")) is not int or state["schema"] not in (1, 2):
+        raise ContextIntegrityError("referenced tennis state has an unsupported schema")
+    expected = _STATE_KEYS | ({"market_model_version"} if state["schema"] == 2 else set())
+    state = require_object(state, expected, label="tennis state")
     if (type(payload["schema"]) is not int or payload["schema"] != 1
-            or type(state["schema"]) is not int or state["schema"] != 1
-            or type(state["tour"]) is not str or state["tour"] != tour):
+            or type(state["tour"]) is not str or state["tour"] != tour
+            or (state["schema"] == 2 and state["market_model_version"] != POINT_MODEL_VERSION)):
         raise ContextIntegrityError("referenced tennis state header differs from the original tour")
 
 
