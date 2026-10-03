@@ -27,12 +27,34 @@
   nur erstes Formular; nach Vormerkung CHF 10 bleiben CHF 40, Folgeformulare
   fehlen bis Abrechnung. Checkbox per Tastatur geprüft; Browser-Locator-Maus-
   Checkbox funktionierte nicht, daraus keinen Mausnachweis ableiten.
-- Code-/Produktionsveröffentlichung wird nach den Abschlusschecks dokumentiert.
+- Codefix `2c4f38db2e093f2e5492bab4fb4c6aa3b127017c` committed, auf main
+  gepusht und am 03.10. ca. 15:22 CEST per ff-only Pull auf den VPS übernommen.
+  Deploylock, sieben nicht laufende Schreiber, mehr als fünf Minuten Timerreserve,
+  App gestoppt/vor Start reine Linux-QA grün; keine API-/DB-Schreibaktionen.
+  App/Caddy danach aktiv, lokale/öffentliche Healthchecks `ok`; separat erneut
+  mit Exit 0 geprüft. Der SSH-stdin-Transport erzeugte nach allen abgeschlossenen
+  Schritten einen überzähligen CR und damit Exit 1 im Wrapper (`stage=completed`);
+  kein ignorierter QA- oder Appfehler, kein zweites Deployment behauptet.
+  Danach Server-HEAD/sauberes Git/Healthchecks direkt erfolgreich nachgeprüft.
+  Ergebnissnapshots bytegleich vor/nach Release:
+  Wettfinder `17f8d60e04caeda9e8d09e4879e742c42dbf292f765a91f9ab1c22160d33c0cf`,
+  RisikoBet `c669c09792f08185c3080c75039659c408fa2bf308840376405cc07d1ba3ac19`.
+  Alle sieben Timer weiterhin enabled/geplant, 18 GB frei.
+  Abschließender Dokumentations-Commit wird danach separat gezogen; kein Code-
+  oder weiterer Appneustart nötig.
   Keine Backups, Extra-Sport-/API-Scans, historischen Geldänderungen oder Cleanup.
 - Weiterhin getrennt offen: echte Kontext-/Wettqualitätsnachweise sowie
   zusätzliche qualifizierte Daily3-Sportvergleiche. Die frühere Quoten-Anzeige-
   Empfehlung ist in diesem Daily3-Zeitfix nicht umgesetzt; noch kein kompletter
   UI-Umbau. Tennis-v2-Aktivierung nach dem regulären Lauf hier nicht neu geprüft.
+- **Neu aktuell verifiziert, getrennt offen:** Reguläre Dienste Tennis
+  (00:28:29), Wettfinder (04:06:52) und Fußball-Shadow (15:22:28) haben heute
+  Exit 1/failed. Keine laufenden Prozesse beim Deployment, Fehlerstatus nicht
+  zurückgesetzt. Shadow meldet eine alte ungültige Abrechnungs-/Quotenprovenienz
+  sowie fehlende frische Bet365-Providerzeiten für 1495960/1495966.
+  Gründe der übrigen beiden Lauf-Endstatus hier nicht vollständig diagnostiziert.
+  Nicht behaupten, dass alle Scanner gesund oder Tennis-v2 bestätigt sind.
+  Kein zusätzlicher Scan und keine Umschreibung der betroffenen Historie.
 
 ## 02.10.2026 – alle 16 Scanner-Befunde im Code repariert
 

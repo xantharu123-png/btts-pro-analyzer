@@ -9,7 +9,13 @@ offene Vormerkung/Wette gleichzeitig; nächste nach echter Abrechnung.
 Alte Kontohistorien, Wiederholungen und CHF-Geldrechnung unverändert.
 539 betroffene Tests, unabhängig 481 überlappende Tests grün; lokale interne
 Browserfolge geprüft. Keine neue Vollsuite oder bessere Wettqualität behauptet.
-Deploymentnachweis wird nach tatsächlicher Veröffentlichung ergänzt.
+Codefix `2c4f38db2e093f2e5492bab4fb4c6aa3b127017c` auf main und VPS live;
+Offline-Linux-QA grün, App/Caddy aktiv, beide Healthchecks `ok`, Ergebnissnapshots
+unverändert. Wrapper nach Abschluss wegen SSH-CR Exit 1; direkter Live-Nachcheck
+Exit 0 erfolgreich. Dokumentationsabschluss wird separat ohne Neustart gezogen.
+Alle sieben Timer enabled, aber reguläre Tennis-, Wettfinder- und Shadow-Dienste
+heute mit Fehlstatus: als getrennte Restarbeit im TODO dokumentiert, nicht behoben
+oder zurückgesetzt. Keine pauschale Scanner-Gesundheitsmeldung ableiten.
 Keine Backups, Zusatzscans, Cleanup oder historischen Buchungsänderungen.
 
 ## Aktueller Einstieg – Scanner-Reparaturstand, 02.10.2026
