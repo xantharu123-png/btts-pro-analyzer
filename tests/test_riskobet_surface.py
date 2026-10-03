@@ -666,24 +666,32 @@ def test_research_fills_free_top_slots_after_all_established_are_featured():
 
 
 def test_catalog_never_publishes_more_than_two_scenarios_per_event():
+    markets = (
+        ("result_90_minutes", "home"),
+        ("underdog_team_over_1_5_90_minutes", "home"),
+        ("underdog_team_over_1_5_90_minutes", "away"),
+    )
     cards = [
         _card(
-            _candidate(
-                f"scenario-{index}",
-                event_key="same-event",
-                market_key=f"risk_market_{index}",
-                selection_key=f"selection-{index}",
+            replace(
+                _candidate(
+                    f"scenario-{index}",
+                    event_key="same-event",
+                    market_key=market,
+                    selection_key=side,
+                ),
+                settlement_contract=f"riskobet-settlement-v1:football:{market}:{side}",
             )
         )
-        for index in range(3)
+        for index, (market, side) in enumerate(markets)
     ]
 
     catalog = surface.compose_riskobet_catalog(cards)
 
     assert len(catalog.cards) == 2
     assert [card.market_key for card in catalog.cards] == [
-        "risk_market_0",
-        "risk_market_1",
+        "result_90_minutes",
+        "underdog_team_over_1_5_90_minutes",
     ]
 
 

@@ -3,7 +3,7 @@
 The module deliberately owns no Streamlit state and performs no provider work.
 It maps an immutable :class:`riskobet_domain.RiskCandidate` to escaped consumer
 markup. Price observations never change model probabilities or ranking.
-The user floor removes known offers below 1.20 after the event cap.
+The user floor removes known offers below 1.20 after whole-event coherence.
 """
 
 from __future__ import annotations
@@ -223,6 +223,11 @@ class RiskBetCard:
     price_observed_at: Optional[str]
     simple_market: bool
     quote_floor_excluded: bool = False
+    # Preserve the frozen role/market contract. Display labels and prices must
+    # never be used to infer whether two scenarios can win together.
+    snapshot_id: str = ""
+    selection_key: str = ""
+    settlement_contract: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -479,11 +484,107 @@ def build_riskobet_card(
         quote_floor_excluded=(overlay.below_floor or (
             overlay.status in {'AVAILABLE', 'PLAYABLE', 'TOO_LOW', 'BORDERLINE', 'THIN'}
             and odds_below_publication_floor(overlay.observed_odds))),
+        snapshot_id=str(getattr(candidate, "snapshot_id", "") or ""),
+        selection_key=str(getattr(candidate, "selection_key", "") or ""),
+        settlement_contract=getattr(candidate, "settlement_contract", None),
     )
 
 
 def _event_identity(card: RiskBetCard) -> tuple[str, str]:
     return card.sport_key, card.event_key
+
+
+def _scenario_constraint(card: RiskBetCard):
+    """Exact frozen settlement semantics, never probability/price inference."""
+    expected = (
+        f"riskobet-settlement-v1:{card.sport_key}:"
+        f"{card.market_key}:{card.selection_key}"
+    )
+    if not card.snapshot_id or card.settlement_contract != expected:
+        return None
+    side = card.selection_key
+    if card.sport_key == "football":
+        from selection_coherence import _count_masks
+        side_prefix = {"home": "HOME", "away": "AWAY"}.get(side)
+        key = None
+        if card.market_key == "result_90_minutes" and side_prefix:
+            key = f"RESULT_{side_prefix}"
+        elif card.market_key == "draw_90_minutes" and side == "draw":
+            key = "RESULT_DRAW"
+        elif card.market_key == "double_chance_90_minutes":
+            key = {"home_or_draw": "DC_1X", "away_or_draw": "DC_X2", "home_or_away": "DC_12"}.get(side)
+        elif side_prefix and card.market_key in {
+            "underdog_team_over_0_5_90_minutes", "underdog_team_over_1_5_90_minutes"
+        }:
+            line = "0_5" if "over_0_5" in card.market_key else "1_5"
+            key = f"{side_prefix}_OVER_{line}"
+        return _count_masks().get((key, False)) if key else None
+    if card.sport_key == "tennis":
+        # Both supported match lengths are represented. With the event cap of
+        # two this preserves every possible joint truth pattern for V1 markets;
+        # it makes no claim about the probability or actual best-of format.
+        scores = ((2, 0), (2, 1), (0, 2), (1, 2), (3, 0), (3, 1), (3, 2), (0, 3), (1, 3), (2, 3))
+        mask = 0
+        for index, (home, away) in enumerate(scores):
+            selected, opponent = (home, away) if side == "home" else (away, home)
+            if card.market_key == "over_2_5_sets" and side == "over":
+                won = home + away > 2.5
+            elif side in {"home", "away"} and card.market_key == "match_winner":
+                won = selected > opponent
+            elif side in {"home", "away"} and card.market_key == "at_least_one_set":
+                won = selected >= 1
+            elif side in {"home", "away"} and card.market_key == "plus_1_5_sets":
+                won = selected + 1.5 > opponent
+            else:
+                return None
+            if won:
+                mask |= 1 << index
+        return "sets", mask
+    binary = {
+        "basketball": {"match_winner_including_ot"},
+        "ice_hockey": {"match_winner_including_ot"},
+        "cricket": {"match_winner"},
+        "esports": {"series_winner"},
+    }
+    if card.market_key in binary.get(card.sport_key, ()) and side in {"home", "away"}:
+        return "winner", 1 if side == "home" else 2
+    # An E-sport map is not independent of a series winner in Best-of-1.
+    # The card contract does not retain an exact frozen series length, so do
+    # not guess multi-map compatibility from its label or model probability.
+    # Such a map may still be the primary; only unproven extras are withheld.
+    return None
+
+
+def _coherent_scenarios(cards: Iterable[RiskBetCard]) -> list[RiskBetCard]:
+    """Anchor the first evidenced scenario before price/slot/page filters.
+
+    Opposing results are alternatives, not independently playable selections.
+    Keep the upstream risk order (including its underdog intent), intersect all
+    accepted predicates and never combine different frozen event revisions.
+    Unknown semantics may stay as one primary, not certified-compatible extras.
+    """
+    result = []
+    states = {}
+    for card in cards:
+        event = _event_identity(card)
+        constraint = _scenario_constraint(card)
+        previous = states.get(event)
+        if previous is None:
+            states[event] = (card.snapshot_id, constraint)
+            result.append(card)
+            continue
+        snapshot, accepted = previous
+        if (not snapshot or snapshot != card.snapshot_id or accepted is None or constraint is None):
+            continue
+        domain, mask = constraint
+        if domain != accepted[0]:
+            continue
+        intersection = accepted[1] & mask
+        if not intersection:
+            continue
+        states[event] = (snapshot, (domain, intersection))
+        result.append(card)
+    return result
 
 
 def _cap_scenarios_per_event(
@@ -632,7 +733,14 @@ def compose_riskobet_catalog(
     ):
         raise ValueError("max_featured must be between one and three")
 
-    capped = list(_cap_scenarios_per_event(tuple(cards)))
+    # Evidence priority precedes the hard event cap. Otherwise two weaker
+    # records can erase a later validated record before it is even considered.
+    priority = {"VALIDATED": 0, "SHADOW": 1, "RESEARCH": 2}
+    pool = tuple(cards)
+    if len({card.candidate_id for card in pool}) != len(pool):
+        raise ValueError("duplicate RisikoBet candidate identity")
+    evidenced = sorted(pool, key=lambda card: priority[card.evidence_code])
+    capped = list(_cap_scenarios_per_event(_coherent_scenarios(evidenced)))
     if sport_filter == "Alle":
         ordered = _evidence_then_sport_order(capped)
     else:

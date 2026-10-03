@@ -277,6 +277,15 @@ def render_daily3(st, *, snapshot_loader=None, store_factory=None, now=None):
                                     odds=decimal_odds(st.session_state['odds:'+key]))
                     st.form_submit_button('Einsatz vormerken', **_callback(st, store, scope, 'reserve:'+key+fingerprint,
                         'reserve', today, reserve_args))
+    publication_status = getattr(snapshot, 'status', None)
+    if publication_status is not None:
+        from daily3_selection import POLICY_VERSION
+        from tip_publication import compact_signal_row, record_selected_tips
+        publication_rows = [compact_signal_row(choice.signal,
+            featured_role='daily3_ready' if can_reserve and index == 0 else 'daily3_plan')
+            for index, choice in enumerate(choices)]
+        record_selected_tips('daily3_plan', publication_rows, as_of=now,
+            source_run_id=publication_status.generated_at.isoformat(), policy_version=POLICY_VERSION)
     visible_days = sorted({d['date'] for d in prior_pending} | ({today} if day else set()), reverse=True)
     for day_id in visible_days:
         bets = list(history[day_id]['bets'].values())

@@ -1,5 +1,19 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg – Auswahlbilanz, 03./04.10.2026
+
+Oberster [TODO-Block](TODO_AKTUELL.md) und
+[Bilanzbericht](docs/audits/2026-10-03-auswahlbilanz.md) sind maßgeblich.
+Neue kleine prospektive Auswahlinventare statt nachträglicher Kundentipp-Erfindung;
+read-only Ergebnisberichte trennen interne Kandidaten und tatsächlich angebotene
+Auswahlen. RisikoBet-Kohärenz inklusive Best-of-1 korrigiert. Preisfilter kann keine
+Gegenposition nachrücken lassen; Quoten beeinflussen die Modellchance nicht.
+0,561 Sekunden für echte VPS-Bilanz, 181/107/71/3 unverändert. Kein Profit- oder
+Kontextwirkung-Nachweis daraus. Automatische Inventarerfassung erst durch den
+nächsten normalen Wettfinderlauf real bestätigen; keine Zusatzscans starten.
+Git-/VPS-Release und endgültige Tests beim Eintrag noch offen; nach Abschluss
+werden deren tatsächliche Belege hier/TODO ergänzt. Keine Backups oder Bereinigung.
+
 ## Aktueller Einstieg – Daily3-Tagesfolge, 03.10.2026
 
 Oberster [TODO-Block](TODO_AKTUELL.md) ist maßgeblich für den neuen engen Fix.

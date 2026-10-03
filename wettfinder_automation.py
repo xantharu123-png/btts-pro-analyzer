@@ -4262,6 +4262,9 @@ def run_wettfinder(
     if original_collection_budget is not None:
         document['football_original_usage'] = original_collection_budget.report()
     write_state(document, state_path)
+    if production_state:
+        from tip_publication import record_automatic_publication
+        record_automatic_publication(state_path)
     return document
 
 

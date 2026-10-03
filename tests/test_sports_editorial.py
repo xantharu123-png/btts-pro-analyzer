@@ -172,7 +172,9 @@ def test_picture_rail_does_not_reintroduce_a_tennis_quote_below_the_known_floor(
     from test_workflow_integrity import _RecordingStreamlit, _automatic_status
     recording = _RecordingStreamlit()
     signal = editorial_tennis()
-    quote = _quote(signal, (1.1,) * 3)
+    # Bind the imported quote helper to this test's 07:00 model clock; its
+    # default is 12:00 and would correctly be rejected as a future offer.
+    quote = _quote(signal, (1.1,) * 3, fetched_at=NOW)
     quote = replace(quote, source=ODDS_API_REFERENCE_SOURCE, provider_event_id='tennis-price-event',
         bet_name='h2h', value_name=signal.selected_competitor,
         event_home=signal.competitor_a, event_away=signal.competitor_b,

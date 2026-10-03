@@ -4786,11 +4786,21 @@ def _render_automated_daily_selection() -> None:
                 st.info(message)
             else:
                 _render_wettfinder_games(catalog, {card.key: (signal, card) for signal, card in rows}, sport_filter=sport_filter)
+            if status is not None:
+                from tip_publication import record_signal_catalog
+                selected_order = [card.key for card in (*catalog.featured, *catalog.additional)]
+                selected_signals = {card.key: signal for signal, card in rows}
+                record_signal_catalog("wettfinder_automatic",
+                    (selected_signals[key] for key in selected_order),
+                    as_of=evaluation_now,
+                    featured_keys=(card.key for card in catalog.featured),
+                    source_run_id=status.generated_at.isoformat())
         with rail:
-            _render_editorial_rail(choices, tennis_cards, daily3_allowed=daily3_allowed, target_label=target_label)
+            _render_editorial_rail(choices, tennis_cards, daily3_allowed=daily3_allowed, target_label=target_label,
+                as_of=evaluation_now, source_run_id=status.generated_at.isoformat() if status else None)
 
 
-def _render_editorial_rail(choices, tennis_cards, *, daily3_allowed, target_label):
+def _render_editorial_rail(choices, tennis_cards, *, daily3_allowed, target_label, as_of=None, source_run_id=None):
     from html import escape
     from pathlib import Path
     assets = Path(__file__).parent / 'assets' / 'editorial'
@@ -4804,6 +4814,12 @@ def _render_editorial_rail(choices, tennis_cards, *, daily3_allowed, target_labe
             st.markdown('<div class="se-rail-choice"><span class="se-choice-rank">' + str(index)
                 + '</span><div><strong>' + escape(signal.event_label) + '</strong><span>'
                 + escape(signal.market + ' · ' + signal.selection) + '</span></div></div>', unsafe_allow_html=True)
+        if daily3_allowed and source_run_id is not None:
+            from tip_publication import record_signal_catalog
+            from daily3_selection import POLICY_VERSION as DAILY3_SELECTION_POLICY
+            record_signal_catalog("daily3_rail", (choice.signal for choice in choices),
+                as_of=as_of or datetime.now(timezone.utc), source_run_id=source_run_id,
+                policy_version=DAILY3_SELECTION_POLICY)
         if not daily3_allowed:
             st.caption('Daily3 ist im Pro-Abo enthalten.')
         elif not choices:

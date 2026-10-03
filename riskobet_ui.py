@@ -668,6 +668,9 @@ def render_riskobet(
         }
         _render_featured(catalog.featured, candidate_by_id, view.snapshots)
         _render_additional(catalog.additional, candidate_by_id, view.snapshots)
+        from tip_publication import record_riskobet_catalog
+        record_riskobet_catalog(catalog, candidate_by_id, view.snapshots,
+            as_of=now or datetime.now(timezone.utc), source_run_id=view.run_id)
         if not catalog.cards:
             st.info('Aktuell kein passendes Risiko-Szenario.')
 

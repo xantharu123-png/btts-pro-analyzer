@@ -1,5 +1,46 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 03./04.10.2026 – Auswahlkohärenz und echte Veröffentlichungsbilanz
+
+- RisikoBet: gemeinsam unmögliche Fußball-Ergebnisse und der Best-of-1-Map-
+  Sonderfall reproduziert und repariert. Kohärenz vor Preisfilter/Kartenlimit;
+  bestätigte Evidenz vor dem Zwei-Szenarien-Limit. Keine Wettart pauschal verboten,
+  kein Quote-bedingter Wechsel auf die Gegenposition, keine geänderte Modellchance.
+- Neu: kompakte prospektive Inventar-Historie `runtime_state/consumer_tips.db`.
+  Normaler Wettfinder-Veröffentlichungsablauf zeichnet Standardinventar und
+  anonymen Daily3-Plan auf. UI zeichnet ihre ausgewählte Wettfinder-, Daily3-
+  und RisikoBet-Ansicht auf. Kein Beleg eines Kundenbesuchs/echter Wettplatzierung.
+  Keine großen Kontextlisten oder Kontodaten; identische Neuladungen dedupliziert.
+  Keine Rückdatierung alter Tipps, keine neue Sicherung oder zusätzliche API-Abfrage.
+- Neue reine Leseberichte für interne Modelle versus archivierte Auswahlen,
+  Sport/Markt/Modell/Policy getrennt; offene Ergebnisse, Stornos, Quotenlücken und
+  Integritätsabweichungen getrennt. Tatsächlicher Anpfiff und Teilnehmerwechsel
+  geprüft. Renditerechnung nur mit frischer exakter Quote ab 1,20; beim Publikations-
+  bericht deren Capturequote statt früherem Modellpreis. Keine Renditezusage.
+- Bestehende VPS-Belege 30.09.–02.10.: 181 Prognosen aus 91 Spielen,
+  107 gewonnen/71 verloren/3 offen; kein damaliger Kundentipp-Nachweis.
+  12 frische Quoten, davon 11 abgerechnet: hypothetisch −2,00 Einheiten anhand
+  vorab definierter jüngster Anbieterquote. Keine echten Daily3-Kundengewinne.
+  Optimierte Abfrage auf VPS in 0,561 Sekunden, Bilanz identisch, 0 Integritätsfehler.
+- Gezielte Gegenläufe: RisikoBet 455, neue Kernmodule 101, Bericht 38,
+  vorherige UI-Integration 298 bestanden. Überlappende Mengen nicht addieren.
+  Abschließende betroffene Integration: 506 bestanden; zusätzlich beide CLI-
+  Schutzfälle gegen Modellpool-Fallback und ungebundene Surfacefilter grün
+  (24 Publisher-Tests). Unabhängige Abschlussrunde: 127 bestanden. Breite Suite
+  läuft noch; nicht als abgeschlossen oder als neue Wettqualitätsmessung zählen.
+  Finale Release-Belege werden nach tatsächlichem Abschluss ergänzt.
+- Maßgeblich: [Reparatur- und Bilanzbericht](docs/audits/2026-10-03-auswahlbilanz.md).
+  Herkunfts-/Teilnehmer-/Alias-, Zeitfenster- und Query-Laufzeitkanten wurden durch
+  unabhängige Gegenprüfung gefunden und abgesichert. Historische Geldbücher bleiben
+  unverändert. Bekannte ungetrackte Audit-/Browserdateien nicht aufräumen/committen.
+- Weiter offen: tatsächliche Verletzungs-/Wetter-/Müdigkeitswirkung und unabhängiger
+  Qualitätsnachweis; qualifizierte weitere Daily3-Sportvergleiche. Keine neue
+  Modellkalibrierung auf den nur drei betrachteten Tagen. RisikoBet-Snapshot-
+  Abrechnungen sind im neuen Publikationsbericht noch explizite Verknüpfungslücken;
+  manuelle Sport-Suchen haben noch kein eigenes Inventarprotokoll. Nächster regulärer
+  Wettfinderlauf muss den automatischen neuen Publikationspfad real bestätigen.
+  Scanner-Endstatus nicht durch Deployment oder Testzahlen gesundreden.
+
 ## 03.10.2026 – Daily3 als zeitlich geordnete Tagesfolge
 
 - Neuer enger Produktfix: Tageskapazität für die restlichen Slots, danach
