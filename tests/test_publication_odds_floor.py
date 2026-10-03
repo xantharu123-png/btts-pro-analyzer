@@ -15,7 +15,7 @@ from wettfinder_surface import build_wettfinder_card, compose_wettfinder_catalog
 
 def priced(signal, odds=(1.12, 1.12, 1.12)):
     bet_name, value_name = exact_market_target(signal.market_key)
-    quote = replace(_quote(signal, odds), bet_name=bet_name, value_name=value_name)
+    quote = replace(_quote(signal, odds, fetched_at=NOW), bet_name=bet_name, value_name=value_name)
     quote = wettfinder_consensus(quote, now=NOW)
     return replace(signal, reference_quote=quote.to_dict(), minimum_odds=2.0)
 
@@ -50,7 +50,7 @@ def test_current_single_book_quote_also_counts_but_best_offer_at_floor_remains_a
 @pytest.mark.parametrize('price', [1.12, 1.20])
 def test_exact_tennis_offer_uses_same_floor(price):
     signal = tennis()
-    quote = _quote(signal, (price,)*3)
+    quote = _quote(signal, (price,)*3, fetched_at=NOW)
     quote = replace(quote, source=ODDS_API_REFERENCE_SOURCE, provider_event_id='tennis-price-event',
         bet_name='h2h', value_name=signal.selected_competitor,
         event_home=signal.competitor_a, event_away=signal.competitor_b,
@@ -114,7 +114,7 @@ def test_quote_cannot_switch_to_opposing_outcome_or_limit_pool():
     home = priced(football(probability=.8))
     away = priced(football(key='RESULT_AWAY', probability=.2), (6.0,)*3)
     assert not visible([home, away])
-    alternatives = [priced(football(i, 'DC_1X'), (1.3,)*3) for i in range(2, 5)]
+    alternatives = [priced(football(i, 'DC_1X', start_hours=3*(i-1)), (1.3,)*3) for i in range(2, 5)]
     assert len(daily3_choices([home, *alternatives], now=NOW)) == 3
     assert home.key not in {c.key for c in visible([home, *alternatives])}
 

@@ -773,7 +773,7 @@ def test_shared_latest_artifact_gives_daily3_fresh_models_after_overnight_discov
     from daily3_selection import daily3_choices
 
     midnight = datetime(2030, 1, 1, 0, tzinfo=UTC)
-    midday = midnight + timedelta(hours=12)
+    midday = midnight + timedelta(hours=10)
     path = tmp_path / "wettfinder.json"
     candidate = replace(_challenge_candidate(midday + timedelta(hours=3)), probability=.76)
     candidate.market_comparison = dict(

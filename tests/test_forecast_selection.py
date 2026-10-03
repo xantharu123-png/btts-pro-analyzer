@@ -237,7 +237,8 @@ def test_model_dates_are_retained_internally_not_customer_footers():
     markup = render_compact_row_html(card)
     assert 'Berechnet:' not in markup
     assert 'Ergebnisse bis 01.01.2030' not in markup
-    assert card.compact_analysis.model_clock == '01.01.2030 13:00'
+    from zoneinfo import ZoneInfo
+    assert card.compact_analysis.model_clock == NOW.astimezone(ZoneInfo('Europe/Zurich')).strftime('%d.%m.%Y %H:%M')
     assert 'Ergebnisse bis 01.01.2030' in card.analysis_data_age
     assert 'Modellaufbau' not in markup
     assert 'Trainingsstichtag' not in markup

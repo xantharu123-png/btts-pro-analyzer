@@ -10,6 +10,7 @@ from account_identity import AccountScopeUnavailable, storage_scope
 from daily3_math import Daily3Error, decimal_odds, format_chf, parse_chf
 from daily3_identity import event_guard
 from daily3_selection import MIN_MODEL_PROBABILITY, daily3_choices
+from daily3_schedule import pending_ready_at, planning_allowance
 from daily3_store import Daily3Store, day_balance
 from forecast_compact import render_compact_analysis_html
 from runtime_paths import RUNTIME_STATE_DIR
@@ -168,7 +169,8 @@ def render_daily3(st, *, snapshot_loader=None, store_factory=None, now=None):
     with st.popover('Auswahl & Regeln'):
         st.write(f'Mindestens {MIN_MODEL_PROBABILITY:.0%} in allen drei Varianten desselben Modells. Form im Fußball beziehungsweise Belag im ATP-Tennis müssen gegenüber der allgemeinen Spielstärke mindestens 2 Prozentpunkte beitragen. Eine Auswahl pro Spiel; keine pauschalen Wettartenverbote.')
         st.write('Die 2-Prozentpunkte-Regel dient der Auswahl, sie beweist weder Sicherheit noch einen Wettvorteil. Favoritenstärke allein genügt nicht. Weitere Auswahlen stehen unter Automatisch.')
-        st.write('Geeignete Auswahlen werden zuerst nach dem geringeren modellierten Verlustrisiko geordnet. Bei gleichem Risiko folgen Vielfalt und Formsignal.')
+        st.write('Die Tagesfolge lässt Zeit für Spiel und Abrechnung. Innerhalb der zeitlich passenden Spiele hat das geringere modellierte Verlustrisiko Vorrang; bei Gleichstand folgen Vielfalt und Formsignal.')
+        st.write('Planungsabstand: 3 Stunden für Fußball, Basketball und Eishockey; 4 Stunden für Tennis und E-Sport. Das sind Zeitpuffer, keine garantierten Spiel- oder Abrechnungszeiten. Die nächste Wette wird erst nach tatsächlicher Abrechnung verfügbar.')
         st.write('Fußball: Formvergleich. ATP-Tennis: belegter Belagvorteil gegenüber der allgemeinen Spielstärke, mit ausreichender Spielerhistorie. Keine unabhängigen Zweitmodelle. Für weitere Sportarten fehlen noch qualifizierte Vergleiche; ihre normalen Prognosen bleiben sichtbar.')
         st.write('Diese Auswahl nutzt den Prognosepool des Wettfinders, aber eine eigene Auswahlregel. Sie ist keine unabhängige Zweitbestätigung und keine nachgewiesene Sicherheitsrangliste. Fehlende Kontextdaten bleiben am Spiel sichtbar.')
         st.write('Die Auswahlen entstehen ohne Buchmacherquote. Für tatsächlich erfasste Wetten gilt deine Mindestquote 1,20. Das CHF-150-Ziel verändert die Auswahl nicht; drei passende Auswahlen sind nicht täglich verfügbar.')
@@ -221,13 +223,19 @@ def render_daily3(st, *, snapshot_loader=None, store_factory=None, now=None):
     occupied = {b['event_id'] for b in day['bets'].values() if b['status'] != 'cancelled'} if day else set()
     occupied_guards = [b['snapshot']['event_guard'] for b in day['bets'].values() if b['status'] != 'cancelled'] if day else []
     used = day_balance(day).used_slots if day else 0
-    choices = daily3_choices(snapshot.forecasts, now=now, occupied_events=occupied, occupied_guards=occupied_guards, used_slots=used)
+    bets = list(day['bets'].values()) if day else []
+    pending = any(b['status'] in ('reserved', 'open') or b['under_review'] for b in bets)
+    choices = daily3_choices(snapshot.forecasts, now=now, occupied_events=occupied, occupied_guards=occupied_guards,
+                             used_slots=used, not_before=pending_ready_at(bets, now=now))
     if choices:
         noun = 'Auswahl' if len(choices) == 1 else 'Auswahlen'
         st.subheader(f'{len(choices)} defensive Modell-{noun}')
     elif used < 3:
-        st.info('Heute noch keine passende defensive Auswahl.')
-    can_reserve = storage_ready and day is not None and not day['closed'] and not prior_pending
+        st.info('Heute keine zeitlich passende Tagesfolge. Weitere Spiele findest du im Wettfinder.')
+    if pending:
+        st.caption('Nächste Wette erst nach Abrechnung der aktuellen Wette.')
+    can_reserve = (storage_ready and day is not None and not day['closed'] and not prior_pending
+                   and not pending and day_balance(day).available_cents > 0)
     with st.container(key='daily3_choices_layout'):
         choice_panels = st.columns(len(choices)) if choices else []
     for index, choice in enumerate(choices):
@@ -236,6 +244,7 @@ def render_daily3(st, *, snapshot_loader=None, store_factory=None, now=None):
         fingerprint = hashlib.sha256(json.dumps(snap, sort_keys=True).encode()).hexdigest()
         key = f'{scope}:{today}:{choice.signal.key}:{len(day["bets"]) if day else 0}:{fingerprint}'
         with choice_panels[index].container(border=True):
+            st.caption(f'Wette {used+index+1} · {choice.start.astimezone(_TZ):%H:%M} · Planungsabstand {int(planning_allowance(choice.sport).total_seconds()/3600)} Std.')
             from wettfinder_surface import render_editorial_card_html
             from wettfinder_identity import rendered_identity_card
             card = build_wettfinder_card(choice.signal, quote=choice.signal.reference_quote, now=now)
@@ -243,7 +252,7 @@ def render_daily3(st, *, snapshot_loader=None, store_factory=None, now=None):
             st.markdown(render_editorial_card_html(card,
                 supporting_fact=choice.comparison.summary), unsafe_allow_html=True)
             st.caption('Deine Mindestquote für eine tatsächliche Wette: 1,20')
-            if can_reserve:
+            if can_reserve and index == 0:
                 with st.form('d3-reserve:'+key):
                     _money_input(st, 'Eigener Einsatz in CHF', 'stake:'+key)
                     st.text_input('Tatsächlich angebotene Dezimalquote', value='', placeholder='z. B. 1,95', key='odds:'+key)
@@ -258,7 +267,7 @@ def render_daily3(st, *, snapshot_loader=None, store_factory=None, now=None):
                             occupied_events=[b['event_id'] for b in current_bets if b['status'] != 'cancelled'],
                             occupied_guards=[b['snapshot']['event_guard'] for b in current_bets if b['status'] != 'cancelled'],
                             used_slots=day_balance(current_day).used_slots if current_day else 0)
-                        matching = [c for c in current_choices if c.signal.key == signal_key]
+                        matching = [c for c in current_choices[:1] if c.signal.key == signal_key]
                         current_fingerprint = (hashlib.sha256(json.dumps(matching[0].snapshot(), sort_keys=True).encode()).hexdigest()
                                                if len(matching) == 1 else None)
                         if current_fingerprint != fingerprint:

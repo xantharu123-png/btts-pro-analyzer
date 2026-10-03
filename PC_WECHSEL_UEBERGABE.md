@@ -1,5 +1,17 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg – Daily3-Tagesfolge, 03.10.2026
+
+Oberster [TODO-Block](TODO_AKTUELL.md) ist maßgeblich für den neuen engen Fix.
+Daily3 berücksichtigt Tageskapazität und chronologische 3-/4-Stunden-Puffer;
+21:00-Fußball nie als erste Wette. Nur ein neues Erfassungsformular und eine
+offene Vormerkung/Wette gleichzeitig; nächste nach echter Abrechnung.
+Alte Kontohistorien, Wiederholungen und CHF-Geldrechnung unverändert.
+539 betroffene Tests, unabhängig 481 überlappende Tests grün; lokale interne
+Browserfolge geprüft. Keine neue Vollsuite oder bessere Wettqualität behauptet.
+Deploymentnachweis wird nach tatsächlicher Veröffentlichung ergänzt.
+Keine Backups, Zusatzscans, Cleanup oder historischen Buchungsänderungen.
+
 ## Aktueller Einstieg – Scanner-Reparaturstand, 02.10.2026
 
 Oberster [TODO-Block](TODO_AKTUELL.md) und

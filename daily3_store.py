@@ -283,6 +283,17 @@ class Daily3Store:
                 if kind == 'reserve':
                     _require(Decimal(decimal_odds(args.get('odds'))) >= Decimal(str(MINIMUM_RECOMMENDED_DECIMAL_ODDS)),
                              'Quoten unter 1,20 sind für neue Vormerkungen gesperrt.')
+                    current = days.get(day)
+                    if current is not None:
+                        _require(not has_unfinished_bets(_rows(current)),
+                                 'Eine weitere Spielauswahl ist erst nach Abrechnung der aktuellen Wette oder Verwerfen ihrer Vormerkung möglich.')
+                        from daily3_schedule import fits_daily3_window
+                        snap = _snapshot(args.get('snapshot'))
+                        start = _timestamp(datetime.fromisoformat(snap['scheduled_start']))
+                        used = day_balance(current).used_slots
+                        if used < 3:
+                            _require(fits_daily3_window(start, snap['sport'], used),
+                                     'Für diesen Einstieg bleibt heute nicht genug Zeit für die Tagesfolge.')
                 _apply(days, payload)
                 raw = _canonical(payload)
                 _require(len(raw) <= 16384, 'Die Buchung ist zu groß.')

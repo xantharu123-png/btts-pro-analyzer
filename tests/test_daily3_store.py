@@ -19,7 +19,7 @@ def ident():
 
 def snapshot(event='football:fixture:1', now=NOW):
     return dict(event_id=event, event_guard={'identity': event, 'aliases': []}, sport='football', event_label='Home vs Away', market_key='RESULT_HOME',
-        market='Endergebnis', selection='Heimsieg', scheduled_start=(now+timedelta(hours=5)).isoformat(),
+        market='Endergebnis', selection='Heimsieg', scheduled_start=(now+timedelta(hours=2)).isoformat(),
         signal_key=event+'-home', model_probability=.6, modeled_at=now.isoformat(), model_version='test-model',
         analysis_basis='Das Modell erwartet 2,0 zu 0,9 Tore.', analysis_caution='Ein früher Rückstand bleibt möglich.',
         policy_version='daily3-evidence-diversity-v1')
@@ -254,7 +254,10 @@ def test_native_event_upgrade_cannot_bypass_transactional_slot_guard(store, monk
     weak = replace(native, fixture_source=None, provider_event_id=None, competitor_a_id=None, competitor_b_id=None)
     first = daily3_choices([weak], now=NOW)[0].snapshot()
     upgraded = daily3_choices([native], now=NOW)[0].snapshot()
-    command(store, 'reserve', bet_id=ident(), stake_cents=1000, odds='1.2', snapshot=first)
+    bet_id = ident()
+    command(store, 'reserve', bet_id=bet_id, stake_cents=1000, odds='1.2', snapshot=first)
+    command(store, 'place', bet_id=bet_id, revision=1, reference='Beleg')
+    command(store, 'settle', bet_id=bet_id, revision=2, returned_cents=1000, reference='Abgerechnet')
     with pytest.raises(Daily3Error, match='Spielzuordnung'):
         command(store, 'reserve', bet_id=ident(), stake_cents=1000, odds='1.2', snapshot=upgraded)
     assert day_balance(store.history(SCOPE)[DAY]).used_slots == 1

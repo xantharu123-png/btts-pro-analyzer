@@ -41,7 +41,7 @@ def test_15k_never_reintroduces_opposing_rows_or_ticket_candidates(monkeypatch, 
 
 
 def test_daily3_risk_priority_precedes_form_margin_and_pool_order():
-    higher_risk = football(1, probability=.74, variants=(.74, .70, .74))
+    higher_risk = football(1, probability=.74, variants=(.74, .70, .74), start_hours=6)
     lower_risk = football(2, probability=.88, variants=(.88, .85, .88))
     for pool in ([higher_risk, lower_risk], [lower_risk, higher_risk]):
         choices = daily3_choices(pool, now=NOW)

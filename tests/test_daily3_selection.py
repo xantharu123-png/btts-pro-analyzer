@@ -9,7 +9,7 @@ from daily3_selection import MIN_MODEL_PROBABILITY, POLICY_VERSION, daily3_choic
 from ev_signal_sources import ModelSignal, _automated_analysis_fields
 from forecast_analysis import project_football_analysis
 
-NOW = datetime(2030, 1, 1, 12, tzinfo=timezone.utc)
+NOW = datetime(2030, 1, 1, 7, tzinfo=timezone.utc)
 
 
 def football(fixture=1, key='RESULT_HOME', probability=.75, *, now=NOW,
@@ -57,7 +57,7 @@ def tennis(*, now=NOW, coverage=True):
 
 def test_no_opposing_selections_and_full_pool_diversity_before_cut():
     pool = [football(i, 'HOME_OVER_0_5', .85) for i in range(1, 41)]
-    pool += [football(41, 'BTTS_YES', .85), football(42, 'TOTAL_OVER_2_5', .85), football(41, 'BTTS_NO', .15)]
+    pool += [football(41, 'BTTS_YES', .85, start_hours=6), football(42, 'TOTAL_OVER_2_5', .85, start_hours=9), football(41, 'BTTS_NO', .15, start_hours=6)]
     choices = daily3_choices(pool, now=NOW)
     assert len(choices) == 3 and len({c.event_id for c in choices}) == 3
     assert len({c.family for c in choices}) == 3
@@ -65,7 +65,7 @@ def test_no_opposing_selections_and_full_pool_diversity_before_cut():
 
 
 def test_prices_release_flags_and_pool_iteration_cannot_reorder_forecasts():
-    pool = [football(1), football(2, 'BTTS_YES'), football(3, 'HOME_UNDER_1_5'), tennis()]
+    pool = [football(1), football(2, 'BTTS_YES', start_hours=6), football(3, 'HOME_UNDER_1_5', start_hours=9), tennis()]
     changed = [replace(s, minimum_odds=999, evidence_stage='RELEASED', statistical_release_passed=True) for s in reversed(pool)]
     before = daily3_choices(pool, now=NOW)
     after = daily3_choices(changed, now=NOW)
@@ -145,8 +145,8 @@ def test_high_raw_probability_cannot_displace_better_supported_match_comparisons
     broad = [football(1, 'AWAY_UNDER_2_5', .953, baseline=.50, variants=(.953,.95,.96)),
              football(2, 'AWAY_UNDER_2_5', .91, baseline=.50, variants=(.91,.905,.925)),
              football(3, 'HOME_OVER_0_5', .908, baseline=.50, variants=(.908,.905,.917))]
-    alternatives = [football(4, 'BTTS_YES', .74, baseline=.45),
-                    football(5, 'TOTAL_OVER_2_5', .73, baseline=.43),
+    alternatives = [football(4, 'BTTS_YES', .74, baseline=.45, start_hours=6),
+                    football(5, 'TOTAL_OVER_2_5', .73, baseline=.43, start_hours=9),
                     football(6, 'HOME_UNDER_1_5', .79, baseline=.54)]
     pool = broad + alternatives
     before = tuple(pool)
@@ -166,7 +166,7 @@ def test_no_defensive_backfill_or_return_to_an_older_higher_probability():
 def test_defensive_profile_never_uses_an_unexplained_high_probability_or_haircut():
     unqualified = replace(football(1, probability=.99), analysis_evidence=None)
     qualified = football(2, probability=.75)
-    rows = [unqualified, qualified, football(3, probability=.74)]
+    rows = [unqualified, qualified, football(3, probability=.74, start_hours=6)]
     baseline = daily3_choices(rows, now=NOW)
     changed = daily3_choices([replace(s, probability_haircut=.01, minimum_odds=999) for s in rows], now=NOW)
     assert [c.signal.key for c in baseline] == [qualified.key, '3:RESULT_HOME']
@@ -192,6 +192,6 @@ def test_distinct_source_ids_with_exact_same_event_alias_use_only_one_slot(monke
     assert len(daily3_choices([base, second], now=NOW)) == 1
     # This is not a fuzzy same-opponent ban: a different complete kickoff is a
     # separate event when it also has a distinct native event ID.
-    later = replace(second, scheduled_start=(NOW+timedelta(hours=5)).isoformat())
+    later = replace(second, scheduled_start=(NOW+timedelta(hours=6)).isoformat())
     assert len(daily3_choices([base, later], now=NOW)) == 2
     assert event_guard(base)['identity'] != event_guard(second)['identity']

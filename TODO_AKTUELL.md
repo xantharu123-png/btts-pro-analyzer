@@ -1,5 +1,39 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 03.10.2026 – Daily3 als zeitlich geordnete Tagesfolge
+
+- Neuer enger Produktfix: Tageskapazität für die restlichen Slots, danach
+  chronologische Folge mit Planungsabstand. Fußball/Basketball/Eishockey drei
+  Stunden, Tennis/E-Sport vier Stunden einschließlich Abrechnungspuffer.
+  Dies sind deklarierte Planungsregeln, keine nachgewiesenen Spieldauern.
+  Ein Fußballspiel um 21:00 ist nur als dritter Slot geeignet, nie als Einstieg.
+- Nur die erste aktuell geplante Auswahl hat ein Erfassungsformular. Eine
+  offene/vorgemerkte Wette verhindert atomar eine weitere Vormerkung, auch wenn
+  Restbudget vorhanden ist. Erst tatsächliche Abrechnung oder Verwerfen der
+  nicht platzierten Vormerkung erlaubt die nächste Auswahl. Verzögerungen
+  können die angezeigte Folge verkürzen; verpasste Spiele werden nicht gewettet.
+- Neue Regeln nur für neue Befehle, nicht beim historischen Replay oder
+  idempotenten Wiederholungen. Geldrechnung, max. CHF 50 Eigenverlust,
+  Modellwahrscheinlichkeiten, Qualitätsgrenzen und 1,20-Quotenfilter unverändert.
+  Es wird nicht auf drei aufgefüllt oder global maximale Routenzahl versprochen.
+- 539 betroffene Integrations-/UI-/Buchhaltungstests bestanden; unabhängiger
+  Gegenlauf 481 bestanden (überlappend, nicht addieren). 36 neue zeitliche,
+  konkurrierende und historische Regressionsfälle enthalten. Erste Runde
+  isolierte Temp-Verzeichnisrechte und eine echte spätere-Folge-Filterkante;
+  beides korrigiert. Anschließend Quoten-/Uhrfixtures zur Morgenplanung gebunden.
+  Keine neue Vollsuite behauptet. Ergebnis:
+  `output/playwright/daily3-sequence-integration-final-20261003.xml`.
+- Interner Browser mit rein lokalen Testdaten: Folge 11:00 → 14:00 → 17:00,
+  nur erstes Formular; nach Vormerkung CHF 10 bleiben CHF 40, Folgeformulare
+  fehlen bis Abrechnung. Checkbox per Tastatur geprüft; Browser-Locator-Maus-
+  Checkbox funktionierte nicht, daraus keinen Mausnachweis ableiten.
+- Code-/Produktionsveröffentlichung wird nach den Abschlusschecks dokumentiert.
+  Keine Backups, Extra-Sport-/API-Scans, historischen Geldänderungen oder Cleanup.
+- Weiterhin getrennt offen: echte Kontext-/Wettqualitätsnachweise sowie
+  zusätzliche qualifizierte Daily3-Sportvergleiche. Die frühere Quoten-Anzeige-
+  Empfehlung ist in diesem Daily3-Zeitfix nicht umgesetzt; noch kein kompletter
+  UI-Umbau. Tennis-v2-Aktivierung nach dem regulären Lauf hier nicht neu geprüft.
+
 ## 02.10.2026 – alle 16 Scanner-Befunde im Code repariert
 
 **Alle 16 Scanner-Befunde repariert, vollständige Testabdeckung und unabhängiger

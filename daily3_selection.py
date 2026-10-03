@@ -1,11 +1,13 @@
 """Defensive comparison shortlist, with the user's known-offer price floor.
 
-v10 retains exact-bound model variants and at least 70% in all three. Compare
+v11 retains exact-bound model variants and at least 70% in all three. Compare
 form (football) or surface (ATP) against the same match's general strength; a minimum
 two-percentage-point change is a presentation rule, not an empirical guarantee.
 Haircut, odds, RELEASED flags, target profit and account money are not ranking
 inputs. After coherent model selection, known offers below 1.20 are hidden.
 Unknown prices stay eligible; offers above the floor do not change ranking.
+Time admission leaves room for the remaining daily legs. Published choices are
+chronological planning, not guaranteed match durations or future cash credits.
 """
 from collections import Counter
 from dataclasses import dataclass
@@ -15,12 +17,13 @@ from zoneinfo import ZoneInfo
 from challenge_engine import MARKET_BY_KEY
 from daily3_identity import event_guard, events_overlap
 from daily3_comparison import Comparison, daily3_comparison
+from daily3_schedule import fits_daily3_window, planned_ready_at
 from forecast_analysis import build_forecast_analysis, forecast_highlight_reason
 from forecast_selection import select_consumer_forecasts
 from market_consensus import quote_below_publication_floor
 from selection_coherence import consumer_event_identity
 
-POLICY_VERSION = 'daily3-defensive-match-comparison-known-floor-v10'
+POLICY_VERSION = 'daily3-defensive-day-sequence-known-floor-v11'
 # Deliberate shortlist threshold, not a learned/calibrated safety boundary.
 MIN_MODEL_PROBABILITY = 0.70
 _TZ = ZoneInfo('Europe/Zurich')
@@ -66,12 +69,15 @@ def _explanation(signal, sport, now):
     return basis, analysis.caution
 
 
-def daily3_choices(signals, *, now, occupied_events=(), occupied_guards=(), used_slots=0):
+def daily3_choices(signals, *, now, occupied_events=(), occupied_guards=(), used_slots=0, not_before=None):
     if now.tzinfo is None or now.utcoffset() is None:
         raise ValueError('Daily3 requires an aware server clock')
     if type(used_slots) is not int or used_slots < 0:
         raise ValueError('Invalid actual slot count')
     now = now.astimezone(timezone.utc)
+    if not_before is not None and (not_before.tzinfo is None or not_before.utcoffset() is None):
+        raise ValueError('Daily3 requires an aware planning clock')
+    ready = max(now, not_before.astimezone(timezone.utc)) if not_before is not None else now
     today = now.astimezone(_TZ).date()
     occupied = set(occupied_events)
     guards = tuple(occupied_guards)
@@ -100,16 +106,21 @@ def daily3_choices(signals, *, now, occupied_events=(), occupied_guards=(), used
     unique = prepared
     selected, sport_count, family_count = [], Counter(), Counter()
     while unique and len(selected) < max(0, 3-used_slots):
+        eligible = [c for c in unique if c.start >= ready and
+                    fits_daily3_window(c.start, c.sport, used_slots+len(selected))]
+        if not eligible:
+            break
         # Relevance is an admission condition, not a reason to prefer higher
         # modeled loss risk. Diversity/form only break equal-risk ties.
-        unique.sort(key=lambda c: (-c.comparison.lowest_model_probability,
+        eligible.sort(key=lambda c: (-c.comparison.lowest_model_probability,
                                    sport_count[c.sport], family_count[(c.sport, c.family)],
                                    -c.comparison.margin,
                                    -c.sampled_at.timestamp(), c.start, c.event_id, c.signal.key))
         # The shared complete pool is already coherent. Defensive shortlisting
         # may only remove rows; it cannot re-anchor an opposing scenario.
-        match = unique[0]
+        match = eligible[0]
         selected.append(match)
+        ready = planned_ready_at(match.start, match.sport)
         sport_count[match.sport] += 1
         family_count[(match.sport, match.family)] += 1
         match_guard = event_guard(match.signal)

@@ -9,7 +9,7 @@ def _render_pool(db_path, count, extreme_probability=False):
     from daily3_ui import render_daily3
     from daily3_store import Daily3Store
     st.session_state['_betboy_account_scope'] = 'a'*32
-    pool = [football(1), football(2, 'BTTS_YES'), football(3, 'HOME_OVER_0_5')][:count]
+    pool = [football(1), football(2, 'BTTS_YES', start_hours=6), football(3, 'HOME_OVER_0_5', start_hours=9)][:count]
     if extreme_probability:
         pool = [football(1, probability=0.999999)]
     render_daily3(st, now=NOW, snapshot_loader=lambda **kw: SimpleNamespace(forecasts=pool),
@@ -34,7 +34,7 @@ def test_shared_pool_actual_count_and_unfilled_slots(tmp_path, count):
     assert any(p.proto.popover.label == 'Auswahl & Regeln' for p in app.get('popover'))
     assert any('keine unabhängige Zweitbestätigung' in m.value for m in app.markdown)
     if count == 0:
-        assert [i.value for i in app.info] == ['Heute noch keine passende defensive Auswahl.']
+        assert [i.value for i in app.info] == ['Heute keine zeitlich passende Tagesfolge. Weitere Spiele findest du im Wettfinder.']
         assert not app.subheader
         assert len(captions.split()) < 32
     else:
@@ -48,6 +48,8 @@ def test_shared_pool_actual_count_and_unfilled_slots(tmp_path, count):
         assert not app.exception
         assert any(s.value == '2 defensive Modell-Auswahlen' for s in app.subheader)
         assert '1/3 Wetten erfasst' in ' '.join(c.value for c in app.caption)
+        assert not any(button.label == 'Einsatz vormerken' for button in app.button)
+        assert 'Nächste Wette erst nach Abrechnung' in ' '.join(c.value for c in app.caption)
 
 
 def _render(db_path, missing_identity=False, price_state=None):
