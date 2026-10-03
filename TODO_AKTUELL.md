@@ -2,6 +2,13 @@
 
 ## 03./04.10.2026 – Auswahlkohärenz und echte Veröffentlichungsbilanz
 
+- Abschlussstand um 04.10. 00:19 CEST: Tennis-Leser-Code
+  `6c62100b33fe44e4bb31a510f200b96b33f86a00` committed und auf main gepusht,
+  zusätzliche gemeinsame Integration am finalen Stand: 225 Tests bestanden.
+  VPS weiter `25e79a5c71bcd763fd0d5b66e7bb937c98aef427`; planmäßiger Tennisjob
+  noch `activating/start` ohne Endzeit. App/Caddy aktiv. Kein erfolgreicher Job-
+  Abschluss behauptet und Reader-Folgecommit noch nicht auf den VPS gepullt.
+  Nächster konkreter Schritt bleibt der sichere Pull nach dem regulären Jobende.
 - RisikoBet: gemeinsam unmögliche Fußball-Ergebnisse und der Best-of-1-Map-
   Sonderfall reproduziert und repariert. Kohärenz vor Preisfilter/Kartenlimit;
   bestätigte Evidenz vor dem Zwei-Szenarien-Limit. Keine Wettart pauschal verboten,

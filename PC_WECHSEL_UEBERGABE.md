@@ -2,6 +2,11 @@
 
 ## Aktueller Einstieg – Auswahlbilanz, 03./04.10.2026
 
+Letzter verifizierter Stand 00:19 CEST: Reader-Code `6c62100` auf GitHub main,
+VPS noch `25e79a5`, regulärer Tennisjob aktiv ohne Endzeit; App/Caddy aktiv.
+Zusätzliche gemeinsame Integration am Reader-Fix: 225 Tests bestanden.
+Erst nach normalem Jobende sicher per ff-only übernehmen; nicht neu scannen.
+
 Oberster [TODO-Block](TODO_AKTUELL.md) und
 [Bilanzbericht](docs/audits/2026-10-03-auswahlbilanz.md) sind maßgeblich.
 Neue kleine prospektive Auswahlinventare statt nachträglicher Kundentipp-Erfindung;
