@@ -31,7 +31,7 @@ _TABLES = {"forecast_runs", "forecast_rows", "forecast_quotes", "forecast_result
 _MAX_ROWS = 100_000
 _SPORT_PROVIDERS = {
     "football": {"api-football"}, "tennis": {"espn", "sofascore"},
-    "esports": {"pandascore"}, "basketball": {"euroleague"},
+    "esports": {"pandascore"}, "basketball": {"euroleague", "espn"},
     "ice_hockey": {"nhl"}, "cricket": {"cricbuzz", "cricketdata"},
 }
 
@@ -358,18 +358,30 @@ def build_selection_performance_report(
         timed_out = False
         def progress() -> int:
             nonlocal timed_out
-            timed_out = _query_clock() >= deadline
+            timed_out = timed_out or _query_clock() >= deadline
             return int(timed_out)
+        def check_deadline() -> None:
+            # SQLite only invokes the VM callback after enough instructions.
+            # Short statements (including an empty indexed window) may never
+            # reach that interval; the whole read phase still has one budget.
+            if progress():
+                raise TimeoutError("bounded read-only selection query exceeded its time budget")
         conn.set_progress_handler(progress, 1000)
         try:
+            check_deadline()
             if not _TABLES.issubset({r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}):
                 raise ValueError("incomplete forecast evidence database")
+            check_deadline()
             raw = _window_forecasts(conn, lower, upper, cutoff)
+            check_deadline()
             if ids is not None:
                 raw = [row for row in raw if row["forecast_id"] in ids]
             runs = {r["run_id"]: r for r in _fetch_related(conn, "forecast_runs", "run_id", sorted({r["run_id"] for r in raw}))}
+            check_deadline()
             results = _fetch_related(conn, "forecast_results", "event_key", sorted({r["event_key"] for r in raw}))
+            check_deadline()
             quotes = _fetch_related(conn, "forecast_quotes", "forecast_id", [r["forecast_id"] for r in raw])
+            check_deadline()
         except sqlite3.OperationalError as exc:
             if timed_out:
                 raise TimeoutError("bounded read-only selection query exceeded its time budget") from exc

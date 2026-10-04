@@ -1,5 +1,21 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg – Wiederaufnahme, 04.10.2026 ab 10:32 CEST
+
+Der Nutzer hat die Weiterarbeit freigegeben; die reine Übergabepause unten ist
+beendet. Maßgeblich ist wieder der oberste [TODO-Block](TODO_AKTUELL.md).
+Alte Vollsuite vollständig beendet: 12.358 pass, 97 skip, ein Timeout-Fail,
+111 erfolgreiche Untertests. Kein noch laufender Test unter den unten genannten PIDs.
+SQL-Fristlücke mit expliziten Zwischenprüfungen und deterministischen Tests repariert;
+129 betroffene Tests plus unabhängiges Gegenreview grün (überlappende Mengen).
+NHL-Belege sind vorhanden, aber ihre Identität ging auf dem Weg zur Archivkarte
+verloren. Enger Snapshot-/Publisherfix verbindet neue Veröffentlichungen, ohne
+Altarchive umzuschreiben. Basketball-ESPN-Provider im Bericht korrekt ergänzt.
+Der eigene Hockey-/Basketball-Endergebnispfad bleibt trotzdem separat offen.
+Noch keine neue grüne Vollsuite oder neues VPS-Deployment; nächster Schritt
+Codefreeze-Abschlussprüfung, danach sicherer ff-only Pull ohne neue Sicherung.
+Keine Zusatz-API-Scans, Cleanup, Modell-Neurechnung oder Geldänderungen.
+
 ## Aktueller Einstieg – Accountwechsel, 04.10.2026, 10:06 CEST
 
 Der Nutzer hat den geplanten Zweistundenblock vorzeitig für diese Übergabe

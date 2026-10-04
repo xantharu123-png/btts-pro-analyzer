@@ -1,5 +1,50 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 04.10.2026 – Fortsetzung ab 10:32 CEST: Abschlussprüfung und Release
+
+- Übernahme tatsächlich geprüft: lokaler/GitHub-Stand `811588b`, VPS `7e5ef87`.
+  App/Caddy aktiv und beide Healthchecks `ok`. Keine geerbten Dateien entfernt.
+- Die zuvor laufende Vollsuite ist um 10:30:52 CEST beendet: **12.358 bestanden,
+  97 Skips, ein Fehlschlag, 111 erfolgreiche Untertests**. JUnit ist vollständig,
+  mit 12.456 eindeutigen Haupttest-IDs; Untertests nicht als Haupttests addieren.
+  Beleg `output/playwright/full-00b4369-20261004.xml`, SHA256
+  `9c5f12ddc802117efbb18b6576397352f2b5e6deff28085e9f3d29bb16b43c7f`.
+  Die alten PIDs/Session unten sind damit keine laufende Prüfung mehr.
+- Echte Lücke repariert: `selection_performance` prüfte die SQL-Frist nur nach
+  je 1.000 SQLite-VM-Schritten. Kurze Statements konnten diesen Callback umgehen.
+  Jetzt zusätzliche explizite Fristprüfungen zwischen den Lesephasen, kein
+  Teilbericht bei Ablauf; VM-Interrupt weiterhin zu Timeout übersetzt. Der alte
+  Picosekunden-Test ist wegen grober Windows-Uhrauflösung nun deterministisch.
+  129 betroffene Tests und unabhängig dieselben 129 plus drei Phasen-Gegenproben
+  grün; DB-Hash unverändert. Mengen überlappen, keine komplette grüne Suite daraus.
+- NHL-Herkunftslücke konkret eingegrenzt: Spiel `2026020035` besitzt tatsächlich
+  beide eingefrorenen Forecasts unter
+  `event_803d6de802e85d2a668593561ebb0f7c951dfcf64a276505200f17ad9d38aaa5`,
+  Modellstand 01:56:25.085199 UTC. Der Publisher verlor bei TeamSport-ModelSignal
+  die native Snapshot-Event-ID und erzeugte im Archiv einen anderen Ersatzschlüssel.
+  Enger Fix übernimmt Event-/Snapshot-ID ausschließlich aus dem bereits vollständig
+  validierten Basketball-/Hockey-Snapshot; native Provider/ID, Sport, Wettbewerb,
+  Seite, Uhr und widersprechende Aliasse werden geprüft. ESPN/NBA wird wie der
+  vorhandene Producer im read-only Bericht als Basketballquelle unterstützt;
+  ESPN-Hockey bzw. NHL-Basketball bleiben unzulässig. Kein Modell neu gerechnet.
+- Die früheren NHL-Archive werden **nicht umgeschrieben oder rückdatiert**.
+  Neue reale Veröffentlichungen sollen korrekt binden. Der separate Ergebnis-
+  Sammler `forecast_evidence_settlement` unterstützt Hockey/Basketball bisher
+  nicht: dieses Ergebnisproblem ist **nicht** durch den Publisherfix erledigt.
+- Releasehülle prüft die geänderten Zielmodule aus Git im Speicher, bevor die
+  laufende App gestoppt wird; kein zusätzlicher Codebaum/Backup. Offline-QA
+  sperrt Netzwerk und DB-Zugriffe außerhalb ihres privaten synthetischen Tempordners.
+  Enger ff-only Pull erst nach grüner neuer Vollsuite und sicherem Timerfenster.
+- Neue Vollsuite des final eingefrorenen Codes, Git-Push, VPS-Pull und Live-UI-
+  Nachweis stehen beim Schreiben dieses Abschnitts noch aus. Keine neuen
+  Sport-/API-Scans, Backups, Bereinigungen oder Geldänderungen gestartet.
+
+Nächste Reihenfolge: neue Vollsuite wirklich abschließen → Commit-/Remote-Stand
+abgleichen → sicheren ff-only Release ohne Backup → interne Browserkarte und
+neue Forecastbindung prüfen → regulären Tageslauf am 05.10. auswerten.
+Die numerischen Verletzungs-/Müdigkeits-/Wetterwirkungen und belastbare
+Qualitätssteigerung bleiben separate offene Aufgaben, keine Fertigmeldung daraus.
+
 ## 04.10.2026 – verbindliche Account-Übergabe, 10:06 CEST
 
 Der Nutzer hat den ab 09:23 CEST geplanten Zweistundenblock wegen Accountwechsel

@@ -113,10 +113,67 @@ def test_window_query_has_no_correlated_result_plan(db, monkeypatch):
     assert sum("SELECT event_key FROM forecast_results WHERE observed_at" in sql for sql in queries) == 1
 
 
-def test_long_read_only_query_aborts_instead_of_returning_partial_report(db):
+def test_long_read_only_query_aborts_instead_of_returning_partial_report(db, monkeypatch):
     record(db, [candidate(i) for i in range(1, 201)])
+    # Some Windows monotonic clocks have millisecond resolution. A picosecond
+    # deadline must not rely on a real timer tick during a small indexed read.
+    clock = iter((10.0, 11.0))
+    monkeypatch.setattr(performance, "_query_clock", lambda: next(clock))
     with pytest.raises(TimeoutError, match="bounded read-only"):
         report(db, query_timeout_seconds=1e-12)
+
+
+def test_short_window_must_check_deadline_even_without_sqlite_progress(db, monkeypatch):
+    record(db, [candidate()])
+    expired = False
+    window = performance._window_forecasts
+
+    class NoVmProgress(sqlite3.Connection):
+        def set_progress_handler(self, handler, interval):
+            # A real short SQL read is allowed to finish without a VM callback.
+            return None
+
+    connect = sqlite3.connect
+    monkeypatch.setattr(performance.sqlite3, "connect", lambda *a, **kw: connect(*a, **kw, factory=NoVmProgress))
+    monkeypatch.setattr(performance, "_query_clock", lambda: 20.0 if expired else 10.0)
+
+    def read_then_expire(*args):
+        nonlocal expired
+        rows = window(*args)
+        expired = True
+        return rows
+
+    monkeypatch.setattr(performance, "_window_forecasts", read_then_expire)
+    fetch = performance._fetch_related
+
+    def bounded_fetch(*args):
+        assert not expired, "read continued past deadline"
+        return fetch(*args)
+
+    monkeypatch.setattr(performance, "_fetch_related", bounded_fetch)
+    before = hashlib.sha256(db.read_bytes()).hexdigest()
+    with pytest.raises(TimeoutError, match="bounded read-only"):
+        report(db, query_timeout_seconds=1)
+    assert hashlib.sha256(db.read_bytes()).hexdigest() == before
+
+
+def test_vm_interrupt_is_still_translated_to_timeout(db, monkeypatch):
+    record(db, [candidate()])
+    clock = 10.0
+
+    def tick():
+        nonlocal clock
+        clock += .01
+        return clock
+
+    def expensive_window(conn, *_):
+        conn.execute("WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<100000) SELECT sum(x) FROM n").fetchone()
+        pytest.fail("SQLite VM query should have been interrupted")
+
+    monkeypatch.setattr(performance, "_query_clock", tick)
+    monkeypatch.setattr(performance, "_window_forecasts", expensive_window)
+    with pytest.raises(TimeoutError, match="bounded read-only"):
+        report(db, query_timeout_seconds=.1)
 
 
 def test_moved_result_row_cap_is_checked_before_key_deduplication(db, monkeypatch):
@@ -149,6 +206,24 @@ def test_internal_pool_is_not_called_visible_customer_tips(db):
     data = report(db)
     assert data["cohort"] == "internal_candidate_pool"
     assert "not proof of customer-visible" in data["limitations"][0]
+
+
+@pytest.mark.parametrize("sport,provider,admitted", [
+    ("Basketball", "espn", True), ("Basketball", "euroleague", True),
+    ("Eishockey", "nhl", True), ("Basketball", "nhl", False),
+    ("Eishockey", "espn", False),
+])
+def test_team_sport_provider_scope_remains_separate(db, sport, provider, admitted):
+    from riskobet_domain import stable_event_key
+    native_sport = "basketball" if sport == "Basketball" else "ice_hockey"
+    row = candidate(market="H2H", selection="Alpha")
+    row.update(sport=sport, event_identity=stable_event_key(native_sport, provider, "123"),
+               fixture_source=provider, provider_event_id="123",
+               competitor_a="Alpha", competitor_b="Beta", selected_competitor="Alpha")
+    assert record(db, [row])["recorded"] == 1
+    data = report(db)
+    assert data["summary"]["selections"] == int(admitted)
+    assert data["integrity_error_count"] == int(not admitted)
 
 
 def test_explicit_empty_cohort_does_not_fall_back_to_internal_pool(db):

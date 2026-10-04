@@ -178,3 +178,122 @@ def test_cli_surface_filter_requires_publication_history(paths, capsys):
               '--from-day', '2030-01-01', '--through-day', '2030-01-01'])
     assert error.value.code == 2
     assert '--surface requires --history-db' in capsys.readouterr().err
+
+
+@pytest.fixture(scope='module', params=[
+    ('ice_hockey', 'NHL', 'NHL'),
+    ('basketball', 'ESPN', 'NBA'),
+    ('basketball', 'EuroLeague', 'EuroLeague'),
+])
+def research_snapshot(request):
+    """Actual closed same-call models, using existing synthetic result fixtures."""
+    from riskobet_candidates import adapt_research_matchwinner
+    from test_sports_prematch import NOW as team_now, event, history as result_history
+    sport, provider, competition = request.param
+    target = event(sport, provider=provider, competition=competition,
+                   source_observed_at=team_now.isoformat())
+    rows = [dict(row, provider=provider, competition=competition)
+            for row in result_history(sport)]
+    return adapt_research_matchwinner(sport, target, rows, modeled_at=team_now).snapshot
+
+
+def research_row_and_signal(snapshot):
+    from types import SimpleNamespace
+    from ev_signal_sources import ModelSignal
+    from team_sport_forecasts import team_sport_forecast_rows
+    row = team_sport_forecast_rows(SimpleNamespace(snapshots=(snapshot,)),
+        now=snapshot.modeled_at, target_date=snapshot.starts_at.date())[0]
+    args = {key: value for key, value in row.items() if key in ModelSignal.__dataclass_fields__}
+    return row, ModelSignal(**args, event_label=row['event'])
+
+
+@pytest.mark.parametrize('as_mapping', [False, True])
+def test_research_compaction_reuses_exact_frozen_event_and_snapshot(research_snapshot, as_mapping):
+    row, signal = research_row_and_signal(research_snapshot)
+    compact = publication.compact_signal_row(row if as_mapping else signal)
+    assert compact['event_key'] == row['event_identity'] == research_snapshot.event_key
+    assert compact['snapshot_id'] == research_snapshot.snapshot_id
+    assert compact['candidate_id'] == row['candidate_id']
+    assert compact['probability'] == row['probability']
+    assert 'team_sport_snapshot' not in compact
+    assert 'team_sport_forecast' not in compact
+    assert len(json.dumps(compact)) < 3000
+
+
+def test_research_publication_binds_real_forecast_without_rewriting_it(
+        paths, monkeypatch, research_snapshot):
+    from team_sport_forecasts import POLICY
+    forecast, receipts = paths
+    decision = research_snapshot.modeled_at
+    observed = decision+timedelta(minutes=1)
+    monkeypatch.setattr(evidence, '_now', lambda: decision)
+    monkeypatch.setattr(history, '_now', lambda: observed)
+    row, signal = research_row_and_signal(research_snapshot)
+    result = evidence.record_forecast_run(
+        dict(generated_at=decision.isoformat(), selection_policy_version=POLICY,
+             model_candidates=[row]), forecast, research_snapshot.model_version)
+    assert result['recorded'] == 1 and result['rejected'] == []
+    before = hashlib.sha256(forecast.read_bytes()).hexdigest()
+    saved = publication.record_signal_catalog('automatic', [signal], as_of=observed,
+        db_path=receipts, forecast_db_path=forecast)
+    assert saved['status'] == 'recorded'
+    tip = history.read_tip_publications(receipts)[0]['tips'][0]
+    assert tip['event_key'] == research_snapshot.event_key
+    assert tip['snapshot_id'] == research_snapshot.snapshot_id
+    assert tip['forecast_id'] == result['forecast_ids'][0]
+    assert tip['probability'] == row['probability']
+    assert hashlib.sha256(forecast.read_bytes()).hexdigest() == before
+
+
+@pytest.mark.parametrize('field,value', [
+    ('provider_event_id', 'different-native-event'),
+    ('fixture_source', 'foreign-provider'),
+    ('sport', 'Cricket'),
+    ('event_key', 'event_'+'b'*64),
+    ('event_identity', 'event_'+'b'*64),
+    ('snapshot_id', 'snapshot_'+'b'*64),
+    ('scheduled_start', '2050-01-01T00:00:00+00:00'),
+    ('modeled_at', '2050-01-01T00:00:00+00:00'),
+    ('input_cutoff_at', '2050-01-01T00:00:00+00:00'),
+    ('market_key', 'RESULT_HOME'),
+    ('selection', 'unrelated-side'),
+    ('selected_competitor', 'unrelated-side'),
+    ('competitor_a_id', 'other-team'),
+    ('probability', .001),
+])
+@pytest.mark.parametrize('as_mapping', [False, True])
+def test_research_publication_rejects_changed_native_scope_clocks_and_side(
+        research_snapshot, field, value, as_mapping):
+    from types import SimpleNamespace
+    row, signal = research_row_and_signal(research_snapshot)
+    changed = dict(row) if as_mapping else dict(vars(signal))
+    changed[field] = value
+    with pytest.raises(ValueError, match='publication research'):
+        publication.compact_signal_row(changed if as_mapping else SimpleNamespace(**changed))
+
+
+@pytest.mark.parametrize('alias', ['event_key', 'event_identity'])
+def test_research_publication_does_not_overrule_conflicting_event_alias(research_snapshot, alias):
+    row, _ = research_row_and_signal(research_snapshot)
+    row.update(event_key=research_snapshot.event_key, event_identity=research_snapshot.event_key)
+    row[alias] = 'event_'+'f'*64
+    with pytest.raises(ValueError, match='publication research'):
+        publication.compact_signal_row(row)
+
+
+@pytest.mark.parametrize('provider,competition', [
+    ('foreign-provider', 'NHL'), ('ESPN', 'NHL'), ('NHL', 'NBA'),
+])
+def test_research_publication_requires_supported_provider_competition_scope(
+        research_snapshot, provider, competition):
+    from dataclasses import replace
+    from riskobet_domain import stable_event_key
+    from team_sport_forecasts import valid_research_row
+    payload = replace(research_snapshot.team_sport_forecast, provider=provider)
+    changed = replace(research_snapshot, competition=competition,
+        event_key=stable_event_key(payload.sport, provider, payload.provider_event_id),
+        team_sport_forecast=payload)
+    row, _ = research_row_and_signal(changed)
+    assert valid_research_row(row)  # Self-consistent, but wrong native source scope.
+    with pytest.raises(ValueError, match='publication research provider'):
+        publication.compact_signal_row(row)

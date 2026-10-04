@@ -61,6 +61,27 @@ def compact_signal_row(row, *, featured_role="catalogue"):
     explicit_event = _get(row, "event_key") or _get(row, "event_identity")
     if explicit_event:
         data["event_key"] = explicit_event
+    if data.get("source") == "team_sport_research":
+        from team_sport_forecasts import research_signal_row, valid_research_row
+        evidence = row if isinstance(row, Mapping) else research_signal_row(row)
+        if not valid_research_row(evidence):
+            raise ValueError("publication research row is not bound to its snapshot")
+        snapshot = evidence["team_sport_snapshot"]
+        forecast = snapshot["team_sport_forecast"]
+        scopes = {("basketball", "espn"): "nba",
+                  ("basketball", "euroleague"): "euroleague",
+                  ("ice_hockey", "nhl"): "nhl"}
+        scope = scopes.get((forecast["sport"], forecast["provider"].strip().casefold()))
+        if scope is None or snapshot["competition"].strip().casefold() != scope:
+            raise ValueError("publication research provider has a different sport scope")
+        for field, expected in (("event_key", snapshot["event_key"]),
+                                ("event_identity", snapshot["event_key"]),
+                                ("snapshot_id", snapshot["snapshot_id"])):
+            if _get(row, field) is not None and _get(row, field) != expected:
+                raise ValueError("publication research identity conflicts with its snapshot")
+        # Reuse the actual frozen identities; never infer them from team names
+        # or copy the full source/model payload into this small receipt.
+        data.update(event_key=snapshot["event_key"], snapshot_id=snapshot["snapshot_id"])
     data["featured_role"] = featured_role
     return data
 
