@@ -11,13 +11,15 @@ maßgeblich; die unteren Abschnitte sind historische Momentaufnahmen.
 
 Codefreeze lokal: **`00b43693b7e0261147e5b75d69ea06f26860bd7d`**.
 GitHub main und VPS beim frischen Übergabeabgleich noch
-**`7e5ef8718839073b4c496f1066ecd10f4f9c82fe`**. Der nachfolgende Übergabecommit
-wird zusammen mit dem autorisierten Code gepusht, **nicht deployed**.
+**`7e5ef8718839073b4c496f1066ecd10f4f9c82fe`**. Code und Übergabe danach als
+`2c49c3a62378090857b4c8e5f259436ea21b5039` gepusht und Remote frisch bestätigt;
+der nächste reine Dokumentationsnachfolger ergänzt diese Abschlussnotiz.
+**Nicht deployed**; VPS bleibt `7e5ef87`.
 VPS-Readerrelease am 04.10. 07:25 UTC übernommen; App/Caddy aktiv und beide
 Healthchecks `ok`. Neue Korrekturen also noch nicht live. SHA immer neu abgleichen.
 
 **Vollsuite läuft weiter**, seit 09:49:30 CEST, letzter Stand 17 %, kein PASS:
-Session `96947`, Windows-PIDs `266900`/`269476`, JUnit-Abschlussdatei
+Session `96947`, Windows-PIDs `266900`/`269476`, zuletzt 23 %, JUnit-Abschlussdatei
 `output/playwright/full-00b4369-20261004.xml` noch nicht vorhanden.
 Keine zweite Suite starten oder getestete Dateien ändern, solange dieser Lauf
 aktiv ist. PC weiterlaufen lassen; Prozessidentität neu prüfen. Bei Accountwechsel
@@ -40,6 +42,9 @@ Daily3 **0**, kleines Inventararchiv 221.184 Bytes. 81 Forecastbindungen korrekt
 eine NHL-Herkunftslücke (`2026020035`) offen. 25 neue Tennisprognosen sind nicht
 mit 84 Modellrevisionen/84 Kontextoriginalen zu verwechseln. Keine abgeschlossene
 Gewinnbilanz oder nachgewiesene Wetter-/Verletzungs-/Müdigkeitswirkung.
+E-Sport-TOP RED Canids/KT (LOL `1694355`) stammt aus tatsächlich gebundenem
+Elo/Form-Fit; ursprüngliche 20er-Fenster und Verbindung der Gegnergruppen nicht
+erhalten/belegt. Dieser verbleibende fachliche Herkunftsnachweis steht im TODO.
 
 **Nächste Aktion:** laufende Vollsuite abschließen und Fehler prüfen; erst danach
 sicherer VPS-ff-only-Pull mit Linux-Offline-QA. Der vorhandene ignorierte Helfer
@@ -50,6 +55,7 @@ nicht zusätzlich scannen. Restarbeiten und genaue Prüfreihenfolge im obersten 
 
 Keine Backups, Bereinigung, zusätzlichen API-Scans oder Geldänderungen.
 Geerbte ungetrackte Dateien erhalten; nie pauschal `git add .` oder Reset/Cleanup.
+Eigene Vorschau/Prüftabs beendet; nur die Vollsuite läuft weiter.
 
 ## Aktueller Einstieg – Auswahlbilanz, 03./04.10.2026
 

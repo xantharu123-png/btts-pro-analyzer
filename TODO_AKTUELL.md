@@ -15,12 +15,13 @@ als Belege erhalten. Jetzt nur Übergabe aktualisieren, keine weiteren Appänder
 - Frischer Remote-/VPS-Abgleich bei Übergabe: beide noch
   `7e5ef8718839073b4c496f1066ecd10f4f9c82fe`. App und Caddy aktiv, interner und
   öffentlicher Healthcheck `ok`. Die neue Korrektur `00b4369` ist **nicht live**.
-  Der anschließende Dokumentationscommit wird mit dem bereits autorisierten
-  Code auf GitHub main veröffentlicht; das ist ausdrücklich kein VPS-Deployment.
+  Code und Übergabe inzwischen unter `2c49c3a62378090857b4c8e5f259436ea21b5039`
+  auf GitHub main gepusht und durch `ls-remote` bestätigt. Der Nachfolger ergänzt
+  nur diese Abschlussnotiz und den E-Sport-Befund; **kein VPS-Deployment**.
   Bei Wiederaufnahme `git rev-parse HEAD`, `git ls-remote origin refs/heads/main`
   und VPS-HEAD frisch lesen, nicht ältere SHA-Angaben übernehmen.
 - Vollsuite des eingefrorenen Codes seit 09:49:30 CEST noch aktiv; letzter
-  gelesener Fortschritt 17 %, bisher keine sichtbaren Fehlermarker, **kein PASS**.
+  gelesener Fortschritt 23 %, bisher keine sichtbaren Fehlermarker, **kein PASS**.
   Unified-Exec-Session `96947`; Windows-Prozesse `266900` (venv-Launcher) und
   `269476` (Python-Runtime). Prozessidentität vor jeder Aktion erneut prüfen.
   Erwarteter Abschlussbeleg: `output/playwright/full-00b4369-20261004.xml`;
@@ -44,6 +45,8 @@ als Belege erhalten. Jetzt nur Übergabe aktualisieren, keine weiteren Appänder
 - Geerbte ungetrackte Audit-/Browser-/Preview-Dateien unverändert, nicht pauschal
   `git add .`, löschen oder resetten. Eigene QA-Helfer unter `output/playwright/`
   bleiben unversioniert; kein neues Backup, Cleanup, Sport-/API-Scan oder Geldänderung.
+- Eigene lokale Vorschau auf Port 8514 beendet; ihre Prozesse nicht mehr aktiv.
+  Temporäre interne Prüftabs geschlossen, Viewport zurückgesetzt. Vollsuite bleibt aktiv.
 
 ### Erledigte Codekorrekturen und belegte Grenzen
 
@@ -103,6 +106,15 @@ als Belege erhalten. Jetzt nur Übergabe aktualisieren, keine weiteren Appänder
   täglicher Modell-Neuaufbau. Reader-Kompatibilität ist bereits deployed.
 - Die aktuellen Belege sind noch nicht als geschlossene, vollständige Tagesbilanz
   auswertbar. Keine Tagesrendite, Kundengewinne oder bessere Wettqualität behaupten.
+- E-Sport-TOP eng geprüft: LOL `1694355`, RED Canids (161) gegen KT Rolster (63),
+  Beginn 04.10. 09:00 UTC, Modellstand 01:10:24.985923 UTC. Elo 1485,419 gegen
+  1421,223, RED-Auswahl 59,13 %; Identität, Uhr und Quellhash stimmen zwischen
+  Shadow und Forecast. Beide 3/5 Siege; letzte zehn RED 5/10, KT 3/10.
+  Ursprüngliche 20er-Fenster nicht dauerhaft erhalten und keine E-Sport-
+  Kontextoriginale im geprüften Bestand. Gemeinsame/verknüpfte Gegnergruppen
+  dieses konkreten Fits daher **nicht belegt**. Unbekannte Teams starten bei
+  Elo 1500, zwei Durchläufe; eine globale Stärke-Rangfolge zwischen getrennten
+  Gruppen darf daraus nicht als bewiesen ausgegeben werden. Keine Prognose umgeschrieben.
 
 ### Nächste Schritte – genau in dieser Reihenfolge
 
@@ -120,9 +132,11 @@ als Belege erhalten. Jetzt nur Übergabe aktualisieren, keine weiteren Appänder
 4. Nächste reguläre Dienste am **05.10.2026: Tennis 00:05 und Wettfinder 03:35
    Europe/Zurich** lesen. Keine Zusatz-API-Läufe starten. WTA-Altoriginal-
    Klassifikation, konkreten Capturefehler und Ende/Exitstatus tatsächlich belegen.
-5. Herkunftslücke des einen NHL-Falls und E-Sport-TOP fachlich prüfen; E-Sport
-   speichert Elo/Form/Hash, aber nicht automatisch dieselben vollständigen
-   Trainingsfenster. Gegnerstärke/verbundene Vergleichsgruppen nicht erfinden.
+5. Herkunftslücke des einen NHL-Falls prüfen. Für E-Sport beim regulären Lauf
+   ausschließlich die tatsächlich verbrauchten 20er-Fenster kompakt belegen und
+   gemeinsame Gegner/Spiele prüfen, keine alten Fits mit heutigen Daten nachbauen.
+   Gegnerstärke/verbundene Vergleichsgruppen nicht erfinden; keine zweite große
+   Rohdatenablage oder Zusatz-API-Suche für diesen Herkunftsnachweis.
 6. Numerische Verletzungs-, Wetter- und Müdigkeitsanbindungen und unabhängigen
    Qualitätsvergleich weiterführen. Diese bisherigen Produktlücken sind nicht
    durch bessere Erklärungstexte oder Softwaretests erledigt. Keine neuen
