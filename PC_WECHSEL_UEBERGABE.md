@@ -18,8 +18,8 @@ der nächste reine Dokumentationsnachfolger ergänzt diese Abschlussnotiz.
 VPS-Readerrelease am 04.10. 07:25 UTC übernommen; App/Caddy aktiv und beide
 Healthchecks `ok`. Neue Korrekturen also noch nicht live. SHA immer neu abgleichen.
 
-**Vollsuite läuft weiter**, seit 09:49:30 CEST, letzter Stand 17 %, kein PASS:
-Session `96947`, Windows-PIDs `266900`/`269476`, zuletzt 23 %, JUnit-Abschlussdatei
+**Vollsuite läuft weiter**, seit 09:49:30 CEST, letzter Stand 23 %, kein PASS:
+Session `96947`, Windows-PIDs `266900`/`269476`, JUnit-Abschlussdatei
 `output/playwright/full-00b4369-20261004.xml` noch nicht vorhanden.
 Keine zweite Suite starten oder getestete Dateien ändern, solange dieser Lauf
 aktiv ist. PC weiterlaufen lassen; Prozessidentität neu prüfen. Bei Accountwechsel
