@@ -19,6 +19,7 @@ class FootballCustomerAnalysis:
     facts: tuple[tuple[str, str], ...] = ()
     details: tuple[str, ...] = ()
     fact_details: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    market_facts: tuple[tuple[str, str], ...] = ()
 
 
 _RECENT_FIELDS = {'schema', 'fixture_id', 'home_id', 'away_id', 'scheduled_start',
@@ -194,6 +195,56 @@ def _team_result_details(rows, team):
                  for r in rows)
 
 
+def recent_football_goal_market_facts(recent, spec, *, home, away):
+    """Observed goal-market counts, not fitted probabilities or selection rules.
+
+    The caller supplies the exact-bound, validated recent-result projection.
+    Team markets use goals scored for that team and goals conceded by the other
+    team. Corners/cards must never receive facts inferred from football scores.
+    """
+    if spec.kind not in {'team_total', 'team_range', 'total', 'btts'}:
+        return (), ()
+    contract = _contract(spec, home, away)[0]
+    if spec.kind in {'team_total', 'team_range'}:
+        own_side = 'home' if spec.side.startswith('home') else 'away'
+        opposing_side = 'away' if own_side == 'home' else 'home'
+        own, opponent = (home, away) if own_side == 'home' else (away, home)
+        contract = contract.rsplit(' für ', 1)[0]
+        subjects = ((own_side, 'scored', f'{own} · {contract}'),
+                    (opposing_side, 'conceded', f'{opponent} · Gegentore: {contract}'))
+    else:
+        subjects = (('home', 'total', f'{home}-Spiele · {contract}'),
+                    ('away', 'total', f'{away}-Spiele · {contract}'))
+
+    def matches(row, field):
+        if spec.kind == 'btts':
+            both = row['scored'] > 0 and row['conceded'] > 0
+            return both if spec.side == 'yes' else not both
+        goals = row['scored'] + row['conceded'] if field == 'total' else row[field]
+        if spec.kind == 'team_range':
+            return spec.low <= goals <= spec.high
+        return goals > spec.threshold if spec.side.endswith('over') else goals < spec.threshold
+
+    facts, details = [], []
+    for side, field, label in subjects:
+        rows = recent[side]
+        if not rows:
+            continue
+        short = rows[:5]
+        count = sum(matches(row, field) for row in short)
+        value = f'{count}/{len(short)} zuletzt' if len(short) == 5 else f'{count}/{len(short)} erfasst'
+        if len(rows) == 10:
+            value += f' · {sum(matches(row, field) for row in rows)}/10'
+        facts.append((label, value))
+        team = home if side == 'home' else away
+        details.append((label, (
+            f'{team}: {count} von {len(short)} letzten erfassten Spielen erfüllen diese Torbedingung.',
+            'Beobachtete Ergebnisse, keine zusätzliche Modellwahrscheinlichkeit.',
+            *_team_result_details(rows, team),
+        )))
+    return tuple(facts), tuple(details)
+
+
 def _form_labels(home, away):
     collides = home.strip().casefold() == away.strip().casefold()
     return {side: 'Form '+team+(f' ({venue})' if collides else '')
@@ -265,7 +316,7 @@ def football_customer_analysis(signal, *, now):
     if form:
         facts.append(('Formbasis', f'{form[0]} / {form[1]} erfasste Spiele'))
     recent = basis.get('customer_recent_results')
-    details, fact_details = [], []
+    details, fact_details, market_facts = [], [], ()
     if recent:
         result_facts, result_details = recent_football_result_facts(recent, home=home, away=away)
         if result_facts:
@@ -275,6 +326,10 @@ def football_customer_analysis(signal, *, now):
         labels = _form_labels(home, away)
         fact_details.extend((labels[side], _team_result_details(recent[side], team))
                             for side, team in (('home', home), ('away', away)) if recent[side])
+        market_facts, market_details = recent_football_goal_market_facts(
+            recent, spec, home=home, away=away)
+        facts.extend(market_facts)
+        fact_details.extend(market_details)
         if opposing_side:
             own_side = 'home' if opposing_side == 'away' else 'away'
             ours, theirs = recent[own_side][:5], recent[opposing_side][:5]
@@ -288,4 +343,4 @@ def football_customer_analysis(signal, *, now):
         details = ['Sieg-/Remis-/Niederlagenbilanz nicht hinterlegt; Gegner der letzten Spiele sind in diesem Kartenstand nicht gespeichert.']
     else:
         details.append('Erfasste Ergebnisse aus dem geladenen Modellumfang; keine vollständige teamübergreifende Gegnerstärke-Bewertung.')
-    return FootballCustomerAnalysis(summary, caution, tuple(facts), tuple(details), tuple(fact_details))
+    return FootballCustomerAnalysis(summary, caution, tuple(facts), tuple(details), tuple(fact_details), market_facts)

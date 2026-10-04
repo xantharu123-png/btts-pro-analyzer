@@ -1,5 +1,48 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 04.10.2026 – Greece/Germany, fortgesetzter Zweistundenblock
+
+- Neuer Block ab 09:23 CEST, geplant bis 11:23 CEST. Geerbte Dateien und
+  Historien erhalten; keine neuen Backups, Bereinigungen oder Sport-/API-Scans.
+- Reader-Folgecommit und bisherige Übergabe `7e5ef8718839073b4c496f1066ecd10f4f9c82fe`
+  am 04.10. 07:25 UTC mit Deploylock, inaktiven Schreibern, Timerreserve und
+  ff-only Pull tatsächlich auf dem VPS übernommen. Linux-Offline-QA, App/Caddy
+  und beide Healthchecks bestanden. Gespeicherte Wettfinder-/Risikoartefakte
+  bytegleich; kein Modell-Neulauf und keine Produktionsdatenmigration.
+- Greece/Germany 1528939 unabhängig aus 652 vorhandenen A-Länderspielen und
+  dem owning Kalibrationscache exakt rekonstruiert: Germany U2,5 = 71,9733 %,
+  erwartete Tore 1,8571. 12/6-Spiele-Modell, nicht nur sichtbare Fünferbilanz;
+  sechstes Germany-Spiel ist 7:1 gegen Curaçao. Kein Team-/Scoretausch.
+  Siehe [Replaybericht](docs/audits/2026-10-04-greece-germany-replay.md).
+- Neuer Kurzcheck für belegte Tor-Märkte zeigt tatsächliche 5-/10-Erfüllungen
+  der gewählten Torbedingung und Gegentore des Gegners. Gefittete Torzahl bleibt
+  getrennt; keine Änderung von Modellchance, Quotenfilter, Rangfolge oder Einsatz.
+  Nationale Stichprobe wird als A-Länderspiele, nicht fälschlich als Heim/Gast
+  bezeichnet. Automatisch, Daily3 und manuelle gemeinsame Kundenfakten nutzen
+  denselben gebundenen Beleg; keine Ecken-/Kartenfakten aus Torresultaten.
+- Historiengrenze: widersprüchliche native Revisionen und widersprüchliche
+  exakte Event-Aliasse dürfen nicht nach Listenreihenfolge gewinnen. Identische
+  Duplikate deterministisch, native/CSV-Identitäten erhalten. Gegenprüfung läuft.
+- Historische WTA-Originalformatfehler vollständig gezählt: 238 Best-of-5,
+  davon 102 offen. In 78 Geldbüchern und Shadow-Side-Bets keine Geldbindung;
+  keine Bindung im Forecast-Archiv oder den 4.167 Kontextoriginalen. Enger Fix
+  klassifiziert exakt WTA + Ganzzahlformat 5 vor Ergebnisabfragen als nicht
+  auswertbares Original. Kein Originalformat, Ergebnis oder Geld umgeschrieben.
+- Getrennter Fußball-Capturefehler: 16 von 24 abgerechneten FT-Events dieses
+  vorhandenen Laufs besitzen keinen vollständigen Detail-Capture. Ergebnis-Tore
+  wurden gespeichert, aber damaliger abgelehnter Detailbody/Vertragsfehler wurde
+  nicht erhalten. Ursache deshalb nicht nachträglich erfunden. Enger interner
+  Logfix ergänzt höchstens fünf ID-/Typ-/Reasonhash-Belege, ohne Providerbody,
+  Secrets, neue Datenbank oder gelockerte Validierung. Nächster regulärer Lauf
+  muss die konkrete Ursache liefern; keine Zusatz-API-Abfrage dafür.
+- Vorläufige gezielte Ergebnisse: 240 Darstellungs-/Integrationstests, 182
+  Tennis-Abrechnungstests, 111 Capturetests bestanden (überlappende Mengen,
+  nicht addieren). Neue vollständige Codefreeze-Suite und Release noch offen.
+- Letzte reguläre Dienste vor den neuen Fixes: Tennis 00:27:41 CEST Exit 1,
+  Wettfinder 04:02:36 CEST Exit 1. App erreichbar; ein Code-Pull macht diese
+  vergangenen Läufe nicht erfolgreich. Kontextwirkungen, explizite nationale
+  Gegnerstärke-Anpassung und verbesserte Wettqualität bleiben unbelegt.
+
 ## 03./04.10.2026 – Auswahlkohärenz und echte Veröffentlichungsbilanz
 
 - Abschlussstand um 04.10. 00:19 CEST: Tennis-Leser-Code

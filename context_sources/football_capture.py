@@ -8,6 +8,9 @@ for those IDs, not an unbounded duplicate historical feed.
 from contextlib import contextmanager
 from copy import deepcopy
 from datetime import date, datetime
+import hashlib
+import json
+import logging
 import os
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -118,6 +121,7 @@ class _Capture:
         self.baseline_scope_records = {}
         self.source_inserted_bytes = 0
         self.baseline_enabled = baseline_enabled
+        self._projection_log_count = 0
 
     def flush_baseline_receipts(self, selected_input_scope, *, max_new_payload_bytes):
         """Retain received revisions in the explicit pool, never match scores."""
@@ -336,8 +340,27 @@ class _Capture:
                             outcome = normalize_football_outcome(ev, raw, observed_at=observed)
                             if outcome is not None:
                                 fixture_rows.append(outcome)
-                        except (ContextContractError, KeyError, TypeError, ValueError, OverflowError):
+                        except (ContextContractError, KeyError, TypeError, ValueError, OverflowError) as exc:
                             self.errors.append("Kontext-Capture: native-projection-unavailable")
+                            fixture = raw.get("fixture") if type(raw) is dict else None
+                            fixture_id = fixture.get("id") if type(fixture) is dict else None
+                            if (type(fixture_id) is int and fixture_id > 0
+                                    and self._projection_log_count < 5):
+                                self._projection_log_count += 1
+                                # Keep source/error text private. The digest can be
+                                # compared with a locally reproduced contract error
+                                # without persisting payloads or enlarging the schema.
+                                logging.getLogger(__name__).warning(
+                                    "Football context projection rejected: %s",
+                                    json.dumps({
+                                        "endpoint": "fixtures",
+                                        "fixture_id": fixture_id,
+                                        "exception_type": type(exc).__name__,
+                                        "reason_sha256": hashlib.sha256(
+                                            str(exc).encode("utf-8", errors="replace")
+                                        ).hexdigest(),
+                                    }, sort_keys=True),
+                                )
                             continue
                         additions.extend(fixture_rows)
                 else:

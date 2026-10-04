@@ -122,8 +122,11 @@ def build_compact_analysis(signal, analysis, *, now):
                     summary = f'{heading}: {_decimal(left)} : {_decimal(right)} (Heim : Gast)'
                 if spec.kind == 'result' and ((spec.side == 'home' and left < right) or (spec.side == 'away' and right < left)):
                     warnings.append('Außenseiter-Szenario')
+            national = basis.get('national_samples')
             venue = basis.get('venue_samples')
-            if venue:
+            if national:
+                facts.append(Fact('Basis', f'{national[0]} / {national[1]} A-Länderspiele', (analysis.samples,)))
+            elif venue:
                 facts.append(Fact('Basis', f'{venue[0]} Heim · {venue[1]} Gast', (analysis.samples,)))
         counter = _contract(spec, home, away)[1] if spec else 'Auswahl tritt nicht ein'
         facts.insert(0, Fact('Gegenrisiko', _percent(1 - signal.probability),
@@ -134,8 +137,17 @@ def build_compact_analysis(signal, analysis, *, now):
             if customer:
                 facts.append(Fact('Gegenargument', 'Spielvergleich', (customer.counterargument,)))
                 fact_details = dict(customer.fact_details)
+                leading_market_fact = customer.market_facts[0] if customer.market_facts else None
+                if leading_market_fact:
+                    # Put the selected market's actual record in the short
+                    # check, not just a mean that looks unrelated to the pick.
+                    # Keep the fitted mean separate; counts are not a new fit.
+                    label, value = leading_market_fact
+                    facts.append(Fact('Torprognose', summary))
+                    summary = f'{label}: {value}'
                 facts.extend(Fact(label, value, fact_details.get(label, ()))
-                             for label, value in customer.facts)
+                             for label, value in customer.facts
+                             if (label, value) != leading_market_fact)
         def fresh(axis):
             clock = _clock(axis.get('checked_at'))
             return clock is not None and context.get('stale') is not True and timedelta(0) <= now - clock <= timedelta(minutes=75)

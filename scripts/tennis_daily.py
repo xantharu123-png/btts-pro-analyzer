@@ -592,6 +592,32 @@ def auto_settle_completed(today: str | None = None) -> int:
             for player in (row["player_a"], row["player_b"])
         )
     ]
+    # These old originals were built with the wrong tour format. A normal WTA
+    # final cannot prove a Best-of-5 prediction, and rewriting that original to
+    # Best-of-3 would retroactively change its model contract. Keep the rows and
+    # their money/result history untouched, but do not repeatedly request their
+    # results or report the known original-format mismatch as a live API error.
+    unscorable = [
+        row for row in pending
+        if row.get("tour") == "WTA"
+        and type(row.get("best_of")) is int
+        and row["best_of"] == 5
+    ]
+    if unscorable:
+        print("Abrechnungsabdeckung: " + json.dumps({
+            "reason": "unscorable_original_format",
+            "tour": "WTA",
+            "best_of": 5,
+            "count": len(unscorable),
+            "sample_prediction_ids": [row["id"] for row in unscorable[:5]],
+            "originals_unchanged": True,
+        }, ensure_ascii=True, sort_keys=True))
+        pending = [
+            row for row in pending
+            if not (row.get("tour") == "WTA"
+                    and type(row.get("best_of")) is int
+                    and row["best_of"] == 5)
+        ]
     if not pending:
         return 0
 

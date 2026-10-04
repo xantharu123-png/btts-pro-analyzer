@@ -1,5 +1,21 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg – Greece/Germany, 04.10.2026
+
+Neuer Zweistundenblock 09:23–11:23 CEST. Oberster
+[TODO-Block](TODO_AKTUELL.md) und der
+[exakte Replaybericht](docs/audits/2026-10-04-greece-germany-replay.md) sind
+maßgeblich. Bisherige Folgecommits am 04.10. 07:25 UTC bis `7e5ef87` auf den
+VPS gepullt, App/Caddy und Healthchecks erfolgreich, Modellartefakte unverändert.
+Greece/Germany tatsächlich gerechnet, 71,9733 % und 1,8571 Germany-Tore exakt
+nachvollzogen. Die Fünferansicht allein zeigt nicht alle 12/6-Modelleingänge.
+Neue marktbezogene Formfakten, Historien-Revisionsschutz und unveränderte
+WTA-Altoriginal-Klassifikation liegen gezielt getestet vor; vollständige
+Codefreeze-Suite/Veröffentlichung noch offen. 238 alte WTA-Bo5/102 offen ohne
+Geldbindung; nicht zu Gewinnen/Verlusten oder Bo3 umschreiben. Letzte reguläre
+Tennis-/Wettfinderläufe waren Exit 1, keine erfolgreichen Scans erfinden.
+Keine Backups, Bereinigung, zusätzlichen API-Scans oder Geldänderungen.
+
 ## Aktueller Einstieg – Auswahlbilanz, 03./04.10.2026
 
 Letzter verifizierter Stand 00:19 CEST: Reader-Code `6c62100` auf GitHub main,

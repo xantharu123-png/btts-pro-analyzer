@@ -255,8 +255,54 @@ def _bounded_completed_history(
     before: datetime,
     league_id: Optional[int] = None,
 ) -> list[dict[str, Any]]:
-    """Keep completed, causal, unique results within a rolling row budget."""
+    """Keep completed, causal, unique results within a rolling row budget.
+
+    Conflicting native revisions have no trustworthy ordering here. Inspect
+    them before admission: a later non-FT/rescheduled row must invalidate an
+    old FT result rather than disappear in the status or time filter. This
+    does not choose a correction, invent a result, or change CSV identities.
+    """
+    native_versions: dict[int, tuple] = {}
+    ambiguous_native_ids: set[int] = set()
+
+    def field(mapping: object, name: str) -> object:
+        return mapping.get(name) if isinstance(mapping, dict) else None
+
+    def typed(value: object) -> tuple:
+        # True equals 1 in Python, but it is not the same native ID or score.
+        # Preserve scalar types without serialising whole provider payloads.
+        if type(value) in (str, int, float, bool, type(None)):
+            return type(value), value
+        return type(value), None
+
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        data = row.get("fixture")
+        fixture_id = field(data, "id")
+        if type(fixture_id) is not int or fixture_id <= 0:
+            continue
+        teams, goals, league = row.get("teams"), row.get("goals"), row.get("league")
+        version = (
+            _fixture_kickoff(row), typed(field(field(data, "status"), "short")),
+            typed(field(league, "id")),
+            typed(field(field(teams, "home"), "id")), typed(field(field(teams, "away"), "id")),
+            typed(field(goals, "home")), typed(field(goals, "away")),
+        )
+        if fixture_id in native_versions and version != native_versions[fixture_id]:
+            ambiguous_native_ids.add(fixture_id)
+        native_versions[fixture_id] = version
+
+    def event_key(row: dict[str, Any]) -> tuple:
+        return (
+            row["league"].get("id"), _fixture_kickoff(row),
+            row["teams"]["home"]["id"], row["teams"]["away"]["id"],
+        )
+
     by_id: dict[int, dict[str, Any]] = {}
+    event_scores: dict[tuple, tuple[int, int]] = {}
+    conflicting_event_scores: set[tuple] = set()
+    ambiguous_native_event_keys: set[tuple] = set()
     for row in rows:
         if not isinstance(row, dict):
             continue
@@ -294,14 +340,29 @@ def _bounded_completed_history(
             continue
         if teams["home"]["id"] == teams["away"]["id"]:
             continue
+        key = event_key(row)
+        score = goals["home"], goals["away"]
+        if key in event_scores and event_scores[key] != score:
+            conflicting_event_scores.add(key)
+        event_scores[key] = score
+        if fixture_id in ambiguous_native_ids:
+            # A different fixture ID cannot resurrect this quarantined old
+            # native result through the exact same event alias.
+            ambiguous_native_event_keys.add(key)
+            continue
         by_id[fixture_id] = row
     by_event: dict[tuple, dict[str, Any]] = {}
     for row in by_id.values():
-        key = (
-            row["league"].get("id"), _fixture_kickoff(row),
-            row["teams"]["home"]["id"], row["teams"]["away"]["id"],
-        )
-        by_event[key] = row
+        key = event_key(row)
+        if key in conflicting_event_scores or key in ambiguous_native_event_keys:
+            continue
+        prior = by_event.get(key)
+        # An ID is only a deterministic tie-break, not proof of a correction
+        # or newer result. Prefer an unchanged native row over a CSV alias.
+        if prior is None or (
+            row["fixture"]["id"] > 0, row["fixture"]["id"]
+        ) > (prior["fixture"]["id"] > 0, prior["fixture"]["id"]):
+            by_event[key] = row
     return sorted(
         by_event.values(),
         key=lambda row: (_fixture_kickoff(row), row["fixture"]["id"]),
