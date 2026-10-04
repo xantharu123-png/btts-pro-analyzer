@@ -21,8 +21,18 @@ Skips, 111 Untertests bestanden**, 2.908,24 Sekunden. Abschluss-XML
 Session `9885`/PIDs `410372`/`414600` beendet; keinen weiteren Lauf starten.
 Produktiv-/Testcode während der Suite unverändert, Nachfolger nur Dokumentation.
 250/237 gezielte Tests überlappen; Releasehülle offline und unabhängig geprüft.
-Noch kein neues VPS-Deployment; jetzt sicherer
-ff-only Pull ohne neue Sicherung. Der nächste Ergebnisadapter kann den vorhandenen
+**VPS-Deployment abgeschlossen, 04.10. etwa 11:36 CEST:**
+`e14deea2911369124e291020f140763df6226d57`, ff-only unter Deploylock und mit
+Linux-Offline-QA vor App-Stopp; App/Caddy aktiv, beide Healthchecks `ok`.
+Modellartefakte beim Pull bytegleich, kein neues Backup. Anschließende
+Dokumentationsnachfolger enthalten keinen neuen Produktiv-/Testcode.
+Echte NHL-Sourcebindung für beide eingefrorenen Prognosen read-only bestätigt;
+sichtbarer Spielblock bleibt eine Auswahl, kein Altarchiv-Backfill. Live-Kurzcheck
+Greece/Germany zeigt die passende Torbedingung 5/5 · 7/10 plus korrekte
+12/12-A-Länderspiel-Basis. 10-Spiele-Umschaltung und Schließen wirklich geprüft;
+1280/390/320 px ohne horizontalen Überlauf, keine neuen Browserfehler nach
+frischem Reload. Eigener interner Tab geschlossen, Viewport zurückgesetzt.
+Der nächste Ergebnisadapter kann den vorhandenen
 Cache nutzen (55 EuroLeague-/1.620 NHL-Versionen auf VPS), nicht neue APIs/DBs.
 Keine Zusatz-API-Scans, Cleanup, Modell-Neurechnung oder Geldänderungen.
 

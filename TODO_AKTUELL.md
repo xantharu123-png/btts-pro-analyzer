@@ -52,9 +52,48 @@
   `3521d524ff9ea1996670bf6c38e3272000d64d81360b5e9632f869e71b89d0f8`.
   Genau 16 zulässige Diff-Pfade, Schreiber/Timerreserve vor und nach QA geprüft;
   weder lokaler Smoke noch Scriptreview ist ein Linux-/VPS-Releasebeweis.
-- Code/Übergabe auf GitHub main unter `b2a4d55` bestätigt; VPS-Pull und
-  Live-UI-Nachweis stehen noch aus. Keine neuen
+- **Release auf dem VPS abgeschlossen, 04.10. etwa 11:36 CEST:**
+  `e14deea2911369124e291020f140763df6226d57` per kontrolliertem ff-only Pull,
+  davor Linux-Offline-QA auf den exakten Zielmodulen grün. App/Caddy aktiv,
+  beide Healthchecks `ok`. Dokumentationsnachfolger ändern den Codefreeze nicht.
+  Keine neuen
   Sport-/API-Scans, Backups, Bereinigungen oder Geldänderungen gestartet.
+
+### Live-Abschlussnachweise dieser Fortsetzung
+
+- Deploylock, genau 16 zulässige Diff-Pfade, ruhende Schreiber und mehr als fünf
+  Minuten Timerreserve vor **und** nach Offline-QA tatsächlich geprüft.
+  Die App wurde erst danach kurz gestoppt, gepullt und gestartet. Die zwei frühen
+  lokalen Curl-Verbindungsversuche vor abgeschlossenem Start wurden regulär
+  wiederholt; beide abschließenden Healthchecks erfolgreich, Helfer Exit 0.
+- Gespeicherte Modellartefakte beim Release bytegleich:
+  `wettfinder_latest.json` SHA256
+  `998d2b8dd5e3286802054a615ba4414e7e085bd4e23ec4054bdec410c5178d08`;
+  `riskobet_latest.json`
+  `b241fbdecd1e710f07f07b8bbdb784ba385f5481905f589d840eb6367c606f37`.
+  Kein neuer Modellfit, Ergebnis-Backfill, Daten-Rollback oder Geldschreiben.
+- NHL `2026020035` am 04.10. 09:38:32 UTC rein lesend auf dem echten VPS
+  geprüft: beide bestehenden Source-Prognosen werden exakt ihren ursprünglichen
+  Forecast-IDs zugeordnet, nicht per Teamname/Spielausgang geraten. Netzwerk
+  gesperrt, ausschließlich `mode=ro/query_only`; Artefakte und Forecast-DB
+  unverändert. Keine zwei gegensätzlichen UI-Tipps daraus: der sichtbare
+  Spielblock bleibt **eine** ausgewählte NHL-Prognose. Der Nachweis aktualisiert
+  keine früheren Veröffentlichungseinträge und beweist noch kein NHL-Ergebnis.
+- Echter frischer Reload ausschließlich im eigenen internen Prüftab: Greece vs
+  Germany U2,5 weiter 72,0 %, letzte Quote 1,33; Kurzcheck jetzt
+  **höchstens 2 Tore: 5/5 zuletzt · 7/10**, getrennte Torprognose 1,86,
+  Greece-Gegentore 5/5 · 9/10, Basis korrekt **12 / 12 A-Länderspiele**.
+  10-Spiele-Ansicht wirklich geklickt, einschließlich des sechsten Germany-
+  Spiels 7:1 gegen Curaçao; Spielblock danach wieder geschlossen (`details.open`
+  false). Keine Marktchance oder Reihenfolge hierfür neu gerechnet.
+- Live-Layout 1280, 390 und 320 px: Dokument-/Bodybreite entspricht Viewport,
+  kein horizontaler Überlauf. WebSocket-Abbrüche während des kontrollierten
+  Neustarts waren sichtbar; **nach frischem Reload keine neuen Console-Fehler**.
+  Native Geräte-/physische Mausfreigabe nicht daraus ableiten. Viewport
+  zurückgesetzt und nur der eigene Prüftab geschlossen.
+- Alle sieben Timer weiterhin aktiv/geplant. Alte fehlgeschlagene Tagesjobs
+  bleiben ehrlich fehlgeschlagen; reguläre neue Nachweise folgen am 05.10.
+  Tennis 00:05, E-Sport 03:10, Wettfinder 03:35 CEST. Keine Jobs manuell gestartet.
 
 ### Reguläre Produktionsläufe richtig zeitlich zuordnen
 
@@ -114,9 +153,11 @@ Rücknahmen oder Konflikte bleiben offen. Kein `fetch_page`/neuer API-Aufruf,
 keine neue DB, keine Wetten-/Geldhistorie; Empfangszeit nie durch Spielende oder
 Dateidatum ersetzen. Dies ist ein konkreter Restpunkt, keine fertige Abrechnung.
 
-Nächste Reihenfolge: neue Vollsuite wirklich abschließen → Commit-/Remote-Stand
-abgleichen → sicheren ff-only Release ohne Backup → interne Browserkarte und
-neue Forecastbindung prüfen → regulären Tageslauf am 05.10. auswerten.
+Vollsuite, Code-/Remote-Abgleich, kontrollierter Release und interne Browser-/
+Forecastbindungsprüfung sind abgeschlossen. Nächste Reihenfolge: regulären
+Tageslauf am 05.10. auswerten → nativen Basketball-/Hockey-Ergebnisadapter
+aus dem vorhandenen Cache anschließen → begrenzten vollständigen Abschlusszähler
+statt allein abgeschnittenem Pipeline-Logtail ergänzen.
 Die numerischen Verletzungs-/Müdigkeits-/Wetterwirkungen und belastbare
 Qualitätssteigerung bleiben separate offene Aufgaben, keine Fertigmeldung daraus.
 
