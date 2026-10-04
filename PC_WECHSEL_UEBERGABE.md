@@ -12,8 +12,14 @@ NHL-Belege sind vorhanden, aber ihre Identität ging auf dem Weg zur Archivkarte
 verloren. Enger Snapshot-/Publisherfix verbindet neue Veröffentlichungen, ohne
 Altarchive umzuschreiben. Basketball-ESPN-Provider im Bericht korrekt ergänzt.
 Der eigene Hockey-/Basketball-Endergebnispfad bleibt trotzdem separat offen.
-Noch keine neue grüne Vollsuite oder neues VPS-Deployment; nächster Schritt
-Codefreeze-Abschlussprüfung, danach sicherer ff-only Pull ohne neue Sicherung.
+Neuer Codefreeze `ecda9e9f053e44429810d7da53e2ce74a5e7785b`; Vollsuite seit
+etwa 10:44 CEST aktiv, Session `9885`, Abschluss-XML
+`output/playwright/full-continuation-20261004.xml`. Produktiv-/Testcode nicht
+während der Prüfung verändern. 250 gezielte und unabhängig 237 überlappende
+Tests grün; Releasehülle offline getestet und unabhängig geprüft.
+Noch keine neue grüne Vollsuite oder neues VPS-Deployment; danach sicherer
+ff-only Pull ohne neue Sicherung. Der nächste Ergebnisadapter kann den vorhandenen
+Cache nutzen (55 EuroLeague-/1.620 NHL-Versionen auf VPS), nicht neue APIs/DBs.
 Keine Zusatz-API-Scans, Cleanup, Modell-Neurechnung oder Geldänderungen.
 
 ## Aktueller Einstieg – Accountwechsel, 04.10.2026, 10:06 CEST

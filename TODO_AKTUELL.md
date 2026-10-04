@@ -35,9 +35,43 @@
   laufende App gestoppt wird; kein zusätzlicher Codebaum/Backup. Offline-QA
   sperrt Netzwerk und DB-Zugriffe außerhalb ihres privaten synthetischen Tempordners.
   Enger ff-only Pull erst nach grüner neuer Vollsuite und sicherem Timerfenster.
-- Neue Vollsuite des final eingefrorenen Codes, Git-Push, VPS-Pull und Live-UI-
-  Nachweis stehen beim Schreiben dieses Abschnitts noch aus. Keine neuen
+- Finaler Codefreeze `ecda9e9f053e44429810d7da53e2ce74a5e7785b` committed;
+  neue vollständige Suite seit etwa 10:44 CEST aktiv (Exec-Session `9885`,
+  JUnit `output/playwright/full-continuation-20261004.xml`). Währenddessen keine
+  Produktiv-/Teständerungen. 250 Team-Sport-/Publisher-Tests und unabhängig
+  237 Integrationstests grün, überlappende Mengen nicht summieren.
+- Releasehülle abschließend unabhängig geprüft, lokaler Target-Smoke und
+  `bash -n` grün; SHA256
+  `3521d524ff9ea1996670bf6c38e3272000d64d81360b5e9632f869e71b89d0f8`.
+  Genau 16 zulässige Diff-Pfade, Schreiber/Timerreserve vor und nach QA geprüft;
+  weder lokaler Smoke noch Scriptreview ist ein Linux-/VPS-Releasebeweis.
+- Git-Push, VPS-Pull und Live-UI-Nachweis stehen beim Schreiben dieses Abschnitts
+  noch aus. Keine neuen
   Sport-/API-Scans, Backups, Bereinigungen oder Geldänderungen gestartet.
+
+### Konkret vorbereiteter nächster Ergebnispfad (noch nicht implementiert)
+
+`forecast_evidence_settlement.py` lässt native Basketball-/Hockeyidentitäten noch
+nicht zu; ebenso fehlen Default-Resultloader in `riskobet_settlement_automation.py`.
+Kanonische Regeln in `riskobet_settlement.py` bestehen bereits: Basketball H2H
+inkl. Verlängerung, Hockey H2H inkl. Verlängerung/Penaltyschießen. Ein nativer
+Endscore darf nicht als 60-Minuten-Spielstand verwendet oder ein vermeintliches
+Siegtor künstlich abgezogen werden.
+
+Vorhandene Quelle: `runtime_state/sports_completed_history.db`, Tabelle
+`history_result_revisions(provider,event_id,observed_at,digest,payload)`.
+VPS schreibgeschützt geprüft: 55 EuroLeague- und 1.620 NHL-Resultversionen;
+für das heutige noch zukünftige NHL-Spiel `2026020035` keine Ergebnisrevision.
+Keine vorhandenen ESPN/NBA-Ergebnisse daraus behaupten. Constructor
+`CompletedHistoryStore()` initialisiert/schreibt und ist kein read-only Adapter.
+
+Kleinste Anschlussaufgabe: nach diesem Release vorhandene Cachezeile per
+`mode=ro/query_only` lesen, native Provider-/Spiel-/Sport-/Wettbewerbs-/Team-IDs,
+Start, Inhaltshash und tatsächliche Empfangszeit prüfen; korrekte kanonische
+H2H-Regel nutzen und nur Forecast-Ergebnisbelege ergänzen. Fehlende Resultate,
+Rücknahmen oder Konflikte bleiben offen. Kein `fetch_page`/neuer API-Aufruf,
+keine neue DB, keine Wetten-/Geldhistorie; Empfangszeit nie durch Spielende oder
+Dateidatum ersetzen. Dies ist ein konkreter Restpunkt, keine fertige Abrechnung.
 
 Nächste Reihenfolge: neue Vollsuite wirklich abschließen → Commit-/Remote-Stand
 abgleichen → sicheren ff-only Release ohne Backup → interne Browserkarte und
