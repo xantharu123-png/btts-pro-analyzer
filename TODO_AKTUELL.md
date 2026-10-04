@@ -36,18 +36,59 @@
   sperrt Netzwerk und DB-Zugriffe außerhalb ihres privaten synthetischen Tempordners.
   Enger ff-only Pull erst nach grüner neuer Vollsuite und sicherem Timerfenster.
 - Finaler Codefreeze `ecda9e9f053e44429810d7da53e2ce74a5e7785b` committed;
-  neue vollständige Suite seit etwa 10:44 CEST aktiv (Exec-Session `9885`,
-  JUnit `output/playwright/full-continuation-20261004.xml`). Währenddessen keine
-  Produktiv-/Teständerungen. 250 Team-Sport-/Publisher-Tests und unabhängig
-  237 Integrationstests grün, überlappende Mengen nicht summieren.
+  **vollständige Suite abgeschlossen, Exit 0** (etwa 10:44–11:33 CEST,
+  2.908,24 Sekunden): **12.474 Haupttests bestanden, 97 unveränderte Skips,
+  111 erfolgreiche Untertests**. Unabhängig vollständiges JUnit bestätigt:
+  12.571 ordinale eindeutige Haupttest-IDs, null Failures/Errors; aggregierte
+  12.682 XML-Reports enthalten die 111 Unterreports und sind keine 12.682
+  unabhängigen Haupttests. Alter SQL-Timeoutfail jetzt ausdrücklich PASS.
+  Beleg `output/playwright/full-continuation-20261004.xml`, SHA256
+  `6e6edf1a1299920306e877eb49cb7149a33391e7689556effb564c4351af2bd5`.
+  Session `9885` und PIDs `410372`/`414600` sind beendet. Während des Laufs
+  keine Produktiv-/Teständerungen, anschließend nur Dokumentationsnachfolger.
+  Die 250/237 gezielten Integrationsprüfungen überlappen; nicht dazuaddieren.
 - Releasehülle abschließend unabhängig geprüft, lokaler Target-Smoke und
   `bash -n` grün; SHA256
   `3521d524ff9ea1996670bf6c38e3272000d64d81360b5e9632f869e71b89d0f8`.
   Genau 16 zulässige Diff-Pfade, Schreiber/Timerreserve vor und nach QA geprüft;
   weder lokaler Smoke noch Scriptreview ist ein Linux-/VPS-Releasebeweis.
-- Git-Push, VPS-Pull und Live-UI-Nachweis stehen beim Schreiben dieses Abschnitts
-  noch aus. Keine neuen
+- Code/Übergabe auf GitHub main unter `b2a4d55` bestätigt; VPS-Pull und
+  Live-UI-Nachweis stehen noch aus. Keine neuen
   Sport-/API-Scans, Backups, Bereinigungen oder Geldänderungen gestartet.
+
+### Reguläre Produktionsläufe richtig zeitlich zuordnen
+
+Rein lesend gegen Journald, `runtime_state/logs/pipeline_2026-10-04.log`,
+Wettfinder-Artefakt und Git-Reflog geprüft: Tennis 00:05:12–00:27:41 CEST und
+Wettfinder 03:35:30–04:02:36 CEST endeten am 04.10. mit Exit 1. Beide liefen
+noch auf `25e79a5`; der bereits veröffentlichte Readerfix wurde mit `7e5ef87`
+erst um **09:25:30 CEST** übernommen. Nicht diese alten Exitstatus zurücksetzen
+oder einen neuen erfolgreichen Gesamtlauf behaupten.
+
+Der Tennis-Refresh selbst aktualisierte 42/42 Revisionen ohne Refreshfehler.
+Danach scheiterte der alte Kartenreader an innerem State-Schema 2 und genau
+einem zusätzlichen Feld `market_model_version=serve-points-joint-v2`.
+Alle acht damals geeigneten Siegerprognosen beziehen dasselbe ATP-Artefakt
+`f2e13fd7…` in `context_models.db`; der aktuelle unveränderte 7e5-/ecda-Reader
+akzeptiert dessen echte Header vollständig, ohne fehlende/zusätzliche Keys.
+WTA nutzt dieselbe geschlossene Schema-2-Keymenge. Kein weiterer Sourcefix
+für diesen konkreten alten Schemafehler nötig, kein Modell neu gerechnet.
+
+Heute entstanden 25 ursprüngliche Tennisprognosen (5 ATP / 20 WTA).
+Je 42 Modellrevisionen/Kontextoriginale im Tennis- und im Wettfinderlauf sind
+zusammen 84 Revisionen, **nicht 84 weitere unabhängige Tipps**. Die vollständige
+Tagesliste von `unresolved_outcome_events` und Modellfehlern ist nicht mehr
+nachweisbar: Der Pipeline-Helfer erhält nur `out[-2500:]`; 24 sichtbare alte
+WTA-Bo5-Ablehnungen sind deshalb keine Gesamtfehlerzahl. 102 offene WTA-Bo5-
+Originale unverändert. Ein begrenzter vollständiger Abschlusszähler bleibt
+als Diagnostikaufgabe offen; keinen vollständigen Bericht aus dem Rest ableiten.
+
+Wettfinder meldete drei operative Fehler; Fußball-Refresh null, sein separater
+Kontext-Capture weiterhin `partial/native-projection-unavailable`. Forecast-
+Abrechnung: 131 terminal / 26 offen, darunter Hockey-Natividentität. RisikoBet-
+Abrechnung: 146 terminal / 299 offen / ein operativer Fehler. Diese getrennten,
+überlappenden Kohorten nicht addieren. Der nächste reguläre Gesamtlauf am 05.10.
+bleibt der tatsächliche Produktionsnachweis; keine Zusatzläufe gestartet.
 
 ### Konkret vorbereiteter nächster Ergebnispfad (noch nicht implementiert)
 

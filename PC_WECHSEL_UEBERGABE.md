@@ -12,15 +12,28 @@ NHL-Belege sind vorhanden, aber ihre Identität ging auf dem Weg zur Archivkarte
 verloren. Enger Snapshot-/Publisherfix verbindet neue Veröffentlichungen, ohne
 Altarchive umzuschreiben. Basketball-ESPN-Provider im Bericht korrekt ergänzt.
 Der eigene Hockey-/Basketball-Endergebnispfad bleibt trotzdem separat offen.
-Neuer Codefreeze `ecda9e9f053e44429810d7da53e2ce74a5e7785b`; Vollsuite seit
-etwa 10:44 CEST aktiv, Session `9885`, Abschluss-XML
-`output/playwright/full-continuation-20261004.xml`. Produktiv-/Testcode nicht
-während der Prüfung verändern. 250 gezielte und unabhängig 237 überlappende
-Tests grün; Releasehülle offline getestet und unabhängig geprüft.
-Noch keine neue grüne Vollsuite oder neues VPS-Deployment; danach sicherer
+Neuer Codefreeze `ecda9e9f053e44429810d7da53e2ce74a5e7785b`; Vollsuite
+vollständig abgeschlossen mit Exit 0: **12.474 bestanden, 97 unveränderte
+Skips, 111 Untertests bestanden**, 2.908,24 Sekunden. Abschluss-XML
+`output/playwright/full-continuation-20261004.xml`, SHA256
+`6e6edf1a1299920306e877eb49cb7149a33391e7689556effb564c4351af2bd5`.
+12.571 eindeutige Haupt-IDs unabhängig bestätigt, alter Timeoutfail jetzt PASS.
+Session `9885`/PIDs `410372`/`414600` beendet; keinen weiteren Lauf starten.
+Produktiv-/Testcode während der Suite unverändert, Nachfolger nur Dokumentation.
+250/237 gezielte Tests überlappen; Releasehülle offline und unabhängig geprüft.
+Noch kein neues VPS-Deployment; jetzt sicherer
 ff-only Pull ohne neue Sicherung. Der nächste Ergebnisadapter kann den vorhandenen
 Cache nutzen (55 EuroLeague-/1.620 NHL-Versionen auf VPS), nicht neue APIs/DBs.
 Keine Zusatz-API-Scans, Cleanup, Modell-Neurechnung oder Geldänderungen.
+
+Aktueller Produktions-Gegencheck: Die heutigen fehlgeschlagenen Jobs liefen
+noch auf `25e79a5`. Erst 09:25:30 CEST wurde `7e5ef87` gepullt. Der alte Reader
+scheiterte am tatsächlichen Schema-2-Zusatzfeld `market_model_version`; alle
+acht damals geeigneten ATP-Siegerrows werden vom aktuellen Headervertrag
+read-only akzeptiert. Kein neu offener Fix dafür, aber auch kein neuer grüner
+Tageslauf. Heute 25 neue Tennisoriginale versus 84 Modellrevisionen, nicht
+109 Tipps. Die vollständigen Tennis-Abschlussfehler/`unresolved_outcome_events`
+sind wegen 2.500-Zeichen-Logtail nicht nachweisbar; Detail im obersten TODO.
 
 ## Aktueller Einstieg – Accountwechsel, 04.10.2026, 10:06 CEST
 
