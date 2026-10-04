@@ -1,20 +1,55 @@
 # BetBoy - Übergabe auf einen neuen PC
 
-## Aktueller Einstieg – Greece/Germany, 04.10.2026
+## Aktueller Einstieg – Accountwechsel, 04.10.2026, 10:06 CEST
 
-Neuer Zweistundenblock 09:23–11:23 CEST. Oberster
+Der Nutzer hat den geplanten Zweistundenblock vorzeitig für diese Übergabe
+unterbrochen. Nicht als vollständig abgearbeitet oder als fertige App melden.
+Oberster
 [TODO-Block](TODO_AKTUELL.md) und der
 [exakte Replaybericht](docs/audits/2026-10-04-greece-germany-replay.md) sind
-maßgeblich. Bisherige Folgecommits am 04.10. 07:25 UTC bis `7e5ef87` auf den
-VPS gepullt, App/Caddy und Healthchecks erfolgreich, Modellartefakte unverändert.
+maßgeblich; die unteren Abschnitte sind historische Momentaufnahmen.
+
+Codefreeze lokal: **`00b43693b7e0261147e5b75d69ea06f26860bd7d`**.
+GitHub main und VPS beim frischen Übergabeabgleich noch
+**`7e5ef8718839073b4c496f1066ecd10f4f9c82fe`**. Der nachfolgende Übergabecommit
+wird zusammen mit dem autorisierten Code gepusht, **nicht deployed**.
+VPS-Readerrelease am 04.10. 07:25 UTC übernommen; App/Caddy aktiv und beide
+Healthchecks `ok`. Neue Korrekturen also noch nicht live. SHA immer neu abgleichen.
+
+**Vollsuite läuft weiter**, seit 09:49:30 CEST, letzter Stand 17 %, kein PASS:
+Session `96947`, Windows-PIDs `266900`/`269476`, JUnit-Abschlussdatei
+`output/playwright/full-00b4369-20261004.xml` noch nicht vorhanden.
+Keine zweite Suite starten oder getestete Dateien ändern, solange dieser Lauf
+aktiv ist. PC weiterlaufen lassen; Prozessidentität neu prüfen. Bei Accountwechsel
+ist die Session eventuell nicht zugänglich, deshalb PID/JUnit verwenden.
+240 gezielte Integrationstests und unabhängige Reviews (192/188) grün;
+überlappende Mengen nicht addieren, keine vollständige Suite daraus ableiten.
+
 Greece/Germany tatsächlich gerechnet, 71,9733 % und 1,8571 Germany-Tore exakt
 nachvollzogen. Die Fünferansicht allein zeigt nicht alle 12/6-Modelleingänge.
 Neue marktbezogene Formfakten, Historien-Revisionsschutz und unveränderte
-WTA-Altoriginal-Klassifikation liegen gezielt getestet vor; vollständige
-Codefreeze-Suite/Veröffentlichung noch offen. 238 alte WTA-Bo5/102 offen ohne
+WTA-Altoriginal-Klassifikation sowie begrenzte Capturediagnostik sind committed
+und unabhängig geprüft. Lokale Karten 320/390/1440 px ohne Überlauf; echte
+10-Spiele-Umschaltung funktioniert. Vollsuite/VPS-Release bleiben offen.
+238 alte WTA-Bo5/102 offen ohne
 Geldbindung; nicht zu Gewinnen/Verlusten oder Bo3 umschreiben. Letzte reguläre
 Tennis-/Wettfinderläufe waren Exit 1, keine erfolgreichen Scans erfinden.
+
+Automatische Veröffentlichung heute real belegt: 82 eindeutige Auswahlen,
+Daily3 **0**, kleines Inventararchiv 221.184 Bytes. 81 Forecastbindungen korrekt,
+eine NHL-Herkunftslücke (`2026020035`) offen. 25 neue Tennisprognosen sind nicht
+mit 84 Modellrevisionen/84 Kontextoriginalen zu verwechseln. Keine abgeschlossene
+Gewinnbilanz oder nachgewiesene Wetter-/Verletzungs-/Müdigkeitswirkung.
+
+**Nächste Aktion:** laufende Vollsuite abschließen und Fehler prüfen; erst danach
+sicherer VPS-ff-only-Pull mit Linux-Offline-QA. Der vorhandene ignorierte Helfer
+`output/playwright/selection-history-deploy-20261003.sh` muss vorher die neuen
+Dateipfade und Prüfungen aufnehmen. Keine Produktionsdatenmigration. Anschließend
+reguläre Dienste am 05.10. 00:05/03:35 Europe/Zurich auf echten Erfolg prüfen,
+nicht zusätzlich scannen. Restarbeiten und genaue Prüfreihenfolge im obersten TODO.
+
 Keine Backups, Bereinigung, zusätzlichen API-Scans oder Geldänderungen.
+Geerbte ungetrackte Dateien erhalten; nie pauschal `git add .` oder Reset/Cleanup.
 
 ## Aktueller Einstieg – Auswahlbilanz, 03./04.10.2026
 

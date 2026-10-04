@@ -1,9 +1,52 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
-## 04.10.2026 – Greece/Germany, fortgesetzter Zweistundenblock
+## 04.10.2026 – verbindliche Account-Übergabe, 10:06 CEST
 
-- Neuer Block ab 09:23 CEST, geplant bis 11:23 CEST. Geerbte Dateien und
-  Historien erhalten; keine neuen Backups, Bereinigungen oder Sport-/API-Scans.
+Der Nutzer hat den ab 09:23 CEST geplanten Zweistundenblock wegen Accountwechsel
+unterbrochen. Nicht als zwei Stunden abgeschlossen oder als fertige App melden.
+Dieser oberste Block ersetzt ältere Momentaufnahmen; historische Abschnitte bleiben
+als Belege erhalten. Jetzt nur Übergabe aktualisieren, keine weiteren Appänderungen.
+
+### Git, Produktion und laufende Prüfung
+
+- Codefreeze lokal: `00b43693b7e0261147e5b75d69ea06f26860bd7d`
+  (`Explain goal picks with bound form and reject conflicted history`). Fünf
+  Produktionsdateien, vier neue Regressionstestdateien und drei Dokumente committed.
+- Frischer Remote-/VPS-Abgleich bei Übergabe: beide noch
+  `7e5ef8718839073b4c496f1066ecd10f4f9c82fe`. App und Caddy aktiv, interner und
+  öffentlicher Healthcheck `ok`. Die neue Korrektur `00b4369` ist **nicht live**.
+  Der anschließende Dokumentationscommit wird mit dem bereits autorisierten
+  Code auf GitHub main veröffentlicht; das ist ausdrücklich kein VPS-Deployment.
+  Bei Wiederaufnahme `git rev-parse HEAD`, `git ls-remote origin refs/heads/main`
+  und VPS-HEAD frisch lesen, nicht ältere SHA-Angaben übernehmen.
+- Vollsuite des eingefrorenen Codes seit 09:49:30 CEST noch aktiv; letzter
+  gelesener Fortschritt 17 %, bisher keine sichtbaren Fehlermarker, **kein PASS**.
+  Unified-Exec-Session `96947`; Windows-Prozesse `266900` (venv-Launcher) und
+  `269476` (Python-Runtime). Prozessidentität vor jeder Aktion erneut prüfen.
+  Erwarteter Abschlussbeleg: `output/playwright/full-00b4369-20261004.xml`;
+  diese JUnit-Datei existierte bei der Übergabe noch nicht. Session-Ausgabe ist
+  nicht zwingend im nächsten Account verfügbar; PID und XML dienen der Fortsetzung.
+  **Keine zweite Vollsuite starten und keine Test-/Produktivdateien ändern,
+  solange die vorhandene Runde läuft.** PC laufen lassen; nach Absturz ist dies
+  ein abgebrochener Lauf, kein bestandener Test.
+- Aufruf zur eindeutigen Identifikation, nicht zum parallelen Neustart:
+  `.codex_test_venv/quality/Scripts/python.exe -m pytest tests -q --tb=short
+  --durations=15 --basetemp=.pytest_tmp/full-00b4369-20261004
+  --junitxml=output/playwright/full-00b4369-20261004.xml`.
+- Gezielt 240 Darstellungs-/Integrationstests bestanden; unabhängige Abschluss-
+  prüfungen 192 und 188 bestanden, Historienprüfung 233 plus 32 Untertests,
+  Tennis 182 und Capture 111 bestanden. Mengen überlappen: **nicht addieren**.
+  Unabhängige Reviews ohne reproduzierten neuen P1/P2-Befund. Das ersetzt
+  weder den ausstehenden Vollsuite-Abschluss noch einen Erfolgsnachweis des VPS-Jobs.
+- Lokale synthetische Karten bei 320, 390 und 1440 px ohne horizontalen Überlauf;
+  10-Spiele-Umschaltung tatsächlich geklickt und angezeigt. Kein Live-UI-Beweis
+  für `00b4369`, keine native Maus-/Gerätefreigabe daraus ableiten.
+- Geerbte ungetrackte Audit-/Browser-/Preview-Dateien unverändert, nicht pauschal
+  `git add .`, löschen oder resetten. Eigene QA-Helfer unter `output/playwright/`
+  bleiben unversioniert; kein neues Backup, Cleanup, Sport-/API-Scan oder Geldänderung.
+
+### Erledigte Codekorrekturen und belegte Grenzen
+
 - Reader-Folgecommit und bisherige Übergabe `7e5ef8718839073b4c496f1066ecd10f4f9c82fe`
   am 04.10. 07:25 UTC mit Deploylock, inaktiven Schreibern, Timerreserve und
   ff-only Pull tatsächlich auf dem VPS übernommen. Linux-Offline-QA, App/Caddy
@@ -22,7 +65,8 @@
   denselben gebundenen Beleg; keine Ecken-/Kartenfakten aus Torresultaten.
 - Historiengrenze: widersprüchliche native Revisionen und widersprüchliche
   exakte Event-Aliasse dürfen nicht nach Listenreihenfolge gewinnen. Identische
-  Duplikate deterministisch, native/CSV-Identitäten erhalten. Gegenprüfung läuft.
+  Duplikate deterministisch, native/CSV-Identitäten erhalten. Gegenprüfung fertig;
+  Konfliktprüfung vor Zeit-/Statusfilter und Quarantäne auch wiederkehrender Aliasse.
 - Historische WTA-Originalformatfehler vollständig gezählt: 238 Best-of-5,
   davon 102 offen. In 78 Geldbüchern und Shadow-Side-Bets keine Geldbindung;
   keine Bindung im Forecast-Archiv oder den 4.167 Kontextoriginalen. Enger Fix
@@ -35,13 +79,58 @@
   Logfix ergänzt höchstens fünf ID-/Typ-/Reasonhash-Belege, ohne Providerbody,
   Secrets, neue Datenbank oder gelockerte Validierung. Nächster regulärer Lauf
   muss die konkrete Ursache liefern; keine Zusatz-API-Abfrage dafür.
-- Vorläufige gezielte Ergebnisse: 240 Darstellungs-/Integrationstests, 182
-  Tennis-Abrechnungstests, 111 Capturetests bestanden (überlappende Mengen,
-  nicht addieren). Neue vollständige Codefreeze-Suite und Release noch offen.
 - Letzte reguläre Dienste vor den neuen Fixes: Tennis 00:27:41 CEST Exit 1,
   Wettfinder 04:02:36 CEST Exit 1. App erreichbar; ein Code-Pull macht diese
   vergangenen Läufe nicht erfolgreich. Kontextwirkungen, explizite nationale
   Gegnerstärke-Anpassung und verbesserte Wettqualität bleiben unbelegt.
+
+### Tatsächliche Tagesveröffentlichung, nicht mit Modellmenge verwechseln
+
+- Automatischer normaler Lauf veröffentlichte am 04.10. um 02:02:34 UTC
+  **82 Auswahlen**, aus `source_run` 01:56:25 UTC; Daily3 hat tatsächlich **0**.
+  `runtime_state/consumer_tips.db` nur 221.184 Bytes, Schema 1, sieben geprüfte
+  Manifeste/Hashes. Nicht künstlich auf drei Daily3-Plätze auffüllen.
+- Zwei erfasste Ansichten enthalten 162 Zeilen, aber nur 82 eindeutige
+  Event/Sport/Markt/Seite-Kombinationen. 160 Zeilenvorkommen entsprechen
+  **81** eindeutig korrekt gebundenen Forecasts; die übrigen beiden sind
+  derselbe NHL-Fall `2026020035`, H2H, `sports-prematch-research-v1`, ohne
+  zugehörige `forecast_rows`. Diese Herkunftslücke bleibt offen, nicht doppelt zählen.
+  Greece/Germany: alle sechs Alternativen korrekt an Modellstand 01:38:28 UTC
+  gebunden; keine sechs unabhängigen Bestätigungen oder Kombiwette daraus machen.
+- Tennis heute: 25 neu angelegte Prognosen (5 ATP/20 WTA), 84 Modellrevisionen
+  und 84 Kontextoriginale. Das bedeutet **nicht 84 neue Wetten**. Aktuelle ATP-/
+  WTA-Artefakte wurden zuletzt am 02.10. gebaut; tägliche Prognosen sind kein
+  täglicher Modell-Neuaufbau. Reader-Kompatibilität ist bereits deployed.
+- Die aktuellen Belege sind noch nicht als geschlossene, vollständige Tagesbilanz
+  auswertbar. Keine Tagesrendite, Kundengewinne oder bessere Wettqualität behaupten.
+
+### Nächste Schritte – genau in dieser Reihenfolge
+
+1. Bestehende Vollsuite über Prozess/JUnit/Session bis zum echten Ende prüfen.
+   Fehlschläge konkret reproduzieren; nicht als erwartete Skips umdeuten.
+2. Bei grünem Stand `00b4369` mit dem Dokumentationsnachfolger sicher per ff-only
+   auf den VPS übernehmen, **ohne neue Sicherung, Scan oder Datenmigration**.
+   Ignorierter Helfer `output/playwright/selection-history-deploy-20261003.sh`
+   unterstützt die neuen Dateipfade noch nicht: Whitelist und reine Linux-Offline-
+   QA zuerst gezielt anpassen. Deploylock, inaktive Schreiber und Timerreserve
+   prüfen; App nur begrenzt stoppen, danach Commit, App/Caddy und beide Healthchecks.
+   Nicht ungeprüft den alten Helfer mit neuem SHA ausführen.
+3. Neue Kurzerklärung im internen Browser prüfen; gespeicherte Modell-/Risiko-
+   artefakte dürfen durch den bloßen Release nicht verändert werden.
+4. Nächste reguläre Dienste am **05.10.2026: Tennis 00:05 und Wettfinder 03:35
+   Europe/Zurich** lesen. Keine Zusatz-API-Läufe starten. WTA-Altoriginal-
+   Klassifikation, konkreten Capturefehler und Ende/Exitstatus tatsächlich belegen.
+5. Herkunftslücke des einen NHL-Falls und E-Sport-TOP fachlich prüfen; E-Sport
+   speichert Elo/Form/Hash, aber nicht automatisch dieselben vollständigen
+   Trainingsfenster. Gegnerstärke/verbundene Vergleichsgruppen nicht erfinden.
+6. Numerische Verletzungs-, Wetter- und Müdigkeitsanbindungen und unabhängigen
+   Qualitätsvergleich weiterführen. Diese bisherigen Produktlücken sind nicht
+   durch bessere Erklärungstexte oder Softwaretests erledigt. Keine neuen
+   pauschalen Marktverbote, keine Quotenabhängigkeit der Modellwahrscheinlichkeit.
+
+Bekannte Quoten unter 1,20 bleiben ausgefiltert; fehlende Quoten bleiben offen.
+Historische Prognosen, Abrechnungen und Geldbuchungen nicht nachträglich umschreiben.
+Weitere ältere Produkt-To-dos unten bleiben gültig, soweit nicht ausdrücklich erledigt.
 
 ## 03./04.10.2026 – Auswahlkohärenz und echte Veröffentlichungsbilanz
 
