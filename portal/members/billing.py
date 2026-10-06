@@ -12,15 +12,19 @@ from .models import PaymentEvent, Subscription, User
 from .plans import PLANS
 
 
+# One stable flow label keeps retry parameters identical; this is not a secret.
+CHECKOUT_INTEGRATION_IDENTIFIER = "betboy-web-cbafrqop"
+
+
 class BillingUnavailable(ValueError):
     pass
 
 
 def configured():
-    prefix = "sk_live_" if settings.STRIPE_LIVE else "sk_test_"
+    prefixes = ("sk_live_", "rk_live_") if settings.STRIPE_LIVE else ("sk_test_", "rk_test_")
     prices = list(settings.STRIPE_PRICES.values())
     return bool(
-        settings.STRIPE_SECRET_KEY.startswith(prefix)
+        settings.STRIPE_SECRET_KEY.startswith(prefixes)
         and settings.STRIPE_WEBHOOK_SECRET.startswith("whsec_")
         and len(set(prices)) == 3 and all(p.startswith("price_") for p in prices)
         and settings.STRIPE_COUNTRIES and settings.LEGAL_READY and settings.APP_ACCESS_ENABLED
@@ -107,6 +111,7 @@ def start_checkout(user, plan, lang):
     checkout_language = user.language
     session = plain(api.v1.checkout.sessions.create({
         "mode": "subscription", "customer": user.stripe_customer,
+        "integration_identifier": CHECKOUT_INTEGRATION_IDENTIFIER,
         "client_reference_id": user.pk.hex,
         "line_items": [{"price": settings.STRIPE_PRICES[plan], "quantity": 1}],
         "subscription_data": {"metadata": {"betboy_user_id": user.pk.hex}},
@@ -115,9 +120,8 @@ def start_checkout(user, plan, lang):
         "locale": checkout_language, "billing_address_collection": "required",
         "customer_update": {"address": "auto"}, "automatic_tax": {"enabled": True},
         "consent_collection": {"terms_of_service": "required"},
-        "payment_method_types": ["card"],
         "expires_at": (window + 2) * 1800 + 10,
-    }, options={"idempotency_key": f"betboy-checkout-v1-{user.pk.hex}-{plan}-{window}"}))
+    }, options={"idempotency_key": f"betboy-checkout-v2-{user.pk.hex}-{plan}-{window}"}))
     user.checkout_id = session["id"]
     user.checkout_plan = plan
     user.checkout_expires_at = datetime.fromtimestamp(session["expires_at"], dt_timezone.utc)

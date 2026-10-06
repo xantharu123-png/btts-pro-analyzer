@@ -1,5 +1,24 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg – Stripe-Live-Katalog und Billing, 06.10.2026
+
+BetBoy-Live-Konto aktiv; drei bestätigte Monatsabos CHF 9.90 / 19.90 / 29.90
+im **internen** Browser angelegt und je Preis inklusive Steuer geprüft.
+Produktsteuerkategorie `txcd_10103000` ausdrücklich freigegeben. IDs und Belege:
+[Stripe-Einrichtung](docs/audits/2026-10-06-stripe-live-setup.md).
+Keine erneute externe OAuth-Anmeldung oder neue Produkte doppelt erzeugen.
+
+Billing unterstützt passende Restricted Keys, dynamische Zahlungsmethoden,
+stabilen Flow-Tag und v2-Idempotenz. **47 Portaltests** bestanden; unabhängiges
+Review ohne offene P0–P2 im Patch. Das ist keine Live-Zahlungs-/Mail-Abnahme.
+
+Verkauf bleibt geschlossen: Portalservice/geschützte Konfiguration fehlen;
+Domain und SMTP im Chat erfragt. Nutzer muss neuen Schlüssel selbst erstellen/
+geschützt speichern. Keine Secrets im Chat/Git, keine neue Sicherung/Sportscans.
+Pre-Payment-Länderschutz, Steuersituation, Recht und deployed E2E/Reconciliation
+noch offen; keine scheinbare Reparatur mit Versandfilter oder Länder-Dropdown.
+Maßgeblich ist der oberste [TODO-Block](TODO_AKTUELL.md).
+
 ## Aktueller Einstieg – Landingpage umgesetzt, 06.10.2026
 
 Der kombinierte Entwurf wurde vom Nutzer ausdrücklich freigegeben und im

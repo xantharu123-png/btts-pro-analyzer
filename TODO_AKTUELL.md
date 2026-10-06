@@ -1,5 +1,38 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 06.10.2026 – Stripe-Live-Katalog eingerichtet, Billing-Anschluss repariert
+
+Dieser Abschnitt ergänzt/ersetzt den Stripe-Status der älteren Blöcke.
+Nutzer: Einrichtung korrigieren; ausschließlich bestehenden **internen Browser**
+verwenden. Keine neue MCP/OAuth-Verbindung nach Abbruch gestartet.
+
+- [x] BetBoy-Live-Konto geprüft: Zahlungen/Auszahlungen aktiv, keine Pflichtaufgaben.
+- [x] Drei aktive separate Produkte mit bestätigten CHF-Monatspreisen 9.90 / 19.90 /
+  29.90 gespeichert; Standardpreise einzeln geprüft, Steuerverhalten **Inklusive**.
+  SaaS-Personal-Use `txcd_10103000` ausdrücklich vom Nutzer bestätigt. Keine
+  automatische Steuerregistrierung oder Änderung anderer Stripe-Konten.
+- [x] Runtime akzeptiert Restricted Keys der richtigen Test-/Live-Umgebung;
+  Publishable/falsche Umgebung/Leerwerte weiter abgelehnt. Dynamische Stripe-
+  Zahlungsarten statt erzwungener Karte; stabiler Flow-Tag, v2-Idempotenz.
+- [x] Test-first und finale **47 Portaltests**, Exit 0; unabhängiges Abschlussreview
+  ohne P0–P2 im Patch. Prüfungen mit simuliertem Stripe, keine echte Zahlung.
+- [ ] Vollständiger Kundenverkauf noch nicht bereit: geschützter Serverkey/Webhook,
+  SMTP, bestätigte öffentliche Adresse, Recht/Verkaufsländer/Steuerregistrierungen,
+  separater Portalservice/Proxy, deployed Sandbox-E2E und Reconciliation.
+- [ ] Echter Schutz vor Zahlung außerhalb freigegebener Länder. Checkout bietet
+  keine Billing-Country-Allowlist; Versandfilter/Dropdown nicht als Lösung behaupten.
+  Heute wird das Land erst bei der bezahlten Rechnung geprüft. Nicht durch
+  Entfernen dieser Prüfung oder kostenpflichtige Radar-Aktivierung umgehen.
+
+Frischer VPS-Vorcheck: `5a5e1b1`, getrackter Checkout sauber; App/Caddy aktiv;
+Portalservice und `portal.env` fehlen. Portalcode-Pull allein ist kein Verkaufsstart.
+Domain-/SMTP-Fragen sind im Chat gestellt; Serverkey wird geschützt und mit
+minimalen Rechten eingerichtet, **nicht im Chat/Git**. Keine neuen Backups,
+Sportscans, Bereinigungen, Zahlungen oder Kundendatenmigrationen.
+
+[Einrichtungsbeleg mit Produkt-/Preis-IDs und Fortsetzungsreihenfolge](docs/audits/2026-10-06-stripe-live-setup.md).
+Die Modell-/Scanner-/Store-Restarbeiten darunter bleiben separat offen.
+
 ## 06.10.2026 – freigegebene Sports-Editorial-Landingpage umgesetzt
 
 Dieser Block ersetzt den früheren Freigabe-/Umsetzungsstatus darunter.

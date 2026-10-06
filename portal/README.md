@@ -1,8 +1,11 @@
 # BetBoy customer portal (DE / EN)
 
-Separate Django 5.2 service in the existing repository. **Pre-launch:** no live
-Stripe account, SMTP delivery, legal pages, public-domain cutover or native
-Store apps have been completed. The production Streamlit app stays in personal
+Separate Django 5.2 service in the existing repository. **Pre-launch:** the
+BetBoy live Stripe account is activated and the three approved monthly products
+were created on 06.10.2026. SMTP delivery, legal pages, protected portal deployment,
+public-domain cutover and native Store apps have not been completed. See
+`docs/audits/2026-10-06-stripe-live-setup.md` for the verified catalog and open gates.
+The production Streamlit app stays in personal
 mode unless `BETBOY_CUSTOMER_ACCESS_REQUIRED=1` is explicitly configured.
 
 ## Local preview / tests (PowerShell, repository root)
@@ -34,6 +37,12 @@ No real credentials are stored in source or required by the tests.
 - Authenticated, email-confirmed customers choose a server-owned plan ID.
 - Stripe-hosted Checkout: CHF 990/1990/2990 cents monthly, inclusive tax,
   quantity one, licensed recurring price. No client amount or redirect override.
+- Correct-environment restricted server keys (`rk_test_`/`rk_live_`) are supported,
+  as are secret server keys. Publishable keys and cross-environment keys are rejected.
+  Prefer a restricted key with only the permissions required by the actual API calls.
+- Payment methods are selected dynamically by Stripe from the merchant Dashboard;
+  the app does not force card-only Checkout. A completed but unpaid Checkout does
+  not grant access, including delayed payment methods.
 - Stripe API version used by pinned SDK: `2026-08-26.dahlia`. Configure the
   webhook endpoint to this version. Requalify payload fixtures on SDK upgrades.
 - `billing/stripe/webhook/` verifies the signature over the exact request bytes.

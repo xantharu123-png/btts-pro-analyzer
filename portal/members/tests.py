@@ -4,14 +4,14 @@ import json
 import re
 import time
 import stripe
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone as dt_timezone
 from unittest.mock import Mock, patch
 
 from django.conf import settings
 from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
 from django.db import IntegrityError, transaction
-from django.test import Client, TestCase, override_settings
+from django.test import Client, SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
@@ -161,6 +161,34 @@ class PortalTests(TestCase):
         self.assertEqual(self.client.get("/en/activate/not-a-uuid/token/").status_code, 400)
 
 
+class BillingConfigurationTests(SimpleTestCase):
+    def test_server_keys_are_accepted_only_in_their_payment_environment(self):
+        cases = [
+            (False, "sk_test_not-a-real-key", True),
+            (False, "rk_test_not-a-real-key", True),
+            (True, "sk_live_not-a-real-key", True),
+            (True, "rk_live_not-a-real-key", True),
+            (False, "sk_live_not-a-real-key", False),
+            (False, "rk_live_not-a-real-key", False),
+            (True, "sk_test_not-a-real-key", False),
+            (True, "rk_test_not-a-real-key", False),
+            (False, "pk_test_not-a-real-key", False),
+            (True, "pk_live_not-a-real-key", False),
+            (False, "", False),
+            (True, "", False),
+        ]
+        for live, key, accepted in cases:
+            with self.subTest(live=live, key=key), override_settings(
+                STRIPE_LIVE=live, STRIPE_SECRET_KEY=key,
+            ):
+                self.assertEqual(billing.configured(), accepted)
+                if accepted:
+                    self.assertIsInstance(billing.client(), stripe.StripeClient)
+                else:
+                    with self.assertRaises(billing.BillingUnavailable):
+                        billing.client()
+
+
 class BillingTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user("billing@example.test", PASSWORD, stripe_customer="cus_ours")
@@ -258,6 +286,50 @@ class BillingTests(TestCase):
         self.assertTrue(params["success_url"].startswith(settings.PUBLIC_ORIGIN))
         self.assertTrue(params["automatic_tax"]["enabled"])
         self.assertIsNone(entitlement(self.user))
+
+    def test_checkout_leaves_payment_methods_to_stripe_dashboard(self):
+        with patch("members.billing.client", return_value=self.api):
+            billing.start_checkout(self.user, "plus", "de")
+        params = self.api.v1.checkout.sessions.create.call_args.args[0]
+        self.assertNotIn("payment_method_types", params)
+        self.assertEqual(params["mode"], "subscription")
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.checkout_id, "cs_example")
+        self.assertIsNone(entitlement(self.user))
+
+    def test_checkout_tags_the_web_flow_for_stripe_dashboard(self):
+        with patch("members.billing.client", return_value=self.api):
+            billing.start_checkout(self.user, "plus", "de")
+        params = self.api.v1.checkout.sessions.create.call_args.args[0]
+        self.assertEqual(params.get("integration_identifier"), "betboy-web-cbafrqop")
+
+    def test_network_retry_reuses_checkout_parameters_with_versioned_idempotency(self):
+        fixed_now = datetime(2026, 10, 6, 12, 5, tzinfo=dt_timezone.utc)
+        self.api.v1.checkout.sessions.create.side_effect = [
+            stripe.APIConnectionError("simulated network timeout"),
+            {"id": "cs_retry", "url": "https://checkout.stripe.com/c/pay/retry", "expires_at": self.now + 3600},
+        ]
+        with patch("members.billing.client", return_value=self.api), patch(
+            "members.billing.timezone.now", return_value=fixed_now,
+        ):
+            with self.assertRaises(stripe.APIConnectionError):
+                billing.start_checkout(self.user, "plus", "de")
+            self.user.refresh_from_db()
+            self.assertEqual(self.user.checkout_id, "")
+            self.assertEqual(
+                billing.start_checkout(self.user, "plus", "de"),
+                "https://checkout.stripe.com/c/pay/retry",
+            )
+        first, second = self.api.v1.checkout.sessions.create.call_args_list
+        self.assertEqual(first.args[0], second.args[0])
+        self.assertEqual(first.kwargs["options"], second.kwargs["options"])
+        self.assertEqual(
+            first.kwargs["options"]["idempotency_key"],
+            f"betboy-checkout-v2-{self.user.pk.hex}-plus-995160",
+        )
+        self.assertEqual(first.args[0].get("integration_identifier"), "betboy-web-cbafrqop")
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.checkout_id, "cs_retry")
 
     def test_real_sdk_resource_shapes_are_supported(self):
         self.api.v1.subscriptions.retrieve.return_value = stripe.Subscription.construct_from(self.subscription, None)
