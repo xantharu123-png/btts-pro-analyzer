@@ -1,5 +1,38 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg – Übergabe an Claude, 06.10.2026
+
+**Zuerst lesen:** [Claude-Übergabe mit Zusammenfassung/To-do](CLAUDE_UEBERGABE_2026-10-06.md)
+und den neuen obersten [TODO-Block](TODO_AKTUELL.md).
+Ältere Abschnitte darunter bleiben historische Belege; nicht alte Worktrees,
+Test-PIDs oder angebliche offene Releases blind wiederaufnehmen.
+
+Vor dem reinen Übergabecommit lokal/GitHub-main/VPS frisch identisch:
+`5a5e1b1a6b18d93211164b96193c7d909564af8b`; App/Caddy und Healthchecks funktionieren.
+**Heutiger Wettfinderlauf Exit 1**, Tennis/E-Sport technisch Exit 0; nicht alle
+Scanner pauschal als erfolgreich melden. Portalservice und Portal-Konfiguration
+fehlen auf VPS, also kein live geschalteter Stripe-Kundenverkauf.
+
+Aktueller Designauftrag: **Variante 1 Sports Editorial**, Handy-Proportionen
+repariert; danach Drei-Schritte-Abschnitt aus Variante 3 → Monatsbilanz September
+2026 → drei Abos. [Kombinierter Entwurf](docs/design/landingpage-20261006/selected-remix.png)
+ist vorhanden/gezeigt, **noch nicht abschließend bestätigt oder umgesetzt**.
+Keine bedienbare kostenlose Landingpage-Vorschau, statische Produktbilder erlaubt.
+Keine belegte 74-%-Monatsquote; diese war ein Beispiel, keine verwendbare Kennzahl.
+
+Drei Bilder dauerhaft im Repository unter `docs/design/landingpage-20261006/`,
+zusammen 5.485.849 Bytes. Nutzerpreise CHF 9.90 / 19.90 / 29.90 monatlich bestätigt;
+gleiche Modellqualität. Native Apps/Store-Billing/Signierung/Abnahme weiterhin offen.
+
+Speicherbereinigung vom 05.10. beendet: 70 genehmigte alte VPS-ZIPs und 56
+synthetische lokale Testdateien entfernt; neueste reguläre Sicherung erhalten,
+keine Produktions-DB gelöscht. Details/negative Befunde in Claude-Übergabe und
+`output/storage-audit-20261005/`. Keine neue Sicherung/Scan/Bereinigung starten.
+
+In diesem Übergabeschritt nur Dokumente und Bildreferenzen, kein App-/VPS-Update.
+Nach einem Dokumentations-Push kann der VPS weiterhin `5a5e1b1` sein, ohne dass
+App-Code fehlt. Nicht allein für diese Übergabe Dienste stoppen oder deployen.
+
 ## Aktueller Einstieg – Wiederaufnahme, 04.10.2026 ab 10:32 CEST
 
 Der Nutzer hat die Weiterarbeit freigegeben; die reine Übergabepause unten ist

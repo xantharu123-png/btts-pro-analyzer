@@ -1,5 +1,81 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 06.10.2026 – aktuelle Übergabe an Claude: Landingpage, Verkauf und Restarbeiten
+
+Maßgeblicher neuer Einstieg: [Claude-Übergabe](CLAUDE_UEBERGABE_2026-10-06.md).
+Diese Aktualisierung betrifft nur Dokumentation und drei Designreferenzen.
+Keine Produktivcodeänderung, kein Zusatzscan, kein Backup oder Deployment.
+Die älteren Abschnitte unten bleiben als historische Belege erhalten.
+
+### Frisch geprüfter Stand
+
+- Vor dem Übergabecommit lokal/GitHub-main/VPS identisch auf
+  `5a5e1b1a6b18d93211164b96193c7d909564af8b`; `main`, keine getrackten WIP-Änderungen.
+  Geerbte ungetrackte Audits/Browser-/Storage-Belege unverändert erhalten.
+- 06.10., ungefähr 07:11 CEST: App/Caddy aktiv, beide Healthchecks `ok`.
+  **Wettfinder 03:35:02–04:02:17 Exit 1**, nicht repariert oder zurückgesetzt.
+  Tennis 00:05:31–00:30:21 und E-Sport 03:10:31–03:10:45 technisch Exit 0.
+  Shadow zuletzt 07:02:21 Exit 0; nächster Termin 07:12, aktuell zehnminütlich.
+  Technischer Erfolg ist kein Qualitäts-/Kontexteffekt-Nachweis.
+- Sieben Timer geplant. `betboy-portal.service` fehlt,
+  `/etc/betboy/portal.env` fehlt: Stripe-/Kundenverkauf **nicht live**.
+- Keine neue Vollsuite gestartet. Der historische Nachweis vom 04.10. bleibt
+  12.474 Haupttests bestanden / 97 Skips / 111 bestandene Untertests, nicht addieren.
+
+### Aktueller Designauftrag
+
+- Nutzer wählte **Variante 1, Sports Editorial** (Creme/Dunkelgrün), nicht die
+  blaue Variante 3. Handy natürlich proportionieren und vollständig zeigen.
+- Reihenfolge: Hero → **„In drei Schritten zu deinem Überblick.“**
+  (Spiele entdecken / Form vergleichen / Auswahl verstehen) →
+  **„Monatsbilanz · September 2026“** → Abos → Abschluss/ Footer.
+- [Kombinierter Bildentwurf](docs/design/landingpage-20261006/selected-remix.png)
+  gezeigt, aber noch nicht abschließend freigegeben. **Noch keine Umsetzung.**
+  Ausgangsvariante 1 und Strukturreferenz 3 liegen neben dem Remix; alle drei
+  zusammen 5.485.849 Bytes, hashgleich kopiert, keine Laufzeitbilder ersetzt.
+- Werbeseite mit statischer Produktabbildung, **keine bedienbare Gratisvorschau**.
+  Keine neue Designrunde mit fünf Varianten beginnen.
+- 74 % Monatsquote war ein Beispiel. Keine verifizierte September-Kundenbilanz;
+  Entwurf nutzt gekennzeichnete Platzhalter. Interne Dreitagesprobe 181/107/71/3
+  nicht als Monats- oder veröffentlichte Kunden-Tippbilanz vermarkten.
+
+### Neue kompakte Fortsetzungsliste
+
+- [ ] **OPS-01 / P0:** heutigen Wettfinder-Exit 1 aus bestehenden Logs/Berichten
+  diagnostizieren; keine Zusatzscans/Statusresets zur vermeintlichen Bestätigung.
+- [ ] **LAND-01:** kombinierten Entwurf vom Nutzer bestätigen lassen.
+- [ ] **LAND-02:** danach vorhandenen Django-Landing-/CSS-/DE/EN-Pfad umsetzen,
+  responsive 390/320 px und Desktop, Navigation/Buttons/Fokus prüfen.
+- [ ] **LAND-03:** echte Monatsbilanz veröffentlichter Auswahlen belegen oder
+  Zahlenwerbung weglassen; keine erfundenen 74 %, Bewertungen oder Kundenzahlen.
+- [ ] **WEB-01/02:** vorhandenes Pre-launch-Portal mit Stripe/SMTP/Recht/Domain/
+  Ländern/Proxy, echtem E2E und Reconciliation fertigstellen. `sales_open`-Banner
+  ist derzeit allein von REGISTRATION_OPEN/LEGAL_READY abhängig, kein Launchbeweis.
+- [ ] **MODEL-01/02:** nativen Basketball-/Hockey-Ergebnisadapter und vollständige
+  begrenzte Abschlusszähler statt nur 2.500-Zeichen-Logtail ergänzen.
+- [ ] **MODEL-03/04:** tatsächliche Verletzungs-/Wetter-/Müdigkeitswirkung und
+  unabhängigen Qualitätsnachweis sowie E-Sport-Fenster-/Gegnerstärkebelege schließen.
+  Cricket bleibt ausgenommen; keine willkürlichen Modellaufschläge.
+- [ ] **STORE-01:** aktuelle Zulässigkeit/Länder/Billing, native Builds/Signierung,
+  Geräte, Kontolöschung und Store-Unterlagen getrennt nachweisen. Noch kein AAB/IPA.
+
+Bestätigte Abos: Starter CHF 9.90, Plus CHF 19.90, Pro CHF 29.90 monatlich;
+gleiche Modellqualität. Jahrespreise nur Vorschlag, kein Gratis-Testabo.
+DE/EN-Portal ist nicht gleich vollständig englischer Analyse-Workspace.
+
+### Speicherarbeit vom 05.10. abgeschlossen
+
+56 synthetische lokale Testdateien / 3.758.096.468 Bytes und 70 konkret genehmigte
+alte VPS-Backup-ZIPs / 5.190.707.355 Bytes entfernt. Neueste reguläre Sicherung
+vom 19.09. behalten/restoregeprüft; keine Produktionsdatenbank gelöscht.
+Belege: `output/storage-audit-20261005/`; keine weitere Bereinigung beauftragt.
+Tagesbackup disabled, Retention enabled. Frisch frei am VPS: 23.508.914.176 Bytes.
+Große Worktree-/DB-Mengen sind kein Store-Paket; native Downloadgröße noch unbekannt.
+
+**Nächster Account:** zuerst Claude-Übergabe und Remix ansehen, den kombinierten
+Entwurf gezielt freigeben lassen; technischen Fehlstatus ehrlich offen halten.
+Jetzt endet die Arbeit nach Dokumentationsprüfung und -veröffentlichung.
+
 ## 04.10.2026 – Fortsetzung ab 10:32 CEST: Abschlussprüfung und Release
 
 - Übernahme tatsächlich geprüft: lokaler/GitHub-Stand `811588b`, VPS `7e5ef87`.
