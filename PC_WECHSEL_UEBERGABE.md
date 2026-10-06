@@ -1,6 +1,30 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg – Landingpage umgesetzt, 06.10.2026
+
+Der kombinierte Entwurf wurde vom Nutzer ausdrücklich freigegeben und im
+vorhandenen Django-Portal umgesetzt. Produktcode `a8188f8` auf `main` gepusht.
+DE/EN inklusive Bildbeschriftungen, drei Schritte, Monatsbilanz vor drei CHF-Abos,
+natürliches Smartphone; keine bedienbare Gratis-Produktdemo.
+
+43 Portaltests frisch grün; Desktop/Tablet/Mobil 1440 bis 320 px, Navigation,
+Sprachwechsel, Menü/Fokus und Tarif-/Login-GETs geprüft. Voller Nachweis:
+[Design-QA](design-qa.md), [Umsetzung/Assets/lokaler Start](docs/design/landingpage-20261006/implementation.md).
+Neue Laufzeitassets insgesamt 1.128.615 Bytes, responsive WebPs und lokale Fonts.
+Vorschau <http://127.0.0.1:8010/de/> / <http://127.0.0.1:8010/en/>.
+
+**Nicht auf dem VPS deployed, Verkauf weiterhin Pre-launch.** Keine echten
+Zahlungen/Kundenregistrierungen, Scans oder Backups; bestehendes WIP erhalten.
+Letzter VPS-Status darunter ist historisch, nicht durch diese Tests bestätigt.
+Monatsbilanz ohne belegte Zahlen; Stripe/SMTP/Recht/Proxy/E2E/Reconciliation,
+native Stores und Modell-/Scanner-Restarbeiten separat offen.
+Aktuelle Prioritäten in [TODO_AKTUELL.md](TODO_AKTUELL.md) und
+[Claude-Übergabe](CLAUDE_UEBERGABE_2026-10-06.md). Keine erneute Designfreigabe nötig.
+
 ## Aktueller Einstieg – Übergabe an Claude, 06.10.2026
+
+Historischer Vor-Freigabe-Stand; der neue oberste Abschnitt ersetzt seinen
+Landingpage-Status.
 
 **Zuerst lesen:** [Claude-Übergabe mit Zusammenfassung/To-do](CLAUDE_UEBERGABE_2026-10-06.md)
 und den neuen obersten [TODO-Block](TODO_AKTUELL.md).

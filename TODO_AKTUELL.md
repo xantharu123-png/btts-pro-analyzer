@@ -1,6 +1,47 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 06.10.2026 – freigegebene Sports-Editorial-Landingpage umgesetzt
+
+Dieser Block ersetzt den früheren Freigabe-/Umsetzungsstatus darunter.
+Nutzerfreigabe: „ja genau so bitte umsetzten diese landigpage passt“.
+
+- [x] **LAND-01:** `selected-remix.png` ausdrücklich bestätigt. Nicht erneut
+  fünf Varianten erzeugen oder die gleiche Designfreigabe verlangen.
+- [x] **LAND-02:** vorhandenes Django-Portal originalnah umgesetzt: Creme/
+  Dunkelgrün/Lime, schmale zweizeilige Headline, natürliches vollständiges Handy,
+  drei Schritte → Monatsbilanz September → Starter/Plus/Pro → Stadion/Footer.
+  DE/EN inklusive lokalisierter Bildmotive; keine kostenlose interaktive Demo.
+- **Codecommit `a8188f800ceaa7fd4655ea7d40ca93d9c7216e6e` auf `main` gepusht.**
+  Nachfolgende Übergabeänderungen sind Dokumentation, nicht weiterer Appcode.
+- **43 Portaltests frisch bestanden**, davon 15 neue Verhalten-/Renderverträge.
+  Desktop 1440/1024, Breakpoints 901/900 und 761/760, Mobil 390/320 geprüft;
+  kein horizontaler Überlauf, Menü/Fokus/Sprachwechsel/Abo-/Login-GETs geprüft.
+  Browserwarn-/Fehlerlog leer; unabhängiges Review ohne offene P1/P2 im Landing-Scope.
+  [Design-QA](design-qa.md), [Umsetzung/Assets/Startbefehl](docs/design/landingpage-20261006/implementation.md).
+- Lokale interne Vorschau: <http://127.0.0.1:8010/de/> und
+  <http://127.0.0.1:8010/en/>. Server nur Loopback; Tab bleibt als Ergebnis offen.
+  Die geerbten venv-Launcher sind nicht portabel; der verifizierte Python-
+  Fallback mit vorhandenen Abhängigkeiten steht im Umsetzungsdokument.
+- Gesamtes neues Laufzeit-Assetverzeichnis **1.128.615 Bytes**, einschließlich
+  DE/EN, Fonts, SVGs und Lizenzen. Responsive WebPs statt Laufzeit-Quell-PNGs.
+  Quell-/Prompt-/Browserbelege lokal unter `output/landing-20261006/`, ungetrackt.
+- **Kein VPS-Pull/Deployment und kein Verkaufsstart in diesem Auftrag.**
+  Der Portalservice/Stripe-/SMTP-Aufbau bleibt offen. Letzter VPS-Nachweis
+  `5a5e1b1` um 07:11 ist historisch; in dieser Designarbeit nicht neu überprüft.
+- Keine Sport-/API-Scans, neuen Backups, Datenbankmigrationen, Kundenregistrierungen
+  oder echten Zahlungen; geerbtes ungetracktes WIP unverändert erhalten.
+
+**Weiterhin offen:** LAND-03 echte Monatsbilanz (keine erfundenen 74 %; sichtbarer
+Status „Noch keine veröffentlichte Monatsbilanz.“), WEB-01/02 Verkauf/Recht/
+Länder/Stripe/SMTP/Proxy/E2E/Reconciliation, STORE-01 native Builds/Abnahme,
+MODEL-01–04 und OPS-01. Keine Behauptung besserer Wettqualität aus Portaltests.
+Nächster Schritt nach separatem Auftrag: Kundenportal bereitstellen und seine
+echten Zahlung-/Mail-/Zugangsabläufe prüfen; nicht die Landingpage neu planen.
+
 ## 06.10.2026 – aktuelle Übergabe an Claude: Landingpage, Verkauf und Restarbeiten
+
+Historischer Stand vor der anschließenden ausdrücklichen Freigabe; maßgeblich
+ist der neue oberste Block.
 
 Maßgeblicher neuer Einstieg: [Claude-Übergabe](CLAUDE_UEBERGABE_2026-10-06.md).
 Diese Aktualisierung betrifft nur Dokumentation und drei Designreferenzen.

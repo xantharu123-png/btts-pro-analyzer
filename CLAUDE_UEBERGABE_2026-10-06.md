@@ -1,26 +1,27 @@
 # BetBoy – Zusammenfassung, To-do und Übergabe an Claude
 
-Stand: 06.10.2026, Europe/Zurich. Diese Übergabe ist der aktuelle Einstieg.
+Stand: 06.10.2026, Europe/Zurich; nach ausdrücklicher Designfreigabe und Umsetzung.
+Diese Übergabe ist der aktuelle Einstieg.
 Ältere Abschnitte in `TODO_AKTUELL.md` und `PC_WECHSEL_UEBERGABE.md` sind
 historische Belege, keine gleichzeitig gültigen Fertigmeldungen.
 
 ## 1. Auftrag und nächste Aktion
 
-Der Nutzer wechselt zu Claude. In diesem letzten Arbeitsabschnitt wurden nur
-Übergabedokumente und Designreferenzen erstellt. Keine Appreparatur, kein
-Sport-/API-Scan, kein Backup, keine neue Zahlung und kein Deployment gestartet.
+Nach der vorbereiteten Übergabe gab der Nutzer den kombinierten Entwurf mit
+„ja genau so bitte umsetzten diese landigpage passt“ frei. Die Landingpage ist
+jetzt im vorhandenen Django-Portal umgesetzt, getestet und auf GitHub gepusht.
+Kein Sport-/API-Scan, Backup, echter Kauf oder VPS-Deployment gestartet.
 
 Aktueller Produktfokus: eine verkaufsstarke BetBoy-Landingpage mit Login und
 bezahltem Kundenzugang. Keine kostenlose bedienbare Vorschau auf der Landingpage;
 statische Produktbilder sind ausdrücklich erwünscht.
 
-**Als Erstes:** diese Datei und den kombinierten Bildentwurf ansehen. Der Nutzer
-hat Variante 1 gewählt und Änderungen aus Variante 3 verlangt. Der daraufhin
-gezeigte kombinierte Entwurf wurde noch nicht abschließend bestätigt. Nicht
-wieder fünf Varianten erzeugen und nicht behaupten, die Seite sei schon umgesetzt.
-Gezielt den kombinierten Entwurf freigeben lassen, dann im vorhandenen Portal
-umsetzen. Den heute fehlgeschlagenen Wettfinderlauf als separate P0-Restarbeit
-rein lesend diagnostizieren; nicht durch einen Zusatzscan oder Reset verdecken.
+**Als Erstes:** den aktuellen TODO-Block und [Design-QA](design-qa.md) lesen,
+den Code-/Remote-/VPS-Stand für die nächste beauftragte Arbeit neu abgleichen.
+LAND-01/02 sind erledigt: nicht erneut Varianten oder dieselbe Freigabe anfordern.
+Eine separate spätere Verkaufs-/Bereitstellungsaufgabe betrifft Stripe/SMTP/
+Recht/Proxy und echtes E2E, nicht einen Neubau der Landingpage. Den bisherigen
+Wettfinder-Exit 1 als separate offene P0 führen, nicht durch Zusatzscan/Reset verdecken.
 
 ## 2. Tatsächlich geprüfter technischer Stand
 
@@ -28,15 +29,28 @@ Repository: `C:\Projekt\BetBoy\betboy-app`, Branch `main`.
 Remote: `https://github.com/xantharu123-png/btts-pro-analyzer.git`.
 Nicht den Projektordner darüber oder einen alten Worktree als aktuellen Code nehmen.
 
-Vor diesem reinen Übergabecommit standen am 06.10. lokal, GitHub `main` und VPS auf:
+Vor der Designarbeit standen am 06.10. um 07:11 lokal, GitHub `main` und VPS auf:
 
 `5a5e1b1a6b18d93211164b96193c7d909564af8b`
 
-Der Übergabecommit selbst kann danach lokal/GitHub weiter sein als der VPS;
-das ist eine Dokumentationsdifferenz, kein neuer App-Code. Nicht ungefragt deployen.
-Aktuelle Revisionen vor weiterer Arbeit erneut abgleichen.
+Der anschließende Landingpage-Produktcode ist
+`a8188f800ceaa7fd4655ea7d40ca93d9c7216e6e`, auf GitHub `main` gepusht.
+Danach folgt ein Dokumentationscommit für diese Übergabe. Die Differenz zum VPS
+enthält jetzt echten **Portalcode**, nicht nur Dokumentation. Der Portalservice
+war dort noch nicht eingerichtet; **kein VPS-Deployment in dieser Designarbeit**.
+Den früheren Streamlit-Produktionsstand nicht mit dem lokalen Kundenportal gleichsetzen.
+Aktuelle Revisionen vor weiterer Arbeit erneut abgleichen, nicht ungefragt verkaufen.
 
-### Frischer VPS-Gegencheck am 06.10., ungefähr 07:11 CEST
+Frisch geprüft: **43 Portaltests bestanden** (15 neue Landing-Verträge), unabhängiges
+Review ohne offene P1/P2 im Scope. Responsive DE/EN mit lokalisierten WebP-Motiven,
+Navigation/Menü/Fokus/Sprachwechsel und Tarif-/Login-GETs im internen Browser geprüft.
+Keine echten Kundenkonten oder Zahlungen erzeugt. Browser-/Promptbelege lokal unter
+`output/landing-20261006/`, ungetrackt. Neue Laufzeitassets 1.128.615 Bytes insgesamt.
+Vorschau <http://127.0.0.1:8010/de/> / <http://127.0.0.1:8010/en/>.
+Reproduzierbare Start-/QA-Befehle und Assetquellen:
+[Umsetzungsdokument](docs/design/landingpage-20261006/implementation.md).
+
+### Historischer VPS-Gegencheck am 06.10., ungefähr 07:11 CEST
 
 | Bereich | Gelesener Produktionsstatus |
 | --- | --- |
@@ -121,12 +135,13 @@ keine zusätzlichen Laufzeitbilder oder Store-Pakete. Die Originale unter
 blieben erhalten. Der Remix hat SHA256
 `fb8575117221e43fad0fa3ec4c0f88e673d757d8dee3894880ba06013b377024`.
 
-**Status:** Bildentwurf vorhanden; kombinierter Entwurf noch nicht endgültig
-freigegeben; kein HTML/CSS nach diesem Entwurf umgesetzt. Keine neue Portal-
-Vorschau gestartet. Kein Bild des ganzen Mockups als fertige Website einsetzen:
-semantische, responsive HTML/CSS-Umsetzung mit wirklichen Links/Buttons erforderlich.
-Die Produktansichten im Bild sind Illustrationen, keine belegten Sportstatistiken.
-Vor Veröffentlichung Bild-/Logo-/Spielerrechte und tatsächliche Produktdarstellung prüfen.
+**Status:** ausdrücklich freigegeben und als semantisches responsives HTML/CSS
+mit echten Links umgesetzt; nicht die ganze Vorlage als Websitebild eingebunden.
+Lokale Vorschau läuft. Generierte Kampagnenbilder mit fiktiven Club-/Spielerscreens,
+lizenzierte Fonts/Icons, keine realen Kundendaten. Smartphone vollständig und
+natürlich proportioniert. Bilddarstellung ausdrücklich illustrativ; keine belegten
+Sportstatistiken oder angeblich echten Spielerfotos. Lizenz-/Assetbelege im
+Umsetzungsdokument; echter Verkaufsstart bleibt separat offen.
 
 ## 4. Ergebniswerbung – keine erfundenen 74 Prozent
 
@@ -247,8 +262,8 @@ oder automatische Backups allein aufgrund dieser Übergabe.
 | ID | Priorität | Status | Konkreter nächster Schritt / Abnahme |
 | --- | --- | --- | --- |
 | OPS-01 | P0 | offen | Heutigen Wettfinder-Exit 1 anhand bestehender Berichte/Journal diagnostizieren. Vollständigen Endstatus, Fehlerkohorte und Datenabdeckung unterscheiden; kein Zusatzscan/Reset. |
-| LAND-01 | P1, aktueller Produktfokus | Freigabe offen | Nutzer zeigt/prüft `selected-remix.png`; nicht Designauswahl zurücksetzen. |
-| LAND-02 | P1 | nicht begonnen | Nach Freigabe bestehenden Django-Template-/CSS-/DE/EN-Pfad originalgetreu umsetzen; keine neue App/Frameworkmigration. Desktop und 390/320 px, Buttons, Fokus und Navigation prüfen. |
+| LAND-01 | erledigt | ausdrücklich freigegeben | `selected-remix.png` bestätigt; keine erneute Designrunde erforderlich. |
+| LAND-02 | erledigt | umgesetzt/getestet/gepusht | Code `a8188f8`, 43 Portaltests, DE/EN/Desktop/Tablet/390/320 px und Navigation geprüft; siehe `design-qa.md`. Nicht auf VPS deployed. |
 | LAND-03 | P1 | Daten fehlen | Echte Monatsbilanz veröffentlichter Auswahlen prüfen. Keine 74 %, kein Cherry-Picking, kein interner Modellpool als Kundenerfolg. Ohne vollständige Basis keine Ergebniszahl bewerben. |
 | WEB-01 | P1 | Pre-launch | Stripe, SMTP, Recht/Domain/Länder, Proxy, Rechte und echten Checkout-/Webhook-/Mailfluss verifizieren; `sales_open`-Inkonsistenz berücksichtigen. |
 | WEB-02 | P1 | offen | Reconciliation/Alarm und vollständige Kundenlebenszyklen vor unbeaufsichtigtem Verkauf. Kein stiller Live-Cutover. |
@@ -301,13 +316,16 @@ Forecast-/RisikoBet-Resultpfade und alte Veröffentlichungslücken getrennt prü
 ## 9. Wichtige Dateien und erhaltenes WIP
 
 Landing: `portal/templates/landing.html`, `portal/templates/base.html`,
-`portal/static/portal/site.css`, `portal/members/copy.py`, `plans.py`, `views.py`.
+`portal/static/portal/editorial.css`, `portal/static/portal/editorial/`,
+`portal/members/copy.py`, `plans.py`, `views.py`, `test_landing_editorial.py`.
+Bestehende Authansichten behalten `portal/static/portal/site.css`/`auth.css`.
 Portalvertrag: `portal/README.md`, `docs/specs/2026-09-27-kundenportal.md`.
 Quellen/Modelle: ältere freigegebene Kontext-Spezifikation und Umsetzung unter
 `docs/superpowers/specs/` und `docs/superpowers/plans/`; aktuelle Codes/Belege vor
 Änderung lesen, nicht alte offene Checkboxen allein als heutigen Defekt nehmen.
 
-Vor dieser Übergabe keine getrackten Änderungen. Erhaltenes ungetracktes WIP:
+Vor der ursprünglichen Übergabe keine getrackten Änderungen; die eigene neue
+Landingpage separat committed. Erhaltenes geerbtes ungetracktes WIP:
 `.playwright-cli/`, `AUDIT_BERICHT_2026-08-09.md`,
 `AUDIT_BERICHT_2026-09-02_CLAUDE.md`, `UMSETZUNGSPLAN_MARKTBENCHMARK_2026-09-02.md`,
 `output/playwright/`, `output/riskobet-preview-state/`,
@@ -315,10 +333,14 @@ Vor dieser Übergabe keine getrackten Änderungen. Erhaltenes ungetracktes WIP:
 Nicht als Müll betrachten, nicht ungefragt committen oder löschen.
 
 Lokale Umgebungen `.venv/Scripts/python.exe` und `.portal-venv/Scripts/python.exe`
-existieren. Portal-QA-Befehl im README nutzt `siteconfig.qa_settings`, In-Memory-DB
-und simulierte Anbieter. Nur nach tatsächlichem Lauf dessen Ergebnis behaupten.
+existieren, ihre Launcher zeigen aber auf einen fehlenden früheren Pythonpfad.
+Nicht ungefragt löschen/reinstallieren. Verifizierter Fallback nutzt bereitgestelltes
+Python plus vorhandene Portal-site-packages; genaue Befehle im Umsetzungsdokument.
+QA mit `siteconfig.qa_settings` nutzt In-memory-DB/simulierte Anbieter. Aus `portal/`
+starten; aus Repo-Root entdeckt der nackte Befehl hier null Tests.
 
 **Kurzer Startauftrag für Claude:** Lies diese Datei, den neuen obersten TODO-Block
-und `selected-remix.png`. Bestätige den übernommenen Stand knapp. Frage gezielt nach
-der Freigabe des kombinierten Landingpage-Entwurfs und fahre danach in der bestehenden
-Portalstruktur fort. Stelle den aktuellen Wettfinderfehler nicht als erledigt dar.
+und `design-qa.md`. Gleiche aktuellen Git-/VPS-Stand ab. Die Landingpage ist umgesetzt
+und ihre Freigabe erledigt. Setze nur den nächsten beauftragten Portal-/Verkaufs-
+oder Scannerabschnitt fort; starte keine neue Designrunde. Stelle Verkaufsstart,
+Wettfinderfehler, native Stores oder tatsächliche Kontexteffekte nicht als erledigt dar.
