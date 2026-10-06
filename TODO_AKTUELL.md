@@ -30,6 +30,12 @@ Domain-/SMTP-Fragen sind im Chat gestellt; Serverkey wird geschützt und mit
 minimalen Rechten eingerichtet, **nicht im Chat/Git**. Keine neuen Backups,
 Sportscans, Bereinigungen, Zahlungen oder Kundendatenmigrationen.
 
+**Veröffentlichung bestätigt:** Code-/Einrichtungscommit `47a5580` auf `main`
+gepusht und exakt auf dem VPS per Fast-forward unter Deploylock übernommen.
+Getrackter Servercheckout sauber, App/Caddy aktiv, beide Healthchecks `ok`.
+Kein Dienstneustart; Portalservice weiterhin nicht installiert. Nachfolger nur
+Dokumentation. Nicht „Landingpage/Kundenverkauf live“ daraus ableiten.
+
 [Einrichtungsbeleg mit Produkt-/Preis-IDs und Fortsetzungsreihenfolge](docs/audits/2026-10-06-stripe-live-setup.md).
 Die Modell-/Scanner-/Store-Restarbeiten darunter bleiben separat offen.
 

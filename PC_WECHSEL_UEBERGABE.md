@@ -19,6 +19,11 @@ Pre-Payment-Länderschutz, Steuersituation, Recht und deployed E2E/Reconciliatio
 noch offen; keine scheinbare Reparatur mit Versandfilter oder Länder-Dropdown.
 Maßgeblich ist der oberste [TODO-Block](TODO_AKTUELL.md).
 
+Code-/Einrichtungscommit `47a5580` wurde auf `main` gepusht und auf dem VPS
+unter Deploylock exakt per Fast-forward übernommen. App/Caddy und beide
+Healthchecks danach gut; kein Dienstneustart/Scan/Backup. Portalservice weiterhin
+fehlend, Kundenverkauf/Landingpage nicht öffentlich aktiviert. Nachfolger nur Docs.
+
 ## Aktueller Einstieg – Landingpage umgesetzt, 06.10.2026
 
 Der kombinierte Entwurf wurde vom Nutzer ausdrücklich freigegeben und im

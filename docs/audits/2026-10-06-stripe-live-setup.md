@@ -69,6 +69,14 @@ Vor diesem Release frisch lesend geprüft: Commit
 App/Caddy aktiv. `betboy-portal.service` fehlt und `/etc/betboy/portal.env` fehlt.
 Ein Pull von Portalcode allein installiert/aktiviert keinen Kundenservice.
 
+Anschließend **Commit `47a55807847a9ebeaee9c85bb4b510cd727bdf21`** auf `main`
+committed/gepusht und auf dem VPS unter dem bestehenden Deploylock exakt per
+Fast-forward übernommen. Getrackter VPS-Checkout danach sauber, App/Caddy aktiv,
+interner und öffentlicher Streamlit-Healthcheck jeweils `ok`. Kein Dienstneustart,
+Backup, Sportscan, neue Kunden-DB oder Proxy-Cutover. Portalservice weiterhin
+`not-found/inactive`; Landingpage-Code liegt bereit, ist nicht öffentlich aktiviert.
+Der folgende Dokumentationsnachfolger ändert keinen Produktiv-/Testcode.
+
 Noch erforderlich, nicht mit Flags oder Testresultaten als erledigt markieren:
 
 1. Öffentliche Kundenadresse und SMTP-Absender/-Zugang festlegen. Fragen im Chat
