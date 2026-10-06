@@ -9,29 +9,30 @@
   <link rel="icon" href="{% static 'portal/mark.svg' %}" type="image/svg+xml">
   <link rel="stylesheet" href="{% static 'portal/site.css' %}">
   <link rel="stylesheet" href="{% static 'portal/auth.css' %}">
+  {% block extra_head %}{% endblock %}
 </head>
-<body>
+<body class="{% block body_class %}{% endblock %}">
 <a class="skip" href="#main">{{ t.skip }}</a>
 {% if not sales_open %}<div class="preview-banner">{{ t.preview_notice }}</div>{% endif %}
-<header class="site-header">
+{% block header %}<header class="site-header">
   <a class="wordmark" href="{% url 'home' lang=lang %}" aria-label="BetBoy"><img src="{% static 'portal/mark.svg' %}" alt="" width="32" height="32">BetBoy<span class="wordmark-dot">.</span></a>
   <nav class="primary-nav" aria-label="{% if lang == 'de' %}Hauptnavigation{% else %}Main navigation{% endif %}">
     <a href="{% url 'home' lang=lang %}#inside">{{ t.features }}</a>
     <a href="{% url 'home' lang=lang %}#plans">{{ t.pricing }}</a>
-    <a href="{% url 'home' lang=lang %}#mobile">{{ t.mobile }}</a>
+    <a href="{% url 'home' lang=lang %}#monthly-results">{{ t.month_navigation }}</a>
   </nav>
   <div class="header-actions">
     <a class="language" href="{{ switch_language }}" lang="{{ other_lang }}" aria-label="{% if lang == 'de' %}Switch to English{% else %}Zu Deutsch wechseln{% endif %}">{{ other_lang|upper }} <span aria-hidden="true">↗</span></a>
     <a class="button button-small button-outline" href="{% if user.is_authenticated %}{% url 'account' lang=lang %}{% else %}{% url 'login' lang=lang %}{% endif %}">{% if user.is_authenticated %}{{ t.account }}{% else %}{{ t.login }}{% endif %}</a>
   </div>
-</header>
+</header>{% endblock %}
 <main id="main">
 {% if messages %}<div class="message-stack" role="status">{% for message in messages %}<p class="notice">{{ message }}</p>{% endfor %}</div>{% endif %}
 {% block content %}{% endblock %}
 </main>
-<footer class="site-footer">
+{% block footer %}<footer class="site-footer">
   <div class="footer-top"><a class="wordmark" href="{% url 'home' lang=lang %}">BetBoy<span class="wordmark-dot">.</span></a><p>{{ t.footer }}</p><a class="language" href="{{ switch_language }}">{% if lang == 'de' %}English{% else %}Deutsch{% endif %} ↗</a></div>
   <div class="footer-bottom"><p>{{ t.risk }}</p><nav aria-label="{% if lang == 'de' %}Rechtliches{% else %}Legal{% endif %}">{% if legal_ready %}<a href="{{ legal_url }}">{{ t.legal }}</a><a href="{{ privacy_url }}">{{ t.privacy }}</a><a href="{{ terms_url }}">{{ t.terms }}</a>{% else %}<span>{{ t.legal_pending }}</span>{% endif %}</nav></div>
-</footer>
+</footer>{% endblock %}
 </body>
 </html>
