@@ -1,5 +1,19 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg Domainumzug und Accountwechsel 07.10.2026
+
+Zuerst [vollständige aktuelle Übergabe](docs/handoffs/2026-10-07-domainumzug.md)
+und den obersten [TODO-Block](TODO_AKTUELL.md) lesen. Enthalten sind Kostenvergleich,
+echter netcup-Warenkorb, Bestand und verbindliche Reihenfolge der Fortsetzung.
+Der Umzug ist vorbereitet, **nicht gekauft oder durchgeführt**. Lokale Inventur
+und [Umzugs-To-do](<C:/Projekt/BetBoy/output/domain-migration-20261006/TODO_AKTUELL.md>)
+liegen außerhalb von Git unter `C:\Projekt\BetBoy\output\domain-migration-20261006`;
+bei Accountwechsel auf diesem PC weiter verfügbar, bei PC-Wechsel separat beachten.
+
+Keine App-/VPS-Änderung, Datenkopie, DNS-Umstellung, Kündigung oder neues Backup
+in dieser Übergabe. Stripe-/Landingpage-/Scanner-/Store-Aufgaben darunter bleiben
+separat offen; die alten Produktionsnachweise sind keine frische Serverprüfung.
+
 ## Aktueller Einstieg – Stripe-Live-Katalog und Billing, 06.10.2026
 
 BetBoy-Live-Konto aktiv; drei bestätigte Monatsabos CHF 9.90 / 19.90 / 29.90

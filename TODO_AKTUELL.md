@@ -1,5 +1,26 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 07.10.2026 – Accountübergabe und Domainumzug
+
+Aktuell beauftragt: To-do und Übergabe sichern, keine Migration ausführen.
+**Nächster Account zuerst:** [Domainumzug und getrennte Apprestarbeiten](docs/handoffs/2026-10-07-domainumzug.md).
+[Lokale Umzugs-To-do-Liste](<C:/Projekt/BetBoy/output/domain-migration-20261006/TODO_AKTUELL.md>) und Bestandsbelege liegen außerhalb des App-Repositories.
+
+- [x] Gleicher Umfang neu verglichen: zehn Domains, zwei Websites, zehn getrennte
+  Postfächer. Dynadot/Spaceship/netcup ca. CHF 124.09 jährlich; Infomaniak-Domains
+  plus netcup ca. CHF 199.81; optimiertes Voll-Infomaniak ca. CHF 396.20.
+- [x] netcup-Zusammenfassung: EUR 29.32 Jahresrechnung, ein Webhosting 1000 NUE.
+  Nutzeradresse gespeichert, beide Vertragskästchen zuletzt gesetzt. Kein
+  Bestell-/Zahlungs-/Aktivierungsnachweis; ältere Angaben „ungesetzt“ überholt.
+- [ ] Umzug vollständig offen: Zielaktivierung, Dateien/IMAP/Regeln, unabhängiges
+  DNS/DNSSEC, Zieltests, finale Differenz, **Registrartransfer zuletzt**, Kündigung.
+- [ ] Konkrete weitere Verträge/Zahlungen und Daten-/DNS-Übertragung freigeben;
+  keine pauschale neue Freigabe aus dem bloßen To-do-Auftrag ableiten.
+
+Nur Dokumentation. Kein Appcode, neuer Scan, Backup, Bereinigung oder explizites
+VPS-Deployment. App-/Stripe-/Store-/Modellaufgaben unten bleiben erhalten;
+historische Produktionsnachweise wurden am 07.10. nicht neu geprüft.
+
 ## 06.10.2026 – Stripe-Live-Katalog eingerichtet, Billing-Anschluss repariert
 
 Dieser Abschnitt ergänzt/ersetzt den Stripe-Status der älteren Blöcke.
