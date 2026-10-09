@@ -1,5 +1,16 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg – 15K Sports Editorial, 09.10.2026
+
+15K-Karten sind an den gemeinsamen Wettfinder-Renderer angeschlossen:
+Vereinslogos, kurze Fakten und gespeicherte letzte 5/10 Spiele mit Gegnern.
+Geld-/Ticketlogik unverändert; Originalbelege bleiben spiel-/markt-/modellgebunden.
+Maßgeblich: oberster [TODO-Block](TODO_AKTUELL.md) und
+[15K-Prüfbericht](docs/audits/2026-10-09-15k-editorial.md).
+Lokale Darstellung/Bedienung 1440/390/320 geprüft, keine neuen Scans/Backups.
+Finale Regression und VPS-Veröffentlichung werden dort abschließend dokumentiert.
+Domain-/Stripe-/Modell-/Scanner-Aufgaben unten nicht pauschal als erledigt ansehen.
+
 ## Aktueller Einstieg Domainumzug und Accountwechsel 07.10.2026
 
 Zuerst [vollständige aktuelle Übergabe](docs/handoffs/2026-10-07-domainumzug.md)

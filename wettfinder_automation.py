@@ -2322,6 +2322,9 @@ def build_scheduled_challenge_snapshot(
             candidate for candidate in forecast_candidates
             if candidate_is_15k_model_eligible(candidate)
         ],
+        # Display-only saved rows keep evidence not carried by the rebuilt
+        # ChallengeCandidate, without re-projecting or changing the artifact.
+        "challenge_display_records": row_by_id,
         "base_shortlist": forecast_candidates,
         "reference_quotes": reference_quotes,
         "approved_candidates": len(release_candidates),

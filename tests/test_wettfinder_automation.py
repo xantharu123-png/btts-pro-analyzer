@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 import json
@@ -913,6 +914,96 @@ def test_scheduled_artifact_rebuilds_15k_forecast_and_exact_quote(tmp_path):
         tampered_release_pool,
         scope=scope,
     ) is None
+
+
+def test_scheduled_15k_preserves_bound_saved_display_row_and_recent_results():
+    from football_customer_facts import build_football_recent_results
+    from forecast_analysis import read_football_analysis
+
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    candidate = _challenge_candidate(now + timedelta(hours=5))
+    candidate.context = {"forecast_passed": True, "passed": True}
+    fixture = {
+        "fixture": {"id": candidate.fixture_id, "date": candidate.kickoff},
+        "teams": {
+            "home": {"id": candidate.home_team_id},
+            "away": {"id": candidate.away_team_id},
+        },
+    }
+    history = [
+        {
+            "fixture": {
+                "id": 1000 + team_id * 10 + index,
+                "date": (now - timedelta(days=index + 1)).isoformat(),
+                "status": {"short": "FT"},
+            },
+            "teams": {
+                "home": {"id": team_id, "name": team_name},
+                "away": {"id": 100 + index, "name": f"Opponent {index}"},
+            },
+            "goals": {"home": index % 4, "away": index % 3},
+            "league": {"name": candidate.league_name},
+        }
+        for team_id, team_name in (
+            (candidate.home_team_id, candidate.home_team),
+            (candidate.away_team_id, candidate.away_team),
+        )
+        for index in range(10)
+    ]
+    recent = build_football_recent_results(
+        fixture, history, as_of=now, model_scope=candidate.model_scope,
+    )
+    saved_row = _football_candidate_record(
+        candidate, context_checked_at=now, customer_recent_results=recent,
+    )
+    assert saved_row is not None
+    evidence = read_football_analysis(saved_row)
+    assert evidence is not None
+    assert len(evidence["basis"]["customer_recent_results"]["home"]) == 10
+    assert len(evidence["basis"]["customer_recent_results"]["away"]) == 10
+    unbound_row = {
+        **saved_row,
+        "candidate_id": "missing-discovery-payload",
+        "key": "unbound-model-row",
+    }
+    other_sport_row = {
+        **saved_row,
+        "candidate_id": "tennis-model",
+        "key": "tennis-model-row",
+        "source": "tennis",
+    }
+    document = {
+        "version": AUTOMATION_VERSION,
+        "betting_policy_version": BETTING_POLICY_VERSION,
+        "selection_policy_version": wettfinder_automation.SELECTION_POLICY_VERSION,
+        "generated_at": now.isoformat(),
+        "target_search_date": now.date().isoformat(),
+        "football": {
+            "status": "completed",
+            "discovery_candidates": [
+                wettfinder_automation._challenge_candidate_payload(candidate),
+            ],
+            "candidates": [saved_row],
+        },
+        "sources": {"football": {"operational_error_count": 0}},
+        "model_candidates": [saved_row, unbound_row, other_sport_row],
+        "challenge_release_candidates": [],
+    }
+    frozen_document = deepcopy(document)
+
+    automatic = build_scheduled_challenge_snapshot(document)
+
+    assert automatic is not None
+    assert set(automatic["challenge_display_records"]) == {candidate.candidate_id}
+    display_row = automatic["challenge_display_records"][candidate.candidate_id]
+    assert display_row is saved_row
+    assert display_row["analysis_evidence"] is saved_row["analysis_evidence"]
+    assert read_football_analysis(display_row) == evidence
+    assert automatic["shortlist"] == []
+    assert automatic["price_candidates"] == []
+    assert automatic["reference_quotes"] == {}
+    assert document == frozen_document
+    assert "challenge_display_records" not in document
 
 
 def test_scheduled_15k_uses_full_release_pool_not_normal_top_three(tmp_path):

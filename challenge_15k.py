@@ -5192,6 +5192,58 @@ def _challenge_display_selections(
     return chosen
 
 
+def _challenge_card_signal(candidate: ChallengeCandidate, snapshot: dict[str, Any]):
+    """Read-only adapter to the shared sports cards, using this forecast's facts."""
+    from betting_math import BETTING_POLICY_VERSION
+    from ev_signal_sources import ModelSignal
+    from forecast_analysis import project_football_analysis, read_football_analysis
+
+    basis = dict(vars(candidate))
+    records = snapshot.get("challenge_display_records")
+    saved = records.get(candidate.candidate_id) if isinstance(records, dict) else None
+    bound = (
+        isinstance(saved, dict)
+        and all(saved.get(field) == candidate.prediction_version
+                for field in ("prediction_version", "model_version") if field in saved)
+        and project_football_analysis(saved, model_basis=basis) is not None
+    )
+    # Never label the publication/render time as a new model calculation.
+    modeled_at = saved.get("modeled_at") if bound else snapshot.get("scanned_at")
+    cutoff = saved.get("input_cutoff_at") if bound else modeled_at
+    row = {**basis, "modeled_at": modeled_at, "input_cutoff_at": cutoff}
+    if bound:
+        row.update(context=saved.get("context", candidate.context),
+                   analysis_evidence=saved.get("analysis_evidence"))
+        if "context_stale" in saved:
+            row["context_stale"] = saved["context_stale"]
+    analysis = read_football_analysis(row) if bound else None
+    if analysis is None:
+        recent = snapshot.get("football_recent_results")
+        basis["customer_recent_results"] = (
+            recent.get(str(candidate.fixture_id)) if isinstance(recent, dict) else None
+        )
+        analysis = project_football_analysis(row, model_basis=basis)
+    return ModelSignal(
+        key=f"challenge-15k-{candidate.candidate_id}",
+        label=f"{candidate.home_team} vs {candidate.away_team}: {candidate.selection}",
+        probability=candidate.probability,
+        probability_haircut=candidate.probability - candidate.conservative_probability,
+        evidence_stage="SHADOW", policy_version=BETTING_POLICY_VERSION,
+        minimum_odds=candidate.minimum_odds,
+        detail="15K-Modellauswahl", source="challenge_15k_forecast", sport="Fußball",
+        event_label=f"{candidate.home_team} vs {candidate.away_team}",
+        scheduled_start=candidate.kickoff,
+        market=candidate.market, selection=candidate.selection, market_key=candidate.market_key,
+        candidate_id=candidate.candidate_id, fixture_id=candidate.fixture_id,
+        home_team=candidate.home_team, away_team=candidate.away_team,
+        home_team_id=candidate.home_team_id, away_team_id=candidate.away_team_id,
+        fixture_source="api_football", model_scope=candidate.model_scope,
+        model_version=candidate.prediction_version,
+        modeled_at=modeled_at, input_cutoff_at=cutoff,
+        context_evidence=row.get("context"), analysis_evidence=analysis,
+    )
+
+
 def _render_model_challenge(
     snapshot: dict[str, Any],
     ledger: ChallengeLedger,
@@ -5219,22 +5271,33 @@ def _render_model_challenge(
 
     st.subheader("15K-Modellauswahl")
     st.caption("Nach Modell ausgewählt · bekannte Quoten ab 1,20. Deine tatsächliche Quote erfasst du mit der Wette.")
+    from wettfinder_identity import rendered_identity_card
+    from wettfinder_surface import build_wettfinder_card, render_editorial_card_html
+
     for game_index, (label, rows) in enumerate(group_consumer_markets_by_fixture(selections)):
         safe_label = label.replace("\\", "\\\\")
         for char in "[]()*_`":
             safe_label = safe_label.replace(char, "\\" + char)
+        signals = [_challenge_card_signal(candidate, snapshot) for candidate in rows]
+        cards = [build_wettfinder_card(signal, quote=quotes.get(candidate.candidate_id), now=now)
+                 for candidate, signal in zip(rows, signals)]
+        count_label = "1 Auswahl" if len(rows) == 1 else f"{len(rows)} Auswahlen"
         with st.expander(
-            f"{safe_label} · {len(rows)} Auswahlen",
+            f"{safe_label} · Fußball · {cards[0].scheduled_start_label} · {count_label}",
             expanded=game_index < 3,
+            key=f"wettfinder_v2_game_challenge_{rows[0].fixture_id}",
         ):
-            for candidate in rows:
-                st.markdown(f"**{candidate.market}: {candidate.selection}**")
-                st.caption(
-                    f"Modell {candidate.probability * 100:.1f} % · "
-                    f"vorsichtige Rechnung {candidate.conservative_probability * 100:.1f} %"
-                )
-                with st.popover("Kontext"):
-                    _render_candidate_context(candidate)
+            shown_forms = set()
+            for index, (signal, card) in enumerate(zip(signals, cards)):
+                forms = card.compact_analysis.forms if card.compact_analysis else ()
+                show_form = forms not in shown_forms
+                shown_forms.add(forms)
+                with st.container(key=f"wettfinder_v2_game_market_{card.manual_quote_key}"):
+                    if index == 0:
+                        card = rendered_identity_card(card, signal)
+                    st.markdown(render_editorial_card_html(
+                        card, grouped=True, include_match=index == 0, show_form=show_form,
+                    ), unsafe_allow_html=True)
 
     by_id = {candidate.candidate_id: candidate for candidate in selections}
     labels = {
@@ -5250,6 +5313,7 @@ def _render_model_challenge(
         format_func=lambda candidate_id: labels[candidate_id],
         max_selections=3,
         key="challenge_model_ticket_selections",
+        placeholder="Auswahlen wählen",
     )
     if not chosen_ids:
         return

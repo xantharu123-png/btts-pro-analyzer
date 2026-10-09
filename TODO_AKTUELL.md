@@ -1,5 +1,28 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 09.10.2026 – 15K an die Wettfinder-Darstellung angeglichen
+
+- [x] 15K-Modellauswahlen verwenden dieselben Sports-Editorial-Karten wie
+  Wettfinder: Vereinslogos, Markt/Modellchance, kurze Begründung, letzte 5/10
+  Spiele mit Ergebnissen und Gegnerlisten, kompakte Ausfallinformationen.
+- [x] Automatischer Tagesbestand reicht seine bestehenden Originalbelege nur
+  im Arbeitsspeicher durch. Spiel-/Markt-/Modellbindung, ursprüngliche Modellzeit
+  und veralteter Kontext bleiben erhalten. Keine zusätzliche API-Abfrage,
+  Bilderdatei, persistierte Statistikduplizierung oder erfundene Historie.
+- [x] „1 Auswahl“ und deutsche Ticketauswahl statt „Choose options“.
+  Einsatzrechnung, Ticketgrenzen, Geldbuchungen und 1,20-Untergrenze unverändert.
+- [x] Finale lokale Regression: **457 Tests und 85 Untertests bestanden**;
+  unabhängiger Abschlussreview ohne offene Befunde im 15K-UI-Scope.
+- [x] Interner Browser: Desktop 1440, Mobil 390/320 ohne horizontalen Überlauf,
+  vier Vereinslogos geladen, Formumschaltung, vollständige Gegnerliste und
+  Spielblock per Tastatur geprüft; Gegenprobe ohne Historie erfindet keine Form.
+- [ ] Veröffentlichung und echte Produktionskarten abschließend bestätigen.
+
+[Prüfbericht](docs/audits/2026-10-09-15k-editorial.md).
+Nur 15K-Präsentation: Daily3-Zeitfolge und bestehender Wettfinder-Fehlstatus
+bleiben separate offene Aufgaben; kein Modellqualitätsnachweis aus diesen Tests.
+Kein neuer Sportscan, Backup oder Bereinigung; geerbtes ungetracktes WIP erhalten.
+
 ## 07.10.2026 – Accountübergabe und Domainumzug
 
 Aktuell beauftragt: To-do und Übergabe sichern, keine Migration ausführen.
