@@ -57,12 +57,12 @@ def _render_editorial_models() -> None:
                             {"current_balance": 100.0, "stake_fraction": 0.05})
 
 
-def editorial_snapshot(candidates=None):
+def editorial_snapshot(candidates=None, *, now=None):
     from datetime import datetime, timedelta, timezone
     from football_customer_facts import build_football_recent_results
     from test_challenge_15k import stress_safe_ticket_candidates
     from wettfinder_automation import _football_candidate_record
-    now = datetime.now(timezone.utc)
+    now = now or datetime.now(timezone.utc)
     candidates = stress_safe_ticket_candidates() if candidates is None else candidates
     records = {}
     for candidate in candidates:
@@ -184,6 +184,42 @@ def test_15k_preserves_saved_stale_context_instead_of_showing_fresh_absences():
     card = build_wettfinder_card(signal, now=datetime.now(timezone.utc))
     injury = next(fact for fact in card.compact_analysis.facts if fact.label == 'Ausfälle')
     assert injury.value == 'veraltet'
+
+
+def _15k_daily_age_card(*, automatic, bound=True):
+    from datetime import datetime, timedelta, timezone
+    from challenge_15k import _challenge_card_signal
+    from test_challenge_15k import candidate
+    from wettfinder_surface import build_wettfinder_card
+    modeled_at = datetime(2026, 10, 9, 6, tzinfo=timezone.utc)
+    item = candidate('1:BTTS', 1, .80, kickoff=modeled_at + timedelta(hours=8))
+    snapshot = editorial_snapshot([item], now=modeled_at)
+    if automatic:
+        snapshot['automatic_source'] = 'wettfinder_systemd_timer'
+    if not bound:
+        snapshot.pop('challenge_display_records')
+    signal = _challenge_card_signal(item, snapshot)
+    return signal, build_wettfinder_card(signal, now=modeled_at + timedelta(hours=4))
+
+
+def test_15k_daily_model_uses_same_freshness_display_as_automatic_wettfinder():
+    signal, card = _15k_daily_age_card(automatic=True)
+    assert signal.source == 'automated_wettfinder_forecast'
+    assert signal.modeled_at == '2026-10-09T06:00:00+00:00'
+    assert card.highlight_reason == ''
+    assert not card.confirmed_tip
+
+
+def test_15k_manual_model_retains_existing_short_freshness_window():
+    signal, card = _15k_daily_age_card(automatic=False)
+    assert signal.source == 'challenge_15k_forecast'
+    assert card.highlight_reason == 'Modellstand nicht aktuell belegt'
+
+
+def test_15k_daily_marker_without_bound_original_does_not_extend_freshness():
+    signal, card = _15k_daily_age_card(automatic=True, bound=False)
+    assert signal.source == 'challenge_15k_forecast'
+    assert card.highlight_reason == 'Modellstand nicht aktuell belegt'
 
 
 def test_15k_asks_for_actual_odds_only_after_user_selects_models():

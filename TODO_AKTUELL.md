@@ -11,8 +11,11 @@
   Bilderdatei, persistierte Statistikduplizierung oder erfundene Historie.
 - [x] „1 Auswahl“ und deutsche Ticketauswahl statt „Choose options“.
   Einsatzrechnung, Ticketgrenzen, Geldbuchungen und 1,20-Untergrenze unverändert.
-- [x] Finale lokale Regression: **457 Tests und 85 Untertests bestanden**;
+- [x] Finale lokale Regression: **460 Tests und 85 Untertests bestanden**;
   unabhängiger Abschlussreview ohne offene Befunde im 15K-UI-Scope.
+- [x] Tägliche Originalprognosen verwenden dieselbe Modellstand-Anzeige wie
+  im automatischen Wettfinder. Manuelle/ungebundene Daten behalten das kürzere
+  Zeitfenster; drei deterministische Regressionen sichern die Unterscheidung.
 - [x] Interner Browser: Desktop 1440, Mobil 390/320 ohne horizontalen Überlauf,
   vier Vereinslogos geladen, Formumschaltung, vollständige Gegnerliste und
   Spielblock per Tastatur geprüft; Gegenprobe ohne Historie erfindet keine Form.

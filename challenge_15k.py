@@ -5223,6 +5223,13 @@ def _challenge_card_signal(candidate: ChallengeCandidate, snapshot: dict[str, An
             recent.get(str(candidate.fixture_id)) if isinstance(recent, dict) else None
         )
         analysis = project_football_analysis(row, model_basis=basis)
+    # A bound original from the daily producer has the same display lifetime
+    # as in Wettfinder. Manual/unbound snapshots keep the shorter window.
+    source = (
+        "automated_wettfinder_forecast"
+        if bound and snapshot.get("automatic_source") == "wettfinder_systemd_timer"
+        else "challenge_15k_forecast"
+    )
     return ModelSignal(
         key=f"challenge-15k-{candidate.candidate_id}",
         label=f"{candidate.home_team} vs {candidate.away_team}: {candidate.selection}",
@@ -5230,7 +5237,7 @@ def _challenge_card_signal(candidate: ChallengeCandidate, snapshot: dict[str, An
         probability_haircut=candidate.probability - candidate.conservative_probability,
         evidence_stage="SHADOW", policy_version=BETTING_POLICY_VERSION,
         minimum_odds=candidate.minimum_odds,
-        detail="15K-Modellauswahl", source="challenge_15k_forecast", sport="Fußball",
+        detail="15K-Modellauswahl", source=source, sport="Fußball",
         event_label=f"{candidate.home_team} vs {candidate.away_team}",
         scheduled_start=candidate.kickoff,
         market=candidate.market, selection=candidate.selection, market_key=candidate.market_key,
