@@ -19,7 +19,16 @@
 - [x] Interner Browser: Desktop 1440, Mobil 390/320 ohne horizontalen Überlauf,
   vier Vereinslogos geladen, Formumschaltung, vollständige Gegnerliste und
   Spielblock per Tastatur geprüft; Gegenprobe ohne Historie erfindet keine Form.
-- [ ] Veröffentlichung und echte Produktionskarten abschließend bestätigen.
+- [x] Veröffentlicht: UI-Code `a96a932` auf main und VPS, App/Caddy aktiv,
+  interner/öffentlicher Healthcheck `ok`. Drei echte 15K-Karten geprüft;
+  alle sechs Vereinslogos geladen. Brann/Viking und Libertad/Leones zeigen
+  je zehn gespeicherte Ergebnisse pro Team; Moreirense ohne gültige Ergebnisliste
+  im vorhandenen Beleg, daher keine erfundene Form.
+- [x] Frische Produktionssitzung: 1440/390/320 px ohne horizontalen Überlauf,
+  10→5→10 und vollständige Gegnerliste tatsächlich bedient, keine
+  Streamlit-Ausnahme oder Browserfehler. Linux-Belegprüfung mit gesperrten APIs
+  und Datenbanken bestätigt unveränderte Wahrscheinlichkeiten/Originalzeiten.
+  Wettfinder-/RisikoBet-JSON vor und nach Veröffentlichung identisch.
 
 [Prüfbericht](docs/audits/2026-10-09-15k-editorial.md).
 Nur 15K-Präsentation: Daily3-Zeitfolge und bestehender Wettfinder-Fehlstatus

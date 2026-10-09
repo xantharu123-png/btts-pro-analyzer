@@ -7,8 +7,14 @@ Vereinslogos, kurze Fakten und gespeicherte letzte 5/10 Spiele mit Gegnern.
 Geld-/Ticketlogik unverändert; Originalbelege bleiben spiel-/markt-/modellgebunden.
 Maßgeblich: oberster [TODO-Block](TODO_AKTUELL.md) und
 [15K-Prüfbericht](docs/audits/2026-10-09-15k-editorial.md).
-Lokale Darstellung/Bedienung 1440/390/320 geprüft, keine neuen Scans/Backups.
-Finale Regression und VPS-Veröffentlichung werden dort abschließend dokumentiert.
+UI-Code `a96a932` ist auf main und VPS veröffentlicht. **460 Tests und 85
+Untertests** bestanden; unabhängiger Review ohne offene Befunde im UI-Scope.
+Echte Produktionskarten mit sechs geladenen Vereinslogos und vorhandener
+5-/10-Spiele-Form geprüft; Moreirense hat im bestehenden Beleg keine gültige
+Ergebnisliste. 1440/390/320 ohne horizontalen Überlauf, keine Browserfehler;
+Healthchecks ok. Keine neuen Sportscans/Backups oder Prognoseänderungen.
+Abschlussbelege im verlinkten Prüfbericht; Dokumentations-Fast-forward erfordert
+keinen weiteren Appneustart, da der UI-Code bereits geladen ist.
 Domain-/Stripe-/Modell-/Scanner-Aufgaben unten nicht pauschal als erledigt ansehen.
 
 ## Aktueller Einstieg Domainumzug und Accountwechsel 07.10.2026
