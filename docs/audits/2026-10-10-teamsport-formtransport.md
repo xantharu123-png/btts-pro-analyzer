@@ -84,18 +84,52 @@ Code eingefroren als `702beca820b3aa6359dfa9522976e84b5f791071`.
 - Nur dieser absichtlich fremde Testaufbau entfernt jetzt seinen unpassenden
   Anhang. Der ursprüngliche Veröffentlichungsguard und seine Assertion bleiben
   bestehen; neun zusätzliche Fälle prüfen explizit die frühere Ablehnung mit
-  behaltenem Anhang. **Keine Produktionscodeänderung nach dem Volltestlauf.**
+  behaltenem Anhang. **Bis zum Zwischenrelease `fa42917` keine weitere
+  Produktionscodeänderung nach dem Volltestlauf.**
   Frische Wiederholung der gesamten geänderten Testdatei sowie der betroffenen
   Domain-/Producer-/SQLite-/JSON-/Karten-/Quoten-/Identitätspfade:
   **586 bestanden, Exit 0, 20,04 s**. Unabhängiger tatsächlicher Diffreview:
   kein weiterer Befund. Alle neun ursprünglichen Fehlerfälle sind darunter.
   Das sind getrennte reale Läufe, kein behaupteter einteiliger Vollsuite-PASS.
+- JUnit-Abgleich: alle neun ursprünglichen Fehler-IDs in der Wiederholung
+  bestanden. Finale Offline-Sammlung: **13.024 Tests**; sämtliche **13.015 alten
+  Test-IDs** weiterhin enthalten, exakt neun neue Quellenbindungsfälle. Keine
+  entfernten Tests. Die sieben Produktionsdateien waren im Zwischenrelease
+  `fa42917` byte-/Git-identisch zum eingefrorenen Codecommit `702beca`.
 
 Prüfdateien außerhalb Git: `C:/Projekt/BetBoy/output/team-form-20261010/`.
 Volltest- und Wiederholungslogs/JUnit liegen getrennt vor (`full-sports-no-dump.*`
-und `publication-repaired.*`). Veröffentlichung und Produktionsabnahme sind noch
-offen; am 11.10. um 00:08 CEST lief der reguläre Tennisjob seit 00:05. Er wird
-nicht für das Deployment unterbrochen. App und beide Healthchecks waren gesund.
+und `publication-repaired.*`). Formrelease `fa42917` am 11.10. um 00:33 CEST
+veröffentlicht; der reguläre Tennisjob seit 00:05 beendete sich vorher um
+00:32:29 CEST erfolgreich (Exit 0) und wurde nicht unterbrochen. App/Caddy und
+beide Healthchecks gesund. Veröffentlichte Modell- und RisikoBet-Dateien vor/
+nach Deployment bytegleich.
+
+### Zusätzlich im echten Produktionscheck gefundener Ladefehler
+
+Der reine Lesecheck aller gespeicherten Snapshots schlug mit
+`snapshot_id does not match immutable snapshot content` fehl. Ursache bereits
+im Vorgänger `2ad2ba6`: `riskobet_automation.snapshot_from_dict` ließ den
+gespeicherten Kontextverweis weg; der UI-Lader übernahm ihn korrekt. Der Verweis
+ist Teil der unveränderlichen Snapshot-ID. Nicht die ID-Prüfung war falsch,
+sondern der unvollständige Lader.
+
+Begrenzter Fix: Import von `ContextReference` und Wiederherstellung des
+vorhandenen optionalen Feldes mit dessen geschlossenem Schema. Keine Hash- oder
+Schema-Lockerung, keine Änderung an Artefakten, Datenbank oder Prognosen.
+
+13 neue Fälle: drei sportübergreifende Roundtrips beider Lader, drei
+Manipulationen mit alter ID, sechs fehlerhafte Referenzen und exakter Legacy-
+Roundtrip ohne Referenz. Vor Fix neun Fehler/vier bestanden; nach Fix frischer
+breiter Offline-Lauf **728 bestanden, Exit 0, 83,26 s** (einschließlich Kontext-
+Speicher-/Tennisverbraucher). Drei JUnit-`record_property`-Formatwarnungen,
+keine Testfehler. Unabhängiger Review gab Produktionsfix frei und fand einen
+vakuosen Faktorvergleich; Fixture enthält nun einen echten kausalen Faktor.
+Ganze geänderte Datei danach frisch **32 bestanden, Exit 0, 3,03 s**.
+Logs/JUnit: `context-ref-red.log`, `context-fixed.*`, `context-factor.*`.
+Kein einteiliger grüner Vollsuite-Lauf nach diesem zusätzlichen Codefix.
+Veröffentlichung dieser Ergänzung und vollständiger Produktions-Lesecheck
+stehen im aktuellen TODO-Block.
 
 Separater Produktionsstatus, kein Formtransportfehler: Shadowlauf 00:02:02–
 00:02:31 CEST auf altem HEAD `2ad2ba6` mit Exit 1 / `partial`, weil für Ereignis

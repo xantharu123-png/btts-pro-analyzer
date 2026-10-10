@@ -26,6 +26,70 @@ from riskobet_store import RiskBetStore
 NOW = datetime(2030, 6, 4, 10, tzinfo=timezone.utc)
 
 
+@pytest.mark.parametrize('sport', ['football', 'tennis', 'esports'])
+def test_both_snapshot_loaders_preserve_stored_context_reference_and_identity(sport):
+    from dataclasses import replace
+    from context_links import ContextReference
+    from riskobet_automation import snapshot_from_dict
+    from riskobet_domain import FactorEvidence
+    from riskobet_ui import _snapshot
+    original = replace(_event(sport).snapshots[0],
+        factors=(FactorEvidence(
+            factor_key='history_input', summary='Accepted model history',
+            source='test-provider', observed_at=NOW - timedelta(hours=2),
+            imported_at=NOW - timedelta(minutes=30),
+            fresh_until=NOW + timedelta(hours=8), coverage=0.75, sample_size=12),),
+        context_ref=ContextReference('a' * 64, 'b' * 64))
+    payload = json.loads(json.dumps(original.to_dict()))
+    for restore in (snapshot_from_dict, _snapshot):
+        restored = restore(payload)
+        assert restored.snapshot_id == original.snapshot_id
+        assert restored.context_ref == original.context_ref
+        assert restored.factors
+        assert restored.factors == original.factors
+        assert restored.to_dict() == payload
+
+
+@pytest.mark.parametrize('changed_field', ['key', 'payload_digest', 'removed'])
+def test_automation_loader_rejects_changed_context_reference_with_old_identity(changed_field):
+    from dataclasses import replace
+    from context_links import ContextReference
+    from riskobet_automation import snapshot_from_dict
+    original = replace(_event('football').snapshots[0],
+        context_ref=ContextReference('a' * 64, 'b' * 64))
+    payload = original.to_dict()
+    if changed_field == 'removed':
+        del payload['context_ref']
+    else:
+        payload['context_ref'][changed_field] = 'c' * 64
+    with pytest.raises(ValueError, match='snapshot_id'):
+        snapshot_from_dict(payload)
+
+
+@pytest.mark.parametrize('reference', [
+    None,
+    {'schema': 2, 'kind': 'context-consumer-reference-v1', 'key': 'a' * 64, 'payload_digest': 'b' * 64},
+    {'schema': True, 'kind': 'context-consumer-reference-v1', 'key': 'a' * 64, 'payload_digest': 'b' * 64},
+    {'schema': 1, 'kind': 'foreign', 'key': 'a' * 64, 'payload_digest': 'b' * 64},
+    {'schema': 1, 'kind': 'context-consumer-reference-v1', 'key': 'a' * 64},
+    {'schema': 1, 'kind': 'context-consumer-reference-v1', 'key': 'a' * 64, 'payload_digest': 'b' * 64, 'extra': 1},
+])
+def test_automation_loader_rejects_malformed_context_reference(reference):
+    from riskobet_automation import snapshot_from_dict
+    payload = _event('football').snapshots[0].to_dict()
+    payload['context_ref'] = reference
+    with pytest.raises(ValueError):
+        snapshot_from_dict(payload)
+
+
+def test_both_snapshot_loaders_keep_legacy_context_free_payload_exact():
+    from riskobet_automation import snapshot_from_dict
+    from riskobet_ui import _snapshot
+    payload = _event('football').snapshots[0].to_dict()
+    assert 'context_ref' not in payload
+    assert snapshot_from_dict(payload).to_dict() == _snapshot(payload).to_dict() == payload
+
+
 def _event(sport, number=1, *, probability=0.31, markets=1):
     event_key = stable_event_key(sport, "test-provider", f"{sport}-{number}")
     snapshot = EventModelSnapshot(

@@ -2,7 +2,7 @@
 
 ## Aktueller Einstieg – strukturierte Teamsport-Form, 11.10.2026
 
-Code lokal `702beca`; GitHub/VPS noch `2ad2ba6`. Der begrenzte Fix bewahrt echte
+Formrelease `fa42917` auf GitHub und VPS (11.10.00:33 CEST). Der begrenzte Fix bewahrt echte
 bereits verbrauchte Basketball-/Eishockey-Spiele bis zu den 5/10-Formkacheln.
 Maximal zehn je Team, tatsächliche Endstände statt bereinigter Modelltorzahl,
 exakte Quelle/Identität/Zeiten/Modellhash. Alter UI-Test hatte den Producerweg
@@ -23,9 +23,19 @@ korrigiert, neun zusätzliche frühe Ablehnungsfälle ergänzt; Produktionscode 
 Guards unverändert. Ganze geänderte Testdatei + betroffene Module frisch:
 586 bestanden, Exit 0 (20,04 s); unabhängiger Review ohne weiteren Befund.
 Keinen einteiligen Vollsuite-PASS aus diesen getrennten Läufen behaupten.
-Noch veröffentlichen, ohne Backup/API-Scan/Migration; regulärer Tennisjob läuft
-seit 11.10.00:05 CEST und wird nicht unterbrochen.
-Alte Produktionssnapshots über beide Lader prüfen; neue Formdaten erst nach dem
+Formrelease veröffentlicht ohne Backup/API-Scan/Migration; regulärer Tennisjob
+beendete sich 11.10.00:32:29 CEST erfolgreich, Exit 0. App/Caddy aktiv und beide
+Healthchecks `ok`; veröffentlichte Prognosedateien bytegleich.
+Zusätzlicher echter Snapshotcheck fand einen bereits im Vorgänger enthaltenen
+Fehler: `riskobet_automation.snapshot_from_dict` übernahm `context_ref` nicht;
+die korrekte ID-Prüfung lehnte dadurch gespeicherte Daten ab. Zwei Codezeilen
+ergänzt, keinerlei Lockerung der Integritätsprüfung. 13 neue Regressionen
+zuerst neun rot/vier grün; frisch 728 betroffene Offline-Tests bestanden
+(83,26 s), danach nichtleerer Faktor-Roundtrip ergänzt und ganze geänderte
+Testdatei erneut 32 bestanden. Diese Ergänzung noch pushen/deployen und
+beide Lader auf allen echten Produktionssnapshots prüfen. Kein behaupteter
+einteiliger grüner Vollsuite-Lauf nach diesem zusätzlichen Codefix.
+Neue Formdaten erst nach dem
 normalen Modelllauf. Keine rückwirkende BOS-Historie erfinden. Aktuellen Status
 im obersten [TODO-Block](TODO_AKTUELL.md) und im
 [Prüfbericht](docs/audits/2026-10-10-teamsport-formtransport.md) nachlesen.

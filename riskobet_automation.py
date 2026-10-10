@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Iterable, Mapping, Optional, TypeAlias
 
+from context_links import ContextReference
 from date_context import ZURICH_TIMEZONE
 from riskobet_domain import (
     ContextState,
@@ -171,6 +172,7 @@ def snapshot_from_dict(payload: Mapping[str, object]) -> EventModelSnapshot:
         input_hash=str(payload["input_hash"]),
         factors=tuple(_factor_from_dict(item) for item in factors),
         missing_core_data=tuple(str(item) for item in missing),
+        context_ref=ContextReference.from_dict(payload["context_ref"]) if "context_ref" in payload else None,
         team_sport_forecast=TeamSportForecast.from_dict(payload['team_sport_forecast']) if 'team_sport_forecast' in payload else None,
         customer_recent_results=payload.get('customer_recent_results'),
     )

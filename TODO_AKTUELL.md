@@ -2,8 +2,10 @@
 
 ## 11.10.2026 – echte Teamsport-Formkarten und Abschlussprüfung
 
-Fortsetzung des Boston-Fixes; Codecommit lokal `702beca`, GitHub/VPS noch
-`2ad2ba6`. Dieser Block hat Vorrang vor den älteren Prüflaufständen darunter.
+Fortsetzung des Boston-Fixes; Formrelease `fa42917` bereits auf GitHub und
+VPS (11.10.00:33 CEST). Der Abschlusscheck fand zusätzlich einen älteren
+Kontextreferenz-Ladefehler; minimal korrigiert und geprüft, Veröffentlichung
+dieser Ergänzung noch offen. Dieser Block hat Vorrang vor älteren Ständen.
 
 - [x] Ursache der fehlenden Formkarten reproduziert: bereits vom Modell
   verbrauchte Spielzeilen gingen im Adapter verloren; alter UI-Test umging
@@ -37,9 +39,20 @@ Fortsetzung des Boston-Fixes; Codecommit lokal `702beca`, GitHub/VPS noch
   Vollständiger Lauf ohne periodischen Diagnose-Dump abgeschlossen wie oben;
   keine Tests ausgeschlossen. Logs unter
   `C:/Projekt/BetBoy/output/team-form-20261010/`.
-- [ ] Code veröffentlichen und VPS-Fast-forward ohne Backup/Scan/Migration;
-  App/Healthchecks, alte gespeicherte Snapshots und unveränderte Artefaktbytes
-  nach Deployment prüfen. Altes Backup bleibt abgeschaltet.
+- [x] Formrelease `fa42917` per Fast-forward ohne Backup/Scan/Migration live;
+  App/Caddy aktiv, beide Healthchecks `ok`, Wettfinder-/RisikoBet-Artefaktbytes
+  unverändert. Regulärer Tennisjob vorher 00:32:29 CEST mit Exit 0 beendet;
+  kein laufender Sportdienst unterbrochen. Backup weiterhin abgeschaltet.
+- [x] Echte gespeicherte Snapshots deckten einen bereits in `2ad2ba6`
+  vorhandenen separaten Ladefehler auf: Automationslader ließ `context_ref`
+  weg und rekonstruierte dadurch die falsche Snapshot-ID. Zwei Codezeilen
+  stellen die Referenz strikt wieder her; ID-/Schema-Prüfungen unverändert.
+  13 neue Regressionen: zunächst neun Fehler/vier bestanden, danach breiter
+  Offline-Lauf **728 bestanden (83,26 s)**. Review-Testlücke durch nichtleeren
+  kausalen Faktor geschlossen; ganze geänderte Datei erneut **32 bestanden**.
+  Kein einteiliger grüner Vollsuite-Lauf nach diesem zusätzlichen Codefix.
+- [ ] Kontextreferenz-Ergänzung pushen/deployen; beide Lader auf allen echten
+  gespeicherten Snapshots, unveränderte IDs/Artefaktbytes und Dienste prüfen.
 - [ ] Neue echte Formanhänge aus dem nächsten regulären Modelllauf in
   Produktion nachweisen. Alte BOS/PHI-Daten enthalten diesen Anhang nicht und
   werden nicht aus Text oder fremden Historien nachträglich ergänzt.
