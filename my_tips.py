@@ -116,7 +116,7 @@ def render_saved_tips() -> None:
 
 def render_my_tips() -> None:
     area = st.selectbox(
-        "Bereich",
+        "Tippquelle",
         ["Wettfinder", "15K Challenge"],
         key="my_tips_area",
     )

@@ -190,3 +190,38 @@ def test_daily3_rail_opens_daily3_via_the_same_active_area_state():
     assert app.session_state["workspace"] == "Wettfinder"
     assert app.session_state["wettfinder_mode_v2"] == "3 a day"
     assert "PAGE: 3 a day" in _page_text(app)
+
+
+def _run_real_my_tips_navigation():
+    """Render the owning collection selector; fake only its data/ledger engines."""
+    import streamlit as st
+    from unittest.mock import patch
+    from test_unified_navigation import _navigation_namespace
+
+    if "workspace" not in st.session_state:
+        st.session_state["workspace"] = "Meine Tipps"
+        st.session_state["wettfinder_mode_v2"] = "Automatisch"
+        st.session_state["_betboy_account_scope"] = "a" * 32
+    namespace = _navigation_namespace(st, ("saved", "automatic"))
+    with (
+        patch("my_tips.render_saved_tips", lambda: st.markdown("COLLECTION: Wettfinder")),
+        patch("challenge_15k.render_challenge_history", lambda: st.markdown("COLLECTION: 15K")),
+    ):
+        namespace["main"]()
+
+
+def test_real_personal_collection_filter_cannot_be_confused_with_area_navigation():
+    app = AppTest.from_function(_run_real_my_tips_navigation).run(timeout=30)
+    assert not app.exception
+    assert len([item for item in app.selectbox if item.label == "Bereich"]) == 1
+    assert _area(app).value == "Meine Tipps"
+    source = next(item for item in app.selectbox if item.label == "Tippquelle")
+    assert source.options == ["Wettfinder", "15K Challenge"]
+    source.select("15K Challenge").run(timeout=30)
+    assert not app.exception
+    assert app.session_state["workspace"] == "Meine Tipps"
+    assert _area(app).value == "Meine Tipps"
+    assert "COLLECTION: 15K" in _page_text(app)
+    _area(app).select("Automatisch").run(timeout=30)
+    assert not app.exception
+    assert "PAGE: Automatisch" in _page_text(app)
