@@ -30,6 +30,22 @@ html, body, [data-testid="stAppViewContainer"], .stApp, [data-testid="stMain"] {
 .st-key-bb_editorial_header {border-bottom:1px solid #aeb4ac;padding:.4rem 0 .7rem;}
 .st-key-bb_editorial_header p.bb-brand {font-family:Georgia,'Times New Roman',serif;font-weight:900;font-size:2.75rem !important;letter-spacing:-.075em;line-height:1.1;margin:0 !important;color:#101510;}
 .bb-brand:after {content:'';display:block;width:34px;height:4px;background:var(--bb-green);margin-top:4px;}
+/* One native keyboard-accessible menu; compact screens scroll the same links. */
+.st-key-bb_area_nav {min-width:0;max-width:none !important;width:100% !important;}
+.st-key-bb_area_nav [role="radiogroup"] {display:flex;flex-wrap:nowrap !important;gap:clamp(.25rem,1.3vw,1rem) !important;
+  max-width:100%;min-width:0;overflow-x:auto;overflow-y:hidden;padding:4px 3px 8px;scrollbar-width:thin;}
+.st-key-bb_area_nav :is(label[data-baseweb="radio"],label[data-testid="stRadioOption"]) {position:relative;
+  display:flex;align-items:center;box-sizing:border-box;flex:0 0 auto;min-height:48px !important;margin:0 !important;
+  padding:.6rem .35rem !important;background:transparent;border-bottom:3px solid transparent;white-space:nowrap;cursor:pointer;}
+/* Hide only decorative circles in BaseWeb and current Streamlit/React-Aria markup. */
+.st-key-bb_area_nav label[data-baseweb="radio"]>div:first-child:not(:has(input)),
+.st-key-bb_area_nav label[data-testid="stRadioOption"]>div>div>div:has(+[data-testid="stMarkdownContainer"]) {display:none !important;}
+.st-key-bb_area_nav :is(label[data-baseweb="radio"],label[data-testid="stRadioOption"])>div:last-child {padding-left:0 !important;}
+.st-key-bb_area_nav :is(label[data-baseweb="radio"],label[data-testid="stRadioOption"]) p {margin:0 !important;
+  font-size:.95rem !important;font-weight:650;color:var(--bb-muted);}
+.st-key-bb_area_nav :is(label[data-baseweb="radio"],label[data-testid="stRadioOption"]):is([data-selected="true"],:has(input:checked)) {border-bottom-color:var(--bb-green);}
+.st-key-bb_area_nav :is(label[data-baseweb="radio"],label[data-testid="stRadioOption"]):is([data-selected="true"],:has(input:checked)) p {color:var(--bb-green);}
+.st-key-bb_area_nav :is(label[data-baseweb="radio"],label[data-testid="stRadioOption"]):is([data-focus-visible],:has(input:focus-visible)) {outline:3px solid #a67b00;outline-offset:0;border-radius:3px;}
 button:focus-visible, summary:focus-visible {outline:3px solid #a67b00 !important;outline-offset:3px !important;}
 [data-testid="stButton"] button, [data-testid="stFormSubmitButton"] button {min-height:44px;border-radius:6px !important;}
 [data-testid="stButtonGroup"] button {min-height:44px !important;border-radius:8px !important;border-color:var(--bb-line) !important;}

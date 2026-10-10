@@ -145,6 +145,15 @@ class _RecordingStreamlit:
     def button(self, _label, **_kwargs):
         return False
 
+    def slider(self, _label, _min, _max, value, *, key=None, **_kwargs):
+        return self.widget_values.get(key, value)
+
+    def checkbox(self, _label, *, value=False, key=None, **_kwargs):
+        return self.widget_values.get(key, value)
+
+    def number_input(self, _label, *, value=0, key=None, **_kwargs):
+        return self.widget_values.get(key, value)
+
     def image(self, path, **_kwargs):
         self.event_log.append(('image', path))
 
@@ -882,7 +891,7 @@ def test_wettfinder_manual_mode_keeps_every_sport_horizon_market_and_all_tab(
     monkeypatch.setattr(
         app,
         "_render_selected_finder",
-        lambda sport, *_args: rendered_sports.append(sport),
+        lambda sport, *_args, **_kwargs: rendered_sports.append(sport),
     )
 
     app.render_wettfinder()
@@ -1463,7 +1472,7 @@ def test_all_sports_shows_tabs_without_redundant_explanation(monkeypatch):
         }
     )
     monkeypatch.setattr(app, "st", recording_st)
-    monkeypatch.setattr(app, "_render_selected_finder", lambda *_args: None)
+    monkeypatch.setattr(app, "_render_selected_finder", lambda *_args, **_kwargs: None)
 
     app.render_wettfinder()
 
@@ -1500,16 +1509,19 @@ def test_design_four_main_navigation_order_is_exact_on_every_public_surface():
 def test_shared_navigation_is_one_area_control_with_route_callback(monkeypatch):
     calls = []
     recording_st = _RecordingStreamlit(session_state={"workspace": "RisikoBet"})
-    def selectbox(label, options, **kwargs):
+    def radio(label, options, **kwargs):
         calls.append((label, tuple(options), kwargs))
         return recording_st.session_state.get(kwargs["key"])
-    recording_st.selectbox = selectbox
+    recording_st.radio = radio
     monkeypatch.setattr(app, "st", recording_st)
     app._render_editorial_header("RisikoBet")
     assert len(calls) == 1
     label, options, kwargs = calls[0]
-    assert label == "Bereich"
-    assert options == app.AREA_OPTIONS
+    assert label == "Hauptnavigation"
+    assert [kwargs['format_func'](option) for option in options] == [
+        'Wettfinder', 'Manuelle Suche', 'RisikoBet', '3 a day', '15K', 'Live', 'Meine Tipps',
+    ]
+    assert kwargs['horizontal'] is True
     assert kwargs["key"] == "bb_area_navigation"
     assert recording_st.session_state["bb_area_navigation"] == "RisikoBet"
     recording_st.session_state["bb_area_navigation"] = "Live"
@@ -1645,11 +1657,13 @@ def test_shared_area_control_keeps_every_destination_reachable_without_a_bottom_
 
     app_test = AppTest.from_function(_run_navigation).run(timeout=30)
     assert not app_test.exception
-    navigation = [item for item in app_test.selectbox if item.label == 'Bereich']
+    navigation = [item for item in app_test.radio if item.key == 'bb_area_navigation']
     assert len(navigation) == 1
-    assert navigation[0].options == list(app.AREA_OPTIONS)
+    assert navigation[0].options == ['Wettfinder', 'Manuelle Suche', 'RisikoBet', '3 a day', '15K', 'Live', 'Meine Tipps']
+    assert navigation[0].horizontal is True
+    assert not [item for item in app_test.selectbox if item.key == 'bb_area_navigation']
     assert not app_test.get('button_group')
-    navigation[0].select('3 a day').run(timeout=30)
+    navigation[0].set_value('3 a day').run(timeout=30)
     assert not app_test.exception
     assert app_test.session_state['wettfinder_mode_v2'] == '3 a day'
     assert any('PAGE: 3 a day' in item.value for item in app_test.markdown)

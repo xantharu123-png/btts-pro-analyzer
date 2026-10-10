@@ -246,15 +246,18 @@ def test_shared_area_destinations_and_callback_are_synchronized(monkeypatch):
     from test_workflow_integrity import _RecordingStreamlit
     recording = _RecordingStreamlit(session_state={'workspace': 'RisikoBet'})
     callbacks = []
-    def selectbox(label, options, **kw):
+    def radio(label, options, **kw):
         callbacks.append((label, options, kw))
         return recording.session_state[kw['key']]
-    recording.selectbox = selectbox
+    recording.radio = radio
     monkeypatch.setattr(app, 'st', recording)
     app._render_editorial_header('RisikoBet')
     label, options, kwargs = callbacks[0]
     assert len(callbacks) == 1
-    assert tuple(options) == app.AREA_OPTIONS and label == 'Bereich'
+    assert [kwargs['format_func'](option) for option in options] == [
+        'Wettfinder', 'Manuelle Suche', 'RisikoBet', '3 a day', '15K', 'Live', 'Meine Tipps',
+    ]
+    assert label == 'Hauptnavigation' and kwargs['horizontal'] is True
     recording.session_state[kwargs['key']] = '15K'
     kwargs['on_change']()
     assert recording.session_state['workspace'] == '15K'
@@ -307,6 +310,11 @@ def test_shared_navigation_is_reachable_when_plan_guard_stops_page(monkeypatch):
     from test_workflow_integrity import _RecordingStreamlit
     recording = _RecordingStreamlit(session_state={'workspace': 'RisikoBet'})
     recording.set_page_config = lambda **_kw: None
+    navigation = []
+    def radio(label, options, **kwargs):
+        navigation.append((label, [kwargs['format_func'](option) for option in options], kwargs))
+        return recording.session_state[kwargs['key']]
+    recording.radio = radio
     monkeypatch.setattr(app, 'st', recording)
     monkeypatch.setattr(app, '_apply_app_styles', lambda: None)
     monkeypatch.setattr(app, 'bind_customer', lambda _st: True)
@@ -318,7 +326,12 @@ def test_shared_navigation_is_reachable_when_plan_guard_stops_page(monkeypatch):
     monkeypatch.setattr(app, 'require_feature', higher_plan_required)
     with pytest.raises(RuntimeError, match='page stopped by plan guard'):
         app.main()
-    assert recording.selectboxes == [('Bereich', app.AREA_OPTIONS, 0, 'bb_area_navigation')]
+    assert len(navigation) == 1
+    label, options, kwargs = navigation[0]
+    assert label == 'Hauptnavigation'
+    assert options == ['Wettfinder', 'Manuelle Suche', 'RisikoBet', '3 a day', '15K', 'Live', 'Meine Tipps']
+    assert kwargs['key'] == 'bb_area_navigation' and kwargs['horizontal'] is True
+    assert recording.selectboxes == []
     assert recording.segmented_controls == []
 
 
@@ -327,9 +340,9 @@ def test_navigation_callback_syncs_flat_area_and_route_before_next_render(monkey
     from test_workflow_integrity import _RecordingStreamlit
     recording = _RecordingStreamlit(session_state={'workspace': 'RisikoBet'})
     callbacks = {}
-    def selectbox(_label, _options, **kwargs):
+    def radio(_label, _options, **kwargs):
         callbacks[kwargs['key']] = kwargs['on_change']
-    recording.selectbox = selectbox
+    recording.radio = radio
     monkeypatch.setattr(app, 'st', recording)
     app._render_editorial_header('RisikoBet')
     assert list(callbacks) == ['bb_area_navigation']

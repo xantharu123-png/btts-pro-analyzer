@@ -21,16 +21,21 @@ later whether it was right.
 from __future__ import annotations
 
 import json
+import math
 import sqlite3
 import subprocess
 import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import streamlit as st
 
 import scan_jobs
+from manual_search_filters import SearchFilters
+from riskobet_domain import stable_event_key
+from riskobet_prices import load_shared_price_overlays
 from betting_math import (
     MINIMUM_RISK_ADJUSTED_ROI_PERCENT,
     BettingMathError,
@@ -102,6 +107,70 @@ def _load_predictions(
         active_ids = {row["id"] for row in current_native_forecasts(latest, as_of=current)}
         rows = [row for row in rows if row["id"] in active_ids]
     return rows
+
+
+def _load_current_predictions(
+    date_from: str | None = None,
+    *,
+    date_to: str | None = None,
+    now: datetime,
+) -> list[dict]:
+    """Read the latest native revision; the entry/history ledger is untouched."""
+    from tennis.fixture_availability import current_native_forecasts
+    latest = shadow.latest_predictions(DB_PATH, as_of=now)
+    rows = [row for row in latest
+            if row.get('model_version') == shadow.TENNIS_MODEL_VERSION
+            and row.get('policy_version') == shadow.TENNIS_POLICY_VERSION
+            and (not date_from or str(row.get('match_date') or '') >= date_from)
+            and (not date_to or str(row.get('match_date') or '') <= date_to)]
+    return current_native_forecasts(rows, as_of=now)
+
+
+def _favorite_probability(row: dict) -> float | None:
+    value = row.get('p_cal')
+    if (isinstance(value, bool) or not isinstance(value, (int, float))
+            or not math.isfinite(value) or not 0 <= value <= 1):
+        return None
+    return max(value, 1.0-value)
+
+
+def _current_search_prices(rows: list[dict], *, now: datetime) -> dict:
+    """Reuse exact native winner offers once, without fetching or writing."""
+    from forecast_analysis import _clock
+    bindings = []
+    row_ids = {}
+    for row in rows:
+        provider, event = row.get('fixture_source'), row.get('provider_event_id')
+        a, b = row.get('player_a'), row.get('player_b')
+        if (_favorite_probability(row) is None
+                or not all(isinstance(value, str) and value.strip() for value in (provider, event, a, b))
+                or a == b):
+            continue
+        try:
+            start = datetime.fromisoformat(str(row.get('scheduled_start_utc') or '').replace('Z', '+00:00'))
+            if start.tzinfo is None or start.utcoffset() is None:
+                continue
+            side = 'home' if row['p_cal'] >= .5 else 'away'
+            identity = f"manual-tennis:{row['id']}:{row.get('model_revision_id') or row.get('created_utc')}:{side}"
+            binding = SimpleNamespace(candidate_id=identity, sport='tennis', market_key='match_winner',
+                selection_key=side, event_key=stable_event_key('tennis', provider, event), starts_at=start,
+                event_label=f'{a} vs {b}', selection_label=a if side == 'home' else b,
+                settlement_contract=f'riskobet-settlement-v1:tennis:match_winner:{side}')
+        except (TypeError, ValueError, OverflowError):
+            continue
+        bindings.append(binding)
+        row_ids[identity] = row['id']
+    overlays = load_shared_price_overlays(bindings, now=now) if bindings else {}
+    prices = {}
+    for key, price in overlays.items():
+        fetched, observed = _clock(price.fetched_at), _clock(price.observed_at)
+        # A later failed check cannot renew or legitimize the offer's clocks.
+        if (key in row_ids and price.observed_odds is not None
+                and fetched is not None and observed is not None and observed <= fetched
+                and timedelta(0) <= now-fetched <= timedelta(hours=24)
+                and timedelta(0) <= now-observed <= timedelta(hours=24)):
+            prices[row_ids[key]] = price
+    return prices
 
 
 def _parse_start_utc(value: str | None) -> datetime | None:
@@ -620,7 +689,7 @@ def _render_winner_closing_capture(row: dict) -> None:
                 st.rerun()
 
 
-def _render_match_card(row: dict) -> None:
+def _render_match_card(row: dict, *, price=None) -> None:
     gates = json.loads(row["gates_json"] or "{}")
     markets = json.loads(row["markets_json"] or "{}")
     model_gates = {
@@ -701,6 +770,11 @@ def _render_match_card(row: dict) -> None:
 
         st.info(f"Modellfavorit: {likely_player}")
         st.metric("Modell", f"{likely_probability:.1%}")
+        if price is not None and price.observed_odds is not None:
+            st.metric("Letzte Quote", f"{price.observed_odds:.2f}")
+            observed = _parse_start_utc(price.observed_at)
+            if observed is not None:
+                st.caption(f"{price.bookmaker or 'Buchmacher'} · {observed.astimezone(ZURICH_TZ):%d.%m. %H:%M}")
         st.caption("Deine Mindestquote für eine tatsächliche Wette: 1,20")
         return
 
@@ -835,6 +909,8 @@ def _render_settlement(open_rows: list[dict]) -> None:
 def render_tennis_finder(
     search_date: date | str | None = None,
     search_end_date: date | str | None = None,
+    *,
+    search_filters: SearchFilters | None = None,
 ) -> None:
     """Render actionable pre-match tennis picks for a bounded date window."""
     session_scope = scan_jobs.session_scope(st.session_state)
@@ -889,21 +965,30 @@ def render_tennis_finder(
     elif job["state"] == "error":
         st.error("Die Tennis-Suche konnte nicht abgeschlossen werden.")
         scan_jobs.clear_job(job_key)
-    today = _zurich_today()
-    raw_rows = _load_predictions(
+    now = datetime.now(timezone.utc)
+    today = _zurich_today(now)
+    raw_rows = _load_current_predictions(
         date_from=selected_date or today,
         date_to=selected_end_date,
-        unsettled_only=True,
-        native_current_only=True,
+        now=now,
     )
-    rows, hidden_rows = _split_prematch_rows(raw_rows)
+    rows, hidden_rows = _split_prematch_rows(raw_rows, now)
+    prices = _current_search_prices(rows, now=now)
+    filters = search_filters or SearchFilters()
+    matching_rows = [row for row in rows
+                     if _favorite_probability(row) is not None
+                     and filters.matches(probability=_favorite_probability(row),
+                         quote=prices[row['id']].observed_odds if row['id'] in prices else None,
+                         market_kind='match_winner')]
     if hidden_rows:
         st.warning(
             f"{len(hidden_rows)} Einträge ausgeblendet: angesetzte Startzeit "
             "erreicht oder Startzeit nicht verifiziert. Diese Spiele werden "
             "nicht mehr als Pre-Match-Auswahl gezeigt."
         )
-    if not rows:
+    if rows and not matching_rows:
+        st.info("Keine Tennis-Auswahl passt zu deinen Filtern.")
+    elif not rows:
         if raw_rows:
             st.info(
                 "Aktuell gibt es keine verifizierte, noch nicht gestartete "
@@ -928,11 +1013,11 @@ def render_tennis_finder(
             st.info(f"Noch keine Tennis-Vorhersagen für {target_label}.")
     else:
         current_date = None
-        for row in rows:
+        for row in matching_rows:
             if row["match_date"] != current_date:
                 current_date = row["match_date"]
                 st.markdown(f"**{current_date}**")
-            _render_match_card(row)
+            _render_match_card(row, price=prices.get(row['id']))
 
 
 def render_tennis_history() -> None:

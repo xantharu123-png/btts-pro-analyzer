@@ -195,13 +195,15 @@ def test_market_worker_rejects_only_the_cheap_market_not_the_fixture(monkeypatch
         {"league_ids": [78]},
     )["challenge"]
 
-    assert checked == []
+    assert checked == [favorite, alternative]
     assert result["model_shortlist"] == [favorite, alternative]
     assert result["shortlist"] == [favorite, alternative]
-    assert result["price_checked_count"] == 0
-    assert result["price_fixture_count"] == 0
+    assert result["price_checked_count"] == 2
+    assert result["price_fixture_count"] == 1
     assert result["price_status_counts"] == {}
-    assert result["reference_quotes"] == {}
+    assert set(result["reference_quotes"]) == {
+        favorite.candidate_id, alternative.candidate_id,
+    }
 
 
 def test_market_worker_keeps_model_selection_when_no_price_is_playable(monkeypatch):
@@ -383,10 +385,10 @@ def test_market_worker_allows_credible_basis_market_to_pass_price_gate(
     )["challenge"]
 
     assert result["model_shortlist"] == [forecast, basis]
-    assert checked == []
+    assert checked == [basis]  # Only provider-supported exact markets are requested.
     assert result["price_candidates"] == []
     assert result["shortlist"] == [forecast, basis]
-    assert result["reference_quotes"] == {}
+    assert set(result["reference_quotes"]) == {basis.candidate_id}
     assert result["price_status_counts"] == {}
 
 

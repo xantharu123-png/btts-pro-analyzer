@@ -6,7 +6,7 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 
-AREAS = ["Automatisch", "Eigene Suche", "RisikoBet", "3 a day", "15K", "Live", "Meine Tipps"]
+AREAS = ["Wettfinder", "Manuelle Suche", "RisikoBet", "3 a day", "15K", "Live", "Meine Tipps"]
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -17,6 +17,7 @@ def _navigation_namespace(st, features):
     from types import SimpleNamespace
     from account_identity import account_scope_ready
     from customer_access import PAGE_FEATURES
+    from manual_search_filters import render_search_filters
 
     names = {
         "PAGE_INFO", "MAIN_PAGES", "LEGACY_PAGE_ALIASES", "PAGE_SCAN_JOBS",
@@ -41,6 +42,7 @@ def _navigation_namespace(st, features):
         "date": date, "datetime": datetime, "timedelta": timedelta, "timezone": timezone,
         "escape": escape, "PAGE_FEATURES": PAGE_FEATURES,
         "account_scope_ready": account_scope_ready,
+        "render_search_filters": render_search_filters,
         "_REQUIRED_ANALYZER_MODULE_VERSION": 1,
         "get_analyzer": lambda *_args: None,
         "bind_customer": lambda _st: True,
@@ -93,20 +95,24 @@ def _run_navigation(workspace="Wettfinder", mode="Automatisch", features=None, i
 
 
 def _area(app):
-    return next((item for item in app.selectbox if item.label == "Bereich"), None)
+    return next((item for item in app.radio if item.key == "bb_area_navigation"), None)
 
 
 def _page_text(app):
     return " ".join(item.value for item in app.markdown)
 
 
-def test_one_area_selector_exposes_all_views_without_nested_or_bottom_navigation():
+def test_one_horizontal_main_navigation_exposes_every_destination_without_a_dropdown():
     # Break caught: a destination is omitted, or a competing main/mode widget survives.
     app = AppTest.from_function(_run_navigation).run(timeout=30)
     assert not app.exception
     area = _area(app)
-    assert area is not None, "The shared Bereich selector must be rendered"
+    assert area is not None, "Every destination must be directly exposed in the main navigation"
     assert area.options == AREAS
+    assert area.horizontal is True
+    assert area.label == "Hauptnavigation"
+    assert len([item for item in app.radio if item.key == "bb_area_navigation"]) == 1
+    assert not [item for item in app.selectbox if item.key == "bb_area_navigation"]
     assert area.value == "Automatisch"
     assert not app.get("button_group")
     assert "PAGE: Automatisch" in _page_text(app)
@@ -141,13 +147,13 @@ def test_selecting_an_area_synchronizes_real_route_and_render(chosen, workspace,
     # Break caught: callback changes the visual selection but routes to another page.
     app = AppTest.from_function(_run_navigation).run(timeout=30)
     assert _area(app) is not None, "Navigation must use the shared selector"
-    _area(app).select(chosen).run(timeout=30)
+    _area(app).set_value(chosen).run(timeout=30)
     assert not app.exception
     assert app.session_state["workspace"] == workspace
     assert app.session_state["wettfinder_mode_v2"] == mode
     assert _area(app).value == chosen
     assert f"PAGE: {chosen}" in _page_text(app)
-    _area(app).select("Automatisch").run(timeout=30)
+    _area(app).set_value("Automatisch").run(timeout=30)
     assert app.session_state["workspace"] == "Wettfinder"
     assert app.session_state["wettfinder_mode_v2"] == "Automatisch"
 
@@ -157,12 +163,12 @@ def test_paid_area_is_guarded_but_does_not_trap_the_shared_navigation(chosen):
     # Break caught: feature dispatch bypasses require_feature, or st.stop hides navigation.
     app = AppTest.from_function(_run_navigation, kwargs={"features": ["automatic", "saved"]}).run(timeout=30)
     assert _area(app) is not None, "The selector must precede every paid-content guard"
-    _area(app).select(chosen).run(timeout=30)
+    _area(app).set_value(chosen).run(timeout=30)
     assert not app.exception
     assert "PAGE:" not in _page_text(app)
     assert any("höheren Abo" in item.value for item in app.info)
     assert _area(app).value == chosen
-    _area(app).select("Automatisch").run(timeout=30)
+    _area(app).set_value("Automatisch").run(timeout=30)
     assert "PAGE: Automatisch" in _page_text(app)
 
 
@@ -171,11 +177,11 @@ def test_personal_areas_still_fail_closed_until_account_storage_is_ready(chosen)
     # Break caught: unified routing renders private page engines without durable identity.
     app = AppTest.from_function(_run_navigation, kwargs={"identity": False}).run(timeout=30)
     assert _area(app) is not None
-    _area(app).select(chosen).run(timeout=30)
+    _area(app).set_value(chosen).run(timeout=30)
     assert not app.exception
     assert "PAGE:" not in _page_text(app)
     assert any("persönlicher Speicher" in item.value for item in app.info)
-    _area(app).select("Automatisch").run(timeout=30)
+    _area(app).set_value("Automatisch").run(timeout=30)
     assert "PAGE: Automatisch" in _page_text(app)
 
 
@@ -213,7 +219,8 @@ def _run_real_my_tips_navigation():
 def test_real_personal_collection_filter_cannot_be_confused_with_area_navigation():
     app = AppTest.from_function(_run_real_my_tips_navigation).run(timeout=30)
     assert not app.exception
-    assert len([item for item in app.selectbox if item.label == "Bereich"]) == 1
+    assert len([item for item in app.radio if item.key == "bb_area_navigation"]) == 1
+    assert not [item for item in app.selectbox if item.key == "bb_area_navigation"]
     assert _area(app).value == "Meine Tipps"
     source = next(item for item in app.selectbox if item.label == "Tippquelle")
     assert source.options == ["Wettfinder", "15K Challenge"]
@@ -222,6 +229,6 @@ def test_real_personal_collection_filter_cannot_be_confused_with_area_navigation
     assert app.session_state["workspace"] == "Meine Tipps"
     assert _area(app).value == "Meine Tipps"
     assert "COLLECTION: 15K" in _page_text(app)
-    _area(app).select("Automatisch").run(timeout=30)
+    _area(app).set_value("Automatisch").run(timeout=30)
     assert not app.exception
     assert "PAGE: Automatisch" in _page_text(app)

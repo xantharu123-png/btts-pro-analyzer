@@ -1,5 +1,22 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg – Hauptmenüs / Manuelle Suche, 10.10.2026
+
+Neueste Freigabe: sichtbare Hauptmenüs statt „Bereich“-Dropdown. Wettfinder,
+Manuelle Suche, RisikoBet, 3 a day, 15K, Live, Meine Tipps; Mobil dieselbe
+einzeilige scrollbare Navigation. Ältere Bereichsauswahl unten ist überholt.
+Manuelle Suche filtert vorhandene Modellprognosen nach Prozent und Wettart,
+optional nach exakt gebundener tatsächlicher Quote ab 1,20. Fehlende/fremde/alte
+Preise sind bei aktivem Quotenfilter keine Treffer. Filter ändern keine Modelle,
+Richtungen, Rangfolge, Prognosen oder Konten und starten keine neuen Scans.
+382 frische Tests und unabhängiger Abschlussreview ohne offene konkrete P1/P2;
+echter interner Browser 1440/390/320 und Tastatur/Filter geprüft. Vollsuite läuft.
+Code ist noch uncommitted; Veröffentlichung und Produktionsprüfung ausstehend.
+Zuerst obersten [TODO-Block](TODO_AKTUELL.md) und
+[Prüfbericht](docs/audits/2026-10-10-hauptnavigation-manuelle-filter.md) lesen.
+Kein neues Backup, Produktionsscan, Migration oder Bereinigung für diesen Patch.
+Alle geerbten ungetrackten Dateien erhalten; separate fachliche Aufgaben offen.
+
 ## Aktueller Einstieg – Gemeinsames Dach, 10.10.2026
 
 Freigegeben: eine gleichrangige Bereichsauswahl für Automatisch, Eigene Suche,

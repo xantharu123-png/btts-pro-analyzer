@@ -1,5 +1,37 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 10.10.2026 – Hauptmenüs und echte manuelle Filter
+
+Die letzte Nutzerentscheidung ersetzt die darunter dokumentierte Bereichsauswahl:
+sichtbare Hauptmenüs **Wettfinder, Manuelle Suche, RisikoBet, 3 a day, 15K,
+Live, Meine Tipps**. Auf Mobilgeräten dieselbe einzeilige, horizontal scrollbare
+Navigation; keine zusätzliche Bereichsauswahl oder doppelte Mobile-Navigation.
+
+- [x] Navigation und bestehende Abo-/Sammlungs-/Rückwechselprüfungen verbunden.
+- [x] Manuelle Suche: Sport, Zeitraum, Liga/Wettart, Modellwahrscheinlichkeit
+  von/bis und optional tatsächlich beobachtete Quote von/bis (mindestens 1,20).
+- [x] Filter vor der Ausgabegrenze anwenden. Keine Änderung an Modellchance,
+  Modellrichtung, Rangfolge, gespeicherten Prognosen oder Geldbuchungen.
+- [x] Aktiver Quotenfilter akzeptiert weder fehlende noch fremde/veraltete Preise.
+  Tennis und E-Sport lesen vorhandene exakt gebundene Preisbelege. Fußball lädt
+  Preise einmal innerhalb der ausdrücklich gestarteten manuellen Suche;
+  Filteränderungen und Navigation lösen keine zusätzliche Abfrage aus.
+- [x] Basketball/Eishockey ohne vorhandenes Modell liefern keine erfundenen
+  Treffer für Prozentfilter. Cricket bleibt fachlich unverändert.
+- [x] Test-first-Reproduktionen, unabhängiger Abschlussreview ohne offene
+  konkrete P1/P2 und **382 frische Regressionstests bestanden** (36,82 s).
+- [x] Echter interner Browser: 1440/390/320 Pixel, einzeilige 48-Pixel-Menüpunkte,
+  mobile interne Scrollleiste statt Seitenüberlauf, Tastatur, kombinierte Filter,
+  fehlender Preis und ungültiger Quotenbereich geprüft. Lokale Beispieldaten
+  ausdrücklich markiert; keine Produktions-Sportabfrage.
+- [ ] Laufende Vollsuite abschließen und tatsächlichen Stand dokumentieren.
+- [ ] Eng begrenzt committen/pushen und VPS-Fast-forward ohne neues Backup;
+  danach echte Produktionsseite und beide Healthchecks prüfen.
+
+[Prüfbericht](docs/audits/2026-10-10-hauptnavigation-manuelle-filter.md).
+Vorhandener Wettfinder-Datenfehlstatus, Daily3-Zeitfolge, empirische Kontexteffekte,
+Domainumzug, Stripe und Stores bleiben separate offene Aufgaben.
+
 ## 10.10.2026 – Gemeinsames Wettfinder-Dach
 
 Nutzerfreigabe: **Gemeinsames Dach mit einer Bereichsauswahl**. Freigegebener

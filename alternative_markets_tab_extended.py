@@ -24,14 +24,16 @@ from challenge_15k import (
     ChallengeDataProvider,
     scan_daily_challenge,
 )
-from challenge_engine import candidate_context_summary, select_wettfinder_catalog
+from challenge_engine import candidate_context_summary, market_specs, select_wettfinder_catalog
 from config_loader import load_app_config
 from date_context import german_day_label, zurich_today
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES
+from manual_search_filters import SearchFilters
 from market_consensus import (
     deserialize_consensus_map,
     exact_market_target,
     fetch_football_consensus,
+    observed_consensus,
     quote_matches_candidate,
     quote_below_publication_floor,
     serialize_consensus_map,
@@ -41,8 +43,8 @@ from market_consensus import (
 
 
 DEFAULT_LEAGUES = [78, 39, 140]
-MARKET_WORKFLOW_VERSION = 13
-MARKET_SNAPSHOT_VERSION = 17
+MARKET_WORKFLOW_VERSION = 14
+MARKET_SNAPSHOT_VERSION = 18
 MAX_CONSUMER_MARKET_SELECTIONS = 25
 MAX_CONSUMER_MARKETS_PER_FIXTURE = 8
 FEATURED_CONSUMER_MARKET_SELECTIONS = 3
@@ -400,13 +402,15 @@ def _merge_consumer_market_rows(
     priced_rows,
     model_rows,
     *,
-    limit: int = MAX_CONSUMER_MARKET_SELECTIONS,
+    limit: Optional[int] = MAX_CONSUMER_MARKET_SELECTIONS,
     coherent: bool = False,
 ):
     """Keep the model-ranked display stable regardless of bookmaker price."""
 
-    if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
-        raise ValueError("limit must be a positive integer")
+    if limit is not None and (
+        isinstance(limit, bool) or not isinstance(limit, int) or limit < 1
+    ):
+        raise ValueError("limit must be a positive integer or None")
     displayed = []
     seen_candidates = set()
     model_fixtures = set()
@@ -423,7 +427,7 @@ def _merge_consumer_market_rows(
         fixture_id = getattr(raw_candidate, "fixture_id", None)
         if isinstance(fixture_id, int) and not isinstance(fixture_id, bool):
             model_fixtures.add(fixture_id)
-        if not coherent and len(displayed) >= limit:
+        if not coherent and limit is not None and len(displayed) >= limit:
             return displayed
     for raw_candidate in priced_rows or []:
         candidate_id = str(getattr(raw_candidate, "candidate_id", "")).strip()
@@ -433,7 +437,7 @@ def _merge_consumer_market_rows(
             continue
         displayed.append(raw_candidate)
         seen_candidates.add(identity)
-        if not coherent and len(displayed) >= limit:
+        if not coherent and limit is not None and len(displayed) >= limit:
             break
     # Normal consumer views must resolve contradictions across the complete
     # pool before the display limit, featured cards or very-short-price group.
@@ -441,6 +445,48 @@ def _merge_consumer_market_rows(
     if coherent:
         displayed = coherent_consumer_forecasts(displayed)
     return displayed[:limit]
+
+
+def _manual_observed_quote(row, reference_quotes, *, now):
+    """Exact provider observations only; never the model's minimum odds."""
+    observed = observed_consensus(
+        reference_quotes.get(getattr(row, "candidate_id", "")),
+        candidate=row, now=now,
+    )
+    if observed is None:
+        return None
+    return wettfinder_consensus(observed, now=now) or observed
+
+
+def _filter_manual_market_rows(rows, reference_quotes, *, search_filters, now):
+    """Filter the complete coherent pool, then cap the rendered cards."""
+    specs = {spec.key: spec for spec in market_specs()}
+    matched = []
+    for row in rows:
+        if quote_below_publication_floor(
+            reference_quotes.get(getattr(row, "candidate_id", "")),
+            candidate=row, now=now,
+        ):
+            continue
+        observed = _manual_observed_quote(row, reference_quotes, now=now)
+        price = max(point.odds for point in observed.points) if observed else None
+        spec = specs.get(str(getattr(row, "market_key", "")).upper())
+        if search_filters.matches(
+            probability=getattr(row, "probability", None), quote=price,
+            market_kind=spec.kind if spec else None,
+        ):
+            matched.append(row)
+    displayed, per_fixture = [], {}
+    for row in matched:
+        identity = getattr(row, "fixture_id", None)
+        count = per_fixture.get(identity, 0)
+        if count >= MAX_CONSUMER_MARKETS_PER_FIXTURE:
+            continue
+        per_fixture[identity] = count + 1
+        displayed.append(row)
+        if len(displayed) >= MAX_CONSUMER_MARKET_SELECTIONS:
+            break
+    return displayed, len(matched)
 
 
 def _run_market_scan_worker(
@@ -512,10 +558,9 @@ def _run_market_scan_worker(
             candidate_pool.append(candidate)
     model_shortlist = select_wettfinder_catalog(
         candidate_pool,
-        max_candidates=MAX_CONSUMER_MARKET_SELECTIONS,
-        max_per_fixture=MAX_CONSUMER_MARKETS_PER_FIXTURE,
     )
-    # Preserve all calculated selections. No price/API stage follows.
+    # Cache the whole existing modeled catalog. Display filters must not be
+    # starved by an earlier 25-card/eight-market cut; prices cannot reorder it.
     challenge_snapshot["model_shortlist"] = model_shortlist
     challenge_snapshot["model_approved_candidates"] = len(model_shortlist)
     challenge_snapshot["shortlist"] = list(model_shortlist)
@@ -523,14 +568,33 @@ def _run_market_scan_worker(
         challenge_snapshot["shortlist"]
     )
     challenge_snapshot["price_candidates"] = []
-    challenge_snapshot["reference_quotes"] = {}
-    challenge_snapshot["quote_errors"] = []
-    challenge_snapshot["price_checked_at"] = None
-    challenge_snapshot["price_annotation_candidates"] = []
-    challenge_snapshot["price_checked_count"] = 0
-    challenge_snapshot["price_fixture_count"] = 0
+    quote_candidates = [row for row in model_shortlist
+                        if type(getattr(row, "fixture_id", None)) is int
+                        and row.fixture_id > 0
+                        and exact_market_target(getattr(row, "market_key", "")) is not None]
+    price_checked_at = datetime.now(timezone.utc) if quote_candidates else None
+    if progress_cb and quote_candidates:
+        progress_cb(0.95, "Vorhandene Auswahlen erhalten Vergleichsquoten")
+    # Only the explicit search worker fetches once. The existing provider
+    # utility groups these bounded results by fixture and enforces API budget
+    # reserves; changing filters only reads the returned snapshot.
+    reference_quotes, quote_errors = (
+        fetch_football_consensus(api_football_key, quote_candidates)
+        if quote_candidates else ({}, [])
+    )
+    candidates_by_id = {row.candidate_id: row for row in quote_candidates}
+    reference_quotes = {
+        key: quote for key, quote in reference_quotes.items()
+        if key in candidates_by_id and quote_matches_candidate(quote, candidates_by_id[key])
+    }
+    challenge_snapshot["reference_quotes"] = serialize_consensus_map(reference_quotes)
+    challenge_snapshot["quote_errors"] = quote_errors
+    challenge_snapshot["price_checked_at"] = price_checked_at.isoformat() if price_checked_at else None
+    challenge_snapshot["price_annotation_candidates"] = list(quote_candidates)
+    challenge_snapshot["price_checked_count"] = len(quote_candidates)
+    challenge_snapshot["price_fixture_count"] = len({row.fixture_id for row in quote_candidates})
     challenge_snapshot["price_status_counts"] = {}
-    challenge_snapshot["bookmaker_data_used"] = False
+    challenge_snapshot["bookmaker_data_used"] = bool(reference_quotes)
     if progress_cb:
         progress_cb(1.0, "Modell-Auswahlen sind bereit")
     return {"scope": scope, "challenge": challenge_snapshot}
@@ -542,11 +606,13 @@ def create_alternative_markets_tab_extended(
     search_date=None,
     search_end_date=None,
     embedded: bool = False,
+    search_filters: Optional[SearchFilters] = None,
 ) -> None:
     """Find a compact Top 3 plus further calculated football forecasts."""
     if market_scope not in FOOTBALL_MARKET_SCOPES:
         raise ValueError(f"Unbekannte Fußball-Wettart: {market_scope}")
     selected_market_kinds = FOOTBALL_MARKET_SCOPES[market_scope]
+    search_filters = search_filters or SearchFilters()
     session_scope = scan_jobs.session_scope(st.session_state)
     job_key = scan_jobs.scoped_key("markets", session_scope)
     config = load_app_config(st)
@@ -665,12 +731,8 @@ def create_alternative_markets_tab_extended(
             "version": MARKET_SNAPSHOT_VERSION,
             "scanned_at": challenge_snapshot.get("scanned_at"),
             "scope": result.get("scope") or scope,
-            "shortlist": challenge_snapshot.get("shortlist", [])[
-                :FEATURED_CONSUMER_MARKET_SELECTIONS
-            ],
-            "model_shortlist": challenge_snapshot.get("model_shortlist", [])[
-                :MAX_CONSUMER_MARKET_SELECTIONS
-            ],
+            "shortlist": challenge_snapshot.get("shortlist", []),
+            "model_shortlist": challenge_snapshot.get("model_shortlist", []),
             "reference_quotes": challenge_snapshot.get("reference_quotes", {}),
             "quote_errors": challenge_snapshot.get("quote_errors", []),
             "price_checked_at": challenge_snapshot.get("price_checked_at"),
@@ -807,13 +869,19 @@ def create_alternative_markets_tab_extended(
     # Resolve opposing selections before any price-based presentation split.
     # A passing price never selects the primary direction for a game.
     displayed_rows = _merge_consumer_market_rows(
-        shortlist, model_shortlist, coherent=True,
+        shortlist, model_shortlist, coherent=True, limit=None,
     )
     reference_quotes = deserialize_consensus_map(snapshot.get('reference_quotes'))
     price_now = datetime.now(timezone.utc)
-    displayed_rows = [row for row in displayed_rows
-                      if not quote_below_publication_floor(
-                          reference_quotes.get(row.candidate_id), candidate=row, now=price_now)]
+    stored_count = len(displayed_rows)
+    displayed_rows, matched_count = _filter_manual_market_rows(
+        displayed_rows, reference_quotes, search_filters=search_filters, now=price_now,
+    )
+    noun = "Auswahl" if matched_count == 1 else "Auswahlen"
+    st.caption(
+        f"{matched_count} passende {noun} aus {stored_count} gespeicherten "
+        f"Modell-Auswahlen · {len(displayed_rows)} angezeigt"
+    )
     primary_rows = displayed_rows
     featured_rows, more_rows = partition_consumer_featured_forecasts(
         primary_rows,
@@ -821,7 +889,12 @@ def create_alternative_markets_tab_extended(
         allow_mixed_backfill=True,
     )
     if not displayed_rows:
-        _render_consumer_no_tip(snapshot, day_label=result_day)
+        if stored_count and (search_filters.probability_active
+                             or search_filters.quote_active
+                             or search_filters.market_kind is not None):
+            st.info("Keine gespeicherte Auswahl passt zu diesen Filtern. Filter erweitern.")
+        else:
+            _render_consumer_no_tip(snapshot, day_label=result_day)
     else:
         if not featured_rows:
             st.info(
@@ -829,8 +902,6 @@ def create_alternative_markets_tab_extended(
                 "Basisprognosen und weitere miteinander vereinbare "
                 "Auswahlen stehen unten."
             )
-        else:
-            st.caption(f"{len(primary_rows)} Auswahlen")
         def render_rows(rows, *, start_index: int) -> None:
             candidates = [_strict_market_candidate(candidate) for candidate in rows]
             for offset, (candidate, raw_candidate) in enumerate(
@@ -839,6 +910,9 @@ def create_alternative_markets_tab_extended(
                 index = start_index + offset
                 st.caption(f"Auswahl {index}")
                 render_model_selection(candidate, presentation="fixture_first")
+                observed = _manual_observed_quote(raw_candidate, reference_quotes, now=price_now)
+                quote_value = max(point.odds for point in observed.points) if observed else None
+                st.caption(f"Quote {quote_value:.2f}" if quote_value is not None else "Quote —")
                 from football_customer_facts import manual_football_customer_analysis
                 from forecast_compact import CompactAnalysis, Fact, render_compact_analysis_html
                 from forecast_analysis import format_model_clock

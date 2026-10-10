@@ -77,6 +77,8 @@ from ev_signal_sources import (
 from ui_components import plain_german, scan_progress_fragment
 from config_loader import load_app_config
 from date_context import german_date_window, zurich_today
+from manual_search_filters import SearchFilters, render_search_filters
+from manual_search_results import esports_search_results
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES, ANALYZER_LEAGUE_IDS
 from multi_sport_recommendations import (
     EVIDENCE_RELEASED,
@@ -2143,7 +2145,7 @@ def _commit_area_choice(widget_key: str) -> None:
 
 
 def _render_editorial_header(workspace: str) -> None:
-    """One labeled, keyboard-accessible area selector at every screen width."""
+    """One keyboard-accessible, directly visible main menu at every width."""
     key = "bb_area_navigation"
     area = _area_for_workspace(workspace)
     def _go():
@@ -2156,7 +2158,11 @@ def _render_editorial_header(workspace: str) -> None:
         st.markdown('<p class="bb-brand">BetBoy</p>', unsafe_allow_html=True)
         st.caption("Wettfinder")
         with st.container(key="bb_area_nav"):
-            st.selectbox("Bereich", AREA_OPTIONS, key=key, on_change=_go)
+            st.radio("Hauptnavigation", AREA_OPTIONS, key=key, on_change=_go,
+                horizontal=True, label_visibility="collapsed",
+                format_func=lambda value: {
+                    "Automatisch": "Wettfinder", "Eigene Suche": "Manuelle Suche",
+                }.get(value, value))
 
 
 def _daily3_rail_allowed() -> bool:
@@ -4072,6 +4078,7 @@ def render_multi_sport(
     preselected_sport: Optional[str] = None,
     search_date: Optional[date] = None,
     search_end_date: Optional[date] = None,
+    search_filters: Optional[SearchFilters] = None,
 ) -> None:
     if preselected_sport is not None and preselected_sport not in MULTI_SPORT_OPTIONS:
         raise ValueError(f"Unbekannte Sportart: {preselected_sport}")
@@ -4170,6 +4177,18 @@ def render_multi_sport(
             st.info(f"Keine anstehenden {sport}-Ereignisse im Zeitraum.")
         return
 
+    filtered_results = None
+    if search_filters is not None:
+        if sport == "E-Sport":
+            filtered_results = esports_search_results(snapshot_items, search_filters)
+            snapshot_items = [result.item for result in filtered_results]
+        elif not search_filters.matches(probability=None):
+            # These upcoming paths provide a timetable, not a fabricated model
+            # probability or price. They cannot satisfy active numerical filters.
+            snapshot_items = []
+        if not snapshot_items:
+            st.info("Keine Auswahl passt zu diesen Filtern.")
+            return
     selected_index = st.selectbox(
         "Spiel",
         list(range(len(snapshot_items))),
@@ -4244,11 +4263,8 @@ def render_multi_sport(
             st.info("Bitte die angebotene Linie abgleichen und bestätigen.")
             return
 
-    candidate = build_candidate(
-        sport,
-        selected_item,
-        market_line=line_value,
-    )
+    candidate = (filtered_results[selected_index].candidate if filtered_results is not None
+                 else build_candidate(sport, selected_item, market_line=line_value))
     release_blockers = _multi_sport_release_blockers(sport, selected_item)
     if release_blockers:
         candidate = replace(
@@ -4260,6 +4276,8 @@ def render_multi_sport(
 
     if candidate.expected_total is not None:
         st.caption(f"Erwartete Gesamtzahl: {candidate.expected_total:.2f}")
+    if filtered_results is not None and filtered_results[selected_index].quote is not None:
+        st.metric("Quote", f"{filtered_results[selected_index].quote.best_odds:.2f}")
     render_model_selection(candidate)
 
 
@@ -4742,28 +4760,35 @@ def _render_selected_finder(
     search_date: date,
     search_end_date: date,
     football_market_scope: str,
+    search_filters: Optional[SearchFilters] = None,
 ) -> None:
     # The capability line prevents a timetable-only sport from looking like a
     # fully validated pre-match betting model.
     if sport in {"Fußball", "Tennis"}:
         st.caption(f"Abdeckung: {_sport_capability_text(sport)}")
     if sport == "Fußball":
+        football_filters = search_filters
+        if football_filters is not None:
+            football_filters = replace(football_filters,
+                                       market_kind=_alternative_markets.FOOTBALL_MARKET_SCOPES[football_market_scope])
         create_alternative_markets_tab_extended(
-            market_scope=football_market_scope,
+            market_scope="Beste Märkte" if search_filters is not None else football_market_scope,
             search_date=search_date,
             search_end_date=search_end_date,
             embedded=True,
+            search_filters=football_filters,
         )
         return
     if sport == "Tennis":
         from tennis_tab import render_tennis_finder
 
-        render_tennis_finder(search_date, search_end_date)
+        render_tennis_finder(search_date, search_end_date, search_filters=search_filters)
         return
     render_multi_sport(
         preselected_sport=sport,
         search_date=search_date,
         search_end_date=search_end_date,
+        search_filters=search_filters,
     )
 
 
@@ -4783,7 +4808,7 @@ def render_wettfinder() -> None:
 
         with st.container(key="wettfinder_v2_custom"):
             require_feature(st, "search")
-            st.subheader("Eigene Suche")
+            st.subheader("Manuelle Suche")
             controls = st.columns(3)
             with controls[0]:
                 sport = st.selectbox(
@@ -4820,6 +4845,15 @@ def render_wettfinder() -> None:
                         key="finder_football_market",
                     )
 
+            market_kind = None
+            if sport in {"Tennis", "E-Sport"}:
+                with controls[2]:
+                    market_label = st.selectbox("Wettart", ["Alle Wettarten", "Match-Sieger"],
+                                               key="finder_manual_market")
+                    if market_label == "Match-Sieger":
+                        market_kind = "match_winner"
+            search_filters = render_search_filters(st, key_prefix="finder_manual_filters",
+                                                   market_kind=market_kind)
             if sport == "Alle":
                 sport_tabs = st.tabs(list(selected_sports))
                 for sport_tab, selected_sport in zip(sport_tabs, selected_sports):
@@ -4829,6 +4863,7 @@ def render_wettfinder() -> None:
                             search_date,
                             search_end_date,
                             football_market_scope,
+                            search_filters=search_filters,
                         )
                 return
 
@@ -4837,6 +4872,7 @@ def render_wettfinder() -> None:
                 search_date,
                 search_end_date,
                 football_market_scope,
+                search_filters=search_filters,
             )
 
 
