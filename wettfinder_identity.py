@@ -7,7 +7,7 @@ def with_identity_images(card, signal, *, enabled=False):
     """Decorate a disposable presentation copy, without touching saved evidence."""
     if not enabled:
         return card
-    from sports_identity_media import participant_image
+    from sports_identity_media import participant_image, participant_display_name
 
     sport = str(card.sport or '').casefold().replace('ß', 'ss').replace('-', '_').replace(' ', '_')
     kind = {'fussball': 'football', 'football': 'football', 'tennis': 'tennis',
@@ -39,16 +39,26 @@ def with_identity_images(card, signal, *, enabled=False):
         context_evidence=getattr(signal, 'context_evidence', None), side=side,
         competition=getattr(signal, 'competition', None),
     ) if name else None for name, team_id, side in zip(names, ids, ('a', 'b'))]
-    if not any(images):
-        return card
     fields = {}
+    if kind == 'ice_hockey':
+        display_names = [participant_display_name(
+            kind, name, team_id=team_id, fixture_source=source,
+            competition=getattr(signal, 'competition', None),
+        ) if name else name for name, team_id in zip(names, ids)]
+        for side, original_name, display_name in zip(('home', 'away'), names, display_names):
+            if display_name != original_name:
+                fields['display_' + side + '_name'] = display_name
+        if card.selection in names:
+            selected_name = display_names[names.index(card.selection)]
+            if selected_name != card.selection:
+                fields['display_selection'] = selected_name
     for side, image in zip(('home', 'away'), images):
         if image is not None:
             fields[side + '_image'] = image.image_url
             fields[side + '_image_source'] = image.source_url
             fields[side + '_image_credit'] = image.credit
             fields[side + '_image_crop'] = getattr(image, 'crop', None)
-    return replace(card, **fields)
+    return replace(card, **fields) if fields else card
 
 
 def rendered_identity_card(card, signal):

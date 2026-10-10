@@ -80,6 +80,25 @@ def test_missing_images_leave_card_unmodified(monkeypatch):
     assert with_identity_images(card, signal, enabled=True) is card
 
 
+def test_hockey_full_names_are_render_only_not_quote_or_model_identities():
+    from wettfinder_surface import render_editorial_card_html
+    signal = SimpleNamespace(competition='NHL', context_evidence=None)
+    card = replace(build_wettfinder_card(editorial_tennis(), now=NOW),
+        sport='Eishockey', event_label='BOS vs PHI', market='Sieger inklusive Verlängerung und Penaltyschießen',
+        selection='BOS', competitor_a='BOS', competitor_b='PHI', selected_competitor='BOS',
+        competitor_a_id='6', competitor_b_id='4', fixture_source='NHL')
+    decorated = with_identity_images(card, signal, enabled=True)
+    html = render_editorial_card_html(decorated)
+    assert '<strong>Boston Bruins</strong>' in html
+    assert '<strong>Philadelphia Flyers</strong>' in html
+    assert decorated.competitor_a == 'BOS' and decorated.competitor_b == 'PHI'
+    assert decorated.selection == decorated.selected_competitor == 'BOS'
+    assert decorated.reference_quote is card.reference_quote
+    assert decorated.key == card.key and decorated.model_probability == card.model_probability
+    assert decorated.modeled_at == card.modeled_at and decorated.scheduled_start == card.scheduled_start
+    assert 'BOS vs PHI' == card.event_label
+
+
 @pytest.mark.parametrize('sport, kind, provider, team_ids', [
     ('Basketball', 'basketball', 'ESPN', ('espn:basketball:team:2', 'espn:basketball:team:13')),
     ('Eishockey', 'ice_hockey', 'NHL', ('nhl:ice_hockey:team:10', 'nhl:ice_hockey:team:6')),

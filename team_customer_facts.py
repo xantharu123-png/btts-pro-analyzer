@@ -161,6 +161,33 @@ def team_recent_counters(facts):
     return result
 
 
+def _hockey_goal_reason(factors, a, b, chosen):
+    """Translate only the exact saved regulation-goal factor, never free prose."""
+    if not isinstance(factors, (list, tuple)) or not factors:
+        return ()
+    factor = factors[0]
+    match = re.fullmatch(
+        r'Erwartete Tore in regulärer Spielzeit: ([0-9]+\.[0-9]{2})/([0-9]+\.[0-9]{2})\.',
+        factor,
+    ) if isinstance(factor, str) and len(factor) <= 220 else None
+    if match is None:
+        return ()
+    home, away = (float(value) for value in match.groups())
+    if not all(math.isfinite(value) and 0 <= value <= 30 for value in (home, away)):
+        return ()
+    selected, other = (home, away) if chosen == a else (away, home)
+    opponent = b if chosen == a else a
+    if selected == other:
+        text = (f'{chosen} und {opponent} liegen in der Torprognose gleichauf: '
+                f'je {_decimal(selected, 2)} erwartete Tore in regulärer Spielzeit.')
+    else:
+        relation = 'vor' if selected > other else 'hinter'
+        text = (f'{chosen} liegt mit {_decimal(selected, 2)} erwarteten Toren in regulärer Spielzeit '
+                f'{relation} {opponent} mit {_decimal(other, 2)} '
+                f'– ein Unterschied von {_decimal(abs(selected-other), 2)} Toren.')
+    return (text, 'Die Siegschätzung umfasst auch Verlängerung und Penaltyschießen.')
+
+
 def team_customer_explanation(signal, probability=None, *, recent_facts=None):
     """Return reasons/counterpoint/recent tuples for public card formatters."""
     empty = {'reasons': (), 'counterpoint': None, 'recent': ()}
@@ -173,7 +200,15 @@ def team_customer_explanation(signal, probability=None, *, recent_facts=None):
         return empty
     if not _number(p) or not 0 <= p <= 1:
         return empty
-    counter = f'{b if chosen == a else a}: {_decimal((1-p)*100)} % modellierte Gegenchance.'
+    display_a, display_b = a, b
+    if sport in {'eishockey', 'icehockey'}:
+        from sports_identity_media import participant_display_name
+        display_a, display_b = (participant_display_name('ice_hockey', name,
+            team_id=_get(signal, field), fixture_source=_get(signal, 'fixture_source'),
+            competition=_get(signal, 'competition'))
+            for name, field in ((a, 'competitor_a_id'), (b, 'competitor_b_id')))
+    display_chosen = display_a if chosen == a else display_b
+    counter = f'{display_b if chosen == a else display_a}: {_decimal((1-p)*100)} % modellierte Gegenchance.'
     reasons, recent = (), ()
     if sport in {'esport', 'esports'}:
         context = _mapping(_get(signal, 'context_evidence'))
@@ -224,7 +259,9 @@ def team_customer_explanation(signal, probability=None, *, recent_facts=None):
             return {**empty, 'counterpoint': counter}
         prefixes = ('Gegnerbereinigte erwartete Punktedifferenz Heim–Gast:', 'Aus den Punktedifferenzen geschätzte Streuung:') if sport == 'basketball' else ('Erwartete Tore in regulärer Spielzeit:', 'Verlängerung/Shootout separat aus ')
         factors = forecast.get('factors', ())
-        if isinstance(factors, (list, tuple)):
+        if expected_sport == 'ice_hockey':
+            reasons = _hockey_goal_reason(factors, display_a, display_b, display_chosen)
+        elif isinstance(factors, (list, tuple)):
             reasons = tuple(value for value in factors[:2] if isinstance(value, str) and len(value) <= 220 and value.startswith(prefixes))
         facts = _mapping(recent_facts or snapshot.get('customer_recent_results'))
         if (facts.get('schema') == 'team-recent-results-v1' and facts.get('sport') == expected_sport

@@ -127,6 +127,60 @@ class TeamCustomerFactsTests(unittest.TestCase):
         signal.sport = 'Cricket'
         self.assertEqual(api('team_customer_explanation')(signal), {'reasons': (), 'counterpoint': None, 'recent': ()})
 
+    def hockey_signal(self, *, selected='BOS', goals='3.09/2.60'):
+        forecast = {'sport': 'ice_hockey', 'model_version': 'sports-prematch-research-v1',
+            'provider_event_id': '2026020070', 'modeled_at': '2026-10-10T02:12:48+00:00',
+            'home': 'BOS', 'away': 'PHI', 'p_home': .577, 'p_away': .423,
+            'factors': [f'Erwartete Tore in regulärer Spielzeit: {goals}.',
+                'Verlängerung/Shootout separat aus 298 passenden Spielen berücksichtigt.'],
+            'missing': []}
+        return SimpleNamespace(sport='Eishockey', probability=.577 if selected == 'BOS' else .423,
+            competitor_a='BOS', competitor_b='PHI', competitor_a_id='6', competitor_b_id='4',
+            selected_competitor=selected, fixture_source='NHL', competition='NHL',
+            provider_event_id='2026020070', modeled_at=forecast['modeled_at'],
+            team_sport_snapshot={'team_sport_forecast': forecast})
+
+    def test_hockey_reason_labels_both_goal_estimates_and_explains_chosen_advantage(self):
+        signal = self.hockey_signal()
+        before = copy.deepcopy(vars(signal))
+        actual = api('team_customer_explanation')(signal)
+        reason = actual['reasons'][0]
+        self.assertIn('Boston Bruins', reason)
+        self.assertIn('Philadelphia Flyers', reason)
+        self.assertIn('3,09', reason)
+        self.assertIn('2,60', reason)
+        self.assertIn('vor', reason)
+        self.assertIn('regulärer Spielzeit', reason)
+        self.assertNotIn('3.09/2.60', reason)
+        self.assertIn('Philadelphia Flyers', actual['counterpoint'])
+        self.assertIn('42,3 %', actual['counterpoint'])
+        self.assertEqual(vars(signal), before)
+
+    def test_hockey_opposite_side_cannot_inherit_the_home_teams_supporting_reason(self):
+        actual = api('team_customer_explanation')(self.hockey_signal(selected='PHI'))
+        reason = actual['reasons'][0]
+        self.assertIn('Philadelphia Flyers', reason)
+        self.assertIn('hinter', reason)
+        self.assertNotIn('spricht für Philadelphia', reason)
+        self.assertIn('Boston Bruins', actual['counterpoint'])
+        self.assertIn('57,7 %', actual['counterpoint'])
+
+    def test_hockey_equal_goal_estimates_do_not_claim_a_goal_advantage(self):
+        actual = api('team_customer_explanation')(self.hockey_signal(goals='2.80/2.80'))
+        self.assertIn('gleichauf', actual['reasons'][0])
+        self.assertNotIn('vor Philadelphia', actual['reasons'][0])
+
+    def test_hockey_malformed_goal_factor_does_not_become_a_supporting_fact(self):
+        for goals in ('nan/2.60', '-3.09/2.60', '3.09/2.60 EXTRA', '300.00/2.60'):
+            with self.subTest(goals=goals):
+                actual = api('team_customer_explanation')(self.hockey_signal(goals=goals))
+                self.assertEqual(actual['reasons'], ())
+
+    def test_hockey_wrong_model_binding_cannot_supply_goal_explanation(self):
+        signal = self.hockey_signal()
+        signal.team_sport_snapshot['team_sport_forecast']['provider_event_id'] = 'wrong'
+        self.assertEqual(api('team_customer_explanation')(signal)['reasons'], ())
+
     def test_team_sidecar_keeps_real_final_scores_and_not_normalized_hockey_ties(self):
         now = datetime(2026, 9, 28, 10, tzinfo=timezone.utc)
         start = now - timedelta(days=1)

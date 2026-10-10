@@ -490,7 +490,8 @@ def _sport_analysis(signal, sport, now):
         from team_customer_facts import team_customer_explanation
         facts = team_customer_explanation(signal)
         return ForecastAnalysis(
-            (f'{signal.selected_competitor} ist die Außenseiter-Auswahl. ' if signal.probability < .5 else '')+f'Bewertung für {signal.selected_competitor}: '+(' '.join(facts['reasons']) or f'Das sportspezifische Modell bewertet {signal.selection} mit {_percent(signal.probability)}. {signal.market}.'),
+            (' '.join(facts['reasons']) if sport in {'eishockey', 'ice_hockey'} and facts['reasons'] else
+             (f'{signal.selected_competitor} ist die Außenseiter-Auswahl. ' if signal.probability < .5 else '')+f'Bewertung für {signal.selected_competitor}: '+(' '.join(facts['reasons']) or f'Das sportspezifische Modell bewertet {signal.selection} mit {_percent(signal.probability)}. {signal.market}.')),
             (facts['counterpoint'] or '')+' Modell noch nicht unabhängig bestätigt. Verletzungen und Müdigkeit sind nicht als numerische Effekte angewendet.',
             f"Basis: {basis['training_games']} abgeschlossene Spiele; Heimteam {basis['home_games']}, Auswärtsteam {basis['away_games']}. Zeitlich getrennte Auswertung: {basis['evaluation']['count']} Spiele.",
             supported=True)

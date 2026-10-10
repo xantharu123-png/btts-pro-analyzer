@@ -42,3 +42,46 @@ def test_old_riskobet_esport_details_hide_internal_rating_numbers():
         public = format_riskobet_public_detail(text)
         assert 'Best-of-3' in public
         assert 'Elo' not in public and '1600' not in public and '100' not in public
+
+
+def test_hockey_shortcheck_labels_the_advantage_before_details_truncation():
+    from dataclasses import replace
+    from ev_signal_sources import ModelSignal
+    from test_team_sport_forecasts import _snapshot, NOW
+    from team_sport_forecasts import team_sport_forecast_rows
+    from wettfinder_surface import build_wettfinder_card, render_editorial_card_html
+    from wettfinder_identity import with_identity_images
+    snapshot = _snapshot('ice_hockey')
+    forecast = replace(snapshot.team_sport_forecast, home='BOS', away='PHI', home_id='6', away_id='4',
+        p_home=.577, p_away=.423, factors=('Erwartete Tore in regulärer Spielzeit: 3.09/2.60.',
+            'Verlängerung/Shootout separat aus 298 passenden Spielen berücksichtigt.'))
+    snapshot = replace(snapshot, event_label='BOS vs PHI', team_sport_forecast=forecast)
+    row = team_sport_forecast_rows(SimpleNamespace(snapshots=(snapshot,)), now=NOW, target_date=NOW.date())[0]
+    signal = ModelSignal(**{key: value for key, value in row.items() if key in ModelSignal.__dataclass_fields__}, event_label=row['event'])
+    card = build_wettfinder_card(signal, now=NOW)
+    summary = card.compact_analysis.summary
+    assert all(part in summary for part in ('Boston Bruins', 'Philadelphia Flyers', '3,09', '2,60', '0,49'))
+    assert 'vor Philadelphia' in summary and 'regulärer Spielzeit' in summary
+    html = render_editorial_card_html(with_identity_images(card, signal, enabled=True))
+    assert '<strong>Boston Bruins</strong>' in html
+    assert '57.7 %' in html and '42,3 %' in html
+    assert signal.competitor_a == 'BOS' and signal.probability == .577
+
+
+def test_hockey_shortcheck_keeps_abbreviated_full_names_on_both_sides():
+    from dataclasses import replace
+    from ev_signal_sources import ModelSignal
+    from test_team_sport_forecasts import _snapshot, NOW
+    from team_sport_forecasts import team_sport_forecast_rows
+    from wettfinder_surface import build_wettfinder_card
+    snapshot = _snapshot('ice_hockey')
+    forecast = replace(snapshot.team_sport_forecast, home='STL', away='BOS', home_id='19', away_id='6',
+        p_home=.577, p_away=.423, factors=('Erwartete Tore in regulärer Spielzeit: 3.09/2.60.',))
+    snapshot = replace(snapshot, event_label='STL vs BOS', team_sport_forecast=forecast)
+    rows = team_sport_forecast_rows(SimpleNamespace(snapshots=(snapshot,)), now=NOW, target_date=NOW.date())
+    for row in rows:
+        signal = ModelSignal(**{key: value for key, value in row.items() if key in ModelSignal.__dataclass_fields__}, event_label=row['event'])
+        summary = build_wettfinder_card(signal, now=NOW).compact_analysis.summary
+        assert all(part in summary for part in ('St. Louis Blues', 'Boston Bruins', '3,09', '2,60', '0,49'))
+        assert summary.startswith('St. Louis Blues' if signal.selected_competitor == 'STL' else 'Boston Bruins')
+        assert ('vor Boston' if signal.selected_competitor == 'STL' else 'hinter St. Louis') in summary

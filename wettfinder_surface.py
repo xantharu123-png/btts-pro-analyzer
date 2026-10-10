@@ -119,6 +119,10 @@ class WettfinderCard:
     away_image_source: Optional[str] = None
     home_image_crop: Optional[tuple[float, float, float]] = None
     away_image_crop: Optional[tuple[float, float, float]] = None
+    # Human-readable aliases only; all native model and quote identities stay intact.
+    display_home_name: Optional[str] = None
+    display_away_name: Optional[str] = None
+    display_selection: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -876,8 +880,8 @@ def _safe_identity_crop_style(value: object) -> str:
 
 def render_match_header_html(card: WettfinderCard) -> str:
     """Keep the original shield, with verified portraits/crests or neutral initials."""
-    first = card.home_team or card.competitor_a
-    second = card.away_team or card.competitor_b
+    first = card.display_home_name or card.home_team or card.competitor_a
+    second = card.display_away_name or card.away_team or card.competitor_b
     if not first or not second:
         return f'<p class="se-event">{escape(card.event_label)}</p>'
     sport = _token(card.sport)
@@ -955,7 +959,7 @@ def render_editorial_card_html(card: WettfinderCard, *, grouped=False, featured=
         + f' aria-label="Modellprognose für {escape(card.event_label, quote=True)}">'
         + ('<div class="se-card-top">' + head if has_match else '<div class="se-card-top se-card-top-market">')
         + '<div class="se-pick-and-reason"><div class="se-pick"><div class="se-pick-label">'
-        f'<span>{escape(card.market)}</span><strong>{escape(card.selection)}</strong></div>'
+        f'<span>{escape(card.market)}</span><strong>{escape(card.display_selection or card.selection)}</strong></div>'
         f'<div class="se-number"><span aria-label="Modellchance">Modell</span><strong>{escape(format_probability(card.model_probability))}</strong></div>'
         f'{quote_html}</div>{reason_html}</div></div>{analysis_html}</article>'
     )

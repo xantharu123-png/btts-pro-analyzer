@@ -255,6 +255,29 @@ def _team_logos() -> tuple[_TeamLogo, ...]:
         return ()
 
 
+def participant_display_name(kind: str, name: str, *, team_id: object = None,
+                             fixture_source: str | None = None,
+                             competition: str | None = None) -> str:
+    """Expand only an exact reviewed NHL identity; preserve all other labels.
+
+    This is display metadata, not a model identity or a provider lookup. The
+    local manifest's first full label is used only in the NHL namespace and
+    competition; missing or ambiguous identities never trigger name guessing.
+    """
+    if (kind != "ice_hockey" or _provider(fixture_source) != "nhl"
+            or _provider(competition) != "nhl"):
+        return name
+    wanted = _team_name(name)
+    native_id = _team_key(team_id, "nhl", kind)
+    if not wanted or native_id is None:
+        return name
+    matches = [row for row in _team_logos() if row.sport == kind
+               and row.provider == "nhl" and row.team_id == native_id]
+    if len(matches) != 1 or not any(wanted == _team_name(alias) for alias in matches[0].names):
+        return name
+    return next((alias for alias in matches[0].names if len(alias.split()) > 1), name)
+
+
 def _team_logo(kind: str, name: str, team_id: object, provider: str,
                competition: object) -> ParticipantImage | None:
     if provider not in _TEAM_SPORT_PROVIDERS.get(kind, ()) or not _team_name(name):

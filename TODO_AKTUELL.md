@@ -1,5 +1,46 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 10.10.2026 – BOS/PHI: echter Preis und nachvollziehbarer Kurzcheck
+
+- [x] Produktionsursache belegt: Tagesstand 04:12 CEST stammt vor dem
+  Preisproducer-Fix; Eishockey meldete dort `disabled_for_model_only_tips`.
+  Der alte Teamsport-Cache enthielt keinen BOS/PHI-Preis. Code-Deploy allein
+  erneuert gespeicherte Preise nicht.
+- [x] Genau ein Preis-only-Check des bestehenden BOS/PHI-Modellereignisses
+  `2026020070`: korrektes API-Sports-Spiel, Sieger inklusive Verlängerung und
+  Penaltyschießen, Boston **1,75**, Philadelphia **2,25**, keine Abruffehler.
+  Wettfinder-/RisikoBet-Prognosedateien bytegleich; kein neuer Modell-/Sportscan.
+- [x] NHL-Vollnamen ausschließlich aus geprüftem Manifest und exakter nativer
+  NHL-ID-/Quellen-/Liga-/Aliasbindung, keine unscharfe Identitätszuordnung.
+  Vollnamen sind reine Renderfelder; Original-IDs, BOS/PHI, Auswahl, Modellchance
+  und Quotenbindung bleiben unverändert.
+- [x] Auswahlgebundene kurze Begründung: Boston 3,09 erwartete Tore in regulärer
+  Spielzeit gegenüber Philadelphia 2,60, Abstand 0,49. Die unveränderten 57,7 %
+  betreffen den Gesamtsieger; Philadelphias Gegenchance beträgt 42,3 %.
+  Kein erfundener Verletzungs-, Torhüter-, Wetter- oder Formvorteil.
+- [x] Gegenseite, Gleichstand, ungültige Faktoren, fremde Ereignisse sowie
+  `St. Louis Blues` auf beiden Seiten regressionsgeprüft. Punkt im Teamnamen
+  darf den sichtbaren Kurzcheck nicht abschneiden.
+- [x] Nach allen Codeänderungen **677 Tests und vier Untertests bestanden**
+  (16,97 s). Unabhängiger Abschlussreview: kein verbleibender konkreter P1/P2.
+- [ ] Commit/Push/VPS-Veröffentlichung und interner Desktop-/Mobilbrowser-
+  Nachweis werden unmittelbar nach dieser Dokumentation geprüft.
+- [ ] Ergänzende Sportsuite läuft isoliert außerhalb der Windows-Sandbox:
+  `C:/Projekt/BetBoy/output/hockey-card-20261010/sports-fullsuite-unrestricted.log`.
+  Der erste Sandboxfehler war WinError 5 beim Test einer temporären SQLite-
+  Prüfkopie; derselbe Einzeltest außerhalb der Sandbox bestanden. Repositoryweite
+  Sammlung zusätzlich durch fehlendes Django im Portal-Testumfeld blockiert.
+  Keine vollständige grüne Gesamtprüfung behaupten.
+- [ ] Separate strukturierte Eishockey-/Basketball-Formlücke: echter Producer
+  speichert derzeit Textzusammenfassungen, aber keine `customer_recent_results`-
+  Zeilen für die Formkacheln. Nicht aus Prosa zurückparsen und keine Spiele erfinden.
+
+Vorige Anfrage weiterhin offen: globale Sortierung Startzeit aufsteigend oder
+Modellchance absteigend sowie Eishockey-Ligaabdeckung über NHL hinaus. NHL ist
+angebunden; Schweizer National League/Top-20-Ligen nicht als erledigt darstellen.
+Der zuvor vorgelegte Sortierentwurf ist noch nicht ausdrücklich freigegeben.
+Keine Sicherung, Migration, Bereinigung, Modelländerung oder Kontobuchung hier.
+
 ## 10.10.2026 – Quotenabruf statt Kaschieren fehlender Preise
 
 Die neue manuelle Filterung war keine vollständige Preisversorgung. Ursachen

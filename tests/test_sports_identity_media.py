@@ -316,6 +316,101 @@ def test_nhl_does_not_guess_from_name_or_foreign_id(no_real_network, monkeypatch
     assert media.participant_image("ice_hockey", name, team_id=team_id, fixture_source=provider) is None
 
 
+@pytest.mark.parametrize("name,team_id,expected", [
+    ("BOS", 6, "Boston Bruins"),
+    ("BOS", "6", "Boston Bruins"),
+    ("BOS", "nhl:ice_hockey:team:6", "Boston Bruins"),
+    ("PHI", 4, "Philadelphia Flyers"),
+    ("PHI", "4", "Philadelphia Flyers"),
+    ("PHI", "nhl:ice_hockey:team:4", "Philadelphia Flyers"),
+])
+def test_display_name_expands_exact_reviewed_nhl_identity_offline(
+        no_real_network, monkeypatch, name, team_id, expected):
+    monkeypatch.setattr(media, "_TEAM_MANIFEST_PATH",
+                        Path(__file__).resolve().parents[1] / "assets" / "identity" / "team-logos.json")
+    assert media.participant_display_name("ice_hockey", name, team_id=team_id,
+                                         fixture_source="NHL", competition="NHL") == expected
+
+
+@pytest.mark.parametrize("team_id,name,provider,competition", [
+    (None, "BOS", "NHL", "NHL"),
+    (True, "BOS", "NHL", "NHL"),
+    (False, "BOS", "NHL", "NHL"),
+    (0, "BOS", "NHL", "NHL"),
+    (-6, "BOS", "NHL", "NHL"),
+    (6.0, "BOS", "NHL", "NHL"),
+    ("06", "BOS", "NHL", "NHL"),
+    ("6.0", "BOS", "NHL", "NHL"),
+    ("6?key=secret", "BOS", "NHL", "NHL"),
+    (2**63, "BOS", "NHL", "NHL"),
+    (4, "BOS", "NHL", "NHL"),
+    (6, "PHI", "NHL", "NHL"),
+    (6, "Boston", "NHL", "NHL"),
+    (6, "Bruins", "NHL", "NHL"),
+    (6, "Boston Bruns", "NHL", "NHL"),
+    (6, "  BOS Junior  ", "NHL", "NHL"),
+    (6, "BOS\n", "NHL", "NHL"),
+    (6, "", "NHL", "NHL"),
+    (6, "BOS", None, "NHL"),
+    (6, "BOS", "ESPN", "NHL"),
+    (6, "BOS", "api-sports", "NHL"),
+    (6, "BOS", "NHL", None),
+    (6, "BOS", "NHL", ""),
+    (6, "BOS", "NHL", "AHL"),
+    (6, "BOS", "NHL", "NHL Preseason"),
+    ("espn:basketball:team:6", "BOS", "NHL", "NHL"),
+    ("nhl:basketball:team:6", "BOS", "NHL", "NHL"),
+    ("nhl:ice_hockey:team:06", "BOS", "NHL", "NHL"),
+])
+def test_display_name_preserves_input_for_invalid_nhl_identity_context(
+        no_real_network, monkeypatch, team_id, name, provider, competition):
+    monkeypatch.setattr(media, "_TEAM_MANIFEST_PATH",
+                        Path(__file__).resolve().parents[1] / "assets" / "identity" / "team-logos.json")
+    assert media.participant_display_name("ice_hockey", name, team_id=team_id,
+                                         fixture_source=provider, competition=competition) == name
+
+
+@pytest.mark.parametrize("kind", ["football", "basketball", "tennis", "cricket", "esports", "hockey", ""])
+def test_display_name_does_not_expand_a_reviewed_nhl_code_in_other_sports(
+        no_real_network, monkeypatch, kind):
+    monkeypatch.setattr(media, "_TEAM_MANIFEST_PATH",
+                        Path(__file__).resolve().parents[1] / "assets" / "identity" / "team-logos.json")
+    assert media.participant_display_name(kind, "BOS", team_id=6,
+                                         fixture_source="NHL", competition="NHL") == "BOS"
+
+
+def test_display_name_preserves_original_label_when_manifest_is_missing(no_real_network):
+    assert media.participant_display_name("ice_hockey", "  BOS  ", team_id=6,
+                                         fixture_source="NHL", competition="NHL") == "  BOS  "
+
+
+@pytest.mark.parametrize("names", [["TOR", "Toronto Maple Leafs"], ["Other Team"]])
+def test_display_name_rejects_duplicate_native_manifest_identity(
+        no_real_network, monkeypatch, tmp_path, names):
+    _, row = team_manifest(monkeypatch, tmp_path)
+    team_manifest(monkeypatch, tmp_path, [row, {**row, "names": names}])
+    assert media.participant_display_name("ice_hockey", "TOR", team_id=10,
+                                         fixture_source="NHL", competition="NHL") == "TOR"
+
+
+def test_display_name_preserves_code_when_reviewed_row_has_no_full_label(
+        no_real_network, monkeypatch, tmp_path):
+    _, row = team_manifest(monkeypatch, tmp_path)
+    team_manifest(monkeypatch, tmp_path, [{**row, "names": ["TOR"]}])
+    assert media.participant_display_name("ice_hockey", "TOR", team_id=10,
+                                         fixture_source="NHL", competition="NHL") == "TOR"
+
+
+def test_display_name_uses_first_reviewed_full_label_without_touching_manifest(
+        no_real_network, monkeypatch, tmp_path):
+    path, row = team_manifest(monkeypatch, tmp_path)
+    team_manifest(monkeypatch, tmp_path, [{**row, "names": ["TOR", "Toronto Maple Leafs", "Toronto Leafs"]}])
+    original = path.read_bytes()
+    assert media.participant_display_name("ice_hockey", "  tor  ", team_id=10,
+                                         fixture_source=" nhl ", competition=" nhl ") == "Toronto Maple Leafs"
+    assert path.read_bytes() == original
+
+
 def test_euroleague_logo_uses_exact_reviewed_club_code_and_source(no_real_network, monkeypatch, tmp_path):
     row = {"sport": "basketball", "provider": "euroleague", "team_id": "BAR",
            "names": ["BAR", "FC Barcelona"], "url": EURO_LOGO,

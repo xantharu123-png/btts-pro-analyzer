@@ -1,5 +1,25 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg – Eishockey-Kurzcheck / BOS–PHI, 10.10.2026
+
+Der alte Stand 04:12 CEST hatte Eishockeypreise vor dem Producer-Fix ausgeschaltet.
+Ein ausdrücklich begrenzter Preis-only-Check für NHL-Ereignis `2026020070` lieferte
+Boston 1,75 / Philadelphia 2,25 ohne Fehler. Kein Modell-/Sportscan; gespeicherte
+Wettfinder-/RisikoBet-Prognosen bytegleich. Neuer Kurzcheck erklärt ausgewählte
+Seite und Gegner: 3,09 gegenüber 2,60 erwarteten Toren in regulärer Spielzeit,
+Abstand 0,49; Gesamtsiegerchance unverändert 57,7 %, Gegenseite 42,3 %.
+Exakt gebundene NHL-Vollnamen nur in der Anzeige, Originalidentitäten/Quoten-
+Zuordnung unangetastet. Keine zusätzlichen Verletzungs-/Formvorteile behaupten.
+Auch `St. Louis Blues` darf nicht am Abkürzungspunkt abgeschnitten werden.
+677 frische Tests plus vier Untertests bestanden; unabhängiger finaler Review
+ohne konkrete P1/P2. Veröffentlichung/Produktionsbrowserprüfung steht in diesem
+Zwischenstand noch aus. Ergänzende Sportsuite läuft außerhalb der Windows-
+Sandbox; erster Dateirechtefehler dort isoliert grün. Portal-Gesamtsammlung wegen
+fehlender Django-Abhängigkeit blockiert, keine grüne Vollsuite behaupten.
+Separate offene Formpersistenz für Eishockey/Basketball und vorherige Sortier- /
+Ligaabdeckungsanfrage im obersten TODO-Block dokumentiert. Kein neues Backup,
+keine Bereinigung, Migration oder Geldbewegung.
+
 ## Aktueller Einstieg – Quotenversorgung, 10.10.2026
 
 Nach Hauptnavigation/Preisfiltern den wirklichen Abruf repariert: voller

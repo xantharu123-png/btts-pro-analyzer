@@ -202,6 +202,10 @@ def build_compact_analysis(signal, analysis, *, now):
     elif sport in {'e-sport', 'esports', 'basketball', 'eishockey', 'ice_hockey'} and analysis.supported:
         from team_customer_facts import team_customer_explanation
         customer = team_customer_explanation(signal)
+        if sport in {'eishockey', 'ice_hockey'} and customer['reasons']:
+            # The first typed reason is already the complete shortcheck.
+            # Sentence splitting would cut reviewed team names such as St. Louis.
+            summary = customer['reasons'][0].rstrip('.')
         forms = team_forms(signal, customer)
         facts.extend(Fact('Letzte Spiele', text.split(': ', 1)[0], (text,))
                      for text in customer['recent'])
