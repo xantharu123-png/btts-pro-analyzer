@@ -24,8 +24,14 @@ mit Originalreproduktionen belegt und begrenzt repariert:
 - [x] Nach allen Änderungen **724 frische Regressionstests bestanden (39,30 s)**.
 - [x] Unabhängiger finaler Review ohne offene konkrete P1/P2; zehn separate
   In-Memory-Gegenprüfungen bestanden.
-- [ ] Begrenzter Commit/Push/VPS-Deploy ohne Backup wird anschließend mit
-  tatsächlichem Hash/Nachweis ergänzt.
+- [x] Codecommit `92cb4d2` auf main und VPS live, Deployment 12:43 CEST.
+  App/Caddy und beide Healthchecks ok, sieben Timer geplant. Wettfinder-/
+  RisikoBet-Dateien bytegleich; kein Backup oder neuer Scan/API-Lauf.
+- [x] Interner Produktionsbrowser: Hauptmenü, Manuelle Suche, Tennis und
+  Preisfilter per Tastatur geprüft; bestehende exakte Quote 1,32 sichtbar,
+  fehlende Preise bei aktivem Filter kein Treffer. Keine neuen Konsolefehler
+  nach dem Aufbau; Verbindungsmeldungen während des Neustarts getrennt.
+  Native Mausbedienung nicht bestätigt. Screenshot außerhalb Git im Prüfbericht.
 - [ ] Echte neue Preisantworten im nächsten regulären Lauf prüfen; kein
   zusätzlicher Produktionsscan/API-Lauf für diese QA. Gespeicherte alte
   Tagesquoten werden durch Code-Deployment allein nicht aktualisiert.
@@ -42,6 +48,9 @@ Die geerbte Vollsuite ist beendet: 12.810 bestanden / zwei UI-Testaufbaufehler /
 97 Skips / 143 Untertests; kein finaler Vollsuite-PASS (Checkout änderte sich
 im Lauf). Beide Originalfälle im frischen 724er-Lauf bestanden. Vorhandene
 Wettfinder-/Football-Shadow-Datenfehlzustände bleiben separat offen.
+Altfehler-Skripthash exakt aus alter Zeile 100 rekonstruiert: gemischter
+Quelltext statt Appdefekt. Nächster normaler Wettfinder 11.10. 03:35 CEST.
+Dokumentationsnachtrag kann einen neueren HEAD haben als Code `92cb4d2`.
 
 [Quoten-Prüfbericht](docs/audits/2026-10-10-quotenversorgung.md).
 

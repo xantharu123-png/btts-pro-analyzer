@@ -84,7 +84,32 @@ Integration, Quoten-/Prozentfilter, Refreshguards, Kontingent/Cooldown,
 Daily3, gemeinsame Oberfläche und unveränderte Modelle. Kein echter API-Request.
 Unabhängiger Abschlussreview: keine verbleibenden bestätigten P1/P2 im
 begrenzten Patch; zusätzlich zehn eigene In-Memory-Gegenprüfungen bestanden.
-Veröffentlichung wird anschließend mit ihrem eigenen Nachweis ergänzt.
+Codecommit **92cb4d2a9fee18573f639e3ca02d92ae78c89850** ist auf GitHub main
+und per geprüftem Fast-forward am 10.10. um 12:43 CEST auf dem VPS deployed.
+App und Caddy aktiv; interner und öffentlicher Healthcheck `ok`. Ein anfänglicher
+lokaler Connection-Refused unmittelbar nach Start wurde durch die normale
+begrenzt wiederholte Healthprüfung erfolgreich aufgelöst.
+
+Gespeicherte Artefakte vor/nach Deployment bytegleich:
+
+- Wettfinder: `a51c9d865ab14db2d7d17971e469cbb029045a7107dd7417f2ff9da17af4298e`
+- RisikoBet: `593846dd998bad9ed2d7503baa710bfb1ef72db65ec38849ea8b18885bb48024`
+
+Alle sieben Timer geplant. Nächster regulärer Wettfinder 11.10. um 03:35 CEST;
+explizite manuelle Tennis-Suche verwendet sofort den neuen Worker. Für diese
+QA wurde weder „Tipps finden“ noch „Tennis-Vorhersagen aktualisieren“ gedrückt.
+Code-Deployment beweist keine neu geladenen Preise für den heutigen Altbestand.
+
+Interner Produktionsbrowser nach Reload: Titel `BetBoy`, richtige HTTPS-URL,
+Seite nicht leer, keine Fehler-Overlay, Hauptmenü/Manuelle Suche/Tennis sichtbar.
+Vorhandene Vacherot/Baez-Quote 1,32 korrekt im aktiven Bereich 1,20–10,00;
+unbepreiste Karten im expliziten Preisfilter nicht angezeigt. Filteränderung
+per Tastatur bestätigt. Programmatischer Checkbox-/Label-Klick wechselte den
+Zustand nicht; native Mausbedienung nicht als bestanden behaupten. Die drei
+Konsoleinträge zur getrennten Verbindung entstanden während des Appneustarts;
+nach vollständig aufgebauter Seite keine neuen Fehler im Protokoll.
+Screenshot außerhalb Git:
+`C:/Projekt/BetBoy/output/quote-coverage-20261010/production-tennis-filter.png`.
 
 Die geerbte Vollsuite aus dem vorherigen UI-Turn ist beendet: 12.810 bestanden,
 zwei Fehler, 97 Skips und 143 Untertests in 54:14 Minuten. Der Checkout wurde
@@ -97,6 +122,9 @@ Zeitstempel bestätigen den gemischten Lauf: Start 09:45:01 UTC, Testdatei
 09:48:04 UTC geändert, AppTest-Fehler erst 10:32:19 UTC. Streamlit liest beim
 Aufruf `inspect.getsourcelines` erneut, während das Funktionsobjekt aus dem
 früher importierten Modul stammt. Kein fehlender Produktiv-Renderer nachgewiesen.
+Die reine In-Memory-Rekonstruktion des alten `co_firstlineno=100` erzeugt
+exakt den Fehler-Skripthash `d63b600bfc2faf23b7225107ec997e7f`: Definition
+eines Nachbartests, danach Aufruf der nicht definierten `_manual_screen`.
 Kein neues Backup, zusätzlicher Sportscan,
 Preis-only-Produktionslauf, Datenmigration oder Bereinigung für diesen Patch.
 

@@ -10,7 +10,11 @@ uhren; bestehende E-Sport-/Teamsport-Preisproducer wieder verbunden. Kein
 Modell-/Richtungs-/Konteneingriff, Cricket unverändert, keine Secret-Ausgabe.
 Nach allen Änderungen 724 frische Tests bestanden (39,30 s); unabhängiger
 Abschlussreview ohne offene konkrete P1/P2, zehn getrennte Gegenchecks grün.
-Commit/Push/Deploy werden mit tatsächlich geprüftem Hash nachgetragen.
+Code `92cb4d2` auf main und VPS live (10.10. 12:43 CEST). App/Caddy,
+beide Healthchecks ok, sieben Timer geplant, gespeicherte Modell-/RisikoBet-
+Artefakte bytegleich. Interner Produktionsbrowser mit Tennis und aktivem
+Preisfilter per Tastatur geprüft; kein neuer Fehler nach Seitenaufbau.
+Native Mausbedienung nicht bestätigt. Dokumentations-HEAD kann neuer sein.
 Keine neue Sicherung, Produktions-Sport-/API-Abfrage, Migration oder Bereinigung.
 Die gespeicherten alten Preise werden beim Code-Deploy nicht plötzlich frisch.
 Echte neue Providerantworten erst im normalen Lauf / expliziter manueller Suche.
@@ -19,6 +23,8 @@ exaktes Angebot bleiben offene Abdeckung, niemals erfundene Ersatzquoten.
 Geerbte Vollsuite beendet: 12.810 bestanden / zwei UI-Testaufbaufehler /
 97 Skips / 143 Untertests. Beide Originalfälle in frischer 724er-Runde grün;
 keine grüne Vollsuite des finalen veränderten Checkouts behaupten.
+Altfehler aus alter Funktionszeile exakt per identischem Skripthash nachgewiesen:
+gemischter Quelltext, nicht Produktivcode. Nächster Wettfinder 11.10. 03:35 CEST.
 Zuerst obersten [TODO-Block](TODO_AKTUELL.md) und
 [Quoten-Prüfbericht](docs/audits/2026-10-10-quotenversorgung.md) lesen.
 
