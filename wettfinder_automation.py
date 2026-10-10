@@ -1057,7 +1057,13 @@ def select_price_check_candidates(
 
 def _tennis_price_check_candidates(rows, *, now, target_date, previous_checks,
                                    min_gap=TENNIS_PRICE_MIN_GAP):
-    """Reuse the bounded price pool, without repeatedly spending tennis credits."""
+    """Batch the bounded daily tennis catalog, not only its first ten events.
+
+    H2H prices are requested together per provider sport key. Unlike the
+    football fixture-by-fixture requests, additional events in that batch do
+    not consume additional credits. The existing catalog and quota bounds
+    still apply, as does the per-candidate cooldown.
+    """
     checks = previous_checks or {}
     due = []
     for row in rows:
@@ -1075,6 +1081,8 @@ def _tennis_price_check_candidates(rows, *, now, target_date, previous_checks,
     return select_price_check_candidates(
         due, now=now, target_date=target_date, preserve_order=True,
         previous_checks=checks,
+        max_fixtures=MAX_AUTOMATIC_OTHER_CANDIDATES_PER_SPORT,
+        max_markets_per_fixture=1,
     )
 
 
@@ -2481,6 +2489,27 @@ def _apply_reference_quotes(
         for row in model_rows
         if str(row.get("candidate_id") or "").strip()
     }
+    # Preserve exact previous observations before clearing row fields. A
+    # failed request does not prove that a previously known price vanished.
+    # Conflicting previous observations cannot choose a convenient fallback.
+    previous_quotes: dict[str, Optional[MarketConsensus]] = {}
+    for previous in previous_rows:
+        if not isinstance(previous, dict):
+            continue
+        candidate_id = str(previous.get("candidate_id") or "").strip()
+        target = model_by_id.get(candidate_id)
+        quote = MarketConsensus.from_dict(previous.get("reference_quote"))
+        if (
+            target is None
+            or quote is None
+            or not quote_matches_candidate(quote, previous)
+            or not quote_matches_candidate(quote, target)
+        ):
+            continue
+        if candidate_id in previous_quotes and previous_quotes[candidate_id] != quote:
+            previous_quotes[candidate_id] = None
+        else:
+            previous_quotes[candidate_id] = quote
     for row in model_rows:
         row.pop("reference_quote", None)
         row.pop("quote_provider_event_id", None)
@@ -2490,6 +2519,7 @@ def _apply_reference_quotes(
 
     status_counts: dict[str, int] = {}
     playable: list[dict[str, Any]] = []
+    quoted_ids: set[str] = set()
     for row in price_rows:
         clear_execution(row)
         row.pop("reference_price_evaluated_at", None)
@@ -2500,6 +2530,7 @@ def _apply_reference_quotes(
             status_code = "UNAVAILABLE"
             row.pop("reference_quote", None)
         else:
+            quoted_ids.add(candidate_id)
             quote = wettfinder_consensus(raw_quote, now=now) or raw_quote
             quotes[candidate_id] = quote
             row["reference_quote"] = quote.to_dict()
@@ -2532,26 +2563,23 @@ def _apply_reference_quotes(
         status_counts[status_code] = status_counts.get(status_code, 0) + 1
         if status_code == "PLAYABLE":
             playable.append(row)
-    # Rotation must not erase the last observed price. Rebind it to the exact
-    # current event/market and recalculate age/price status; never renew its
-    # timestamp or count it as newly fetched. A still-fresh exact price remains
-    # executable under the same price rules as a newly requested one.
+    # Rotation or an unsuccessful request must not erase an exact observation.
+    # Never renew its quote clocks or count it as newly fetched. A failed
+    # refresh keeps only display evidence, not execution fields or a release.
     checked_ids = {str(row.get("candidate_id") or "") for row in price_rows}
-    for previous in previous_rows:
-        if not isinstance(previous, dict):
-            continue
-        candidate_id = str(previous.get("candidate_id") or "")
+    for candidate_id, quote in previous_quotes.items():
         target = model_by_id.get(candidate_id)
-        if target is None or candidate_id in checked_ids:
+        if target is None or candidate_id in quoted_ids:
             continue
-        quote = MarketConsensus.from_dict(previous.get("reference_quote"))
         if quote is None or not quote_matches_candidate(quote, target):
             continue
         target["reference_quote"] = quote.to_dict()
-        if price_evaluated_at is not None:
-            target["reference_price_evaluated_at"] = _utc(price_evaluated_at).isoformat()
         if quote.provider_event_id:
             target["quote_provider_event_id"] = quote.provider_event_id
+        if candidate_id in checked_ids:
+            continue
+        if price_evaluated_at is not None:
+            target["reference_price_evaluated_at"] = _utc(price_evaluated_at).isoformat()
         status = wettfinder_reference_price_status(quote, target.get("minimum_odds"), candidate=target, now=now)
         target["reference_price_status"] = status.code
         if status.code == "PLAYABLE":
