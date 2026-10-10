@@ -12,10 +12,16 @@ Exakt gebundene NHL-Vollnamen nur in der Anzeige, Originalidentitäten/Quoten-
 Zuordnung unangetastet. Keine zusätzlichen Verletzungs-/Formvorteile behaupten.
 Auch `St. Louis Blues` darf nicht am Abkürzungspunkt abgeschnitten werden.
 677 frische Tests plus vier Untertests bestanden; unabhängiger finaler Review
-ohne konkrete P1/P2. Veröffentlichung/Produktionsbrowserprüfung steht in diesem
-Zwischenstand noch aus. Ergänzende Sportsuite läuft außerhalb der Windows-
-Sandbox; erster Dateirechtefehler dort isoliert grün. Portal-Gesamtsammlung wegen
-fehlender Django-Abhängigkeit blockiert, keine grüne Vollsuite behaupten.
+ohne konkrete P1/P2. Code `8d97a61` auf main und VPS live (10.10. 13:12 CEST),
+beide Healthchecks ok, App/Caddy aktiv; Prognose-Dateien bytegleich.
+Frischer interner Produktionsbrowser bestätigt beide Vollnamen, 57,7 %, Quote
+1,75, Kurzcheck und Gegenargument 42,3 %. 1280/390/320 Pixel ohne Seitenüberlauf,
+keine neuen Konsolefehler nach Reload; Restart-Verbindungsfehler separat.
+Ergänzende Sportsuite außerhalb der Windows-Sandbox bei 8 % ohne ausgegebenen
+Fehler gestoppt; keine QA-Prozesse mehr aktiv. Erster Dateirechtefehler dort
+isoliert grün. Portal-Gesamtsammlung wegen fehlender Django-Abhängigkeit
+blockiert, keine grüne Vollsuite behaupten. Dieser reine Dokumentationsnachtrag
+kann einen neueren HEAD als Code `8d97a61` haben.
 Separate offene Formpersistenz für Eishockey/Basketball und vorherige Sortier- /
 Ligaabdeckungsanfrage im obersten TODO-Block dokumentiert. Kein neues Backup,
 keine Bereinigung, Migration oder Geldbewegung.

@@ -23,14 +23,25 @@
   darf den sichtbaren Kurzcheck nicht abschneiden.
 - [x] Nach allen Codeänderungen **677 Tests und vier Untertests bestanden**
   (16,97 s). Unabhängiger Abschlussreview: kein verbleibender konkreter P1/P2.
-- [ ] Commit/Push/VPS-Veröffentlichung und interner Desktop-/Mobilbrowser-
-  Nachweis werden unmittelbar nach dieser Dokumentation geprüft.
-- [ ] Ergänzende Sportsuite läuft isoliert außerhalb der Windows-Sandbox:
+- [x] Codecommit `8d97a61` auf main gepusht und am 10.10. um 13:12 CEST
+  auf dem VPS per Fast-forward veröffentlicht. App/Caddy aktiv; beide Healthchecks
+  `ok`, Wettfinder-/RisikoBet-Artefakte bytegleich. Vorabcheck wartete auf den
+  normalen Shadow-Termin statt einen laufenden Dienst zu unterbrechen.
+- [x] Frischer interner Produktionsbrowser: Boston Bruins / Philadelphia Flyers,
+  Sieger inklusive Verlängerung/Penaltyschießen, 57,7 %, echte Quote 1,75 und
+  vollständige Begründung sichtbar. Gegenargument geöffnet: Philadelphia 42,3 %.
+  Bei 1280, 390 und 320 Pixeln kein horizontaler Seitenüberlauf. Screenshots
+  außerhalb Git unter `C:/Projekt/BetBoy/output/hockey-card-20261010/`.
+  Keine neuen Konsolefehler nach Reload; Verbindungsfehler während des Neustarts
+  sind getrennt und nicht als nachträglicher Seitenfehler gewertet.
+- [ ] Ergänzende Sportsuite nicht abgeschlossen, daher kein Vollsuite-PASS:
   `C:/Projekt/BetBoy/output/hockey-card-20261010/sports-fullsuite-unrestricted.log`.
   Der erste Sandboxfehler war WinError 5 beim Test einer temporären SQLite-
   Prüfkopie; derselbe Einzeltest außerhalb der Sandbox bestanden. Repositoryweite
   Sammlung zusätzlich durch fehlendes Django im Portal-Testumfeld blockiert.
-  Keine vollständige grüne Gesamtprüfung behaupten.
+  Wiederholung außerhalb der Sandbox bei 8 % ohne ausgegebenen Fehler gestoppt;
+  keine Testprozesse dieses QA-Laufs mehr aktiv. Frische 677er-Regression ist
+  vollständig grün; der Anzeige-Fix ist keine Freigabe der gesamten App.
 - [ ] Separate strukturierte Eishockey-/Basketball-Formlücke: echter Producer
   speichert derzeit Textzusammenfassungen, aber keine `customer_recent_results`-
   Zeilen für die Formkacheln. Nicht aus Prosa zurückparsen und keine Spiele erfinden.
