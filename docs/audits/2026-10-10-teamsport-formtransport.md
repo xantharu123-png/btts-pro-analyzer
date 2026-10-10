@@ -128,8 +128,50 @@ vakuosen Faktorvergleich; Fixture enthält nun einen echten kausalen Faktor.
 Ganze geänderte Datei danach frisch **32 bestanden, Exit 0, 3,03 s**.
 Logs/JUnit: `context-ref-red.log`, `context-fixed.*`, `context-factor.*`.
 Kein einteiliger grüner Vollsuite-Lauf nach diesem zusätzlichen Codefix.
-Veröffentlichung dieser Ergänzung und vollständiger Produktions-Lesecheck
-stehen im aktuellen TODO-Block.
+Die Ergänzung ist als `55f35e7d9767be33eddfe9cff1eb93c3ad8094c1` gepusht und
+am 11.10.00:42 CEST auf dem VPS per geprüftem Fast-forward live. Der reguläre
+Shadow-Lauf durfte vorher ohne Unterbrechung fertig werden. Kein Backup,
+zusätzlicher Sport-/API-Scan oder Datenbankeingriff.
+
+### Tatsächlicher Nachweis nach Deployment
+
+- Alle **151 bestehenden RisikoBet-Snapshots** durch beide Lader gelesen:
+  104 Fußball, 38 Tennis, sechs E-Sport, drei Eishockey. Beide Rekonstruktionen
+  gleich, jede gespeicherte Snapshot-ID unverändert; **38 Kontextverweise**
+  erhalten. Vorheriger konkreter Produktionsfehler nicht mehr vorhanden.
+- Publizierte Dateien vor/nach Deployment und Leseprüfung bytegleich:
+  Wettfinder SHA-256
+  `a51c9d865ab14db2d7d17971e469cbb029045a7107dd7417f2ff9da17af4298e`,
+  RisikoBet SHA-256
+  `593846dd998bad9ed2d7503baa710bfb1ef72db65ec38849ea8b18885bb48024`.
+- Lokales HEAD, GitHub/main und VPS bei Codefreigabe exakt `55f35e7`.
+  App/Caddy aktiv, interner/öffentlicher Healthcheck `ok`; alle sieben regulären
+  Timer aktiv/aktiviert, Backup-Timer inaktiv/deaktiviert. Zwei kurze lokale
+  Verbindungsfehler nur während des Appstarts, anschließende Retry-Checks grün.
+- Letzter regulärer Tennislauf 00:05:31–00:32:29 CEST: Exit 0, 82/82 verarbeitet,
+  74 neue Prognosen, `Scan OK / Gesamt OK`. Kontextaufnahme dennoch `partial`:
+  zehn `unresolved_outcome_events`, Diagnose `native-outcome-unavailable`.
+  Dieser technische Erfolg belegt keine vollständige Ergebnisabdeckung.
+- Letzter regulärer Shadow-Lauf 00:42:09–00:42:10 CEST, Exit 0. Kein behaupteter
+  Nachweis, dass dabei die alte frische-Quote-Lücke geschlossen wurde.
+- Alter Wettfinderlauf 10.10.03:35–04:19 weiter `degraded`, ein operativer
+  Fehler: RisikoBet-Abrechnung `football:event_snapshot_ambiguous`. 136 terminale
+  Abrechnungen, 272 ungelöste Kandidaten; separate Daten-/Identitätsklärung,
+  keine Datenänderung in diesem Release.
+- Aktuell **0/151 neue Formanhänge** im alten publizierten Bericht. Neue Anhänge
+  erst im nächsten regulären Wettfinderlauf am 11.10.03:35 CEST nachweisen;
+  keine rückwirkende Ergänzung alter Artefakte und kein zusätzlicher Scan.
+- Frischer Produktions-Browsercheck nach Unterbrechung nicht bestätigt:
+  bestehender interner Tab und erneute Bindung konnten die Webview nicht
+  erreichen; zweckgebundene Panelöffnung meldete nur `queued`. Daher kein
+  frischer Browser-PASS. Früherer isolierter UI-Nachweis bleibt getrennt gültig.
+  Kein externer Browser übernommen und keine alternative Steuerung eingesetzt.
+
+Produktionsprüfung nur per lesenden Helfern `verify_cached_snapshots.py` und
+`verify_production.sh` außerhalb Git; keine Store-Instanz oder Provideraufrufe
+im Snapshot-Lesecheck. Unabhängiger finaler Review einschließlich nichtleerem
+Faktor-Roundtrip ohne offene Befunde. Nachfolgender Dokumentationscommit kann
+einen neueren HEAD haben, ohne diesen geprüften Produktivcode zu verändern.
 
 Separater Produktionsstatus, kein Formtransportfehler: Shadowlauf 00:02:02–
 00:02:31 CEST auf altem HEAD `2ad2ba6` mit Exit 1 / `partial`, weil für Ereignis

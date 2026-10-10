@@ -2,10 +2,11 @@
 
 ## 11.10.2026 – echte Teamsport-Formkarten und Abschlussprüfung
 
-Fortsetzung des Boston-Fixes; Formrelease `fa42917` bereits auf GitHub und
-VPS (11.10.00:33 CEST). Der Abschlusscheck fand zusätzlich einen älteren
-Kontextreferenz-Ladefehler; minimal korrigiert und geprüft, Veröffentlichung
-dieser Ergänzung noch offen. Dieser Block hat Vorrang vor älteren Ständen.
+Fortsetzung des Boston-Fixes; Formrelease `fa42917` und ergänzender
+Kontextreferenz-Fix **`55f35e7` live** (11.10.00:42 CEST), GitHub/main und VPS
+abgeglichen. Dieser Block hat Vorrang vor älteren Ständen. Ein nachfolgender
+reiner Dokumentationscommit kann einen neueren HEAD haben; Produktivcode bleibt
+`55f35e7d9767be33eddfe9cff1eb93c3ad8094c1`.
 
 - [x] Ursache der fehlenden Formkarten reproduziert: bereits vom Modell
   verbrauchte Spielzeilen gingen im Adapter verloren; alter UI-Test umging
@@ -51,8 +52,17 @@ dieser Ergänzung noch offen. Dieser Block hat Vorrang vor älteren Ständen.
   Offline-Lauf **728 bestanden (83,26 s)**. Review-Testlücke durch nichtleeren
   kausalen Faktor geschlossen; ganze geänderte Datei erneut **32 bestanden**.
   Kein einteiliger grüner Vollsuite-Lauf nach diesem zusätzlichen Codefix.
-- [ ] Kontextreferenz-Ergänzung pushen/deployen; beide Lader auf allen echten
-  gespeicherten Snapshots, unveränderte IDs/Artefaktbytes und Dienste prüfen.
+- [x] Kontextreferenz-Ergänzung gepusht und per geprüftem Fast-forward ohne
+  Backup/Scan/Migration deployt. Beide Lader auf **allen 151 gespeicherten
+  Snapshots** geprüft: 104 Fußball, 38 Tennis, sechs E-Sport, drei Eishockey;
+  **38 Kontextverweise** erhalten, alle ursprünglichen IDs unverändert.
+  Prognosedateien bytegleich, App/Caddy aktiv, beide Healthchecks `ok`.
+  Sieben reguläre Timer aktiv/aktiviert; Backup-Timer inaktiv/deaktiviert.
+- [ ] Frischer Produktions-Browsercheck nach Unterbrechung: bestehender
+  interner Tab konnte nicht an seine Webview angebunden werden; erneute Bindung
+  ebenso fehlgeschlagen. Öffnen im Codex-Panel nur `queued`, nicht ausgeführt.
+  Daher keinen frischen Browser-PASS behaupten. Vorheriger isolierter
+  Desktop-/390-/320- und Formbedienungscheck bleibt separat belegt.
 - [ ] Neue echte Formanhänge aus dem nächsten regulären Modelllauf in
   Produktion nachweisen. Alte BOS/PHI-Daten enthalten diesen Anhang nicht und
   werden nicht aus Text oder fremden Historien nachträglich ergänzt.
@@ -61,6 +71,18 @@ dieser Ergänzung noch offen. Dieser Block hat Vorrang vor älteren Ständen.
   Providerzeit hatte. Wiederholung regulär, kein Crash, kein Zusammenhang zum
   Formpatch. Fehlenden Preis nicht erfinden; nicht alle Dienste als erfolgreich
   darstellen, nur weil App/Healthchecks gesund sind.
+- [x] Späterer regulärer Shadow-Lauf 00:42:09–00:42:10 CEST mit Exit 0 beendet;
+  dieser Exit allein belegt keinen nachgeholten frischen Preis für 1550985.
+- [ ] Ältere RisikoBet-Abrechnungsmehrdeutigkeit separat klären: letzter
+  Wettfinderlauf 10.10.03:35–04:19 Exit 1 / `degraded`, operativer Fehler
+  `football:event_snapshot_ambiguous`; 136 terminale Abrechnungen, 272 ungelöste
+  Kandidaten. Nicht durch den Kontext-Laderfix oder Formtransport verursacht;
+  keine Ergebnisse/Geldbuchungen raten oder bestehende Belege löschen.
+- [x] Echter Tennisabschluss 11.10.00:32:29 CEST direkt im vorhandenen Journal
+  bestätigt: **82/82 verarbeitet, 74 neue Prognosen, Scan/Gesamt OK, Exit 0**.
+- [ ] Tennis-Ergebnisabdeckung weiter offen: Kontextaufnahme `partial`,
+  `native-outcome-unavailable`, **zehn unresolved_outcome_events**. Erfolgreicher
+  technischer Runner ist nicht gleich vollständige Ergebnisabdeckung.
 
 Keine Änderungen an Modellchance, Marktlogik, Reihenfolge oder Geldkonten.
 Sortierung, zusätzliche Eishockeyligen und empirische Kontexteffekte bleiben

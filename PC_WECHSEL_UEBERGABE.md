@@ -2,7 +2,9 @@
 
 ## Aktueller Einstieg – strukturierte Teamsport-Form, 11.10.2026
 
-Formrelease `fa42917` auf GitHub und VPS (11.10.00:33 CEST). Der begrenzte Fix bewahrt echte
+Formrelease `fa42917` und Kontext-Laderfix `55f35e7` auf GitHub und VPS
+(11.10.00:42 CEST). Ein nachfolgender Dokumentationscommit ändert keinen Code.
+Der begrenzte Fix bewahrt echte
 bereits verbrauchte Basketball-/Eishockey-Spiele bis zu den 5/10-Formkacheln.
 Maximal zehn je Team, tatsächliche Endstände statt bereinigter Modelltorzahl,
 exakte Quelle/Identität/Zeiten/Modellhash. Alter UI-Test hatte den Producerweg
@@ -32,14 +34,28 @@ die korrekte ID-Prüfung lehnte dadurch gespeicherte Daten ab. Zwei Codezeilen
 ergänzt, keinerlei Lockerung der Integritätsprüfung. 13 neue Regressionen
 zuerst neun rot/vier grün; frisch 728 betroffene Offline-Tests bestanden
 (83,26 s), danach nichtleerer Faktor-Roundtrip ergänzt und ganze geänderte
-Testdatei erneut 32 bestanden. Diese Ergänzung noch pushen/deployen und
-beide Lader auf allen echten Produktionssnapshots prüfen. Kein behaupteter
+Testdatei erneut 32 bestanden. Ergänzung gepusht/deployt; echter reiner Lesecheck
+über beide Lader auf allen 151 gespeicherten Snapshots bestanden, davon 38 mit
+Kontextverweis. IDs und veröffentlichte Prognose-Dateien unverändert. Kein behaupteter
 einteiliger grüner Vollsuite-Lauf nach diesem zusätzlichen Codefix.
 Neue Formdaten erst nach dem
 normalen Modelllauf. Keine rückwirkende BOS-Historie erfinden. Aktuellen Status
 im obersten [TODO-Block](TODO_AKTUELL.md) und im
 [Prüfbericht](docs/audits/2026-10-10-teamsport-formtransport.md) nachlesen.
 Alle geerbten ungetrackten Dateien unverändert erhalten.
+
+Letzter echter Nachcheck 00:42:56 CEST: App/Caddy aktiv, beide Healthchecks `ok`,
+sieben reguläre Timer aktiv/aktiviert, Backup inaktiv/deaktiviert. Tennis
+82/82 verarbeitet, 74 neue Prognosen, Exit 0; zehn native Ergebnislücken bleiben.
+Shadow 00:42:09–00:42:10 Exit 0 (kein Nachweis, dass alte Preislücke nachgeholt).
+Älterer Wettfinderlauf weiter `degraded`: RisikoBet-Abrechnung
+`football:event_snapshot_ambiguous`, 136 terminal/272 ungelöst. Separat klären,
+nicht als Form-/Kontextladerfehler behandeln oder Ergebnisse erfinden.
+Aktuelle publizierte Snapshots haben noch keinen neuen Formanhang (0/151),
+denn seit Release lief kein neuer Modellscan. Nächster regulärer Wettfinder:
+11.10.03:35 CEST, kein zusätzlicher Scan gestartet.
+Frischer interner Browsercheck nach Unterbrechung nicht bestätigt: Webview
+nicht anbinden, Panelöffnung nur `queued`. Frühere isolierte UI-QA gilt separat.
 
 ## Aktueller Einstieg – Eishockey-Kurzcheck / BOS–PHI, 10.10.2026
 
