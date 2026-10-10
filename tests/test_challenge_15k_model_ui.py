@@ -194,6 +194,12 @@ def _15k_daily_age_card(*, automatic, bound=True):
     modeled_at = datetime(2026, 10, 9, 6, tzinfo=timezone.utc)
     item = candidate('1:BTTS', 1, .80, kickoff=modeled_at + timedelta(hours=8))
     snapshot = editorial_snapshot([item], now=modeled_at)
+    # This test isolates daily MODEL age; current context has a separate clock.
+    from highlight_fixtures import football_checks
+    from copy import deepcopy
+    record = snapshot['challenge_display_records'][item.candidate_id]
+    record['context'] = football_checks(modeled_at + timedelta(hours=4))
+    record['analysis_evidence']['context'] = deepcopy(record['context'])
     if automatic:
         snapshot['automatic_source'] = 'wettfinder_systemd_timer'
     if not bound:

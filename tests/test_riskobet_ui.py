@@ -18,11 +18,18 @@ from riskobet_domain import (
     FactorRole,
     RiskCandidate,
 )
-from riskobet_surface import SPORT_FILTERS, build_riskobet_card
+from riskobet_surface import SPORT_FILTERS, RiskBetPriceOverlay, build_riskobet_card
 
 
 START = datetime(2030, 1, 2, 18, 0, tzinfo=timezone.utc)
 MODELED = START - timedelta(hours=2)
+
+
+@pytest.fixture(autouse=True)
+def _offline_price_and_publication_boundaries(monkeypatch):
+    # Rendering test views must not read production prices or append publication receipts.
+    monkeypatch.setattr(ui, "load_shared_price_overlays", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr("tip_publication.record_riskobet_catalog", lambda *_args, **_kwargs: None)
 
 
 class _Context(AbstractContextManager):
@@ -132,6 +139,11 @@ def _bundle(
         sample_size=20,
         role=FactorRole.MODEL,
     )
+    checks = tuple(FactorEvidence(factor_key=f"football_context_0_{axis}",
+        summary=f"Synthetic original {axis} check", source="api-football-context",
+        observed_at=MODELED-timedelta(minutes=10), imported_at=MODELED,
+        fresh_until=START, role=FactorRole.DISPLAY_ONLY)
+        for axis in ("h2h", "weather", "injuries")) if sport == "football" else ()
     snapshot = EventModelSnapshot(
         event_key=f"event-{key}",
         sport=sport,
@@ -142,7 +154,7 @@ def _bundle(
         input_cutoff_at=MODELED - timedelta(minutes=5),
         model_version="risk-model-v1",
         input_hash=hashlib.sha256(key.encode("utf-8")).hexdigest(),
-        factors=(factor,),
+        factors=(factor, *checks),
         missing_core_data=missing,
     )
     candidate = RiskCandidate(
@@ -241,9 +253,18 @@ def _view(*bundles, status="COMPLETE") -> ui.RiskBetView:
         started_at=MODELED - timedelta(minutes=1),
         completed_at=MODELED,
         candidates=candidates,
-        cards=tuple(build_riskobet_card(candidate) for candidate in candidates),
+        cards=tuple(build_riskobet_card(candidate, snapshot=snapshots[candidate.snapshot_id], now=MODELED)
+                    for candidate in candidates),
         snapshots=snapshots,
     )
+
+
+def _checked_price_overlays(candidates, snapshots, *, now):
+    # Explicit positive fixtures: original synthetic no-quote attempts, not a current-clock renewal.
+    original = {snapshot.snapshot_id: snapshot for snapshot in snapshots}
+    return {candidate.candidate_id: RiskBetPriceOverlay(candidate_id=candidate.candidate_id,
+        checked_at=original[candidate.snapshot_id].modeled_at.isoformat(), price_check_current=True)
+        for candidate in candidates}
 
 
 def _all_text(fake: RecordingStreamlit) -> str:
@@ -457,13 +478,14 @@ def test_featured_grid_flat_rows_and_exact_stable_keys(monkeypatch):
     )
     view = _view(*bundles)
     monkeypatch.setattr(ui, "load_riskobet_view", lambda _path=None: view)
+    monkeypatch.setattr(ui, "load_shared_price_overlays", _checked_price_overlays)
 
     first = RecordingStreamlit()
     monkeypatch.setattr(ui, "st", first)
-    ui.render_riskobet()
+    ui.render_riskobet(now=MODELED)
     second = RecordingStreamlit()
     monkeypatch.setattr(ui, "st", second)
-    ui.render_riskobet()
+    ui.render_riskobet(now=MODELED)
 
     assert first.column_groups[0][0] == 2
     assert len(first.column_groups) == 2
@@ -1071,6 +1093,7 @@ def test_started_scenarios_do_not_take_event_cap_featured_or_pagination_slots(mo
     fake = RecordingStreamlit()
     monkeypatch.setattr(ui, "st", fake)
     monkeypatch.setattr(ui, "load_riskobet_view", lambda _path=None: view)
+    monkeypatch.setattr(ui, "load_shared_price_overlays", _checked_price_overlays)
 
     ui.render_riskobet(now=START)
 

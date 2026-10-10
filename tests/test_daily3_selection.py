@@ -8,6 +8,7 @@ from daily3_identity import event_guard
 from daily3_selection import MIN_MODEL_PROBABILITY, POLICY_VERSION, daily3_choices
 from ev_signal_sources import ModelSignal, _automated_analysis_fields
 from forecast_analysis import project_football_analysis
+from highlight_fixtures import football_checks
 
 NOW = datetime(2030, 1, 1, 7, tzinfo=timezone.utc)
 
@@ -19,7 +20,7 @@ def football(fixture=1, key='RESULT_HOME', probability=.75, *, now=NOW,
         home_id=fixture*2, away_id=fixture*2+1, home_team=f'Heimteam {fixture}', away_team=f'Auswärtsteam {fixture}',
         market_key=key, probability=probability, model_scope='same_competition',
         scheduled_start=(now+timedelta(hours=start_hours)).isoformat(), modeled_at=now.isoformat(),
-        input_cutoff_at=(now-timedelta(minutes=1)).isoformat(), context={})
+        input_cutoff_at=(now-timedelta(minutes=1)).isoformat(), context=football_checks(now))
     reference = dict(schema='league-market-comparison-v1', fixture_id=fixture,
         home_id=row['home_id'], away_id=row['away_id'], league_id=39, market_key=key,
         scheduled_start=row['scheduled_start'], prediction_version='test-model-v1',
@@ -39,7 +40,7 @@ def football(fixture=1, key='RESULT_HOME', probability=.75, *, now=NOW,
         fixture_id=fixture, home_team=row['home_team'], away_team=row['away_team'], home_team_id=row['home_id'],
         away_team_id=row['away_id'], scheduled_start=row['scheduled_start'], modeled_at=row['modeled_at'],
         input_cutoff_at=row['input_cutoff_at'], model_scope=row['model_scope'], analysis_evidence=evidence,
-        model_version='test-model-v1')
+        model_version='test-model-v1', price_checked_at=now.isoformat())
 
 
 def tennis(*, now=NOW, coverage=True):
@@ -48,7 +49,7 @@ def tennis(*, now=NOW, coverage=True):
         source='tennis_model', sport='Tennis', event_label='Spieler A vs Spieler B', market='Match Winner',
         selection='Sieg Spieler A', market_key='H2H', competitor_a='Spieler A', competitor_b='Spieler B', selected_competitor='Spieler A',
         fixture_source='api-tennis', provider_event_id='t1', competitor_a_id='a1', competitor_b_id='b1',
-        modeled_at=now.isoformat(), input_cutoff_at=now.isoformat(), context_evidence={
+        modeled_at=now.isoformat(), input_cutoff_at=now.isoformat(), price_checked_at=now.isoformat(), context_evidence={
             'observed_at': now.isoformat(), 'players': {'a': {'player': 'Spieler A'}, 'b': {'player': 'Spieler B'}},
             'model_inputs': {'surface': 'Clay', 'surface_in_model': True, 'serve_in_model': True,
                 **({'stats_through': now.date().isoformat(), 'stats_through_kind': 'result_date',
@@ -97,6 +98,10 @@ def test_missing_stale_or_misbound_facts_are_not_relabelled_as_good_tips():
 
 def test_daily_automatic_model_remains_visible_after_150_minutes_but_manual_stale_does_not():
     daily = football(now=NOW-timedelta(hours=4), start_hours=8)
+    # A daily model may remain usable, but its separate context checks must
+    # have been refreshed; an old model clock must not renew those checks.
+    daily = replace(daily, analysis_evidence={**daily.analysis_evidence,
+                    'context': football_checks(NOW)})
     automatic = replace(daily, source='automated_wettfinder_forecast')
     assert daily3_choices([daily], now=NOW) == ()
     assert [choice.signal.key for choice in daily3_choices([automatic], now=NOW)] == [automatic.key]
@@ -171,7 +176,8 @@ def test_defensive_profile_never_uses_an_unexplained_high_probability_or_haircut
     changed = daily3_choices([replace(s, probability_haircut=.01, minimum_odds=999) for s in rows], now=NOW)
     assert [c.signal.key for c in baseline] == [qualified.key, '3:RESULT_HOME']
     assert [c.signal.key for c in changed] == [c.signal.key for c in baseline]
-    assert 'Kaderstand nicht belegt' in baseline[0].caution
+    assert '0/0 Ausfälle gemeldet' in baseline[0].caution
+    assert 'Aufstellungen noch offen' in baseline[0].caution
 
 
 def test_persisted_weak_identity_cannot_reappear_after_native_id_upgrade(monkeypatch):

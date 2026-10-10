@@ -114,6 +114,8 @@ class ModelSignal:
     model_scope: Optional[str] = None
     context_ref: Optional[ContextReference] = None
     team_sport_snapshot: Optional[Mapping[str, object]] = None
+    # Original exact-key attempt time, not a quote/price or model ranking input.
+    price_checked_at: Optional[str] = None
 
     def __post_init__(self) -> None:
         if self.team_sport_snapshot is not None:
@@ -1481,6 +1483,9 @@ def automated_wettfinder_forecasts(
     if loaded is None:
         return []
     document, _generated, _priced_candidates = loaded
+    from forecast_price_checks import valid_price_check_time
+    price_attempts = document.get("price_check_attempts")
+    price_attempts = price_attempts if isinstance(price_attempts, dict) else {}
     rows = document.get("model_candidates")
     if not isinstance(rows, list):
         return []
@@ -1504,6 +1509,9 @@ def automated_wettfinder_forecasts(
                 names = ModelSignal.__dataclass_fields__
                 payload = {key: value for key, value in row.items() if key in names}
                 payload['event_label'] = row['event']
+                checked_at = price_attempts.get(row.get("key"))
+                payload["price_checked_at"] = checked_at if valid_price_check_time(
+                    checked_at, row.get("modeled_at"), now=current) else None
                 # Origin/start/side-bound observations never release this model.
                 quote = MarketConsensus.from_dict(row.get('reference_quote'))
                 payload['reference_quote'] = quote.to_dict() if quote_matches_candidate(quote, row) else None
@@ -1606,6 +1614,8 @@ def automated_wettfinder_forecasts(
                         str(row.get("competition") or "").strip() or None
                     ),
                     reference_quote=quote.to_dict() if quote is not None else None,
+                    price_checked_at=(price_attempts.get(key) if valid_price_check_time(
+                        price_attempts.get(key), row.get("modeled_at"), now=current) else None),
                     context_summary=(
                         str(row.get("context_summary")).strip()
                         if isinstance(row.get("context_summary"), str)

@@ -1,5 +1,42 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 10.10.2026 – Gemeinsames Wettfinder-Dach
+
+Nutzerfreigabe: **Gemeinsames Dach mit einer Bereichsauswahl**. Freigegebener
+Patch umfasst Navigation und die angrenzenden Gegenrisiko-/TOP-Prüfungen;
+keine neue Modellfamilie, Zahlung, Datenbereinigung oder zusätzliche Sportabfrage.
+
+- [x] Eine Bereichsauswahl für Automatisch, Eigene Suche, RisikoBet, 3 a day,
+  15K, Live und Meine Tipps. Doppelte Haupt-/Mobile-/Modusmenüs entfernt;
+  Rückwechsel, Abo- und persönliche Speicherprüfungen bleiben erhalten.
+- [x] Gegenrisiko nennt das genaue Gegenereignis. Parma über 5,5 Ecken:
+  81,4 % bezeichnet höchstens fünf Parma-Ecken, nicht ein Parma-Tor.
+  Sechs Resultat-/Tore-Kombimärkte mit korrekter UND-/ODER-Negation.
+- [x] Kontext- und Preisprüfungen kommen nach der modellseitigen Richtungswahl:
+  kein Wechsel auf den Gegenmarkt, weil ihm eine Quote oder besserer Kontext vorliegt.
+  Fehlende/alte relevante Prüfbelege verhindern TOP, nicht zusätzliche Karten.
+  Eine offene Aufstellung allein sperrt nicht; ausdrücklich negative Befunde bleiben
+  auch nach Serialisierung ohne gültigen Prüfzeitstempel erhalten.
+- [x] Tatsächliche exakte Preisversuche getrennt übernommen; keine Frische durch
+  Seitenaufruf. Bekannte Quoten unter 1,20 bleiben gefiltert; ein echter Versuch
+  ohne lieferbare Quote ändert weder Modellchance noch Rangfolge.
+- [x] RisikoBet prüft Original-Kontextfristen und genaue Snapshotbindung beim
+  Rendern; eigene Anzeigequote erzeugt weder Abrufnachweis noch fremden Zeitstempel.
+  Neue typisierte Belege entstehen erst beim regulären Lauf, keine Migration.
+- [x] Unabhängiger finaler Diffreview: keine offenen konkreten P1/P2 im Patch.
+  Originalreproduktionen und lokaler interner Browser (1440/390/320 px) bestanden.
+- [x] Vollregression abgeschlossen: 12.683 bestanden / 50 ursprüngliche Fehler /
+  97 Skips / 143 Untertests. Alle 50 Originalfehler danach gemeinsam grün:
+  46 falscher Windows-Bash, vier präzisierte Test-Schnittstellen/Belege.
+  Keine Produktionsänderung oder aufgeweichte Prüfung zur Fehlerbereinigung.
+- [ ] Narrow Commit/Push und VPS-Fast-forward ohne neues Backup;
+  echte Produktionsnavigation nach Reload prüfen.
+
+[Prüfbericht](docs/audits/2026-10-10-gemeinsame-bereiche.md).
+Separat offen bleiben vorhandener Wettfinder-Datenfehlstatus, Daily3-Zeitfolge,
+empirische Verletzungs-/Wetter-/Müdigkeitswirkung, Domainumzug, Stripe und Stores.
+Softwaretests beweisen keine bessere Wett-Rendite. Geerbtes ungetracktes WIP erhalten.
+
 ## 10.10.2026 – Alcaraz-Quotenabruf und 1,20-Filter repariert
 
 - [x] Konkrete Ursache am VPS belegt: 16 Tenniszeilen, nur zehn Preisprüfungen;

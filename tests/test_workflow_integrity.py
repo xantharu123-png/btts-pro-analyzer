@@ -841,11 +841,7 @@ def test_wettfinder_defaults_to_automatic_and_hides_custom_search_controls(
     app.render_wettfinder()
 
     assert calls == ["automatic"]
-    assert recording_st.segmented_controls[0][:3] == (
-        "Modus",
-        ("Automatisch", "Eigene Suche", "3 a day"),
-        "Automatisch",
-    )
+    assert recording_st.segmented_controls == []
     assert recording_st.selectboxes == []
     assert not any(
         kind == "subheader" and value == "Eigene Suche"
@@ -855,7 +851,7 @@ def test_wettfinder_defaults_to_automatic_and_hides_custom_search_controls(
 
 def test_daily3_mode_routes_to_its_view_without_starting_other_finders(monkeypatch):
     import daily3_ui
-    recording_st = _RecordingStreamlit(widget_values={"wettfinder_mode_v2": "3 a day"})
+    recording_st = _RecordingStreamlit(session_state={"wettfinder_mode_v2": "3 a day"})
     calls = []
     monkeypatch.setattr(app, "st", recording_st)
     monkeypatch.setattr(daily3_ui, "render_daily3", lambda st: calls.append(("daily3", st)))
@@ -870,8 +866,8 @@ def test_wettfinder_manual_mode_keeps_every_sport_horizon_market_and_all_tab(
     monkeypatch,
 ):
     recording_st = _RecordingStreamlit(
+        session_state={"wettfinder_mode_v2": "Eigene Suche"},
         widget_values={
-            "wettfinder_mode_v2": "Eigene Suche",
             "finder_sport": "Alle",
         }
     )
@@ -1183,17 +1179,15 @@ def test_automatic_partial_run_keeps_diagnostics_out_of_consumer_copy(monkeypatc
         assert internal_copy not in html
 
 
-def test_wettfinder_page_uses_scoped_mode_wrapper(monkeypatch):
+def test_wettfinder_page_retains_scoped_game_wrapper_without_nested_navigation(monkeypatch):
     recording_st = _RecordingStreamlit()
     monkeypatch.setattr(app, "st", recording_st)
     monkeypatch.setattr(app, "_render_automated_daily_selection", lambda: None)
 
     app.render_wettfinder()
 
-    assert recording_st.containers[:2] == [
-        "wettfinder_v2_page",
-        "wettfinder_v2_mode",
-    ]
+    assert recording_st.containers == ["wettfinder_v2_page"]
+    assert recording_st.segmented_controls == []
 
 
 def test_app_styles_emit_the_scoped_responsive_wettfinder_contract(monkeypatch):
@@ -1463,8 +1457,8 @@ def test_legacy_automatic_context_scope_is_unknown_without_zero_pending_claim():
 
 def test_all_sports_shows_tabs_without_redundant_explanation(monkeypatch):
     recording_st = _RecordingStreamlit(
+        session_state={"wettfinder_mode_v2": "Eigene Suche"},
         widget_values={
-            "wettfinder_mode_v2": "Eigene Suche",
             "finder_sport": "Alle",
         }
     )
@@ -1503,58 +1497,26 @@ def test_design_four_main_navigation_order_is_exact_on_every_public_surface():
     assert app.PAGE_SCAN_JOBS["RisikoBet"] == ()
 
 
-def test_design_four_mobile_navigation_is_one_ordered_five_item_row():
+def test_shared_navigation_is_one_area_control_with_route_callback(monkeypatch):
     calls = []
-
-    class _Context:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_args):
-            return False
-
-    class _MobileNavStreamlit:
-        def __init__(self):
-            self.session_state = {}
-
-        @staticmethod
-        def container(**_kwargs):
-            return _Context()
-
-        def segmented_control(self, label, options, **kwargs):
-            calls.append((label, tuple(options), kwargs))
-            return self.session_state.get(kwargs["key"])
-
-    recording_st = _MobileNavStreamlit()
-    original_st = app.st
-    try:
-        app.st = recording_st
-        app._render_mobile_nav("RisikoBet")
-        assert len(calls) == 1
-        _label, _options, callback_kwargs = calls[0]
-        assert recording_st.session_state["bb_mobile_navigation"] == "RisikoBet"
-        recording_st.session_state["bb_mobile_navigation"] = "Live"
-        callback_kwargs["on_change"]()
-    finally:
-        app.st = original_st
-
+    recording_st = _RecordingStreamlit(session_state={"workspace": "RisikoBet"})
+    def selectbox(label, options, **kwargs):
+        calls.append((label, tuple(options), kwargs))
+        return recording_st.session_state.get(kwargs["key"])
+    recording_st.selectbox = selectbox
+    monkeypatch.setattr(app, "st", recording_st)
+    app._render_editorial_header("RisikoBet")
     assert len(calls) == 1
     label, options, kwargs = calls[0]
-    assert label == "Hauptnavigation"
-    assert options == app.MAIN_PAGES
-    assert [kwargs["format_func"](page) for page in options] == [
-        "Finder",
-        "Risiko",
-        "Live",
-        "15K",
-        "Meine",
-    ]
-    assert kwargs["key"] == "bb_mobile_navigation"
-    assert kwargs["required"] is True
-    assert kwargs["label_visibility"] == "collapsed"
-    assert kwargs["width"] == "stretch"
+    assert label == "Bereich"
+    assert options == app.AREA_OPTIONS
+    assert kwargs["key"] == "bb_area_navigation"
+    assert recording_st.session_state["bb_area_navigation"] == "RisikoBet"
+    recording_st.session_state["bb_area_navigation"] = "Live"
+    kwargs["on_change"]()
     assert recording_st.session_state["workspace"] == "Live"
     assert recording_st.session_state["settings_open"] is False
+    assert recording_st.segmented_controls == []
 
 
 def test_main_dispatches_riskobet_to_its_own_read_only_renderer(monkeypatch):
@@ -1590,7 +1552,7 @@ def test_main_dispatches_riskobet_to_its_own_read_only_renderer(monkeypatch):
     monkeypatch.setattr(app, "_session_scope_id", lambda: "test-scope")
     monkeypatch.setattr(app, "get_analyzer", lambda *_args: object())
     monkeypatch.setattr(app, "_render_sidebar", lambda _analyzer: "RisikoBet")
-    monkeypatch.setattr(app, "_render_editorial_header", lambda workspace: events.append(('desktop', workspace)))
+    monkeypatch.setattr(app, "_render_editorial_header", lambda workspace: events.append(('area', workspace)))
     monkeypatch.setattr(app, "account_scope_ready", lambda _state: True)
     monkeypatch.setattr(
         app,
@@ -1614,18 +1576,13 @@ def test_main_dispatches_riskobet_to_its_own_read_only_renderer(monkeypatch):
         "render_riskobet",
         lambda: events.append(("riskobet", None)),
     )
-    monkeypatch.setattr(
-        app,
-        "_render_mobile_nav",
-        lambda workspace: events.append(("mobile", workspace)),
-    )
-
     app.main()
 
     assert events.count(("riskobet", None)) == 1
     assert ("title", "RisikoBet") in events
     assert ("caption", app.PAGE_INFO["RisikoBet"][1]) in events
-    assert ("mobile", "RisikoBet") in events
+    assert events.count(("area", "RisikoBet")) == 1
+    assert events.index(("area", "RisikoBet")) < events.index(("riskobet", None))
 
 
 @pytest.mark.parametrize(
@@ -1638,7 +1595,7 @@ def test_main_dispatches_riskobet_to_its_own_read_only_renderer(monkeypatch):
         (430, "@media (max-width: 430px)"),
         (390, "@media (max-width: 430px)"),
         (360, "@media (max-width: 360px)"),
-        (320, "@media (max-width: 340px)"),
+        (320, "@media (max-width: 360px)"),
     ),
 )
 def test_design_four_css_contract_covers_every_required_width(
@@ -1651,7 +1608,7 @@ def test_design_four_css_contract_covers_every_required_width(
         "/* --- RisikoBet: flat, price-independent decision surface --- */",
         1,
     )[1].split(
-        "/* --- Mobile bottom navigation (hidden on desktop) --- */",
+        "/* --- Shared area navigation: one control on desktop and mobile --- */",
         1,
     )[0]
 
@@ -1682,20 +1639,20 @@ def test_design_four_css_contract_covers_every_required_width(
     assert "@media (min-width: 768px) and (max-width: 1080px)" not in source
 
 
-def test_mobile_css_keeps_all_five_items_on_one_row_at_320px():
-    source = inspect.getsource(app._apply_app_styles)
-    bottom_nav_css = source.split(
-        "/* --- Mobile bottom navigation (hidden on desktop) --- */", 1
-    )[1]
-    assert ".st-key-bb_bottomnav" in source
-    assert "overflow-x: hidden" in source
-    assert '[data-testid="stButtonGroup"]' in source
-    assert '> [role="radiogroup"]' in source
-    assert "grid-template-columns: repeat(5, minmax(0, 1fr))" in source
-    assert "@media (max-width: 340px)" in source
-    assert "font-size: 0.56rem !important" in source
-    assert bottom_nav_css.count("@media (max-width: 760px)") >= 2
-    assert "@media (max-width: 767px)" not in bottom_nav_css
+def test_shared_area_control_keeps_every_destination_reachable_without_a_bottom_bar():
+    from streamlit.testing.v1 import AppTest
+    from test_unified_navigation import _run_navigation
+
+    app_test = AppTest.from_function(_run_navigation).run(timeout=30)
+    assert not app_test.exception
+    navigation = [item for item in app_test.selectbox if item.label == 'Bereich']
+    assert len(navigation) == 1
+    assert navigation[0].options == list(app.AREA_OPTIONS)
+    assert not app_test.get('button_group')
+    navigation[0].select('3 a day').run(timeout=30)
+    assert not app_test.exception
+    assert app_test.session_state['wettfinder_mode_v2'] == '3 a day'
+    assert any('PAGE: 3 a day' in item.value for item in app_test.markdown)
 
 
 def test_shadow_tennis_history_is_not_a_consumer_tips_area():

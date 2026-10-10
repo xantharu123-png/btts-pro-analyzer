@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from html import escape
 import math
 import re
@@ -168,6 +168,9 @@ class RiskBetPriceOverlay:
     bookmaker: Optional[str] = None
     observed_at: Optional[str] = None
     below_floor: bool = False
+    fetched_at: Optional[str] = None
+    checked_at: Optional[str] = None
+    price_check_current: bool = False
 
     def __post_init__(self) -> None:
         candidate_id = str(self.candidate_id or "").strip()
@@ -178,6 +181,8 @@ class RiskBetPriceOverlay:
             raise ValueError("unsupported RisikoBet price status")
         if not isinstance(self.below_floor, bool):
             raise ValueError('below_floor must be boolean')
+        if not isinstance(self.price_check_current, bool):
+            raise ValueError('price_check_current must be boolean')
         if self.observed_odds is not None:
             if (
                 isinstance(self.observed_odds, bool)
@@ -228,6 +233,8 @@ class RiskBetCard:
     snapshot_id: str = ""
     selection_key: str = ""
     settlement_contract: Optional[str] = None
+    price_check_current: bool = False
+    context_check_current: bool = False
 
 
 @dataclass(frozen=True)
@@ -356,6 +363,9 @@ def _normalise_price(
             bookmaker=price.get("bookmaker"),
             observed_at=price.get("observed_at"),
             below_floor=price.get('below_floor') is True,
+            fetched_at=price.get('fetched_at'),
+            checked_at=price.get('checked_at'),
+            price_check_current=price.get('price_check_current') is True,
         )
     else:
         raise TypeError("price must be a RiskBetPriceOverlay or mapping")
@@ -387,12 +397,68 @@ def _is_simple_market(market_key: object, selection: object) -> bool:
     return any(pattern in token for pattern in patterns)
 
 
+def _current_context_check(candidate, snapshot, now):
+    """Read original bound facts; no inference from provider summary prose."""
+    from riskobet_domain import EventModelSnapshot, FactorRole
+    if not isinstance(snapshot, EventModelSnapshot):
+        return False
+    if any(getattr(candidate, field, None) != getattr(snapshot, field, None)
+           for field in ('snapshot_id', 'event_key', 'sport', 'competition', 'event_label', 'starts_at')):
+        return False
+    if snapshot.modeled_at > now or snapshot.input_cutoff_at > now or snapshot.starts_at <= now:
+        return False
+    if snapshot.missing_core_data or _enum_value(candidate.context_state) not in {'FRESH', 'PARTIAL'}:
+        return False
+    def current(factor):
+        return (factor.observed_at <= factor.imported_at <= now
+                and factor.observed_at <= now <= factor.fresh_until)
+    if candidate.sport == 'football':
+        checks = {}
+        receipts = {}
+        for factor in snapshot.factors:
+            match = re.fullmatch(r'football_context_(\d+)_(h2h|injuries|weather)', factor.factor_key)
+            if (match and factor.source == 'api-football-context'
+                    and factor.role is FactorRole.DISPLAY_ONLY):
+                checks.setdefault(match[1], {})[match[2]] = factor
+            match = re.fullmatch(r'football_highlight_context_checks_(\d+)', factor.factor_key)
+            if match:
+                receipts[match[1]] = factor
+        if not checks or any(set(group) != {'h2h', 'injuries', 'weather'}
+                             or not all(current(factor) for factor in group.values())
+                             for group in checks.values()):
+            return False
+        # New receipts record the shared typed check contract. Legacy PARTIAL
+        # summaries do not tell whether missing checks or only lineups caused it.
+        if receipts:
+            return (set(receipts) == set(checks) and all(
+                factor.source == 'football-highlight-context-checks-v1'
+                and factor.role is FactorRole.DISPLAY_ONLY
+                and factor.coverage == 1.0 and current(factor)
+                for factor in receipts.values()))
+        return _enum_value(candidate.context_state) == 'FRESH'
+    model_factors = tuple(factor for factor in snapshot.factors if factor.role is FactorRole.MODEL)
+    # Retain the existing sport's canonical FRESH admission, but do not let
+    # its actual workload facts survive their own original validity deadline.
+    relevant_context = tuple(factor for factor in snapshot.factors
+        if candidate.sport == 'tennis' and factor.factor_key.startswith('tennis_workload_')
+        and factor.source == 'tennis-shadow-observed-results')
+    return (_enum_value(candidate.context_state) == 'FRESH' and bool(model_factors)
+            and all(current(factor) for factor in (*model_factors, *relevant_context)))
+
+
 def build_riskobet_card(
     candidate: "RiskCandidate",
     price: object = None,
+    *,
+    snapshot: object = None,
+    now: Optional[datetime] = None,
 ) -> RiskBetCard:
     """Map one frozen model candidate and one optional exact price overlay."""
 
+    current = now if now is not None else datetime.now(timezone.utc)
+    if not isinstance(current, datetime) or current.tzinfo is None or current.utcoffset() is None:
+        raise ValueError('RisikoBet presentation clock must be timezone-aware')
+    current = current.astimezone(timezone.utc)
     candidate_id = _clean_text(getattr(candidate, "candidate_id", None), "")
     event_key = _clean_text(getattr(candidate, "event_key", None), "")
     sport_key = str(getattr(candidate, "sport", "") or "").strip()
@@ -487,6 +553,8 @@ def build_riskobet_card(
         snapshot_id=str(getattr(candidate, "snapshot_id", "") or ""),
         selection_key=str(getattr(candidate, "selection_key", "") or ""),
         settlement_contract=getattr(candidate, "settlement_contract", None),
+        price_check_current=overlay.price_check_current,
+        context_check_current=_current_context_check(candidate, snapshot, current),
     )
 
 
@@ -644,9 +712,13 @@ def _select_featured(
     *,
     max_featured: int,
 ) -> tuple[RiskBetCard, ...]:
-    """Select useful scenarios without inspecting any price field."""
+    """Highlight checked scenarios, only after whole-event price-blind coherence."""
 
-    ordered = tuple(ordered)
+    ordered = tuple(card for card in ordered
+                    if card.context_check_current and not card.missing_core_data
+                    and card.model_probability is not None
+                    and card.evidence_code != 'RESEARCH'
+                    and card.price_check_current)
     established = tuple(
         card for card in ordered if card.evidence_code != "RESEARCH"
     )
@@ -701,9 +773,8 @@ def _select_featured(
             selected.append(card)
             selected_ids.add(card.candidate_id)
 
-    # Evidenced scenarios always receive the first opportunity.  Research may
-    # fill genuinely free top slots only after every evidenced scenario has
-    # been placed; it never jumps above an evidenced additional row.
+    # Research and incomplete checks remain additional cards, never top-slot
+    # filler. Price-check coverage cannot change the prior direction anchor.
     fill_from(established)
     if len(selected_ids) == len(established):
         fill_from(research)

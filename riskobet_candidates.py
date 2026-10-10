@@ -67,6 +67,7 @@ ESPORTS_MAP_MIN_PROBABILITY = 0.30
 ESPORTS_SIMPLE_MAX_PROBABILITY = 0.85
 RESEARCH_WIN_MIN_PROBABILITY = 0.12
 FOOTBALL_CONTEXT_TTL = timedelta(minutes=75)
+FOOTBALL_HIGHLIGHT_CHECK_SCHEMA = "football-highlight-context-checks-v1"
 RESEARCH_HISTORY_TTL = timedelta(days=30)
 
 _UTC = timezone.utc
@@ -520,18 +521,15 @@ def _football_context_parts(
     selected: Sequence[object],
     modeled_at: datetime,
     starts_at: datetime,
+    *,
+    input_cutoff_at: Optional[datetime] = None,
 ) -> tuple[tuple[FactorEvidence, ...], ContextState, list[str], list[str], object]:
-    contexts = [
-        _get(candidate, "context")
-        for candidate in selected
-        if isinstance(_get(candidate, "context"), Mapping)
-        and bool(_get(candidate, "context"))
-        and any(
-            isinstance(_get(candidate, "context").get(section), Mapping)
-            for section in ("h2h", "injuries", "weather", "lineups")
-        )
-    ]
-    if not contexts:
+    contexts = [(_get(candidate, "context")
+                 if isinstance(_get(candidate, "context"), Mapping) else {})
+                for candidate in selected]
+    if not any(any(isinstance(context.get(section), Mapping)
+                   for section in ("h2h", "injuries", "weather", "lineups"))
+               for context in contexts):
         return (
             (),
             ContextState.OPEN,
@@ -547,6 +545,33 @@ def _football_context_parts(
     complete = True
     oldest_checked_at: Optional[datetime] = None
     for index, context in enumerate(contexts):
+        # A typed presentation receipt distinguishes missing checks from a
+        # merely pending morning lineup. It does not change the frozen model.
+        from forecast_analysis import football_context_highlight_reason, _clock
+        qualified = not football_context_highlight_reason(context, now=modeled_at)
+        if qualified:
+            original_checks = tuple(_clock(context[axis]["checked_at"])
+                for axis in ("h2h", "injuries", "weather"))
+            oldest_check = min(original_checks)
+        else:
+            # This is an internal negative assessment, not a fabricated
+            # provider observation or a successful check clock.
+            known_clocks = (_clock(context.get("checked_at")), *(
+                _clock(_get(context.get(axis), "checked_at"))
+                for axis in ("h2h", "injuries", "weather")))
+            oldest_check = min((clock for clock in known_clocks
+                                if clock is not None and clock <= modeled_at),
+                               default=input_cutoff_at or modeled_at)
+            oldest_check = min(oldest_check, input_cutoff_at or modeled_at)
+        factors.append(FactorEvidence(
+            factor_key=f"football_highlight_context_checks_{index}",
+            summary=("Aktuelle relevante Spielinformationen geprüft." if qualified
+                     else "Relevante Spielinformationen nicht vollständig belegt."),
+            source=FOOTBALL_HIGHLIGHT_CHECK_SCHEMA,
+            observed_at=oldest_check, imported_at=modeled_at,
+            fresh_until=min(oldest_check + FOOTBALL_CONTEXT_TTL, starts_at),
+            coverage=1.0 if qualified else 0.0, role=FactorRole.DISPLAY_ONLY,
+        ))
         checked_at = _parse_datetime(context.get("checked_at"))
         if checked_at is None:
             complete = False
@@ -889,7 +914,7 @@ def football_risk_bundle(
     if len(scenarios) != len(selected):
         raise ValueError("selected candidate is not a current RisikoBet scenario")
     context_factors, context_state, context_pros, context_cons, context_payload = (
-        _football_context_parts(selected, model_time, starts_at)
+        _football_context_parts(selected, model_time, starts_at, input_cutoff_at=cutoff)
     )
     from football_customer_facts import validated_football_recent_results, recent_football_result_facts
     recent = validated_football_recent_results(recent_results, identity={
@@ -958,6 +983,7 @@ def football_risk_bundle(
                 _clean_text(_get(candidate, "candidate_id")) for candidate in selected
             ),
             "context": context_payload,
+            "highlight_context_check_schema": FOOTBALL_HIGHLIGHT_CHECK_SCHEMA,
             **({'customer_recent_results': recent} if recent is not None else {}),
         }
     )

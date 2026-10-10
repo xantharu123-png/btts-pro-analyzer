@@ -1,6 +1,7 @@
 """Read-only reuse of exact existing odds; no extra request or model write."""
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from dataclasses import replace
+from collections.abc import Mapping
 import json
 from pathlib import Path
 
@@ -11,6 +12,18 @@ from market_consensus import (
 )
 from riskobet_domain import stable_event_key
 from riskobet_surface import RiskBetPriceOverlay
+
+
+def _price_check_fields(quote, point, now):
+    """Original exact-quote clocks only, not a new check during rendering."""
+    from forecast_analysis import _clock
+    fetched, observed = _clock(quote.fetched_at), _clock(point.observed_at)
+    current = (fetched is not None and observed is not None
+               and timedelta(0) <= now - fetched <= timedelta(hours=24)
+               and timedelta(0) <= now - observed <= timedelta(hours=24)
+               and observed <= fetched)
+    return dict(fetched_at=quote.fetched_at, checked_at=quote.fetched_at,
+                price_check_current=current)
 
 
 def football_market(candidate):
@@ -33,7 +46,64 @@ def football_market(candidate):
     return None
 
 
-def shared_price_overlays(candidates, rows, *, now=None, tennis_price_observations=()):
+def _attempt_row_matches(candidate, row):
+    """Only canonical football/tennis markets with exact native event binding."""
+    from forecast_analysis import _clock
+    if not isinstance(row, dict) or _clock(row.get('scheduled_start')) != candidate.starts_at:
+        return False
+    if candidate.sport == 'football':
+        fixture, market = row.get('fixture_id'), football_market(candidate)
+        home, away = row.get('home_team'), row.get('away_team')
+        return (type(fixture) is int and fixture > 0 and market is not None
+                and row.get('source') == 'football_challenge' and row.get('market_key') == market
+                and str(row.get('sport') or '').casefold() in {'football', 'fußball', 'fussball'}
+                and isinstance(home, str) and isinstance(away, str) and home.strip() and away.strip()
+                and home != away and candidate.event_label == f'{home} vs {away}'
+                and candidate.event_key == stable_event_key('football', 'api-football', str(fixture)))
+    if (candidate.sport != 'tennis' or candidate.market_key != 'match_winner'
+            or candidate.selection_key not in {'home', 'away'}
+            or candidate.settlement_contract != (
+                f'riskobet-settlement-v1:tennis:match_winner:{candidate.selection_key}')):
+        return False
+    provider, event = row.get('fixture_source'), row.get('provider_event_id')
+    a, b, selected = row.get('competitor_a'), row.get('competitor_b'), row.get('selected_competitor')
+    return (row.get('source') == 'tennis_shadow' and row.get('market_key') == 'H2H'
+            and str(row.get('sport') or '').casefold() == 'tennis'
+            and row.get('fixture_id') is None
+            and all(isinstance(value, str) and value.strip() for value in (provider, event, a, b, selected))
+            and a != b and selected == (a if candidate.selection_key == 'home' else b)
+            and candidate.selection_label == selected and candidate.event_label == f'{a} vs {b}'
+            and candidate.event_key == stable_event_key('tennis', provider, event))
+
+
+def _apply_checked_attempts(overlays, candidates, rows, attempts, *, now):
+    """Reuse a real no-quote attempt; never infer a check from publication time."""
+    if not isinstance(attempts, Mapping):
+        return
+    from forecast_price_checks import valid_price_check_time
+    for candidate in candidates:
+        if candidate.starts_at <= now:
+            continue
+        matches = []
+        for row in rows:
+            try:
+                if _attempt_row_matches(candidate, row):
+                    matches.append(row)
+            except (TypeError, ValueError, OverflowError):
+                continue  # Malformed native identity cannot supply a check.
+        if len(matches) != 1:  # Ambiguous duplicate records must not cherry-pick clocks.
+            continue
+        row = matches[0]
+        key = row.get('key')
+        checked = attempts.get(key) if isinstance(key, str) else None
+        if not valid_price_check_time(checked, row.get('modeled_at'), now=now):
+            continue
+        old = overlays.get(candidate.candidate_id, RiskBetPriceOverlay(candidate.candidate_id))
+        overlays[candidate.candidate_id] = replace(old, checked_at=checked, price_check_current=True)
+
+
+def shared_price_overlays(candidates, rows, *, now=None, tennis_price_observations=(),
+                          price_check_attempts=None):
     """Join by native event, kickoff and exact settlement market, not names."""
     now = now or datetime.now(timezone.utc)
     candidates, rows = tuple(candidates), tuple(rows)
@@ -77,7 +147,9 @@ def shared_price_overlays(candidates, rows, *, now=None, tennis_price_observatio
             observed_odds=price.odds, bookmaker=price.bookmaker,
             observed_at=price.observed_at,
             below_floor=quote_below_publication_floor(quote, candidate=binding, now=now),
+            **_price_check_fields(quote, price, now),
         )
+    _apply_checked_attempts(overlays, candidates, rows, price_check_attempts, now=now)
     return overlays
 
 
@@ -156,6 +228,7 @@ def tennis_price_overlays(candidates, rows, *, now, price_observations=()):
             candidate.candidate_id, 'AVAILABLE' if fresh else 'STALE',
             point.odds, point.bookmaker, point.observed_at,
             quote_below_publication_floor(quote, candidate=row, now=now),
+            **_price_check_fields(quote, point, now),
         )
     return overlays
 
@@ -201,6 +274,7 @@ def team_price_overlays(candidates, rows, *, now):
         overlays[candidate.candidate_id] = RiskBetPriceOverlay(
             candidate.candidate_id, 'OBSERVED', point.odds, point.bookmaker,
             point.observed_at, quote_below_publication_floor(quote, candidate=binding, now=now),
+            **_price_check_fields(quote, point, now),
         )
     return overlays
 
@@ -211,9 +285,11 @@ def load_shared_price_overlays(candidates, snapshots=(), *, now=None, path=None)
         data = json.loads(source.read_text(encoding='utf-8'))
         rows = data.get('model_candidates', ())
         tennis_prices = data.get('tennis_price_observations', ())
+        attempts = data.get('price_check_attempts', {})
     except (OSError, TypeError, ValueError, AttributeError):
         rows = []
         tennis_prices = []
+        attempts = {}
     rows = [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
     from team_sport_prices import attach_cached_team_prices, snapshot_price_rows
     # Full identity rows also cover research events absent from the normal pool.
@@ -226,4 +302,5 @@ def load_shared_price_overlays(candidates, snapshots=(), *, now=None, path=None)
         rows = [row for row in rows if str(row.get('sport') or '').casefold()
                 not in {'e-sport', 'esports', 'e sport'}] + esports_snapshot_rows(snapshots)
     rows = attach_cached_esports_prices(rows, now=now, path=source.parent / 'esports_quotes.json')
-    return shared_price_overlays(candidates, rows, now=now, tennis_price_observations=tennis_prices)
+    return shared_price_overlays(candidates, rows, now=now, tennis_price_observations=tennis_prices,
+                                 price_check_attempts=attempts)

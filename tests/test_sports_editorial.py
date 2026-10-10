@@ -241,19 +241,20 @@ def test_markup_escapes_names_and_controls_have_separate_card_ids():
     assert ' checked' not in one and '5 Spiele (Standardansicht)' in one
 
 
-def test_all_five_desktop_destinations_and_callback_are_synchronized(monkeypatch):
+def test_shared_area_destinations_and_callback_are_synchronized(monkeypatch):
     import app
     from test_workflow_integrity import _RecordingStreamlit
     recording = _RecordingStreamlit(session_state={'workspace': 'RisikoBet'})
     callbacks = []
-    def segmented(label, options, **kw):
+    def selectbox(label, options, **kw):
         callbacks.append((label, options, kw))
         return recording.session_state[kw['key']]
-    recording.segmented_control = segmented
+    recording.selectbox = selectbox
     monkeypatch.setattr(app, 'st', recording)
     app._render_editorial_header('RisikoBet')
     label, options, kwargs = callbacks[0]
-    assert tuple(options) == app.MAIN_PAGES and label == 'Hauptbereiche'
+    assert len(callbacks) == 1
+    assert tuple(options) == app.AREA_OPTIONS and label == 'Bereich'
     recording.session_state[kwargs['key']] = '15K'
     kwargs['on_change']()
     assert recording.session_state['workspace'] == '15K'
@@ -281,7 +282,7 @@ def test_theme_embeds_font_locally_and_retains_accessible_controls():
     css = editorial_css()
     assert 'data:font/ttf;base64,' in css
     assert 'url(https:' not in css
-    assert ':focus-visible' in css and 'env(safe-area-inset-bottom)' in css
+    assert ':focus-visible' in css and 'env(safe-area-inset-bottom' in css
     assert '.form-toggle label' in css and '44px' in css
     assert '.st-key-riskobet_summary p {color:var(--bb-ink) !important;}' in css
     assert '[data-testid="stElementContainer"]:has(iframe[height="0"])' in css
@@ -301,7 +302,7 @@ def test_new_daily3_rail_respects_existing_plan_entitlements(monkeypatch):
     assert app._daily3_rail_allowed()
 
 
-def test_mobile_navigation_is_reachable_when_plan_guard_stops_page(monkeypatch):
+def test_shared_navigation_is_reachable_when_plan_guard_stops_page(monkeypatch):
     import app
     from test_workflow_integrity import _RecordingStreamlit
     recording = _RecordingStreamlit(session_state={'workspace': 'RisikoBet'})
@@ -317,28 +318,27 @@ def test_mobile_navigation_is_reachable_when_plan_guard_stops_page(monkeypatch):
     monkeypatch.setattr(app, 'require_feature', higher_plan_required)
     with pytest.raises(RuntimeError, match='page stopped by plan guard'):
         app.main()
-    controls = {key: options for _label, options, _default, key in recording.segmented_controls}
-    assert controls['bb_mobile_navigation'] == app.MAIN_PAGES
-    assert controls['bb_desktop_navigation'] == app.MAIN_PAGES
+    assert recording.selectboxes == [('Bereich', app.AREA_OPTIONS, 0, 'bb_area_navigation')]
+    assert recording.segmented_controls == []
 
 
-def test_navigation_callback_syncs_both_surfaces_before_next_render(monkeypatch):
+def test_navigation_callback_syncs_flat_area_and_route_before_next_render(monkeypatch):
     import app
     from test_workflow_integrity import _RecordingStreamlit
     recording = _RecordingStreamlit(session_state={'workspace': 'RisikoBet'})
     callbacks = {}
-    def segmented(_label, _options, **kwargs):
+    def selectbox(_label, _options, **kwargs):
         callbacks[kwargs['key']] = kwargs['on_change']
-    recording.segmented_control = segmented
+    recording.selectbox = selectbox
     monkeypatch.setattr(app, 'st', recording)
     app._render_editorial_header('RisikoBet')
-    app._render_mobile_nav('RisikoBet')
-    for changed, page in (('bb_mobile_navigation', 'Wettfinder'), ('bb_desktop_navigation', '15K')):
-        recording.session_state[changed] = page
-        callbacks[changed]()
-        assert recording.session_state['workspace'] == page
-        assert recording.session_state['bb_desktop_navigation'] == page
-        assert recording.session_state['bb_mobile_navigation'] == page
+    assert list(callbacks) == ['bb_area_navigation']
+    for area, workspace in (('3 a day', 'Wettfinder'), ('15K', '15K')):
+        recording.session_state['bb_area_navigation'] = area
+        callbacks['bb_area_navigation']()
+        assert recording.session_state['workspace'] == workspace
+        assert recording.session_state['bb_area_navigation'] == area
+        assert recording.session_state['wettfinder_mode_v2'] == '3 a day'
 
 
 @pytest.mark.parametrize('sport', ['Basketball', 'Eishockey'])

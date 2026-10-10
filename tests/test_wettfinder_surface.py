@@ -9,6 +9,7 @@ import pytest
 import wettfinder_surface as surface
 from ev_signal_sources import ModelSignal
 from forecast_analysis import project_football_analysis
+from highlight_fixtures import football_checks
 from market_consensus import (
     MarketConsensus,
     QuotePoint,
@@ -72,11 +73,12 @@ def _signal(
         model_scope='same_competition', home_team_id=10 if sport == 'Fussball' else None,
         away_team_id=11 if sport == 'Fussball' else None,
         model_version='surface-model-v1',
+        price_checked_at=NOW.isoformat(),
     )
     # Catalog/diversity fixtures explicitly carry current exact-bound evidence.
     # Legacy unknown-clock/evidence behavior has dedicated neutral-card tests.
     if sport == 'Fussball':
-        raw = vars(signal)
+        raw = {**vars(signal), 'context': football_checks(NOW)}
         comparison = dict(schema='league-market-comparison-v1', fixture_id=signal.fixture_id,
             home_id=10, away_id=11, league_id=39, market_key=market_key,
             scheduled_start=signal.scheduled_start, prediction_version=signal.model_version,

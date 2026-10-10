@@ -375,6 +375,11 @@ def test_both_real_automatic_readers_reject_only_future_analysis_using_one_share
     row = _playable_automatic_candidate()
     row.update(home_id=10, away_id=11, modeled_at=modeled, input_cutoff_at=cutoff,
                selection_rank=[1, 2, 3])
+    # Isolate the model/cutoff clock boundary from independent context checks.
+    from highlight_fixtures import football_checks
+    checked_context = football_checks(datetime(2030, 1, 1, 10, 1, tzinfo=timezone.utc))
+    for axis in ('h2h', 'weather', 'injuries'):
+        row['context'][axis] = {**row['context'].get(axis, {}), **checked_context[axis]}
     row["analysis_evidence"] = forecast_analysis.project_football_analysis(row, model_basis={
         **row, "expected_home_goals": 1.527, "expected_away_goals": 1.133,
         "venue_samples": [12, 12], "form_samples": [6, 6],
@@ -421,9 +426,11 @@ def test_both_real_automatic_readers_reject_only_future_analysis_using_one_share
         assert ("1,53" in cards[0].analysis_basis) is accepted
         for actual_card, baseline_card in zip(cards, baseline_cards):
             assert replace(actual_card, analysis_basis="", analysis_caution="", analysis_samples="",
-                           analysis_data_age="", highlight_eligible=False, highlight_reason="", compact_analysis=None) == replace(
+                           analysis_data_age="", model_eligible=False, highlight_eligible=False,
+                           highlight_reason="", compact_analysis=None) == replace(
                 baseline_card, analysis_basis="", analysis_caution="", analysis_samples="",
-                analysis_data_age="", highlight_eligible=False, highlight_reason="", compact_analysis=None,
+                analysis_data_age="", model_eligible=False, highlight_eligible=False,
+                highlight_reason="", compact_analysis=None,
             )
             # New short copy is explanation metadata too, not a pricing/ranking
             # input; it must follow the same future-evidence rejection.
@@ -431,6 +438,8 @@ def test_both_real_automatic_readers_reject_only_future_analysis_using_one_share
                 assert ('1,53' in actual_card.compact_analysis.summary) is accepted
         # Current complete analysis may support presentation emphasis; missing
         # or future analysis stays neutral without changing model/release data.
+        assert cards[0].model_eligible is accepted
+        assert baseline_cards[0].model_eligible is False
         assert cards[0].highlight_eligible is accepted
         assert baseline_cards[0].highlight_eligible is False
         assert cards[0].price_code == baseline_cards[0].price_code == "PLAYABLE"

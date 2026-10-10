@@ -38,8 +38,9 @@ def select_consumer_forecasts(rows, *, now=None):
     current = current.astimezone(timezone.utc)
     pool = list(rows)
     def eligible(row):
-        retained = getattr(row, 'highlight_eligible', None)
-        return retained if retained is not None else not forecast_highlight_reason(row, now=current)
+        retained = getattr(row, 'model_eligible', None)
+        return retained if retained is not None else not forecast_highlight_reason(
+            row, now=current, check_context=False)
     clocks = {id(row): _clock(getattr(row, 'modeled_at', None)) for row in pool}
     qualifications = {id(row): eligible(row) for row in pool}
     def preference(row):

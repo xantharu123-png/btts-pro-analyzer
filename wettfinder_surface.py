@@ -29,6 +29,7 @@ from daily3_comparison import Comparison, football_form_comparison
 from forecast_analysis import build_forecast_analysis, forecast_highlight_reason, format_model_clock
 from forecast_compact import CompactAnalysis, build_compact_analysis, render_compact_analysis_html
 from forecast_selection import select_consumer_forecasts
+from forecast_price_checks import has_current_price_check
 from market_consensus import (
     MarketConsensus,
     ReferencePriceStatus,
@@ -96,7 +97,11 @@ class WettfinderCard:
     model_version: Optional[str] = None
     policy_version: Optional[str] = None
     model_scope: Optional[str] = None
+    # Model evidence/clocks qualify direction independently of TOP context admission.
+    model_eligible: bool = False
     highlight_eligible: bool = False
+    # Admission only after price-blind whole-pool direction selection.
+    price_check_completed: bool = False
     highlight_reason: str = "Modellgrundlagen nicht geprüft"
     analysis_data_age: str = ""
     compact_analysis: Optional[CompactAnalysis] = None
@@ -508,7 +513,9 @@ def build_wettfinder_card(
         model_version=signal.model_version,
         policy_version=signal.policy_version,
         model_scope=signal.model_scope,
+        model_eligible=not forecast_highlight_reason(signal, now=now, analysis=analysis, check_context=False),
         highlight_eligible=not highlight_reason,
+        price_check_completed=has_current_price_check(signal, now=now, quote=normalized_quote),
         highlight_reason=highlight_reason,
         analysis_data_age=analysis.data_age,
         compact_analysis=build_compact_analysis(signal, analysis, now=now),
@@ -542,7 +549,7 @@ def _round_robin_by_sport(cards: Iterable[WettfinderCard]) -> list[WettfinderCar
 
 
 def _can_feature(card: WettfinderCard) -> bool:
-    if not card.highlight_eligible:
+    if not card.highlight_eligible or not card.price_check_completed:
         return False
     if _token(card.sport) in {"fussball", "football"}:
         return card.highlight_comparison is not None
@@ -554,7 +561,7 @@ def _select_featured(
     *,
     max_featured: int,
 ) -> tuple[WettfinderCard, ...]:
-    """Choose useful, sport-diverse cards without considering price data."""
+    """Admit actually checked cards, then rank without considering price values."""
 
     # Rank football only after whole-pool directional coherence. Keep the
     # other sports' evidence rules and cross-sport rotation; no quote or

@@ -143,6 +143,25 @@ def _player_names(value: object) -> list[str] | None:
 def _context_projection(raw: Mapping, *, include_names: bool = True) -> dict:
     """Keep typed observation facts and optional names, never provider prose."""
     result = {}
+    for axis, statuses in (
+        ("h2h", ("passed", "neutral", "blocked", "unavailable")),
+        ("weather", ("passed", "observed", "blocked", "unavailable")),
+    ):
+        check = _mapping(raw.get(axis))
+        if ((axis == "h2h" and "matches" in check and not _integer(check["matches"]))
+                or (axis == "weather" and "veto_applied" in check
+                    and not isinstance(check["veto_applied"], bool))):
+            continue
+        if (
+            check.get("status") in statuses
+            and check.get("availability") in ("available", "provider_unavailable", "invalid")
+            and _clock(check.get("checked_at")) is not None
+        ):
+            result[axis] = {field: check[field] for field in ("status", "availability", "checked_at")}
+            if axis == "h2h" and _integer(check.get("matches")):
+                result[axis]["matches"] = check["matches"]
+            if axis == "weather" and isinstance(check.get("veto_applied"), bool):
+                result[axis]["veto_applied"] = check["veto_applied"]
     injuries = _mapping(raw.get("injuries"))
     if injuries.get("availability") == "not_covered" or injuries.get("coverage_available") is False:
         result["injuries"] = {"availability": "not_covered", "coverage_available": False,
@@ -169,13 +188,21 @@ def _context_projection(raw: Mapping, *, include_names: bool = True) -> dict:
                 if names is not None:
                     result["injuries"][side + suffix] = names
     lineups = _mapping(raw.get("lineups"))
-    if lineups.get("status") in ("passed", "pending", "confirmation_due", "unavailable", "blocked") and _clock(lineups.get("checked_at")):
+    if lineups.get("status") == "blocked":
+        # Preserve an explicit negative even when its clock is unavailable.
+        # This cannot certify a positive check or manufacture a timestamp.
+        result["lineups"] = {"status": "blocked"}
+        if _clock(lineups.get("checked_at")) is not None:
+            result["lineups"]["checked_at"] = lineups["checked_at"]
+    elif lineups.get("status") in ("passed", "pending", "confirmation_due", "unavailable") and _clock(lineups.get("checked_at")):
         result["lineups"] = {name: lineups[name] for name in ("status", "checked_at")}
     applied = _mapping(raw.get("probability_integration")).get("applied")
     if isinstance(applied, bool):
         result["probability_integration"] = {"applied": applied}
     if "stale" in raw and raw.get("stale") is not False:
         result["stale"] = True
+    if "conflicting" in raw and raw.get("conflicting") is not False:
+        result["conflicting"] = True
     return result
 
 
@@ -218,7 +245,40 @@ def read_football_analysis(row: Mapping, *, now: datetime | None = None) -> dict
             source_clock = _clock(identity[field])
             if source_clock is not None and source_clock > current:
                 return None
-    context = _context_projection(_mapping(evidence.get("context")))
+    recorded_context = _mapping(evidence.get("context"))
+    context = _context_projection(recorded_context)
+    raw_context = _mapping(row.get("context"))
+    raw_checks = _context_projection(raw_context)
+    # Old envelopes omitted these check facts. Recover only the SAME exact-
+    # bound artifact's typed records, never current provider data or a new clock.
+    for axis in ("h2h", "weather", "injuries", "lineups"):
+        if axis not in raw_context:
+            continue
+        incoming = _mapping(raw_checks.get(axis))
+        recorded = _mapping(context.get(axis))
+        if axis not in recorded_context:
+            if incoming:
+                context[axis] = dict(incoming)
+            continue
+        # Present contradictory/malformed records cannot be repaired by choosing
+        # the favorable version. Optional display names are not check identity.
+        fields = ("status", "availability", "coverage_available", "checked_at",
+                  "home_missing", "away_missing", "home_questionable", "away_questionable",
+                  "impact_assessment_complete", "matches", "veto_applied")
+        if not recorded or not incoming or any(
+            (_clock(recorded[field]) != _clock(incoming[field]) if field == "checked_at"
+             else recorded[field] != incoming[field])
+            for field in fields if field in recorded and field in incoming
+        ):
+            context["conflicting"] = True
+        else:
+            for field in fields:
+                if field not in recorded and field in incoming:
+                    context[axis][field] = incoming[field]
+    if raw_checks.get("stale") is True:
+        context["stale"] = True
+    if raw_checks.get("conflicting") is True:
+        context["conflicting"] = True
     # Old saved analysis envelopes omitted names. Recover only optional display
     # fields from the SAME artifact row and the SAME typed observation. Never
     # fetch current data or combine another timestamp/team count with this card.
@@ -289,6 +349,26 @@ def _contract(spec, home: str, away: str) -> tuple[str, str]:
     if spec.kind == "team_range":
         team = home if spec.side == "home" else away
         return f"{spec.low}–{spec.high} Tore für {team}", f"Tore für {team} außerhalb dieses Bereichs"
+    compound = {
+        "RESULT_TOTAL_1X_UNDER_3_5": ("DC_1X", "ODER"),
+        "RESULT_TOTAL_X2_UNDER_3_5": ("DC_X2", "ODER"),
+        "RESULT_TOTAL_12_OVER_1_5": ("DC_12", "ODER"),
+        "MIXED_BTTS_OR_OVER_2_5": ("BTTS_YES", "UND"),
+        "MIXED_HOME_OR_OVER_2_5": ("RESULT_HOME", "UND"),
+        "MIXED_AWAY_OR_OVER_2_5": ("RESULT_AWAY", "UND"),
+    }
+    if spec.key in compound:
+        alias, connective = compound[spec.key]
+        result_counter = fixed[alias][1]
+        direction = spec.side.rsplit("_", 1)[-1]
+        below = math.floor(spec.threshold)
+        goal_counter = _limit(below if direction == "over" else below + 1,
+                              "Tore", "under" if direction == "over" else "over", "insgesamt")
+        # De Morgan: NOT(A AND B) = NOT A OR NOT B, and conversely.
+        # Parentheses bind an inner result OR before the outer mixed-market AND.
+        if connective == "UND" and " oder " in result_counter:
+            result_counter = f"({result_counter})"
+        return f"{spec.market}: {spec.selection}", f"{result_counter} {connective} {goal_counter}"
     # These are fixed canonical contracts, never raw provider text. Keep
     # conjunction/disjunction intact instead of inventing one-sided reasoning.
     return f"{spec.market}: {spec.selection}", "Auswahl tritt nicht ein"
@@ -465,8 +545,29 @@ def _sport_analysis(signal, sport, now):
     return None
 
 
-def forecast_highlight_reason(signal, *, now, analysis=None):
-    """Empty means eligible for presentation, never a betting release."""
+def football_context_highlight_reason(context, *, now):
+    """Qualify typed original football checks, not lineup completeness or prose."""
+    if _mapping(_mapping(context).get('lineups')).get('status') == 'blocked':
+        return 'Spielinformationen sprechen gegen die Auswahl'
+    context = _context_projection(_mapping(context), include_names=False)
+    if context.get('stale') is True or context.get('conflicting') is True:
+        return 'Spielinformationen nicht aktuell belegt'
+    for axis, statuses in (
+        ('h2h', ('passed', 'neutral')),
+        ('weather', ('passed', 'observed')),
+        ('injuries', ('passed', 'observed')),
+    ):
+        check = _mapping(context.get(axis))
+        checked = _clock(check.get('checked_at'))
+        if (check.get('status') not in statuses or check.get('availability') != 'available'
+                or checked is None or not timedelta(0) <= now-checked <= _CONTEXT_MAX_AGE
+                or check.get('veto_applied') is True):
+            return 'Spielinformationen nicht aktuell belegt'
+    return ''
+
+
+def forecast_highlight_reason(signal, *, now, analysis=None, check_context=True):
+    """Empty qualifies presentation; model-only qualification preserves direction."""
     if getattr(signal, 'source', None) == 'team_sport_research':
         return 'Modell noch nicht unabhängig bestätigt'
     clock = _clock(signal.modeled_at)
@@ -485,6 +586,17 @@ def forecast_highlight_reason(signal, *, now, analysis=None):
         return 'Keine exakt zugeordneten Modellgrundlagen'
     if not analysis.data_current:
         return 'Datenstand nicht aktuell belegt'
+    # Context is a downstream TOP admission check, not model evidence/ranking.
+    # Shared direction selection retains every model-only gate above.
+    if not check_context:
+        return ''
+    sport = str(signal.sport or '').strip().casefold().replace('ß', 'ss')
+    if sport in {'fussball', 'football'}:
+        evidence = read_football_analysis(vars(signal), now=now)
+        context = _mapping(evidence.get('context')) if evidence else {}
+        # A pending morning lineup is not evidence against the model. Only an
+        # explicit adverse check excludes highlighting; no blanket release gate.
+        return football_context_highlight_reason(context, now=now)
     return ''
 
 

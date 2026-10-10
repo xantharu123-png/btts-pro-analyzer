@@ -123,6 +123,9 @@ PAGE_INFO = {
 }
 
 MAIN_PAGES = ("Wettfinder", "RisikoBet", "Live", "15K", "Meine Tipps")
+AREA_OPTIONS = (
+    "Automatisch", "Eigene Suche", "RisikoBet", "3 a day", "15K", "Live", "Meine Tipps",
+)
 LEGACY_PAGE_ALIASES = {
     "Spiele": "Wettfinder",
     "Märkte": "Wettfinder",
@@ -1799,66 +1802,20 @@ def _apply_app_styles() -> None:
             }
         }
 
-        /* --- Mobile bottom navigation (hidden on desktop) --- */
-        .st-key-bb_bottomnav {
-            display: none;
+        /* --- Shared area navigation: one control on desktop and mobile --- */
+        .st-key-bb_area_nav {
+            min-width: 0;
+            max-width: 36rem;
+            width: 100%;
         }
 
-        @media (max-width: 760px) {
-            .st-key-bb_bottomnav {
-                background: var(--bb-surface);
-                border-top: 1px solid var(--bb-line);
-                bottom: 0;
-                display: block;
-                left: 0;
-                padding: 0.3rem 0.35rem calc(0.3rem + env(safe-area-inset-bottom, 0px));
-                position: fixed;
-                right: 0;
-                z-index: 999;
-            }
+        .st-key-bb_area_nav [data-baseweb="select"] > div {
+            min-height: 48px;
+        }
 
-            .st-key-bb_bottomnav [data-testid="stHorizontalBlock"] {
-                flex-wrap: nowrap;
-                gap: 0.3rem;
-            }
-
-            .st-key-bb_bottomnav [data-testid="stButtonGroup"] > [role="radiogroup"] {
-                display: grid;
-                gap: 0.3rem;
-                grid-template-columns: repeat(5, minmax(0, 1fr));
-                width: 100%;
-            }
-
-            .st-key-bb_bottomnav [data-testid="stButtonGroup"] button {
-                font-size: 0.7rem !important;
-                line-height: 1.15 !important;
-                min-height: 2.9rem !important;
-                min-width: 0 !important;
-                padding: 0.15rem 0.1rem !important;
-                width: 100% !important;
-            }
-
-            .st-key-bb_bottomnav [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
-                flex: 1 1 0 !important;
-                min-width: 0 !important;
-                width: auto !important;
-            }
-
-            .st-key-bb_bottomnav [data-testid="stButton"] button {
-                font-size: 0.7rem !important;
-                line-height: 1.15 !important;
-                min-height: 2.9rem !important;
-                padding: 0.15rem 0.1rem !important;
-                width: 100%;
-            }
-
-            .st-key-bb_bottomnav [data-testid="stButton"] button p {
-                font-size: 0.7rem !important;
-            }
-
-            [data-testid="stMain"] .block-container {
-                padding-bottom: 5.5rem !important;
-            }
+        .st-key-bb_area_nav [data-baseweb="select"] input:focus-visible {
+            outline: 3px solid var(--bb-green);
+            outline-offset: 2px;
         }
 
         @media (max-width: 900px) {
@@ -1942,38 +1899,6 @@ def _apply_app_styles() -> None:
             }
         }
 
-        /* Keep the direct mobile navigation usable after the generic
-           responsive column rules above have been applied. */
-        @media (max-width: 760px) {
-            [data-testid="stMain"] .block-container {
-                padding-bottom: calc(6.25rem + env(safe-area-inset-bottom, 0px)) !important;
-            }
-
-            .st-key-bb_bottomnav {
-                padding-right: 0.35rem;
-            }
-
-            .st-key-bb_bottomnav [data-testid="stHorizontalBlock"] {
-                flex-wrap: nowrap !important;
-                gap: 0.3rem;
-                overflow-x: hidden;
-            }
-
-            .st-key-bb_bottomnav [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
-                flex: 1 1 0 !important;
-                min-width: 0 !important;
-                width: auto !important;
-            }
-
-            .st-key-bb_bottomnav [data-testid="stButtonGroup"] > [role="radiogroup"] {
-                display: grid !important;
-                grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
-                overflow-x: hidden;
-                width: 100% !important;
-            }
-
-        }
-
         @media (min-width: 761px) and (max-width: 1080px) {
             .st-key-riskobet_page .st-key-riskobet_featured_grid [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
                 flex: 1 1 100% !important;
@@ -1982,48 +1907,6 @@ def _apply_app_styles() -> None:
             }
         }
 
-        @media (max-width: 430px) {
-            [data-testid="stMain"] .block-container {
-                padding-bottom: calc(6.25rem + env(safe-area-inset-bottom, 0px)) !important;
-            }
-
-            .st-key-bb_bottomnav [data-testid="stHorizontalBlock"] {
-                flex-wrap: nowrap !important;
-                gap: 0.18rem;
-            }
-
-            .st-key-bb_bottomnav [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
-                flex: 1 1 20% !important;
-                min-width: 0 !important;
-                width: 20% !important;
-            }
-
-            .st-key-bb_bottomnav [data-testid="stButton"] button,
-            .st-key-bb_bottomnav [data-testid="stButton"] button p,
-            .st-key-bb_bottomnav [data-testid="stButtonGroup"] button {
-                font-size: 0.62rem !important;
-                line-height: 1.05 !important;
-            }
-        }
-
-        @media (max-width: 340px) {
-            .st-key-bb_bottomnav {
-                padding-left: 0.18rem;
-                padding-right: 0.18rem;
-            }
-
-            .st-key-bb_bottomnav [data-testid="stHorizontalBlock"] {
-                gap: 0.1rem;
-            }
-
-            .st-key-bb_bottomnav [data-testid="stButton"] button,
-            .st-key-bb_bottomnav [data-testid="stButton"] button p,
-            .st-key-bb_bottomnav [data-testid="stButtonGroup"] button {
-                font-size: 0.56rem !important;
-                padding-left: 0 !important;
-                padding-right: 0 !important;
-            }
-        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -2233,35 +2116,47 @@ def _render_sidebar(analyzer) -> str:
     return workspace
 
 
-def _commit_workspace_choice(widget_key: str) -> None:
-    chosen = st.session_state.get(widget_key)
-    if chosen not in MAIN_PAGES:
+def _area_for_workspace(workspace: str) -> str:
+    """Restore the visible area from the existing internal route and mode."""
+    workspace = LEGACY_PAGE_ALIASES.get(workspace, workspace)
+    if workspace in MAIN_PAGES and workspace != "Wettfinder":
+        return workspace
+    mode = st.session_state.get("wettfinder_mode_v2", "Automatisch")
+    return mode if mode in {"Automatisch", "Eigene Suche", "3 a day"} else "Automatisch"
+
+
+def _set_active_area(area: str) -> None:
+    """Update only navigation state; selecting a view never starts a scan."""
+    if area not in AREA_OPTIONS:
         return
-    st.session_state['workspace'] = chosen
-    st.session_state['settings_open'] = False
-    # Callbacks run before either widget is instantiated on the next rerun.
-    # Synchronize both surfaces here, not after a competing widget's event.
-    for key in ('bb_desktop_navigation', 'bb_mobile_navigation'):
-        st.session_state[key] = chosen
+    if area in {"Automatisch", "Eigene Suche", "3 a day"}:
+        st.session_state["workspace"] = "Wettfinder"
+        st.session_state["wettfinder_mode_v2"] = area
+    else:
+        st.session_state["workspace"] = area
+    st.session_state["bb_area_navigation"] = area
+    st.session_state["settings_open"] = False
+
+
+def _commit_area_choice(widget_key: str) -> None:
+    _set_active_area(st.session_state.get(widget_key))
 
 
 def _render_editorial_header(workspace: str) -> None:
-    """Synchronized native controls; mobile keeps all five existing pages."""
-    key = 'bb_desktop_navigation'
+    """One labeled, keyboard-accessible area selector at every screen width."""
+    key = "bb_area_navigation"
+    area = _area_for_workspace(workspace)
     def _go():
-        _commit_workspace_choice(key)
-    if st.session_state.get(key) != workspace:
-        st.session_state[key] = workspace
+        _commit_area_choice(key)
+    if st.session_state.get(key) != area:
+        st.session_state[key] = area
     st.markdown('<div class="se-edition"><span>BETBOY · SPORT &amp; STATISTIK</span>'
         '<span>DEIN SPIELTAG</span></div>', unsafe_allow_html=True)
     with st.container(key='bb_editorial_header'):
-        brand, navigation = st.columns([1, 4])
-        with brand:
-            st.markdown('<p class="bb-brand">BetBoy</p>', unsafe_allow_html=True)
-        with navigation:
-            with st.container(key='bb_desktop_nav'):
-                st.segmented_control('Hauptbereiche', MAIN_PAGES, key=key, required=True,
-                    label_visibility='collapsed', width='stretch', on_change=_go)
+        st.markdown('<p class="bb-brand">BetBoy</p>', unsafe_allow_html=True)
+        st.caption("Wettfinder")
+        with st.container(key="bb_area_nav"):
+            st.selectbox("Bereich", AREA_OPTIONS, key=key, on_change=_go)
 
 
 def _daily3_rail_allowed() -> bool:
@@ -4825,7 +4720,7 @@ def _render_editorial_rail(choices, tennis_cards, *, daily3_allowed, target_labe
         elif not choices:
             st.caption('Heute noch keine passende defensive Auswahl.')
         def _open_daily3():
-            st.session_state['wettfinder_mode_v2'] = '3 a day'
+            _set_active_area("3 a day")
         st.button('Daily3 öffnen', key='editorial_daily3_open', on_click=_open_daily3, use_container_width=True)
     with st.container(key='editorial_tennis_rail'):
         st.markdown('<p class="se-tennis-tag">TENNIS <span>' + escape(target_label) + '</span></p>', unsafe_allow_html=True)
@@ -4875,13 +4770,7 @@ def _render_selected_finder(
 def render_wettfinder() -> None:
     """One sport-first entry point for every pre-match finder."""
     with st.container(key="wettfinder_v2_page"):
-        with st.container(key="wettfinder_v2_mode"):
-            mode = _segmented(
-                "Modus",
-                ["Automatisch", "Eigene Suche", "3 a day"],
-                "wettfinder_mode_v2",
-                "Automatisch",
-            )
+        mode = _area_for_workspace("Wettfinder")
         if mode == "3 a day":
             require_feature(st, "daily3")
             from daily3_ui import render_daily3
@@ -5014,40 +4903,6 @@ def render_settings(analyzer) -> None:
         _render_data_management(analyzer)
 
 
-def _render_mobile_nav(workspace: str) -> None:
-    """Bottom navigation for small screens; hidden on desktop via CSS.
-
-    Non-widget workspace state is shared with the desktop navigation. A segmented
-    control gives the active item a real radio ``aria-checked`` state; decorative
-    Material icon tokens no longer pollute the accessible button names.
-    """
-    short_labels = {
-        "Wettfinder": "Finder",
-        "RisikoBet": "Risiko",
-        "Live": "Live",
-        "15K": "15K",
-        "Meine Tipps": "Meine",
-    }
-    widget_key = "bb_mobile_navigation"
-
-    def _go() -> None:
-        _commit_workspace_choice(widget_key)
-
-    if st.session_state.get(widget_key) != workspace:
-        st.session_state[widget_key] = workspace
-    with st.container(key="bb_bottomnav"):
-        st.segmented_control(
-            "Hauptnavigation",
-            MAIN_PAGES,
-            format_func=lambda page: short_labels[page],
-            key=widget_key,
-            required=True,
-            label_visibility="collapsed",
-            width="stretch",
-            on_change=_go,
-        )
-
-
 def _render_account_storage_unavailable() -> None:
     """Explain the fail-closed browser-storage boundary without mutating data."""
     st.info(
@@ -5084,10 +4939,9 @@ def main() -> None:
         st.session_state["analyzer_error"] = str(exc)
 
     workspace = _render_sidebar(analyzer)
+    # Render the shared selector before any feature guard can stop the page.
+    # A denied paid area must still let the customer choose another area.
     _render_editorial_header(workspace)
-    # Render routing before any feature/page can stop. Otherwise an upgrade
-    # notice would strand mobile users after hiding the legacy sidebar.
-    _render_mobile_nav(workspace)
     require_feature(st, PAGE_FEATURES[workspace])
     title, caption = PAGE_INFO[workspace]
     st.markdown(f'<div class="bb-context">BetBoy / {workspace}</div>', unsafe_allow_html=True)

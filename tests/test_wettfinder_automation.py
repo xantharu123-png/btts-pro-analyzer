@@ -772,9 +772,11 @@ def test_model_refresh_due_is_per_fixture_and_ignores_recent_context_only_checks
 
 def test_shared_latest_artifact_gives_daily3_fresh_models_after_overnight_discovery(tmp_path):
     from daily3_selection import daily3_choices
+    from highlight_fixtures import football_checks
 
     midnight = datetime(2030, 1, 1, 0, tzinfo=UTC)
     midday = midnight + timedelta(hours=10)
+    morning_context_check = midday - timedelta(hours=1)
     path = tmp_path / "wettfinder.json"
     candidate = replace(_challenge_candidate(midday + timedelta(hours=3)), probability=.76)
     candidate.market_comparison = dict(
@@ -787,7 +789,7 @@ def test_shared_latest_artifact_gives_daily3_fresh_models_after_overnight_discov
         latest_kickoff=(midnight-timedelta(days=1)).isoformat(),
         probabilities=[candidate.probability, candidate.probability-.03, candidate.probability+.06],
     )
-    candidate.context = {"passed": True, "forecast_passed": True}
+    candidate.context = {"passed": True, "forecast_passed": True, **football_checks(midnight)}
     snapshot = _football_snapshot(midnight)
     snapshot.update(shortlist=[candidate], discovery_candidates=[candidate])
     scans = []
@@ -798,30 +800,56 @@ def test_shared_latest_artifact_gives_daily3_fresh_models_after_overnight_discov
 
     def refresh(pool, day, checked):
         for item in pool:
-            item.context = {"passed": True, "forecast_passed": True}
+            item.context = {"passed": True, "forecast_passed": True, **football_checks(checked)}
         return {"candidates": pool, "wettfinder_candidates": pool,
                 "context_fixture_statuses": {"1": "verified"}, "operational_errors": [], "errors": [],
                 "model_refresh": {"version": "football-fixture-model-refresh-v1", "fixture_ids": [1],
                                   "modeled_at": checked.isoformat(), "input_cutoff_at": checked.isoformat()}}
 
+    def refresh_context_only(pool, day, checked):
+        result = refresh(pool, day, checked)
+        result.pop("model_refresh")
+        return result
+
+    price_checks = []
+
+    def check_prices(rows):
+        # A completed exact attempt may return no quote; no odds are invented.
+        price_checks.append(tuple(row["key"] for row in rows))
+        return {}, []
+
     common = dict(state_path=path, config=AppConfig(api_football_key="test"),
                   football_scanner=scan, football_context_refresher=refresh,
+                  football_quote_loader=check_prices,
                   tennis_loader=lambda **_: [], esports_loader=lambda **_: [])
     run_wettfinder(now=midnight, **common)
+    # Independent morning checks refresh admission, not the overnight model.
+    run_wettfinder(now=morning_context_check,
+                   **{**common, "football_context_refresher": refresh_context_only})
     # A daily model remains visible through the same Zurich day; a newer
     # generated_at label must not rewrite its original modeled_at timestamp.
     old = load_state(path)
     assert len(old["model_candidates"]) == 1
+    old_row = old["model_candidates"][0]
+    assert datetime.fromisoformat(old_row["modeled_at"]) == midnight
+    assert datetime.fromisoformat(old_row["input_cutoff_at"]) == midnight
+    for axis in ("h2h", "weather", "injuries"):
+        assert old_row["analysis_evidence"]["context"][axis]["checked_at"] == morning_context_check.isoformat()
+    assert old["price_check_attempts"][old_row["key"]] == morning_context_check.isoformat()
+    assert price_checks[-1] == (old_row["key"],)
     old["generated_at"] = midday.isoformat()
     wettfinder_automation.write_state(old, path)
     old_choices = daily3_choices(automated_wettfinder_forecasts(path, now=midday), now=midday)
     assert len(old_choices) == 1
     assert datetime.fromisoformat(old_choices[0].signal.modeled_at) == midnight
+    assert old_choices[0].signal.price_checked_at == morning_context_check.isoformat()
     run_wettfinder(now=midday, **common)
     actual = automated_wettfinder_forecasts(path, now=midday)
     assert len(actual) == 1
     assert datetime.fromisoformat(actual[0].modeled_at) == midday
-    assert len(daily3_choices(actual, now=midday)) == 1  # No quote needed for the model choice.
+    assert actual[0].price_checked_at == midday.isoformat()
+    assert actual[0].reference_quote is None
+    assert len(daily3_choices(actual, now=midday)) == 1  # An attempted check need not find a quote.
     assert len(scans) == 1
 
 

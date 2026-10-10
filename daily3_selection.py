@@ -5,7 +5,7 @@ form (football) or surface (ATP) against the same match's general strength; a mi
 two-percentage-point change is a presentation rule, not an empirical guarantee.
 Haircut, odds, RELEASED flags, target profit and account money are not ranking
 inputs. After coherent model selection, known offers below 1.20 are hidden.
-Unknown prices stay eligible; offers above the floor do not change ranking.
+Unknown prices stay eligible after an actual check; offers above the floor do not change ranking.
 Time admission leaves room for the remaining daily legs. Published choices are
 chronological planning, not guaranteed match durations or future cash credits.
 """
@@ -20,10 +20,11 @@ from daily3_comparison import Comparison, daily3_comparison
 from daily3_schedule import fits_daily3_window, planned_ready_at
 from forecast_analysis import build_forecast_analysis, forecast_highlight_reason
 from forecast_selection import select_consumer_forecasts
+from forecast_price_checks import has_current_price_check
 from market_consensus import quote_below_publication_floor
 from selection_coherence import consumer_event_identity
 
-POLICY_VERSION = 'daily3-defensive-day-sequence-known-floor-v11'
+POLICY_VERSION = 'daily3-defensive-day-sequence-checked-prices-v12'
 # Deliberate shortlist threshold, not a learned/calibrated safety boundary.
 MIN_MODEL_PROBABILITY = 0.70
 _TZ = ZoneInfo('Europe/Zurich')
@@ -83,6 +84,8 @@ def daily3_choices(signals, *, now, occupied_events=(), occupied_guards=(), used
     guards = tuple(occupied_guards)
     prepared = []
     for s in select_consumer_forecasts(signals, now=now):
+        if not has_current_price_check(s, now=now):
+            continue
         if quote_below_publication_floor(s.reference_quote, candidate=s, now=now):
             continue
         sport = _SPORTS.get(str(s.sport or '').strip().casefold())

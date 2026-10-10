@@ -2,15 +2,17 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+import hashlib
 
 import pytest
 
-from riskobet_domain import ContextState, EvidenceStage, RiskCandidate
+from riskobet_domain import ContextState, EventModelSnapshot, EvidenceStage, FactorEvidence, FactorRole, RiskCandidate
 import riskobet_surface as surface
 
 
 START = datetime(2030, 1, 1, 15, 0, tzinfo=timezone.utc)
+NOW = START - timedelta(hours=2)
 SNAPSHOT_ID = "snapshot_" + ("a" * 64)
 
 
@@ -58,16 +60,31 @@ def _candidate(
     )
 
 
+def _snapshot(candidate: RiskCandidate) -> EventModelSnapshot:
+    observed = NOW-timedelta(minutes=10)
+    factor = FactorEvidence(factor_key="synthetic_model", summary="Synthetic original model fact",
+        source="synthetic-test", observed_at=observed, imported_at=NOW,
+        fresh_until=candidate.starts_at, role=FactorRole.MODEL)
+    context = tuple(FactorEvidence(factor_key=f"football_context_0_{axis}", summary="Synthetic original check",
+        source="api-football-context", observed_at=observed, imported_at=NOW,
+        fresh_until=candidate.starts_at, role=FactorRole.DISPLAY_ONLY)
+        for axis in ("h2h", "weather", "injuries")) if candidate.sport == "football" else ()
+    return EventModelSnapshot(event_key=candidate.event_key, sport=candidate.sport,
+        competition=candidate.competition, event_label=candidate.event_label, starts_at=candidate.starts_at,
+        modeled_at=NOW, input_cutoff_at=observed, model_version="surface-test-model-v1",
+        input_hash=hashlib.sha256(f"{candidate.sport}:{candidate.event_key}".encode()).hexdigest(),
+        factors=(factor, *context), missing_core_data=candidate.missing_core_data)
+
+
 def _card(candidate: RiskCandidate, **price) -> surface.RiskBetCard:
-    overlay = (
-        surface.RiskBetPriceOverlay(
-            candidate_id=candidate.candidate_id,
-            **price,
-        )
-        if price
-        else None
-    )
-    return surface.build_riskobet_card(candidate, overlay)
+    # Synthetic established-card fixtures explicitly include a completed check.
+    # Never-checked/future/stale receipts have their own real-loader regressions.
+    snapshot = _snapshot(candidate)
+    candidate = replace(candidate, snapshot_id=snapshot.snapshot_id)
+    stamp = NOW.isoformat()
+    overlay = surface.RiskBetPriceOverlay(candidate_id=candidate.candidate_id,
+        **{'checked_at': stamp, 'price_check_current': True, **price})
+    return surface.build_riskobet_card(candidate, overlay, snapshot=snapshot, now=NOW)
 
 
 def test_sport_filters_are_exactly_all_plus_the_six_product_sports():
@@ -628,7 +645,7 @@ def test_research_is_not_promoted_above_established_simple_scenarios():
     assert research_useful not in catalog.featured
 
 
-def test_research_fills_free_top_slots_after_all_established_are_featured():
+def test_research_stays_additional_even_when_top_slots_remain_free():
     established = _card(
         _candidate(
             "shadow-win",
@@ -655,14 +672,9 @@ def test_research_fills_free_top_slots_after_all_established_are_featured():
 
     assert [card.candidate_id for card in catalog.featured] == [
         established.candidate_id,
-        research[0].candidate_id,
-        research[1].candidate_id,
     ]
-    assert [card.evidence_code for card in catalog.featured] == [
-        "SHADOW",
-        "RESEARCH",
-        "RESEARCH",
-    ]
+    assert [card.evidence_code for card in catalog.featured] == ["SHADOW"]
+    assert set(catalog.additional) == set(research)
 
 
 def test_catalog_never_publishes_more_than_two_scenarios_per_event():

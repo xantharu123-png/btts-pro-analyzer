@@ -188,10 +188,26 @@ def test_riskobet_page_reuses_bound_shared_prices_without_new_fetch(monkeypatch)
     fake = RecordingStreamlit()
     monkeypatch.setattr(ui, 'st', fake)
     monkeypatch.setattr(ui, 'load_riskobet_view', lambda *a: view)
-    monkeypatch.setattr(ui, 'load_shared_price_overlays', lambda *a: {
-        candidate.candidate_id: RiskBetPriceOverlay(candidate_id=candidate.candidate_id,
-            status='AVAILABLE', observed_odds=1.12, below_floor=True)})
-    ui.render_riskobet()
+    seen = []
+
+    def stored_prices(candidates, snapshots, *, now):
+        assert tuple(candidates) == (candidate,)
+        assert tuple(snapshots) == (bundle[0],)
+        seen.append(now)
+        return {candidate.candidate_id: RiskBetPriceOverlay(candidate_id=candidate.candidate_id,
+            status='AVAILABLE', observed_odds=1.12, below_floor=True)}
+
+    def no_fetch(*_args, **_kwargs):
+        raise AssertionError('Rendering must reuse stored prices, not fetch providers')
+
+    import requests
+    monkeypatch.setattr(requests.sessions.Session, 'request', no_fetch)
+    monkeypatch.setattr(ui, 'load_shared_price_overlays', stored_prices)
+    publication = Mock()
+    monkeypatch.setattr('tip_publication.record_riskobet_catalog', publication)
+    ui.render_riskobet(now=view.completed_at)
+    assert seen == [view.completed_at]
+    assert publication.call_args.kwargs['as_of'] == view.completed_at
     assert not _rendered_candidate_ids(fake)
 
 

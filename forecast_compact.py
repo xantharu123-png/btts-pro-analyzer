@@ -129,7 +129,9 @@ def build_compact_analysis(signal, analysis, *, now):
             elif venue:
                 facts.append(Fact('Basis', f'{venue[0]} Heim · {venue[1]} Gast', (analysis.samples,)))
         counter = _contract(spec, home, away)[1] if spec else 'Auswahl tritt nicht ein'
-        facts.insert(0, Fact('Gegenrisiko', _percent(1 - signal.probability),
+        # The complement belongs to this exact market, not another card's pick.
+        # Keep that event visible even while the native fact details are closed.
+        facts.insert(0, Fact('Gegenrisiko', f'{counter}: {_percent(1 - signal.probability)}',
                              (counter, 'Modellschätzung, keine gesicherte Wahrscheinlichkeit.')))
         if analysis.supported:
             from football_customer_facts import football_customer_analysis

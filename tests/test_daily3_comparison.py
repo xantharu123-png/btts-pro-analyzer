@@ -189,7 +189,8 @@ def _national_comparison_signal():
         {signal.market_key: metric}, prediction_version=signal.model_version,
         as_of=NOW, model_scope=signal.model_scope,
     )[signal.market_key]
-    raw = vars(signal)
+    from highlight_fixtures import football_checks
+    raw = {**vars(signal), 'context': football_checks(NOW)}
     evidence = project_football_analysis(raw, model_basis={
         **raw, 'expected_home_goals': 1.8, 'expected_away_goals': .9,
         'national_samples': [12, 12], 'form_samples': [6, 6],

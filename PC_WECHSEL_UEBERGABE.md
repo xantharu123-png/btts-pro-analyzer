@@ -1,5 +1,24 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg – Gemeinsames Dach, 10.10.2026
+
+Freigegeben: eine gleichrangige Bereichsauswahl für Automatisch, Eigene Suche,
+RisikoBet, 3 a day, 15K, Live und Meine Tipps. Navigation und eindeutige
+Gegenrisiken implementiert; angrenzende TOP-Prüfungen erhalten Modellrichtung,
+Original-Kontextzeiten und tatsächliche exakte Preisversuche. Offene Aufstellungen
+allein sperren nicht. Wahrscheinlichkeiten und Geldlogik unverändert.
+
+Unabhängiger finaler Review ohne offene konkrete P1/P2; lokaler interner Browser
+1440/390/320 ohne Überlauf, alle sieben Bereiche und Tastatur geprüft.
+Vollsuite beendet: 12.683 bestanden, 50 ursprüngliche Fehler, 97 Skips,
+143 Untertests. Alle 50 Fehlerfälle gemeinsam nachgeprüft und grün (46 falscher
+Windows-Bash, vier Test-Schnittstellen/Belege präzisiert; Produktionscode stabil).
+Veröffentlichung und Produktionsbrowserprüfung stehen noch aus.
+Zuerst obersten [TODO-Block](TODO_AKTUELL.md) und
+[Prüfbericht](docs/audits/2026-10-10-gemeinsame-bereiche.md) lesen.
+Kein zusätzlicher Sport-/Modellscan, Backup oder Bereinigung für diesen Patch.
+Geerbtes WIP und separate fachliche/Domain-/Stripe-/Store-Aufgaben bleiben erhalten.
+
 ## Aktueller Einstieg – Tennis-Quotenfilter, 10.10.2026
 
 Der unterbrochene Alcaraz-Fix ist abgeschlossen: Code `097f4fa` auf main und

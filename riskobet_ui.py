@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import math
 from pathlib import Path
@@ -377,23 +377,28 @@ def _stored_manual_quote(candidate: RiskCandidate) -> Optional[float]:
 def _display_card(
     candidate: RiskCandidate,
     quote: Optional[float],
+    *,
+    price: Optional[RiskBetPriceOverlay] = None,
+    snapshot: Optional[EventModelSnapshot] = None,
+    now: Optional[datetime] = None,
 ) -> RiskBetCard:
-    overlay = (
-        None
-        if quote is None
-        else RiskBetPriceOverlay(
+    overlay = price
+    if quote is not None:
+        base = price or RiskBetPriceOverlay(candidate_id=candidate.candidate_id)
+        overlay = replace(base,
             candidate_id=candidate.candidate_id,
             status="AVAILABLE",
             observed_odds=quote,
             bookmaker="Eigene Buchmacherquote",
+            observed_at=None,
         )
-    )
-    return build_riskobet_card(candidate, overlay)
+    return build_riskobet_card(candidate, overlay, snapshot=snapshot, now=now)
 
 
 def _customer_factor_detail(factor: FactorEvidence) -> str:
     """Project sporting observations without changing their frozen evidence."""
-    if (factor.factor_key in {'tennis_calibrated_match_model', 'esports_subgraph_elo'}
+    if (factor.factor_key.startswith('football_highlight_context_checks_')
+            or factor.factor_key in {'tennis_calibrated_match_model', 'esports_subgraph_elo'}
             or factor.factor_key.startswith('football_fixture_id:')):
         return ''
     raw = factor.summary
@@ -607,8 +612,12 @@ def render_riskobet(
 
     with st.container(key="riskobet_page"):
         try:
+            current = now if now is not None else datetime.now(timezone.utc)
+            if not isinstance(current, datetime) or current.tzinfo is None or current.utcoffset() is None:
+                raise RiskBetViewError('RisikoBet render clock must be timezone-aware')
+            current = current.astimezone(timezone.utc)
             view = load_riskobet_view(path)
-            upcoming = () if view is None else upcoming_riskobet_candidates(view, now=now)
+            upcoming = () if view is None else upcoming_riskobet_candidates(view, now=current)
         except (OSError, TypeError, ValueError):
             st.error(
                 "RisikoBet-Daten können aktuell nicht sicher angezeigt "
@@ -634,10 +643,11 @@ def render_riskobet(
         if sport_filter not in SPORT_FILTERS:
             sport_filter = "Alle"
         # Reuse only already stored, exactly bound prices. No provider call.
-        overlays = load_shared_price_overlays(upcoming, view.snapshots.values()) if upcoming else {}
+        overlays = load_shared_price_overlays(upcoming, view.snapshots.values(), now=current) if upcoming else {}
         cards = tuple(
-            _display_card(candidate, manual) if (manual := _stored_manual_quote(candidate)) is not None
-            else build_riskobet_card(candidate, overlays.get(candidate.candidate_id))
+            _display_card(candidate, _stored_manual_quote(candidate),
+                price=overlays.get(candidate.candidate_id),
+                snapshot=view.snapshots[candidate.snapshot_id], now=current)
             for candidate in upcoming
         )
         catalog = compose_riskobet_catalog(
@@ -670,7 +680,7 @@ def render_riskobet(
         _render_additional(catalog.additional, candidate_by_id, view.snapshots)
         from tip_publication import record_riskobet_catalog
         record_riskobet_catalog(catalog, candidate_by_id, view.snapshots,
-            as_of=now or datetime.now(timezone.utc), source_run_id=view.run_id)
+            as_of=current, source_run_id=view.run_id)
         if not catalog.cards:
             st.info('Aktuell kein passendes Risiko-Szenario.')
 
