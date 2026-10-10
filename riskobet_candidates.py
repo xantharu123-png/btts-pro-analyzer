@@ -1948,11 +1948,14 @@ def adapt_research_matchwinner(
     ) or sport
     from sports_prematch import predict_prematch
     customer_results, customer_counters = [], {}
+    customer_recent_results = None
     def capture(original):
+        nonlocal customer_recent_results
         if sport in {'basketball', 'ice_hockey'}:
             from team_customer_facts import team_recent_facts, team_recent_counters, _recent_lines
             recent = team_recent_facts(original)
             if recent:
+                customer_recent_results = recent
                 for side in ('a', 'b'):
                     one_side = {**recent, ('b_results' if side == 'a' else 'a_results'): []}
                     customer_results.extend((side, line) for line in _recent_lines(one_side, team=True))
@@ -2028,7 +2031,8 @@ def adapt_research_matchwinner(
         for side, text in customer_counters.items())
     input_hash = canonical_input_hash(
         {
-            **({"adapter_revision": "team-customer-facts-v2"} if sport in {'basketball', 'ice_hockey'} else {}),
+            **({"adapter_revision": "team-form-tiles-v1" if customer_recent_results else "team-customer-facts-v2"}
+                if sport in {'basketball', 'ice_hockey'} else {}),
             "sport": sport,
             "provider": provider,
             "provider_event_id": provider_event_id,
@@ -2040,6 +2044,7 @@ def adapt_research_matchwinner(
             "model_input_hash": prediction.input_hash,
             "model_decision_at": model_time.isoformat(),
             **({'team_sport_forecast': full_forecast.to_dict()} if full_forecast is not None else {}),
+            **({'customer_recent_results': customer_recent_results} if customer_recent_results else {}),
         }
     )
     snapshot = EventModelSnapshot(
@@ -2055,6 +2060,7 @@ def adapt_research_matchwinner(
         factors=factors,
         missing_core_data=tuple(missing),
         team_sport_forecast=full_forecast,
+        customer_recent_results=customer_recent_results,
     )
     market_by_sport = {
         "basketball": ("match_winner_including_ot", "Außenseitersieg inklusive Overtime"),

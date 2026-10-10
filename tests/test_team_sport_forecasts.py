@@ -96,7 +96,9 @@ def test_actual_store_roundtrip_and_content_collision(tmp_path):
     assert snapshot_from_dict(loaded['snapshots'][0]) == snapshot
     changed = replace(snapshot, team_sport_forecast=replace(snapshot.team_sport_forecast, limitations=('Changed limitation',)))
     assert changed.snapshot_id != snapshot.snapshot_id
-    collision = replace(snapshot, competition='Another competition')
+    # Exercise store immutability with a legacy (no recent-sidecar) revision.
+    # A present typed sidecar rejects the wrong competition even earlier.
+    collision = replace(snapshot, competition='Another competition', customer_recent_results=None)
     with pytest.raises(FrozenRevisionError):
         store.append_snapshot(collision, run.run_id)
 
@@ -167,7 +169,7 @@ def test_payload_immutability_legacy_and_misbinding():
     for change in ({'event_key': 'wrong'}, {'modeled_at': NOW+timedelta(minutes=1)}, {'event_label': 'Wrong match'}):
         with pytest.raises(ValueError):
             replace(snapshot, **change)
-    legacy = replace(snapshot, team_sport_forecast=None)
+    legacy = replace(snapshot, team_sport_forecast=None, customer_recent_results=None)
     assert 'team_sport_forecast' not in legacy.to_dict()
     assert snapshot_from_dict(legacy.to_dict()) == legacy
     cricket = adapt_research_matchwinner('cricket', event('cricket', source_observed_at=NOW.isoformat()), history('cricket'), modeled_at=NOW)
@@ -284,7 +286,8 @@ def test_normal_reader_rejects_wrong_day_and_missing_required_nullable_field(tmp
         tennis_loader=lambda **kw: [], esports_loader=lambda **kw: [], riskobet_runner=lambda **kw: run)
     assert document['sources']['basketball']['published_model_selection_count'] == 2
     next_start = snapshot.starts_at+timedelta(days=1)
-    tomorrow = replace(snapshot, starts_at=next_start, team_sport_forecast=replace(snapshot.team_sport_forecast, starts_at=next_start))
+    tomorrow = replace(snapshot, starts_at=next_start, customer_recent_results=None,
+        team_sport_forecast=replace(snapshot.team_sport_forecast, starts_at=next_start))
     bad_rows = team_sport_forecast_rows(SimpleNamespace(snapshots=(tomorrow,)), now=NOW, target_date=next_start.date())
     tampered = dict(document, model_candidates=[dict(r, status='MODEL_SELECTION') for r in bad_rows])
     path.write_text(json.dumps(tampered), encoding='utf-8')

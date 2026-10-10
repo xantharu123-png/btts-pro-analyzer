@@ -8,6 +8,8 @@ from collections.abc import Mapping
 from datetime import datetime, timezone
 import math
 import re
+from types import MappingProxyType
+import unicodedata
 
 
 def _get(value, name, default=None):
@@ -65,7 +67,7 @@ def esports_recent_facts(match, original):
     return result
 
 
-def team_recent_facts(original):
+def _legacy_team_recent_facts(original):
     """Build an optional sidecar after prediction without modifying originals.
 
 Only normalized consumed matches are eligible. Final scores/names come from
@@ -110,6 +112,206 @@ Missing or ambiguous raw rows retain outcome only, not invented final scores.
                 break
         result[output] = rows
     return result
+
+
+_TEAM_RECENT_KEYS = frozenset(('schema', 'sport', 'provider', 'competition',
+    'provider_event_id', 'starts_at', 'modeled_at', 'input_cutoff_at',
+    'source_input_hash', 'competitor_a_id', 'competitor_b_id',
+    'competitor_a', 'competitor_b', 'scope', 'a_results', 'b_results'))
+_TEAM_RESULT_KEYS = frozenset(('event_id', 'start', 'result_observed_at',
+    'team_identity', 'opponent_identity', 'won', 'opponent', 'opponent_id', 'score', 'scope'))
+_FINAL_SCOPES = {'basketball': 'final_including_ot', 'ice_hockey': 'final_including_ot_so'}
+
+
+def _label(value):
+    return str(value).strip() if value is not None and not isinstance(value, bool) else ''
+
+
+def _identity_token(team_id, name):
+    value = _label(team_id) or _label(name)
+    normalized = ' '.join(unicodedata.normalize('NFKC', value).casefold().split())
+    return ('id:' if _label(team_id) else 'name:') + normalized
+
+
+def team_recent_facts(original):
+    """Project only the actual normalized consumed inventory into typed facts.
+
+    Legacy duck-typed helper inputs retain their old display-only contract;
+    they cannot pass the v2 validator used by persisted snapshots.
+    """
+    from sports_prematch import OriginalPrematch, _text, _team, _competition, _variant, _SCOPES
+    if not isinstance(original, OriginalPrematch):
+        return _legacy_team_recent_facts(original)
+    sport, identity = original.sport, original.identity
+    if sport not in _FINAL_SCOPES or identity is None or not _hash(original.input_hash):
+        return None
+    event, modeled = original.raw_event, original.as_of
+    if _clock(modeled) is None:
+        return None
+    scope = _FINAL_SCOPES[sport]
+    result = dict(schema='team-recent-results-v2', sport=sport,
+        provider=_label(event.get('provider') or event.get('source')),
+        competition=_label(event.get('competition') or event.get('league') or event.get('tournament')) or sport,
+        provider_event_id=_label(event.get('provider_event_id') or event.get('event_id') or
+            event.get('game_id') or event.get('match_id') or event.get('id')),
+        starts_at=identity.start.isoformat(), modeled_at=modeled.isoformat(),
+        input_cutoff_at=modeled.isoformat(), source_input_hash=original.input_hash,
+        competitor_a=_label(event.get('home_team', event.get('team1'))),
+        competitor_b=_label(event.get('away_team', event.get('team2'))),
+        competitor_a_id=_label(event.get('home_team_id', event.get('team1_id'))),
+        competitor_b_id=_label(event.get('away_team_id', event.get('team2_id'))), scope=scope)
+    matches = sorted(original.matches, key=lambda row: (row.start, row.event_id), reverse=True)
+    for side, output in (('home', 'a_results'), ('away', 'b_results')):
+        team, rows = getattr(identity, side), []
+        for match in matches:
+            if team not in {match.home, match.away}:
+                continue
+            is_home = team == match.home
+            won = match.winner_home == (1 if is_home else 0)
+            item = dict(event_id=match.event_id, start=match.start.isoformat(),
+                result_observed_at=match.observed.isoformat(), team_identity=team,
+                opponent_identity=match.away if is_home else match.home,
+                won=won, opponent=None, opponent_id=None, score=None, scope=scope)
+            raw_matches = [raw for raw in original.raw_history if isinstance(raw, Mapping)
+                and _text(raw.get('provider') or raw.get('source')) == identity.provider
+                and _competition(raw) == identity.competition and _variant(sport, raw) == identity.variant
+                and (not _text(raw.get('sport')) or _text(raw.get('sport')) == sport)
+                and _text(raw.get('provider_event_id') or raw.get('event_id') or raw.get('id')) == match.event_id
+                and _clock(raw.get('start_time') or raw.get('starts_at')) == match.start
+                and _clock(raw.get('result_observed_at') or raw.get('observed_at')) == match.observed
+                and _team(raw, 'home') == match.home and _team(raw, 'away') == match.away
+                and _text(raw.get('winner_side')) == ('home' if match.winner_home else 'away')
+                and _text(raw.get('status')) in {'completed', 'final', 'finished', 'closed', 'ended'}
+                and _text(raw.get('result_scope')) == _SCOPES[sport]]
+            # Repeated identical accepted source rows are not ambiguous details.
+            candidates = set()
+            for raw in raw_matches:
+                opposite = 'away' if is_home else 'home'
+                name, native_id = raw.get(opposite+'_team'), raw.get(opposite+'_team_id')
+                name = name.strip() if isinstance(name, str) and 0 < len(name.strip()) <= 100 else None
+                native_id = _label(native_id) or None
+                hs, aws = raw.get('home_score_final', raw.get('home_score')), raw.get('away_score_final', raw.get('away_score'))
+                score = None
+                if all(_number(v) and 0 <= v <= 1000 and v == int(v) for v in (hs, aws)):
+                    h, a = int(hs), int(aws)
+                    period = _text(raw.get('last_period_type'))
+                    adjusted = (h-int(match.winner_home), a-int(not match.winner_home)) if sport == 'ice_hockey' and match.extra_time else (h, a)
+                    if (h != a and (h > a) == bool(match.winner_home)
+                            and adjusted == (match.home_score, match.away_score)
+                            and (sport != 'ice_hockey' or period in ({'ot', 'so'} if match.extra_time else {'reg'}))):
+                        score = f'{h}:{a}' if is_home else f'{a}:{h}'
+                candidates.add((name, native_id, score))
+            if len(candidates) == 1:
+                item['opponent'], item['opponent_id'], item['score'] = candidates.pop()
+            rows.append(item)
+            if len(rows) == 10:
+                break
+        result[output] = rows
+    return result
+
+
+def validate_team_recent_results(payload, forecast, *, competition=None, input_cutoff_at=None):
+    """Validate a closed same-call contract and return owned JSON values.
+
+    The owning snapshot additionally binds this payload's digest. No probability
+    is calculated and no external history is consulted at this boundary.
+    """
+    if not isinstance(payload, Mapping) or set(payload) != _TEAM_RECENT_KEYS:
+        raise ValueError('invalid team recent-results schema')
+    sport = _get(forecast, 'sport')
+    if payload['schema'] != 'team-recent-results-v2' or sport not in _FINAL_SCOPES:
+        raise ValueError('unsupported team recent-results contract')
+    expected = dict(sport=sport, provider=_get(forecast, 'provider'),
+        provider_event_id=_get(forecast, 'provider_event_id'),
+        competitor_a_id=_get(forecast, 'home_id'), competitor_b_id=_get(forecast, 'away_id'),
+        competitor_a=_get(forecast, 'home'), competitor_b=_get(forecast, 'away'),
+        source_input_hash=_get(forecast, 'model_input_hash'), scope=_FINAL_SCOPES[sport])
+    if any(payload[key] != value for key, value in expected.items()) or not _hash(payload['source_input_hash']):
+        raise ValueError('recent results identity does not match forecast')
+    for name in ('provider', 'competition', 'provider_event_id', 'competitor_a', 'competitor_b'):
+        value = payload[name]
+        if not isinstance(value, str) or not value.strip() or len(value) > 500:
+            raise ValueError('invalid recent-results identity')
+    if any(not isinstance(payload[name], str) or len(payload[name]) > 500 for name in ('competitor_a_id', 'competitor_b_id')):
+        raise ValueError('invalid recent-results participant IDs')
+    if competition is not None and payload['competition'] != competition:
+        raise ValueError('recent results competition does not match snapshot')
+    clocks = {key: _clock(payload[key]) for key in ('starts_at', 'modeled_at', 'input_cutoff_at')}
+    start, modeled, cutoff = (clocks[key] for key in ('starts_at', 'modeled_at', 'input_cutoff_at'))
+    if (any(value is None for value in clocks.values())
+            or any(not isinstance(payload[key], str) for key in clocks)
+            or start != _clock(_get(forecast, 'starts_at')) or modeled != _clock(_get(forecast, 'modeled_at'))
+            or cutoff != _clock(input_cutoff_at if input_cutoff_at is not None else _get(forecast, 'modeled_at'))
+            or not cutoff <= modeled < start):
+        raise ValueError('recent results chronology does not match snapshot')
+    expected_model_scope = 'including_overtime_shootout' if sport == 'ice_hockey' else 'including_overtime'
+    if _get(forecast, 'model_scope') != expected_model_scope:
+        raise ValueError('recent results scope does not match forecast')
+    result = dict(payload)
+    shared = {}
+    for side, count_field in (('a', 'home_games'), ('b', 'away_games')):
+        rows = payload[side+'_results']
+        count = _get(forecast, count_field)
+        if (not isinstance(rows, (list, tuple)) or len(rows) > 10
+                or type(count) is not int or count < len(rows)):
+            raise ValueError('invalid recent-results sample size')
+        team = _identity_token(payload['competitor_'+side+'_id'], payload['competitor_'+side])
+        previous, seen, copied = None, set(), []
+        for row in rows:
+            if not isinstance(row, Mapping) or set(row) != _TEAM_RESULT_KEYS:
+                raise ValueError('invalid closed recent-result row')
+            event_id = row['event_id']
+            played, observed = _clock(row['start']), _clock(row['result_observed_at'])
+            if (not isinstance(event_id, str) or not 0 < len(event_id) <= 500
+                    or event_id in seen or event_id == _label(payload['provider_event_id']).casefold()
+                    or not isinstance(row['start'], str) or not isinstance(row['result_observed_at'], str)
+                    or played is None or observed is None or not played < observed < cutoff
+                    or previous is not None and played > previous
+                    or type(row['won']) is not bool or row['team_identity'] != team
+                    or row['scope'] != payload['scope']):
+                raise ValueError('invalid recent-result identity/chronology')
+            opponent = row['opponent_identity']
+            if (not isinstance(opponent, str) or len(opponent) > 505
+                    or not re.fullmatch(r'(?:id|name):\S(?:.*\S)?', opponent) or opponent == team):
+                raise ValueError('invalid result opponent identity')
+            name, native_id, score = row['opponent'], row['opponent_id'], row['score']
+            if name is not None and (not isinstance(name, str) or not 0 < len(name.strip()) <= 100):
+                raise ValueError('invalid result opponent label')
+            if native_id is not None and (not isinstance(native_id, str) or not 0 < len(native_id.strip()) <= 500):
+                raise ValueError('invalid result opponent ID')
+            if native_id is not None and _identity_token(native_id, '') != opponent:
+                raise ValueError('result opponent ID mismatch')
+            if opponent.startswith('name:') and name is not None and _identity_token('', name) != opponent:
+                raise ValueError('result opponent name mismatch')
+            if score is not None:
+                match = re.fullmatch(r'(0|[1-9][0-9]{0,3}):(0|[1-9][0-9]{0,3})', score) if isinstance(score, str) else None
+                if match is None:
+                    raise ValueError('invalid final score')
+                own, other = map(int, match.groups())
+                if max(own, other) > 1000 or own == other or (own > other) != row['won']:
+                    raise ValueError('contradictory final score')
+            latest = _clock(_get(forecast, 'latest_result_observed_at'))
+            if latest is not None and observed > latest:
+                raise ValueError('row was not consumed by forecast')
+            other_row = shared.get(event_id)
+            if other_row is not None and (row['team_identity'] != other_row['opponent_identity']
+                    or opponent != other_row['team_identity'] or row['won'] == other_row['won']
+                    or row['start'] != other_row['start'] or row['result_observed_at'] != other_row['result_observed_at']
+                    or score is not None and other_row['score'] is not None and score != ':'.join(reversed(other_row['score'].split(':')))):
+                raise ValueError('inconsistent shared result')
+            shared[event_id] = row
+            seen.add(event_id)
+            previous = played
+            copied.append(dict(row))
+        result[side+'_results'] = copied
+    return result
+
+
+def freeze_team_recent_results(payload, forecast, **bindings):
+    """Deeply own the validated bounded evidence for immutable domain use."""
+    checked = validate_team_recent_results(payload, forecast, **bindings)
+    return MappingProxyType({key: tuple(MappingProxyType(row) for row in value)
+        if key in {'a_results', 'b_results'} else value for key, value in checked.items()})
 
 
 def _recent_lines(facts, *, team=False):
@@ -264,6 +466,18 @@ def team_customer_explanation(signal, probability=None, *, recent_facts=None):
         elif isinstance(factors, (list, tuple)):
             reasons = tuple(value for value in factors[:2] if isinstance(value, str) and len(value) <= 220 and value.startswith(prefixes))
         facts = _mapping(recent_facts or snapshot.get('customer_recent_results'))
+        if facts.get('schema') == 'team-recent-results-v2':
+            try:
+                validated = validate_team_recent_results(facts, forecast,
+                    competition=snapshot.get('competition', _get(signal, 'competition')),
+                    input_cutoff_at=snapshot.get('input_cutoff_at', forecast.get('modeled_at')))
+            except (ValueError, TypeError, AttributeError):
+                facts = {}
+            else:
+                recent = _recent_lines(validated, team=True)
+                recent_counter = team_recent_counters(validated).get('home' if chosen == a else 'away')
+                if recent_counter:
+                    counter = recent_counter+' '+counter
         if (facts.get('schema') == 'team-recent-results-v1' and facts.get('sport') == expected_sport
                 and _hash(facts.get('source_input_hash')) and facts.get('source_input_hash') == forecast.get('model_input_hash')
                 and facts.get('provider_event_id') == forecast.get('provider_event_id')

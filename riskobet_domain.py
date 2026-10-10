@@ -18,7 +18,7 @@ import re
 from typing import Any, Iterable, Mapping, Optional
 
 from context_links import ContextReference
-from team_sport_forecasts import TeamSportForecast
+from team_sport_forecasts import TeamSportForecast, _snapshot_json
 
 
 SUPPORTED_SPORTS = frozenset(
@@ -257,6 +257,7 @@ class EventModelSnapshot:
     missing_core_data: tuple[str, ...] = ()
     context_ref: Optional[ContextReference] = None
     team_sport_forecast: Optional[TeamSportForecast] = None
+    customer_recent_results: Optional[Mapping[str, object]] = None
     snapshot_id: str = field(init=False)
 
     def __post_init__(self) -> None:
@@ -306,10 +307,19 @@ class EventModelSnapshot:
             if not isinstance(self.team_sport_forecast, TeamSportForecast):
                 raise ValueError('team_sport_forecast must be immutable')
             self.team_sport_forecast.validate_snapshot(self)
+        if self.customer_recent_results is not None:
+            if self.team_sport_forecast is None:
+                raise ValueError('recent results require their same-call team forecast')
+            from team_customer_facts import freeze_team_recent_results
+            object.__setattr__(self, 'customer_recent_results', freeze_team_recent_results(
+                self.customer_recent_results, self.team_sport_forecast,
+                competition=self.competition, input_cutoff_at=self.input_cutoff_at))
         object.__setattr__(
             self,
             "snapshot_id",
-            event_snapshot_id(event_key, model_version, input_hash, self.context_ref, self.team_sport_forecast),
+            event_snapshot_id(event_key, model_version, input_hash, self.context_ref,
+                self.team_sport_forecast, self.customer_recent_results,
+                competition=self.competition, input_cutoff_at=self.input_cutoff_at),
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -328,10 +338,14 @@ class EventModelSnapshot:
             "missing_core_data": list(self.missing_core_data),
             **({"context_ref": self.context_ref.to_dict()} if self.context_ref is not None else {}),
             **({'team_sport_forecast': self.team_sport_forecast.to_dict()} if self.team_sport_forecast is not None else {}),
+            **({'customer_recent_results': _snapshot_json(self.customer_recent_results)}
+                if self.customer_recent_results is not None else {}),
         }
 
 
-def event_snapshot_id(event_key, model_version, input_hash, context_ref=None, team_sport_forecast=None):
+def event_snapshot_id(event_key, model_version, input_hash, context_ref=None,
+                      team_sport_forecast=None, customer_recent_results=None, *,
+                      competition=None, input_cutoff_at=None):
     """Legacy identities stay exact; a new reference creates a new revision."""
     parts = (event_key, model_version, input_hash)
     if context_ref is not None:
@@ -340,6 +354,11 @@ def event_snapshot_id(event_key, model_version, input_hash, context_ref=None, te
         parts += (context_ref.key, context_ref.payload_digest)
     if team_sport_forecast is not None:
         parts += (canonical_input_hash(team_sport_forecast.to_dict()),)
+    if customer_recent_results is not None:
+        from team_customer_facts import validate_team_recent_results
+        validated = validate_team_recent_results(customer_recent_results, team_sport_forecast,
+            competition=competition, input_cutoff_at=input_cutoff_at)
+        parts += (canonical_input_hash(validated),)
     return _stable_id("snapshot", *parts)
 
 

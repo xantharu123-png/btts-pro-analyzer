@@ -180,7 +180,7 @@ def _factor(payload: object) -> FactorEvidence:
 
 def _snapshot(payload: object) -> EventModelSnapshot:
     data = _mapping(payload, "snapshot")
-    optional = {"context_ref", "team_sport_forecast"} & data.keys()
+    optional = {"context_ref", "team_sport_forecast", "customer_recent_results"} & data.keys()
     _exact_keys(data, _SNAPSHOT_KEYS | optional, "snapshot")
     try:
         snapshot = EventModelSnapshot(
@@ -204,6 +204,7 @@ def _snapshot(payload: object) -> EventModelSnapshot:
                 TeamSportForecast.from_dict(data["team_sport_forecast"])
                 if "team_sport_forecast" in data else None
             ),
+            customer_recent_results=data.get('customer_recent_results'),
         )
     except (KeyError, TypeError, ValueError) as exc:
         if isinstance(exc, RiskBetViewError):

@@ -89,7 +89,18 @@ def team_forms(signal, customer):
     raw = container.get('recent_results' if esports else 'customer_recent_results', {})
     if not isinstance(parent, Mapping) or not isinstance(raw, Mapping):
         return ()
-    if (raw.get('schema') != ('esports-recent-results-v1' if esports else 'team-recent-results-v1')
+    typed = not esports and raw.get('schema') == 'team-recent-results-v2'
+    if typed:
+        from team_customer_facts import validate_team_recent_results
+        from team_sport_forecasts import TeamSportForecast
+        try:
+            raw = validate_team_recent_results(raw, TeamSportForecast.from_dict(parent),
+                competition=container.get('competition'),
+                input_cutoff_at=container.get('input_cutoff_at'))
+        except (TypeError, ValueError, KeyError):
+            return ()
+    if (raw.get('schema') != ('esports-recent-results-v1' if esports else
+                             'team-recent-results-v2' if typed else 'team-recent-results-v1')
             or raw.get('source_input_hash') != parent.get('source_input_hash' if esports else 'model_input_hash')
             or not raw.get('source_input_hash')
             or raw.get('provider_event_id') != str(signal.provider_event_id)
@@ -105,15 +116,22 @@ def team_forms(signal, customer):
         outcomes = rows if esports else [r.get('won') if isinstance(r, Mapping) else None for r in rows]
         if any(type(won) is not bool for won in outcomes):
             continue
+        def display_name(name, team_id):
+            if not typed:
+                return name
+            from sports_identity_media import participant_display_name
+            return participant_display_name(parent['sport'], name, team_id=team_id,
+                fixture_source=parent['provider'], competition=container.get('competition'))
         results = tuple(FormResult('S' if won else 'N',
             '' if esports else str(row.get('score') or ''),
-            '' if esports else str(row.get('opponent') or ''),
+            '' if esports else display_name(str(row.get('opponent') or ''), row.get('opponent_id')),
             '' if esports else str(row.get('start') or ''),
         ) for row, won in zip(rows, outcomes))
         scope = 'Serien · erfasste Reihenfolge' if esports else 'Endergebnisse inkl. Verlängerung'
         if sport in ('eishockey', 'icehockey'):
             scope += ' / Penaltyschießen'
-        forms.append(TeamForm(team, scope, results))
+        forms.append(TeamForm(display_name(team, parent.get('home_id' if side == 'a' else 'away_id')),
+                              scope, results))
     return tuple(forms)
 
 

@@ -55,7 +55,9 @@ def test_hockey_shortcheck_labels_the_advantage_before_details_truncation():
     forecast = replace(snapshot.team_sport_forecast, home='BOS', away='PHI', home_id='6', away_id='4',
         p_home=.577, p_away=.423, factors=('Erwartete Tore in regulärer Spielzeit: 3.09/2.60.',
             'Verlängerung/Shootout separat aus 298 passenden Spielen berücksichtigt.'))
-    snapshot = replace(snapshot, event_label='BOS vs PHI', team_sport_forecast=forecast)
+    # This synthetic rationale fixture is not the real captured Team 1/8 history.
+    snapshot = replace(snapshot, event_label='BOS vs PHI', team_sport_forecast=forecast,
+        customer_recent_results=None)
     row = team_sport_forecast_rows(SimpleNamespace(snapshots=(snapshot,)), now=NOW, target_date=NOW.date())[0]
     signal = ModelSignal(**{key: value for key, value in row.items() if key in ModelSignal.__dataclass_fields__}, event_label=row['event'])
     card = build_wettfinder_card(signal, now=NOW)
@@ -77,7 +79,8 @@ def test_hockey_shortcheck_keeps_abbreviated_full_names_on_both_sides():
     snapshot = _snapshot('ice_hockey')
     forecast = replace(snapshot.team_sport_forecast, home='STL', away='BOS', home_id='19', away_id='6',
         p_home=.577, p_away=.423, factors=('Erwartete Tore in regulärer Spielzeit: 3.09/2.60.',))
-    snapshot = replace(snapshot, event_label='STL vs BOS', team_sport_forecast=forecast)
+    snapshot = replace(snapshot, event_label='STL vs BOS', team_sport_forecast=forecast,
+        customer_recent_results=None)
     rows = team_sport_forecast_rows(SimpleNamespace(snapshots=(snapshot,)), now=NOW, target_date=NOW.date())
     for row in rows:
         signal = ModelSignal(**{key: value for key, value in row.items() if key in ModelSignal.__dataclass_fields__}, event_label=row['event'])
