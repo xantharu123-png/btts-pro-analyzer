@@ -263,6 +263,50 @@ def test_price_refresh_aborts_if_model_snapshot_changed_during_fetch(tmp_path):
     assert json.loads(path.read_text()) == {'newer':True}
 
 
+def test_football_price_only_refresh_covers_every_published_fixture(tmp_path):
+    from wettfinder_automation import refresh_prices_only, _signal_record
+    rows = []
+    for fixture_id in range(1, 91):
+        signal = replace(_signal(), key=f'fixture-{fixture_id}',
+                         candidate_id=f'fixture-{fixture_id}', fixture_id=fixture_id)
+        rows.append({**_signal_record(signal), **wettfinder_quote_binding_candidate(signal),
+                     'status': 'MODEL_SELECTION'})
+    path = tmp_path / 'prices.json'
+    path.write_text(json.dumps(dict(model_candidates=rows)), encoding='utf-8')
+    checked = []
+    def loader(candidates):
+        checked.extend(row['fixture_id'] for row in candidates)
+        return {}, []
+    summary = refresh_prices_only(state_path=path, now=NOW, quote_loader=loader)
+    assert checked == list(range(1, 91))
+    assert summary['fixtures'] == 90
+    after = json.loads(path.read_text(encoding='utf-8'))
+    assert [row['probability'] for row in after['model_candidates']] == [row['probability'] for row in rows]
+
+
+def test_price_only_refresh_evaluates_at_completion_not_batch_start(tmp_path, monkeypatch):
+    import wettfinder_automation as automation
+    row = {**automation._signal_record(_signal()), **wettfinder_quote_binding_candidate(_signal()),
+           'status': 'MODEL_SELECTION'}
+    path = tmp_path / 'prices.json'
+    path.write_text(json.dumps(dict(model_candidates=[row])), encoding='utf-8')
+    completed = NOW + timedelta(minutes=2)
+    clocks = iter((NOW, completed))
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return next(clocks)
+    monkeypatch.setattr(automation, 'datetime', Clock)
+    quote = _quote(_signal(), fetched_at=completed)
+    summary = automation.refresh_prices_only(state_path=path, quote_loader=lambda rows: ({quote.candidate_id: quote}, []))
+    after = json.loads(path.read_text(encoding='utf-8'))
+    assert summary['updated_at'] == completed.isoformat()
+    assert summary['quotes'] == 1
+    assert after['model_candidates'][0]['reference_quote']['fetched_at'] == completed.isoformat()
+    assert after['model_candidates'][0]['reference_price_evaluated_at'] == completed.isoformat()
+    assert after['price_check_attempts'][row['key']] == completed.isoformat()
+
+
 def _tennis_price_fixture(price=1.90, books=4):
     from wettfinder_automation import _signal_record
     from ev_signal_sources import TENNIS_POLICY_VERSION

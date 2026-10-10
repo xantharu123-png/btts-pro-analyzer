@@ -226,25 +226,29 @@ def test_original_clocks_are_retained_and_expired_facts_are_pruned():
 
 
 def test_boundaries_and_merge_never_accumulate_price_history():
-    base = _observations()
+    _, event = _native_fixture()
+    bookmaker = event['bookmakers'][0]
+    event['bookmakers'] = [{**deepcopy(bookmaker), 'key': f'book-{n}', 'title': f'Fixture Book {n}'}
+                          for n in range(3)]
+    base = _observations(event)
     rows = []
-    for n in range(10):
+    for n in range(1200):
         for original in base:
             row = deepcopy(original)
             row['provider_event_id'] = str(n)
             rows.append(row)
-    assert len(markets.bounded_tennis_price_observations(rows, now=NOW)) == 20
+    assert len(markets.bounded_tennis_price_observations(rows, now=NOW)) == 2400
     assert markets.bounded_tennis_price_observations(rows+[deepcopy(base[0])], now=NOW) == []
-    eleven = deepcopy(rows[:11])
-    for n, row in enumerate(eleven):
+    overflow = deepcopy(rows[:1201])
+    for n, row in enumerate(overflow):
         row['provider_event_id'] = str(n)
-    assert markets.bounded_tennis_price_observations(eleven, now=NOW) == []
+    assert markets.bounded_tennis_price_observations(overflow, now=NOW) == []
     huge = deepcopy(base)
     huge[0]['unneeded_model_payload'] = 'x'*(markets.TENNIS_PRICE_MAX_BYTES+1)
     assert markets.bounded_tennis_price_observations(huge, now=NOW) == []
     normal, _ = _native_fixture()
     merged = markets.merge_tennis_price_observations(rows, base, [normal], now=NOW)
-    assert len(merged) <= 20 and len({r['provider_event_id'] for r in merged}) <= 10
+    assert len(merged) == 2400 and len({r['provider_event_id'] for r in merged}) == 1200
     # A checked response containing only one side replaces the old opposite price.
     assert markets.merge_tennis_price_observations(base, base[:1], [normal], now=NOW) == base[:1]
     assert markets.merge_tennis_price_observations(base, [], [normal], now=NOW) == []

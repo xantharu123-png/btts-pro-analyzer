@@ -117,6 +117,67 @@ def test_consensus_uses_lower_quartile_not_best_quote():
     assert MarketConsensus.from_dict(quote.to_dict()) == quote
 
 
+def test_double_chance_accepts_provider_tokens_without_losing_exact_side():
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    candidates = [{**_candidate(key), 'selection': selection}
+                  for key, selection in (('DC_1X', '1X'), ('DC_X2', 'X2'), ('DC_12', '12'))]
+    for values in (
+        [('1X', '1.25'), ('X2', '1.55'), ('12', '1.30')],
+        [('Home/Draw', '1.25'), ('Draw/Away', '1.55'), ('Home/Away', '1.30')],
+    ):
+        payload = _payload(now, provider_ids=True)
+        for bookmaker in payload['response'][0]['bookmakers']:
+            bookmaker['bets'] = [{'name': 'Double Chance', 'values': [
+                {'value': value, 'odd': odds} for value, odds in values]}]
+        quotes = parse_fixture_consensus(payload, candidates, fetched_at=now)
+        assert set(quotes) == {'1493030:DC_1X', '1493030:DC_X2', '1493030:DC_12'}
+        for candidate, expected in zip(candidates, (1.25, 1.55, 1.30)):
+            quote = quotes[candidate['candidate_id']]
+            assert quote.best_odds == expected
+            assert quote_matches_candidate(quote, candidate)
+            assert not quote_matches_candidate(quote, {**candidate, 'market_key': 'RESULT_HOME'})
+            assert not quote_matches_candidate(quote, {**candidate, 'scheduled_start': '2030-01-01T17:00:00+00:00'})
+
+
+def test_double_chance_aliases_do_not_inflate_books_or_match_other_periods():
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    payload = _payload(now, provider_ids=True)
+    payload['response'][0]['bookmakers'][0]['bets'] = [
+        {'name': 'Double Chance', 'values': [
+            {'value': '1X', 'odd': '1.40'}, {'value': 'Home/Draw', 'odd': '1.25'}]},
+        {'name': 'Double Chance - First Half', 'values': [{'value': '1X', 'odd': '9.00'}]},
+    ]
+    candidate = _candidate('DC_1X')
+    quote = parse_fixture_consensus(payload, [candidate], fetched_at=now)[candidate['candidate_id']]
+    assert quote.bookmaker_count == 1
+    assert quote.best_odds == 1.25
+
+
+def test_football_batch_uses_each_response_clock(monkeypatch):
+    from types import SimpleNamespace
+    start = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+    later = start + timedelta(minutes=2)
+    clocks = iter((start, start, later))
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return next(clocks)
+    monkeypatch.setattr(market_consensus, 'datetime', Clock)
+    candidates = [_candidate(), {**_candidate(), 'candidate_id': '1493031:BTTS_YES', 'fixture_id': 1493031}]
+    def get(_url, **kwargs):
+        fixture = kwargs['params']['fixture']
+        payload = _payload(start if fixture == 1493030 else later, provider_ids=True)
+        payload['response'][0]['fixture']['id'] = fixture
+        return SimpleNamespace(raise_for_status=lambda: None, json=lambda: payload)
+    monkeypatch.setattr(market_consensus, 'api_football_get', get)
+    quotes, errors = market_consensus.fetch_football_consensus('test', candidates)
+    assert errors == []
+    assert set(quotes) == {'1493030:BTTS_YES', '1493031:BTTS_YES'}
+    assert quotes['1493030:BTTS_YES'].fetched_at == start.isoformat()
+    assert quotes['1493031:BTTS_YES'].fetched_at == later.isoformat()
+    assert quotes['1493031:BTTS_YES'].quoted_at == later.isoformat()
+
+
 def test_consensus_deduplicates_bookmaker_casing_conservatively():
     now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
     quote = parse_fixture_consensus(

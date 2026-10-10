@@ -56,9 +56,11 @@ FOOTBALL_QUOTE_START_TOLERANCE = timedelta(minutes=5)
 TENNIS_QUOTE_START_TOLERANCE = timedelta(minutes=30)
 MAX_TENNIS_EVENT_DISCOVERY_KEYS = 8
 TENNIS_EVENT_DISCOVERY_TIMEOUT = 5
-TENNIS_PRICE_MAX_EVENTS = 10
-TENNIS_PRICE_MAX_SIDES = 20
-TENNIS_PRICE_MAX_BYTES = 256 * 1024
+# Match the existing bounded daily tennis model catalog. Both delivered winner
+# sides must survive a later favorite change without an additional API request.
+TENNIS_PRICE_MAX_EVENTS = 1_200
+TENNIS_PRICE_MAX_SIDES = 2 * TENNIS_PRICE_MAX_EVENTS
+TENNIS_PRICE_MAX_BYTES = 8 * 1024 * 1024
 # Both Echtgeld consumers require a realistically executable quote when the
 # user sees it.  Keeping a wider 15K window made a recently fetched aggregate
 # appear current even when one or more contributing offers were many hours old.
@@ -1302,6 +1304,12 @@ def parse_fixture_consensus(
                     if not isinstance(value, Mapping):
                         continue
                     value_name = _normalize(value.get("value"))
+                    if bet_name == "double chance":
+                        # API-Football uses both token and spelled-out outcomes.
+                        # Canonicalize only this exact full-time market; retain
+                        # the existing side/fixture/start binding afterwards.
+                        value_name = {"1x": "home/draw", "x2": "draw/away",
+                                      "12": "home/away"}.get(value_name, value_name)
                     try:
                         odds = validate_decimal_odds(value.get("odd"))
                     except BettingMathError:
@@ -1751,7 +1759,7 @@ def bounded_tennis_price_observations(rows: object, *, now: datetime) -> list[di
 
 def merge_tennis_price_observations(previous: object, fresh: object, checked_rows: Iterable[object],
                                     *, now: datetime) -> list[dict[str, Any]]:
-    """Replace checked events and retain at most ten other current event pairs."""
+    """Replace checked events within the bounded current daily price catalog."""
     incoming = bounded_tennis_price_observations(fresh, now=now)
     checked = {identity[:2] for row in checked_rows
                if (identity := _tennis_observation_identity(row)) is not None}
@@ -1820,6 +1828,22 @@ def fetch_tennis_h2h_consensus(
     ]
     if not candidate_list:
         return {}, []
+
+    # The paired-price artifact must cover the requested pool, not silently
+    # evict earlier events after successfully requesting them. This is the
+    # same bound as the automatic model catalog, including manual windows.
+    event_identities = set()
+    for candidate in candidate_list:
+        native = tuple(_candidate_value(candidate, field)
+                       for field in ("fixture_source", "provider_event_id"))
+        if all(isinstance(value, str) and value.strip() for value in native):
+            event_identities.add(("native", *native))
+        else:
+            identity = _h2h_candidate_identity(candidate)
+            event_identities.add(("legacy", identity[0], identity[1], identity[3]))
+    event_count = len(event_identities)
+    if event_count > TENNIS_PRICE_MAX_EVENTS:
+        return {}, [f"Tennis-Quotenumfang überschreitet {TENNIS_PRICE_MAX_EVENTS} Ereignisse"]
 
     sports_payload, sports_error = _odds_api_json(
         "sports/",
@@ -1922,6 +1946,8 @@ def fetch_tennis_h2h_consensus(
     by_sport: dict[str, dict[str, list[object]]] = {}
     for (sport_key, event_id), event_candidates in grouped_events.items():
         by_sport.setdefault(sport_key, {})[event_id] = event_candidates
+    collected_prices, collected_checks = [], []
+    completed_at = current
     for sport_key, requested_events in by_sport.items():
         odds_payload, odds_error = _odds_api_json(
             f"sports/{sport_key}/odds",
@@ -1941,6 +1967,10 @@ def fetch_tennis_h2h_consensus(
         if not isinstance(odds_payload, list):
             errors.append(f"Tennisquote {sport_key}: ungueltige Antwort")
             continue
+        # Each completed sport response owns its actual retrieval clock; a
+        # provider update made during the batch must not look future-dated.
+        fetched_at = current if now is not None else _as_utc(datetime.now(timezone.utc))
+        completed_at = fetched_at
         returned = {}
         duplicate_ids = set()
         for event in odds_payload:
@@ -1955,15 +1985,18 @@ def fetch_tennis_h2h_consensus(
                 continue
             result.update(
                 parse_h2h_event_consensus(
-                    returned[event_id], event_candidates, fetched_at=current,
+                    returned[event_id], event_candidates, fetched_at=fetched_at,
                 )
             )
             if price_observations is not None:
-                fresh = _collect_tennis_event_prices(returned[event_id], event_candidates, now=current)
-                # Collection adds no discovery/odds request and does not change normal results.
-                price_observations[:] = merge_tennis_price_observations(
-                    price_observations, fresh, event_candidates, now=current,
-                )
+                collected_prices.extend(_collect_tennis_event_prices(
+                    returned[event_id], event_candidates, now=fetched_at))
+                collected_checks.extend(event_candidates)
+    if price_observations is not None and collected_checks:
+        # Validate/copy the bounded catalog once, not after every received
+        # event. Individual quotes retain their actual response timestamps.
+        price_observations[:] = merge_tennis_price_observations(
+            price_observations, collected_prices, collected_checks, now=completed_at)
     return result, errors
 
 
@@ -2019,7 +2052,9 @@ def fetch_football_consensus(
             parse_fixture_consensus(
                 payload,
                 fixture_candidates,
-                fetched_at=current,
+                # Later responses must not inherit the batch-start clock:
+                # a new provider observation would otherwise look future-dated.
+                fetched_at=current if now is not None else _as_utc(datetime.now(timezone.utc)),
                 retain_observations=True,
             )
         )

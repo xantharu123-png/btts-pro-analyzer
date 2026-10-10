@@ -2374,7 +2374,7 @@ def test_daily_catalog_does_not_compare_without_complete_model_revision():
     assert [row["key"] for row in catalog] == ["away-over"]
 
 
-def test_runner_keeps_90_fixtures_and_rotates_prices_without_model_reordering(tmp_path):
+def test_runner_prices_all_90_fixtures_without_model_reordering(tmp_path):
     now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
     base = _challenge_candidate(now + timedelta(hours=5))
     catalog = []
@@ -2438,7 +2438,7 @@ def test_runner_keeps_90_fixtures_and_rotates_prices_without_model_reordering(tm
     assert [row["fixture_id"] for row in document["model_candidates"]] == list(
         range(1, 91)
     )
-    assert checked_ids == list(range(1, 11))
+    assert checked_ids == list(range(1, 91))
     first_order = [row["key"] for row in document["model_candidates"]]
     checked_ids.clear()
     second = run_wettfinder(
@@ -2450,7 +2450,7 @@ def test_runner_keeps_90_fixtures_and_rotates_prices_without_model_reordering(tm
         tennis_loader=lambda **_kwargs: [],
         esports_loader=lambda **_kwargs: [],
     )
-    assert checked_ids == list(range(11, 21))
+    assert checked_ids == list(range(1, 91))
     assert [row["key"] for row in second["model_candidates"]] == first_order
     assert [row["probability"] for row in second["model_candidates"]] == [
         row["probability"] for row in document["model_candidates"]
@@ -3357,7 +3357,7 @@ def test_runner_reuses_tennis_quote_without_reordering_models_or_renewing_clock(
     assert second["sources"]["tennis"]["price_checked_count"] == 0
     assert second["sources"]["tennis"]["reference_quote_count"] == 0
     assert second["sources"]["esports"]["price_provider_status"] == (
-            "disabled_for_model_only_tips"
+            "not_requested_for_isolated_run"
     )
     assert second["bookmaker_data_used"] is True
 

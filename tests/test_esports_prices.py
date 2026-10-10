@@ -265,7 +265,45 @@ def test_riskobet_series_price_does_not_price_a_map(tmp_path):
     assert overlays['series_winner'].observed_odds==1.48
 
 
-def test_worker_stays_price_free_but_public_reader_reuses_exact_cache(tmp_path):
+def _price_worker_options(monkeypatch, tmp_path, *, now=NOW, production=False):
+    """Isolate unrelated production services, leaving price code real."""
+    import wettfinder_automation as automation
+    from test_wettfinder_automation import _football_snapshot
+
+    path = tmp_path / 'wettfinder_latest.json'
+    if production:
+        monkeypatch.setattr(automation, 'STATE_PATH', path)
+    monkeypatch.setattr('forecast_evidence.record_forecast_run', lambda *_args, **_kwargs:
+        dict(run_id=None, recorded=0, rejected=[], quotes_rejected=[]))
+    monkeypatch.setattr('tip_publication.record_automatic_publication', lambda *_args, **_kwargs: {})
+    monkeypatch.setattr('context_sources.football_appearances.refresh_football_appearances',
+                        lambda *_args, **_kwargs: {'status': 'test_isolated', 'requested_count': 0})
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError('No real provider transport is allowed in producer tests')
+
+    monkeypatch.setattr(requests.sessions.Session, 'request', forbidden)
+    return dict(now=now, state_path=path,
+        football_scanner=lambda _day: _football_snapshot(now),
+        football_quote_loader=lambda _rows: ({}, []),
+        football_context_refresher=lambda *_args: {},
+        tennis_loader=lambda **_kwargs: [], tennis_model_refresher=lambda **_kwargs: {},
+        esports_settlement_runner=lambda *_args, **_kwargs: {},
+        evidence_db_path=tmp_path/'test-evidence.db', evidence_settlement_runner=lambda **_kwargs: {})
+
+
+def _worker_signal():
+    from betting_math import BETTING_POLICY_VERSION
+    from esports_shadow import ESPORTS_MODEL_VERSION
+    from ev_signal_sources import ModelSignal
+    r = row()
+    return ModelSignal(**{k: v for k, v in r.items() if k in ModelSignal.__dataclass_fields__},
+        label='CS2 winner', detail='Real model fixture', market='Match Winner',
+        event_label='Sparta eSports vs Inox Division', probability_haircut=.1,
+        evidence_stage='SHADOW', policy_version=f'{BETTING_POLICY_VERSION}:{ESPORTS_MODEL_VERSION}')
+
+
+def test_worker_reuses_exact_cache_without_triggering_an_isolated_refresh(tmp_path):
     from config_loader import AppConfig
     from esports_shadow import ESPORTS_MODEL_VERSION
     from betting_math import BETTING_POLICY_VERSION
@@ -281,9 +319,11 @@ def test_worker_stays_price_free_but_public_reader_reuses_exact_cache(tmp_path):
     output=run_wettfinder(now=NOW,state_path=path,config=AppConfig(oddspapi_key=KEY),
         football_scanner=lambda d:_football_snapshot(NOW),football_quote_loader=lambda rows:({},[]),
         tennis_loader=lambda **kw:[],esports_loader=lambda **kw:[signal],riskobet_enabled=False)
-    assert output['sources']['esports']['reference_quote_count']==0
+    assert output['sources']['esports']['reference_quote_count']==1
+    assert output['sources']['esports']['price_provider_status']=='not_requested_for_isolated_run'
+    assert output['sources']['esports']['price_checked_count']==0
     saved=[r for r in output['model_candidates'] if r['source']=='esports_shadow'][0]
-    assert saved['probability']==.61 and saved.get('reference_quote') is None
+    assert saved['probability']==.61 and saved['reference_quote']['best_odds']==2.5
     assert saved['evidence_stage']=='SHADOW'
     forecasts=automated_wettfinder_forecasts(path,now=NOW)
     selected=next(s for s in forecasts if s.sport=='E-Sport')
@@ -291,6 +331,48 @@ def test_worker_stays_price_free_but_public_reader_reuses_exact_cache(tmp_path):
     from wettfinder_surface import build_wettfinder_card
     card=build_wettfinder_card(selected,now=NOW)
     assert card.model_probability==.61 and card.observed_odds is None
+
+
+@pytest.mark.parametrize('mode', ['configured', 'missing_key', 'isolated', 'no_models'])
+def test_worker_refreshes_esports_only_for_configured_production_models(monkeypatch, tmp_path, mode):
+    from config_loader import AppConfig
+    from wettfinder_automation import run_wettfinder
+
+    client = Client()
+    monkeypatch.setattr(prices, 'OddsPapiClient', lambda *_args, **_kwargs: client)
+    options = _price_worker_options(monkeypatch, tmp_path, production=mode != 'isolated')
+    signal = _worker_signal()
+    before = signal.probability, signal.key, signal.evidence_stage
+    output = run_wettfinder(**options, config=AppConfig(oddspapi_key=None if mode == 'missing_key' else KEY),
+        esports_loader=lambda **_kwargs: [] if mode == 'no_models' else [signal], riskobet_enabled=False)
+    state = output['sources']['esports']
+    assert state['price_provider_status'] == {
+        'configured': 'configured', 'missing_key': 'missing_api_key',
+        'isolated': 'not_requested_for_isolated_run', 'no_models': 'configured'}[mode]
+    # The shared producer has no per-native-model attempt ledger. Its actual
+    # refresh summary and exact reference quotes must not masquerade as one.
+    assert state['price_checked_count'] == 0
+    if mode == 'configured':
+        saved = next(r for r in output['model_candidates'] if r['source'] == 'esports_shadow')
+        assert saved['reference_quote']['best_odds'] == 2.5
+        assert saved['probability'] == .61 and saved['evidence_stage'] == 'SHADOW'
+        assert output['bookmaker_data_used'] is True
+        assert state['price_refresh']['status'] == 'complete'
+        assert len(client.calls) == 3
+        assert prices.load_cached_quote(row(), now=NOW, path=tmp_path/'esports_quotes.json').best_odds == 2.5
+        options['now'] = NOW + timedelta(minutes=30)
+        again = run_wettfinder(**options, config=AppConfig(oddspapi_key=KEY),
+            esports_loader=lambda **_kwargs: [signal], riskobet_enabled=False)
+        assert again['sources']['esports']['price_refresh']['status'] == 'cached'
+        assert again['sources']['esports']['price_checked_count'] == 0
+        assert len(client.calls) == 3
+        assert [(r['key'], r['probability']) for r in again['model_candidates']] == [
+            (r['key'], r['probability']) for r in output['model_candidates']]
+    else:
+        assert not client.calls
+        assert not (tmp_path/'esports_quotes.json').exists()
+    assert (signal.probability, signal.key, signal.evidence_stage) == before
+    assert KEY not in json.dumps(output)
 
 
 def test_config_key_loaded_without_affecting_other_credentials(monkeypatch,tmp_path):

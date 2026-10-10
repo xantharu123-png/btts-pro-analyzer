@@ -3675,7 +3675,8 @@ def run_wettfinder(
         price_config = config or load_app_config()
         if price_config.api_football_key:
             football_quote_loader = lambda rows: fetch_football_consensus(
-                price_config.api_football_key, rows, now=current, timeout=10
+                price_config.api_football_key, rows,
+                now=current if fixed_now else None, timeout=10
             )
     football_price_rows = select_price_check_candidates(
         (
@@ -3687,6 +3688,7 @@ def run_wettfinder(
         target_date=target,
         preserve_order=True,
         previous_checks=prior_price_checks,
+        max_fixtures=MAX_SCAN_FIXTURES,
         max_markets_per_fixture=100,
     ) if football_quote_loader is not None else []
     quote_errors: list[str] = []
@@ -3735,7 +3737,7 @@ def run_wettfinder(
         tennis_price_provider_status = "missing_api_key"
         if price_config.odds_api_key:
             tennis_quote_loader = lambda rows: fetch_tennis_h2h_consensus(
-                price_config.odds_api_key, rows, now=current,
+                price_config.odds_api_key, rows, now=current if fixed_now else None,
                 price_observations=tennis_price_observations,
             )
     if tennis_quote_loader is not None:
@@ -3782,11 +3784,29 @@ def run_wettfinder(
     esports_model_rows = [
         row for row in source_rows if row.get("source") == "esports_shadow"
     ]
-    esports_price_summary = {'status': 'disabled_for_model_only_tips'}
-    esports_price_key = None
+    from esports_prices import attach_cached_esports_prices, refresh_esports_prices
+    esports_price_path = Path(state_path).parent / 'esports_quotes.json'
+    esports_price_key = getattr(config or load_app_config(), 'oddspapi_key', None) if production_state else None
+    esports_price_provider_status = ('not_requested_for_isolated_run' if not production_state
+                                    else 'configured' if esports_price_key else 'missing_api_key')
+    esports_price_summary = {'status': ('not_requested_for_isolated_run' if not production_state
+                                      else 'missing_key' if not esports_price_key else 'no_events')}
+    if production_state and esports_price_key and esports_model_rows:
+        try:
+            esports_price_summary = refresh_esports_prices(
+                api_key=esports_price_key, path=esports_price_path,
+                now=current if fixed_now else None)
+        except Exception as exc:
+            esports_price_summary = {'status': 'failed', 'error_type': type(exc).__name__}
+        if not fixed_now:
+            current = _utc(runtime_clock())
     for row in esports_model_rows:
         row.pop("reference_quote", None)
         row["reference_price_status"] = "UNAVAILABLE"
+    for row, priced in zip(esports_model_rows, attach_cached_esports_prices(
+            esports_model_rows, now=current, path=esports_price_path)):
+        if priced.get('reference_quote') is not None:
+            row.update(reference_quote=priced['reference_quote'], reference_price_status='OBSERVED')
 
     # Preserve every model result independently of bookmaker price. A missing
     # football, tennis or E-sport quote only prevents strict playability; it
@@ -3977,10 +3997,12 @@ def run_wettfinder(
             source_status["tennis"].get("operational_error_count") or 0
         ) + tennis_quote_error_count
     if isinstance(source_status.get("esports"), dict):
-        source_status["esports"]["price_provider_status"] = "disabled_for_model_only_tips"
+        source_status["esports"]["price_provider_status"] = esports_price_provider_status
         source_status["esports"]["price_refresh"] = esports_price_summary
         source_status["esports"]["reference_quote_count"] = sum(bool(r.get('reference_quote')) for r in esports_model_rows)
-        source_status["esports"]["price_checked_count"] = len(esports_model_rows)
+        # Shared discovery has no per-native-model attempt ledger. Report its
+        # real refresh separately; cached offers never prove a new row check.
+        source_status["esports"]["price_checked_count"] = 0
         source_status["esports"]["price_status_counts"] = (
             dict(Counter(r['reference_price_status'] for r in esports_model_rows))
             if esports_model_rows
@@ -4030,7 +4052,8 @@ def run_wettfinder(
         # evidence separate from the number of published recommendations.
         "bookmaker_data_used": bool(
             reference_quotes or tennis_reference_quotes
-            or any(row.get("reference_quote") for row in [*football_model_rows, *tennis_model_rows])
+            or any(row.get("reference_quote") for row in [
+                *football_model_rows, *tennis_model_rows, *esports_model_rows])
         ),
         "quote_required": True,
         "run_status": (
@@ -4174,7 +4197,24 @@ def run_wettfinder(
                 now=current, target_date=target)
             document['model_candidates'] = build_model_selection_ledger((), merged, now=current, target_date=target)
             document['sources'].update(team_sport_source_coverage(bridge_run, team_rows, now=current, target_date=target))
-            document['team_sport_prices'] = {'status': 'disabled_for_model_only_tips'}
+            from team_sport_prices import refresh_team_sport_prices, snapshot_price_rows
+            team_price_rows = snapshot_price_rows(bridge_run.snapshots)
+            team_price_key = (config or load_app_config()).api_football_key if production_state else None
+            team_price_provider_status = ('not_requested_for_isolated_run' if not production_state
+                                         else 'configured' if team_price_key else 'missing_api_key')
+            team_price_summary = {'status': ('not_requested_for_isolated_run' if not production_state
+                                            else 'missing_key' if not team_price_key else 'no_events'),
+                                  'checked': 0, 'quotes': 0}
+            if production_state and team_price_key and team_price_rows:
+                try:
+                    team_price_summary = refresh_team_sport_prices(
+                        team_price_rows, api_key=team_price_key,
+                        path=Path(state_path).parent / 'team_sport_quotes.json',
+                        now=current if fixed_now else None)
+                except Exception as exc:
+                    team_price_summary = {'status': 'failed', 'error_type': type(exc).__name__,
+                                          'checked': 0, 'quotes': 0}
+            document['team_sport_prices'] = {**team_price_summary, 'provider_status': team_price_provider_status}
             if settlement_summary is not None:
                 document["riskobet"]["settlement"] = settlement_summary
         except Exception as exc:
@@ -4337,7 +4377,8 @@ def refresh_prices_only(*, state_path=STATE_PATH, config=None, now=None, quote_l
              if r.get('status') in {'MODEL_SELECTION', 'PRICE_REQUIRED'}
              and exact_market_target(r.get('market_key')) is not None),
             now=current, target_date=target_search_date(current), preserve_order=True,
-            previous_checks=document.get('price_check_attempts') or {}, max_markets_per_fixture=100)
+            previous_checks=document.get('price_check_attempts') or {},
+            max_fixtures=MAX_SCAN_FIXTURES, max_markets_per_fixture=100)
     quotes, errors = {}, []
     tennis_price_observations = []
     provider_status = 'configured'
@@ -4348,7 +4389,7 @@ def refresh_prices_only(*, state_path=STATE_PATH, config=None, now=None, quote_l
             if cfg.odds_api_key:
                 try:
                     quotes, errors = fetch_tennis_h2h_consensus(
-                        cfg.odds_api_key, selected, now=current,
+                        cfg.odds_api_key, selected, now=current if now is not None else None,
                         price_observations=tennis_price_observations,
                     )
                 except Exception as exc:
@@ -4356,7 +4397,9 @@ def refresh_prices_only(*, state_path=STATE_PATH, config=None, now=None, quote_l
             else:
                 errors = ["The-Odds-API-Key fuer Tennisquoten fehlt"]
         else:
-            quotes, errors = fetch_football_consensus(cfg.api_football_key or '', selected, now=current, timeout=10)
+            quotes, errors = fetch_football_consensus(
+                cfg.api_football_key or '', selected,
+                now=current if now is not None else None, timeout=10)
     elif quote_loader is not None and (selected or quote_sport == 'football'):
         try:
             quotes, errors = quote_loader(selected)
@@ -4366,6 +4409,8 @@ def refresh_prices_only(*, state_path=STATE_PATH, config=None, now=None, quote_l
             errors = _safe_quote_loader_error(exc)
     elif quote_loader is None:
         provider_status = 'not_requested_no_due_candidates'
+    if now is None:
+        current = _utc(datetime.now(timezone.utc))
     selected_by_id = {r['candidate_id']: r for r in selected}
     quotes = {key: quote for key, quote in quotes.items()
               if quote_matches_candidate(quote, selected_by_id.get(key))}

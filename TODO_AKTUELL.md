@@ -1,5 +1,50 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 10.10.2026 – Quotenabruf statt Kaschieren fehlender Preise
+
+Die neue manuelle Filterung war keine vollständige Preisversorgung. Ursachen
+mit Originalreproduktionen belegt und begrenzt repariert:
+
+- [x] Automatischer Fußball und Preis-only-Helfer prüfen den vollständigen
+  zuordenbaren Modellpool (maximal 1.200 Fixtures), statt nur zehn Spiele.
+  Ein Request pro Spiel, bestehender Kontingentschutz unverändert.
+- [x] Tennis behält beide tatsächlich gelieferten Siegerseiten für bis zu
+  1.200 native Ereignisse / 2.400 Seiten / 8 MiB, statt zehn Ereignissen.
+  Einmaliges Batch-Merge; zu große Pools melden die Grenze vor HTTP.
+- [x] Explizite manuelle Tennis-Suche holt reale H2H-Preise nach dem Modelllauf
+  und bewahrt sie im passenden Job-/Sitzungsfenster. Kein Request bei Filter-
+  oder Navigationsänderung, kein Secret im Ergebnis, keine Globalcache-Mutation.
+- [x] Fußball-Doppelte-Chance-Aliase 1X/X2/12 exakt zugeordnet, Halbzeit-/
+  falsche Ereignis-/Seitenangebote weiterhin abgelehnt.
+- [x] Tatsächliche Antwortzeiten statt Batchbeginn; Preis-only bewertet erst
+  bei Abschluss. Rendern erneuert keine Original-Beobachtungsuhr.
+- [x] Vorhandene E-Sport-/Basketball-/Eishockey-Preisproducer wieder angebunden,
+  nur Produktion + Key + Modell/Snapshot, bestehende Cache-/Budgetgrenzen.
+  Keine erfundenen nativen Preisversuchszähler durch Cacheübernahme.
+- [x] Nach allen Änderungen **724 frische Regressionstests bestanden (39,30 s)**.
+- [x] Unabhängiger finaler Review ohne offene konkrete P1/P2; zehn separate
+  In-Memory-Gegenprüfungen bestanden.
+- [ ] Begrenzter Commit/Push/VPS-Deploy ohne Backup wird anschließend mit
+  tatsächlichem Hash/Nachweis ergänzt.
+- [ ] Echte neue Preisantworten im nächsten regulären Lauf prüfen; kein
+  zusätzlicher Produktionsscan/API-Lauf für diese QA. Gespeicherte alte
+  Tagesquoten werden durch Code-Deployment allein nicht aktualisiert.
+
+**Nicht als universelle Preisgarantie darstellen:** Zehn der 90 Fußball-
+definitionen haben kein verifiziertes direktes Provider-Mapping; tatsächliche
+Ereignis-/Marktangebote sind Anbieterabhängig. Keine Preise aus Modellchance,
+Nachbarlinien oder Einzelkomponenten erfinden. Cricket unverändert. Modelle,
+Richtung, Rangfolge und Geldkonten bleiben unabhängig vom Preis.
+Vorhandener Teamsport-Preisrahmen bleibt acht Ereignisse je Sport / 35 Sekunden;
+auch darüber keine vollständige Preisversorgung behaupten.
+
+Die geerbte Vollsuite ist beendet: 12.810 bestanden / zwei UI-Testaufbaufehler /
+97 Skips / 143 Untertests; kein finaler Vollsuite-PASS (Checkout änderte sich
+im Lauf). Beide Originalfälle im frischen 724er-Lauf bestanden. Vorhandene
+Wettfinder-/Football-Shadow-Datenfehlzustände bleiben separat offen.
+
+[Quoten-Prüfbericht](docs/audits/2026-10-10-quotenversorgung.md).
+
 ## 10.10.2026 – Hauptmenüs und echte manuelle Filter
 
 Die letzte Nutzerentscheidung ersetzt die darunter dokumentierte Bereichsauswahl:

@@ -256,3 +256,79 @@ def test_request_budget_caps_each_sport_to_eight_events(tmp_path):
         return SimpleNamespace(status_code=200,headers={},json=lambda:{'errors':[], 'response':[]})
     result=prices.refresh_team_sport_prices(rows,api_key='test',now=NOW,path=tmp_path/'prices.json',governor=Governor(),get=get)
     assert result['checked']==8 and len(calls)==1
+
+
+def _worker_snapshot():
+    """A literal immutable existing forecast, never a model execution."""
+    from riskobet_domain import EventModelSnapshot, FactorEvidence, stable_event_key
+    from team_sport_forecasts import TeamSportForecast
+
+    start = NOW + timedelta(hours=6)
+    forecast = TeamSportForecast(schema='team-sport-forecast-v1', sport='basketball',
+        provider='ESPN', provider_event_id='native-1', home_id='1', away_id='8',
+        home='Team 1', away='Team 8', starts_at=start, modeled_at=NOW, source_observed_at=NOW,
+        model_version='fixture-v1', model_input_hash='a'*64, p_home=.61, p_away=.39,
+        market_contract='match_winner_including_ot', model_scope='including_overtime',
+        training_games=84, home_games=21, away_games=21,
+        evaluation=dict(count=24, brier_score=.22, baseline_brier_score=.25, log_loss=.60,
+                        method='results-observed-before-evaluated-kickoff'),
+        latest_result_observed_at=NOW, missing=(), factors=('Observed fixture history',),
+        limitations=('Research model not independently confirmed',))
+    factor = FactorEvidence('history', 'Observed fixture history', 'ESPN', NOW, NOW, start,
+                            coverage=1.0, sample_size=84)
+    return EventModelSnapshot(stable_event_key('basketball', 'ESPN', 'native-1'),
+        'basketball', 'NBA', 'Team 1 vs Team 8', start, NOW, NOW, 'fixture-v1', 'a'*64,
+        factors=(factor,), team_sport_forecast=forecast)
+
+
+@pytest.mark.parametrize('mode', ['configured', 'missing_key', 'isolated', 'no_snapshots'])
+def test_worker_refreshes_existing_team_snapshot_prices_only_in_configured_production(
+        monkeypatch, tmp_path, mode):
+    from config_loader import AppConfig
+    from riskobet_domain import RiskRunSnapshot, RunStatus
+    from test_esports_prices import _price_worker_options
+    from wettfinder_automation import run_wettfinder
+
+    snapshot = _worker_snapshot()
+    original = snapshot.to_dict()
+    run = RiskRunSnapshot(NOW, NOW, RunStatus.COMPLETE,
+                         snapshots=() if mode == 'no_snapshots' else (snapshot,))
+    options = _price_worker_options(monkeypatch, tmp_path, now=NOW, production=mode != 'isolated')
+    governor, calls = Governor(), []
+
+    def transport(url, **kwargs):
+        calls.append(url)
+        assert kwargs['headers']['x-apisports-key'] == 'fixture-key'
+        return SimpleNamespace(status_code=200, headers={}, json=lambda:
+            {'errors': [], 'response': [game()] if url.endswith('/games') else odds()})
+
+    actual_refresh = prices.refresh_team_sport_prices
+    monkeypatch.setattr(prices, 'refresh_team_sport_prices',
+        lambda rows, **kwargs: actual_refresh(rows, governor=governor, get=transport, **kwargs))
+    output = run_wettfinder(**options,
+        config=AppConfig(api_football_key=None if mode == 'missing_key' else 'fixture-key'),
+        esports_loader=lambda **_kwargs: [], riskobet_enabled=True, riskobet_sources={},
+        riskobet_runner=lambda **_kwargs: run)
+    assert output['riskobet']['status'] == 'complete'
+    summary = output['team_sport_prices']
+    assert summary.get('provider_status') == {
+        'configured': 'configured', 'missing_key': 'missing_api_key',
+        'isolated': 'not_requested_for_isolated_run', 'no_snapshots': 'configured'}[mode]
+    if mode == 'configured':
+        assert summary['checked'] == 1 and summary['quotes'] == 2
+        assert len(calls) == 2 and len(governor.completed) == 2
+        assert prices.load_cached_quote(row(), now=NOW, path=tmp_path/'team_sport_quotes.json').best_odds == 1.75
+        assert prices.load_cached_quote(row(side='away'), now=NOW, path=tmp_path/'team_sport_quotes.json').best_odds == 2.30
+        options['now'] = NOW + timedelta(minutes=30)
+        again = run_wettfinder(**options, config=AppConfig(api_football_key='fixture-key'),
+            esports_loader=lambda **_kwargs: [], riskobet_enabled=True, riskobet_sources={},
+            riskobet_runner=lambda **_kwargs: run)
+        assert again['team_sport_prices']['checked'] == 0
+        assert len(calls) == 2
+        assert [(r['key'], r['probability']) for r in output['model_candidates']] == [
+            (r['key'], r['probability']) for r in again['model_candidates']]
+    else:
+        assert not calls
+        assert not (tmp_path/'team_sport_quotes.json').exists()
+    assert snapshot.to_dict() == original
+    assert 'fixture-key' not in json.dumps(output)

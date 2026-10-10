@@ -33,9 +33,10 @@ from zoneinfo import ZoneInfo
 import streamlit as st
 
 import scan_jobs
+from config_loader import load_app_config
 from manual_search_filters import SearchFilters
 from riskobet_domain import stable_event_key
-from riskobet_prices import load_shared_price_overlays
+from riskobet_prices import load_shared_price_overlays, tennis_price_overlays
 from betting_math import (
     MINIMUM_RISK_ADJUSTED_ROI_PERCENT,
     BettingMathError,
@@ -134,11 +135,9 @@ def _favorite_probability(row: dict) -> float | None:
     return max(value, 1.0-value)
 
 
-def _current_search_prices(rows: list[dict], *, now: datetime) -> dict:
-    """Reuse exact native winner offers once, without fetching or writing."""
-    from forecast_analysis import _clock
-    bindings = []
-    row_ids = {}
+def _tennis_search_candidates(rows: list[dict], *, now: datetime) -> list[dict]:
+    """One exact native binding shared by manual fetching and price reading."""
+    candidates = []
     for row in rows:
         provider, event = row.get('fixture_source'), row.get('provider_event_id')
         a, b = row.get('player_a'), row.get('player_b')
@@ -148,19 +147,43 @@ def _current_search_prices(rows: list[dict], *, now: datetime) -> dict:
             continue
         try:
             start = datetime.fromisoformat(str(row.get('scheduled_start_utc') or '').replace('Z', '+00:00'))
-            if start.tzinfo is None or start.utcoffset() is None:
+            if (start.tzinfo is None or start.utcoffset() is None
+                    or not _prematch_visibility(row, now)[0]):
                 continue
             side = 'home' if row['p_cal'] >= .5 else 'away'
             identity = f"manual-tennis:{row['id']}:{row.get('model_revision_id') or row.get('created_utc')}:{side}"
-            binding = SimpleNamespace(candidate_id=identity, sport='tennis', market_key='match_winner',
-                selection_key=side, event_key=stable_event_key('tennis', provider, event), starts_at=start,
-                event_label=f'{a} vs {b}', selection_label=a if side == 'home' else b,
-                settlement_contract=f'riskobet-settlement-v1:tennis:match_winner:{side}')
+            candidate = dict(candidate_id=identity, sport='Tennis', source='tennis_shadow',
+                market_key='H2H', fixture_id=None, fixture_source=provider, provider_event_id=event,
+                competitor_a=a, competitor_b=b, selected_competitor=a if side == 'home' else b,
+                scheduled_start=start.astimezone(timezone.utc).isoformat(),
+                competition=f"{row.get('tour') or ''} {row.get('tournament') or ''}".strip(),
+                prediction_id=row['id'], selection_key=side,
+                event_key=stable_event_key('tennis', provider, event))
         except (TypeError, ValueError, OverflowError):
             continue
-        bindings.append(binding)
-        row_ids[identity] = row['id']
-    overlays = load_shared_price_overlays(bindings, now=now) if bindings else {}
+        candidates.append(candidate)
+    return candidates
+
+
+def _current_search_prices(rows: list[dict], *, now: datetime,
+                           price_observations: list[dict] | None = None) -> dict:
+    """Read exact offers only; a manual search's fact artifact is authoritative."""
+    from forecast_analysis import _clock
+    candidates = _tennis_search_candidates(rows, now=now)
+    bindings = [SimpleNamespace(candidate_id=candidate['candidate_id'], sport='tennis',
+        market_key='match_winner', selection_key=candidate['selection_key'],
+        event_key=candidate['event_key'], starts_at=datetime.fromisoformat(candidate['scheduled_start']),
+        event_label=f"{candidate['competitor_a']} vs {candidate['competitor_b']}",
+        selection_label=candidate['selected_competitor'],
+        settlement_contract=f"riskobet-settlement-v1:tennis:match_winner:{candidate['selection_key']}")
+        for candidate in candidates]
+    row_ids = {candidate['candidate_id']: candidate['prediction_id'] for candidate in candidates}
+    if price_observations is None:
+        overlays = load_shared_price_overlays(bindings, now=now) if bindings else {}
+    else:
+        # Empty/failed checks and conflicting fresh facts cannot cherry-pick
+        # a different old snapshot offer. No clock is renewed during rendering.
+        overlays = tennis_price_overlays(bindings, [], now=now, price_observations=price_observations)
     prices = {}
     for key, price in overlays.items():
         fetched, observed = _clock(price.fetched_at), _clock(price.observed_at)
@@ -423,6 +446,51 @@ def _run_tennis_scan_worker(
     if progress_cb:
         progress_cb(1.0, "Fertig")
     return "\n\n".join(outputs)
+
+
+def _run_tennis_search_worker(
+    search_date: str | None = None,
+    search_end_date: str | None = None,
+    progress_cb=None,
+    *,
+    odds_api_key: str | None = None,
+) -> dict:
+    """Explicit search only: update models, then batch-fetch actual H2H facts.
+
+    The legacy model worker retains its string contract. This worker returns
+    bounded price-only facts for its session, never credentials or provider text.
+    """
+    from market_consensus import bounded_tennis_price_observations, fetch_tennis_h2h_consensus
+
+    model_progress = (lambda fraction, text: progress_cb(.75 * fraction, text)) if progress_cb else None
+    _run_tennis_scan_worker(search_date, search_end_date, progress_cb=model_progress)
+    current = datetime.now(timezone.utc)
+    rows = _load_current_predictions(date_from=search_date or _zurich_today(current),
+                                    date_to=search_end_date or search_date, now=current)
+    candidates = _tennis_search_candidates(rows, now=current)
+    observations, errors = [], []
+    if candidates:
+        if progress_cb:
+            progress_cb(.8, "Aktuelle Tennisquoten werden geprüft …")
+        if not odds_api_key or not odds_api_key.strip():
+            errors = ['missing_api_key']
+        else:
+            try:
+                _, provider_errors = fetch_tennis_h2h_consensus(
+                    odds_api_key, candidates, price_observations=observations)
+                if provider_errors:
+                    errors = ['provider_unavailable']
+            except Exception:
+                # Optional pricing must not lose model results or leak URLs,
+                # response bodies, credentials, or exception text to a job/UI.
+                observations = []
+                errors = ['provider_unavailable']
+    if progress_cb:
+        progress_cb(1.0, "Fertig")
+    completed = datetime.now(timezone.utc)
+    return dict(tennis_price_observations=bounded_tennis_price_observations(observations, now=completed),
+                price_check_errors=errors,
+                search_window=(search_date or _zurich_today(current), search_end_date or search_date))
 
 
 # ------------------------------------------------------------------- rendering
@@ -951,14 +1019,25 @@ def render_tennis_finder(
         else:
             scan_jobs.start_job(
                 job_key,
-                _run_tennis_scan_worker,
+                _run_tennis_search_worker,
                 args=(selected_date, selected_end_date),
+                kwargs={'odds_api_key': load_app_config(st).odds_api_key},
             )
 
     job = scan_jobs.get_job(job_key)
     if job["state"] == "running":
         scan_progress_fragment(job_key, "Tennis-Suche")
     elif job["state"] == "done":
+        from market_consensus import bounded_tennis_price_observations
+        result = job.get('result')
+        result = result if isinstance(result, dict) else {}
+        st.session_state['tennis_search_price_observations'] = bounded_tennis_price_observations(
+            result.get('tennis_price_observations'), now=datetime.now(timezone.utc))
+        window = result.get('search_window')
+        st.session_state['_tennis_search_price_window'] = (
+            tuple(window) if isinstance(window, (list, tuple)) and len(window) == 2 else None)
+        st.session_state['_tennis_search_price_errors'] = [code for code in result.get('price_check_errors', ())
+            if code in {'missing_api_key', 'provider_unavailable'}]
         st.session_state.pop("tennis_scan_output", None)
         scan_jobs.clear_job(job_key)
         st.rerun()
@@ -973,7 +1052,10 @@ def render_tennis_finder(
         now=now,
     )
     rows, hidden_rows = _split_prematch_rows(raw_rows, now)
-    prices = _current_search_prices(rows, now=now)
+    current_window = (selected_date or today, selected_end_date)
+    session_prices = (st.session_state.get('tennis_search_price_observations')
+        if st.session_state.get('_tennis_search_price_window') == current_window else None)
+    prices = _current_search_prices(rows, now=now, price_observations=session_prices)
     filters = search_filters or SearchFilters()
     matching_rows = [row for row in rows
                      if _favorite_probability(row) is not None

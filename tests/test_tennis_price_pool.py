@@ -91,6 +91,146 @@ def test_single_sport_batch_prices_all_sixteen_and_filters_exact_alcaraz_price(t
     assert tuple(tmp_path.iterdir()) == (path,)
 
 
+def test_manual_favorite_flip_reuses_all_sixteen_received_opposite_prices(tmp_path, monkeypatch):
+    import requests
+    import tennis_tab
+    from riskobet_prices import load_shared_price_overlays
+
+    rows, events = fixtures()
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("Cached favorite prices must not request a provider")
+
+    def provider(path, _key, **kwargs):
+        if path == "sports/":
+            return [{"key": "tennis_atp_china_open", "active": True}], None
+        if path.endswith("/events"):
+            return events, None
+        assert set(kwargs["params"]["eventIds"].split(",")) == {event["id"] for event in events}
+        return events, None
+
+    monkeypatch.setattr(requests.sessions.Session, "request", forbidden)
+    monkeypatch.setattr(markets, "_odds_api_json", provider)
+    observations = []
+    quotes, errors = markets.fetch_tennis_h2h_consensus(
+        "fixture-only", rows, now=NOW, price_observations=observations,
+    )
+    assert not errors and len(quotes) == 16
+    path = tmp_path / "wettfinder.json"
+    path.write_text(json.dumps({
+        "model_candidates": [{**row, "reference_quote": quotes[row["candidate_id"]].to_dict()}
+                             for row in rows],
+        "tennis_price_observations": observations,
+    }))
+    before = path.read_bytes()
+    monkeypatch.setattr(tennis_tab, "load_shared_price_overlays",
+                        lambda candidates, *, now: load_shared_price_overlays(candidates, now=now, path=path))
+    revised = [dict(id=index + 1, created_utc=NOW.timestamp(), p_cal=.30,
+                    fixture_source=row["fixture_source"], provider_event_id=row["provider_event_id"],
+                    player_a=row["competitor_a"], player_b=row["competitor_b"],
+                    scheduled_start_utc=row["scheduled_start"])
+               for index, row in enumerate(rows)]
+    prices = tennis_tab._current_search_prices(revised, now=NOW)
+    assert len(prices) == 16
+    assert [prices[index + 1].observed_odds for index in range(16)] == [2.7] * 14 + [15.0, 2.7]
+    assert all(price.fetched_at == NOW.isoformat() for price in prices.values())
+    assert path.read_bytes() == before
+
+
+def test_received_tennis_catalog_is_merged_once_not_after_each_event(monkeypatch):
+    rows, events = fixtures()
+    merge = markets.merge_tennis_price_observations
+    merges = []
+
+    def provider(path, _key, **_kwargs):
+        if path == 'sports/':
+            return [{'key': 'tennis_atp_china_open', 'active': True}], None
+        return events, None
+
+    def record(previous, fresh, checked_rows, *, now):
+        merges.append(len(fresh))
+        return merge(previous, fresh, checked_rows, now=now)
+
+    monkeypatch.setattr(markets, '_odds_api_json', provider)
+    monkeypatch.setattr(markets, 'merge_tennis_price_observations', record)
+    observations = []
+    quotes, errors = markets.fetch_tennis_h2h_consensus(
+        'fixture-only', rows, now=NOW, price_observations=observations)
+    assert not errors and len(quotes) == 16 and len(observations) == 32
+    assert merges == [32]
+
+
+@pytest.mark.parametrize('same_players', [False, True])
+def test_oversized_tennis_catalog_is_reported_before_requests_not_silently_truncated(monkeypatch, same_players):
+    rows, _ = fixtures(3)
+    if same_players:
+        for row in rows[1:]:
+            row.update(competitor_a=rows[0]['competitor_a'], competitor_b=rows[0]['competitor_b'],
+                       selected_competitor=rows[0]['selected_competitor'], scheduled_start=rows[0]['scheduled_start'])
+    monkeypatch.setattr(markets, 'TENNIS_PRICE_MAX_EVENTS', 2)
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError('Oversized intake must not waste quota or silently lose prices')
+
+    monkeypatch.setattr(markets, '_odds_api_json', forbidden)
+    observations = []
+    quotes, errors = markets.fetch_tennis_h2h_consensus(
+        'fixture-only', rows, now=NOW, price_observations=observations)
+    assert quotes == {} and observations == []
+    assert errors == ['Tennis-Quotenumfang überschreitet 2 Ereignisse']
+
+
+@pytest.mark.parametrize("fixed_time", [False, True])
+def test_each_tennis_sport_response_uses_its_receipt_clock_unless_time_is_explicit(monkeypatch, fixed_time):
+    import requests
+
+    rows, events = fixtures(2)
+    clock = [NOW]
+    sports = ["tennis_atp_first", "tennis_atp_second"]
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return clock[0] if tz is not None else clock[0].replace(tzinfo=None)
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("This clock regression must not request a provider")
+
+    def provider(path, _key, **kwargs):
+        if path == "sports/":
+            return [{"key": sport, "active": True} for sport in sports], None
+        sport = path.split("/")[1]
+        index = sports.index(sport)
+        if path.endswith("/events"):
+            return [events[index]], None
+        assert kwargs["params"]["eventIds"] == events[index]["id"]
+        # The completed response contains a provider update made during the
+        # request, more than one minute after the initial batch clock.
+        clock[0] = NOW + timedelta(minutes=2 * (index + 1))
+        event = deepcopy(events[index])
+        observed_at = NOW if fixed_time else clock[0]
+        for book in event["bookmakers"]:
+            book["last_update"] = observed_at.isoformat()
+            for market in book["markets"]:
+                market["last_update"] = observed_at.isoformat()
+        return [event], None
+
+    monkeypatch.setattr(requests.sessions.Session, "request", forbidden)
+    monkeypatch.setattr(markets, "datetime", Clock)
+    monkeypatch.setattr(markets, "_odds_api_json", provider)
+    observations = []
+    quotes, errors = markets.fetch_tennis_h2h_consensus(
+        "fixture-only", rows, now=NOW if fixed_time else None,
+        price_observations=observations,
+    )
+    expected_times = [NOW, NOW] if fixed_time else [NOW + timedelta(minutes=2), NOW + timedelta(minutes=4)]
+    assert not errors and len(quotes) == 2
+    assert [quotes[f"tennis-{index}"].fetched_at for index in range(2)] == [time.isoformat() for time in expected_times]
+    assert len(observations) == 4
+    assert all(row["reference_quote"]["fetched_at"] == expected_times[int(row["provider_event_id"]) - 1000].isoformat()
+               for row in observations)
+
+
 @pytest.mark.parametrize("change", ["already_checked", "started", "tomorrow", "wrong_market", "missing_player"])
 def test_larger_tennis_batch_preserves_admission_and_cooldown(change):
     rows, _ = fixtures(1)

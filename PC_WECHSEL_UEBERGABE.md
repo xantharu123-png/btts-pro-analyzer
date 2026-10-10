@@ -1,5 +1,27 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg – Quotenversorgung, 10.10.2026
+
+Nach Hauptnavigation/Preisfiltern den wirklichen Abruf repariert: voller
+zuordenbarer Fußballpool statt zehn Fixtures; native Tennis-Gegenpreise für
+1.200 Ereignisse statt zehn; manuelle Tennis-Suche mit realem einmaligem H2H-
+Batch und Sitzungsfenster; DC-Aliase 1X/X2/12; tatsächliche Empfangs-/Abschluss-
+uhren; bestehende E-Sport-/Teamsport-Preisproducer wieder verbunden. Kein
+Modell-/Richtungs-/Konteneingriff, Cricket unverändert, keine Secret-Ausgabe.
+Nach allen Änderungen 724 frische Tests bestanden (39,30 s); unabhängiger
+Abschlussreview ohne offene konkrete P1/P2, zehn getrennte Gegenchecks grün.
+Commit/Push/Deploy werden mit tatsächlich geprüftem Hash nachgetragen.
+Keine neue Sicherung, Produktions-Sport-/API-Abfrage, Migration oder Bereinigung.
+Die gespeicherten alten Preise werden beim Code-Deploy nicht plötzlich frisch.
+Echte neue Providerantworten erst im normalen Lauf / expliziter manueller Suche.
+Zehn Fußballdefinitionen ohne verifiziertes Mapping und Anbieter ohne aktuelles
+exaktes Angebot bleiben offene Abdeckung, niemals erfundene Ersatzquoten.
+Geerbte Vollsuite beendet: 12.810 bestanden / zwei UI-Testaufbaufehler /
+97 Skips / 143 Untertests. Beide Originalfälle in frischer 724er-Runde grün;
+keine grüne Vollsuite des finalen veränderten Checkouts behaupten.
+Zuerst obersten [TODO-Block](TODO_AKTUELL.md) und
+[Quoten-Prüfbericht](docs/audits/2026-10-10-quotenversorgung.md) lesen.
+
 ## Aktueller Einstieg – Hauptmenüs / Manuelle Suche, 10.10.2026
 
 Neueste Freigabe: sichtbare Hauptmenüs statt „Bereich“-Dropdown. Wettfinder,
