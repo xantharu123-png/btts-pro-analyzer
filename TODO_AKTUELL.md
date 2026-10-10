@@ -29,8 +29,17 @@ keine neue Modellfamilie, Zahlung, Datenbereinigung oder zusätzliche Sportabfra
   97 Skips / 143 Untertests. Alle 50 Originalfehler danach gemeinsam grün:
   46 falscher Windows-Bash, vier präzisierte Test-Schnittstellen/Belege.
   Keine Produktionsänderung oder aufgeweichte Prüfung zur Fehlerbereinigung.
-- [ ] Narrow Commit/Push und VPS-Fast-forward ohne neues Backup;
-  echte Produktionsnavigation nach Reload prüfen.
+- [x] Narrow Commit/Push und VPS-Fast-forward ohne neues Backup:
+  Code `ea4c6a9`, finale Beschriftung `548b283` live. Echte Produktionsseite
+  mit allen sieben Bereichen, Tastatur und 1440/390/320 Pixeln geprüft;
+  genau ein globaler Selector, keine Doppelmenüs oder Seitenüberläufe.
+- [x] „Meine Tipps“-Sammlungsfilter heißt „Tippquelle“, nicht ebenfalls
+  „Bereich“. Echter Renderer-Test zuerst rot; Navigation und Workflow danach
+  116 bestanden, unabhängiger Nachreview ohne konkrete P1/P2.
+- [x] App/Caddy und sieben Timer aktiv, beide Healthchecks ok. Gespeicherte
+  Wettfinder-/RisikoBet-Prognosen während Deployments bytegleich; kein
+  zusätzlich gestarteter Scan, Backup, Migration oder Datenbereinigung.
+  Vorhandener Wettfinder-Dienstfehlstatus ausdrücklich nicht als behoben ausgeben.
 
 [Prüfbericht](docs/audits/2026-10-10-gemeinsame-bereiche.md).
 Separat offen bleiben vorhandener Wettfinder-Datenfehlstatus, Daily3-Zeitfolge,

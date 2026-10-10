@@ -13,7 +13,16 @@ Unabhängiger finaler Review ohne offene konkrete P1/P2; lokaler interner Browse
 Vollsuite beendet: 12.683 bestanden, 50 ursprüngliche Fehler, 97 Skips,
 143 Untertests. Alle 50 Fehlerfälle gemeinsam nachgeprüft und grün (46 falscher
 Windows-Bash, vier Test-Schnittstellen/Belege präzisiert; Produktionscode stabil).
-Veröffentlichung und Produktionsbrowserprüfung stehen noch aus.
+Veröffentlichung und echte Produktionsbrowserprüfung abgeschlossen:
+Hauptcode `ea4c6a9`, finale Beschriftung `548b283` auf GitHub main und VPS.
+Alle sieben Bereiche besucht, genau eine „Bereich“-Auswahl; persönlicher
+Sammlungsfilter heißt „Tippquelle“. Echte Renderer-Regression: 116 bestanden,
+unabhängiger Nachreview ohne konkrete P1/P2. Desktop/Mobil 1440/390/320 und
+Tastatur ohne Seitenüberlauf geprüft, keine neuen Browserfehler nach Reload.
+App/Caddy und alle sieben Timer aktiv, beide Healthchecks ok; gespeicherte
+Wettfinder-/RisikoBet-Prognosen während Deployments unverändert. Dokumentations-
+Fast-forward darf einen neueren HEAD haben, ohne erneuten Appneustart.
+Vorhandener Wettfinder-Dienstfehlstatus bleibt eine separate offene Datenaufgabe.
 Zuerst obersten [TODO-Block](TODO_AKTUELL.md) und
 [Prüfbericht](docs/audits/2026-10-10-gemeinsame-bereiche.md) lesen.
 Kein zusätzlicher Sport-/Modellscan, Backup oder Bereinigung für diesen Patch.

@@ -38,8 +38,8 @@ die exakte UND-/ODER-Negation mit der richtigen ganzzahligen Torgrenze gezeigt.
 ## Nachweise und Stand
 
 Die lokale Regression einschließlich Nachprüfung aller ursprünglichen
-Fehlerfälle ist abgeschlossen. Veröffentlichung und Produktionsbrowserprüfung
-stehen noch aus; dieser Bericht behauptet noch keinen abgeschlossenen Release.
+Fehlerfälle, Veröffentlichung und echte Produktionsbrowserprüfung sind
+abgeschlossen. Der freigegebene Navigations-/Prüfpatch ist live.
 
 Der unabhängige Abschlussreview ist inzwischen beendet: keine verbleibenden
 konkreten P1/P2 im aktuellen Produktionsdiff. Letzte Originalrepros bestätigt:
@@ -89,6 +89,47 @@ und Modellzahlen wurden durch diese Prüfungen nicht verändert.
   Desktop 1440, Mobil 390/320 Pixel ohne horizontalen Überlauf. Ein Selector,
   keine alten Doppelmenüs, keine Console-Warnungen/Fehler. Synthetische Karte
   ausdrücklich als lokale Darstellung markiert, kein echter Tipp.
+- Zusätzlicher echter Renderer-Gegentest: Die Sammlung „Meine Tipps“ hatte
+  noch einen gleichnamigen internen Bereichsfilter. Dieser heißt jetzt
+  „Tippquelle“; Widget-Key, Quellen, Daten und Kontenlogik unverändert.
+  Neuer Test zuerst RED (zwei statt einer Bereichsauswahl), danach Navigation
+  und Workflow zusammen **116 bestanden**. Unabhängiger Nachreview ohne
+  konkrete P1/P2; keine weiteren Produktionsänderungen.
+
+## Produktionsnachweis, 10.10.2026
+
+- Hauptpatch `ea4c6a9948ecea2fe12a6f1873c3913b80adaabe` und kleine
+  Beschriftungskorrektur `548b283dc773ad9e6efd74adcc30f6505ea301c4`
+  auf GitHub main gepusht und exakt per Fast-forward auf den VPS deployed.
+  Dokumentations-Fast-forward kann anschließend einen neueren HEAD haben;
+  die laufende Codefassung bleibt diese verifizierte Veröffentlichung.
+- Begrenzter, unabhängig geprüfter Updateablauf mit sauberem Checkout,
+  konkreter Datei-Allowlist, inaktiven Jobs und ausreichend Abstand zum
+  nächsten Timer. Kein Backup, keine Bereinigung, Migration, Geldbewegung
+  oder zusätzlich gestarteter Sport-/Modell-/Quotenlauf.
+- App und Caddy aktiv; interner und öffentlicher Healthcheck `ok`, alle
+  sieben bestehenden Timer aktiv. Der **bereits vorhandene** Wettfinder-
+  Dienstfehlstatus (Result `exit-code`, ExecMainStatus `1`) bleibt separat
+  offen; diese Veröffentlichung behauptet keinen erfolgreichen neuen Scan.
+- Gespeicherte Prognosedateien während beider Deployments unverändert:
+  Wettfinder SHA-256
+  `a51c9d865ab14db2d7d17971e469cbb029045a7107dd7417f2ff9da17af4298e`,
+  RisikoBet SHA-256
+  `593846dd998bad9ed2d7503baa710bfb1ef72db65ec38849ea8b18885bb48024`.
+- Echte Produktionsseite im internen Browser: alle sieben Bereiche besucht
+  und zurückgewechselt, ohne Such-/Wett-/Budgetaktionen. Genau eine globale
+  „Bereich“-Auswahl; „Meine Tipps“ mit eigenem „Tippquelle“-Sammlungsfilter.
+  Keine alte Haupt-, Mobile- oder Modusnavigation im DOM.
+- Desktop 1440 und Mobil 390/320 Pixel visuell geprüft, Seitenbreite jeweils
+  gleich Viewportbreite; alle sieben Menüeinträge bei 320 Pixeln sichtbar.
+  Wechsel „Meine Tipps“ → „Live“ per ArrowUp/Enter tatsächlich gerendert.
+  Temporäre Viewports danach zurückgesetzt; Produktionsseite bei 1280 Pixeln
+  weiterhin ohne Überlauf. Keine neuen Browser-Warnungen/Fehler nach dem
+  abgeschlossenen Reload (Loggrenze 10.10.2026 09:05:52 UTC). Erwartete alte
+  Websocket-Unterbrechungen beim Appneustart nicht als UI-Fehler verschwiegen.
+- Produktionsbilder: `production-desktop-menu.png`, `production-390.png`,
+  `production-320-menu.png` im unten genannten lokalen Belegordner.
+  Kein Nachweis physischer Mobilgeräte oder einer Store-Freigabe.
 
 Lokale Belege außerhalb Git:
 `C:/Projekt/BetBoy/output/unified-navigation-20261010/`.
