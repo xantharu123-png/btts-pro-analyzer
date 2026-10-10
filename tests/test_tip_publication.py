@@ -292,8 +292,25 @@ def test_research_publication_requires_supported_provider_competition_scope(
     payload = replace(research_snapshot.team_sport_forecast, provider=provider)
     changed = replace(research_snapshot, competition=competition,
         event_key=stable_event_key(payload.sport, provider, payload.provider_event_id),
-        team_sport_forecast=payload)
+        team_sport_forecast=payload, customer_recent_results=None)
+    # A deliberately foreign publication fixture cannot inherit a form annex
+    # bound to the original source. Its earlier rejection is tested separately.
     row, _ = research_row_and_signal(changed)
     assert valid_research_row(row)  # Self-consistent, but wrong native source scope.
     with pytest.raises(ValueError, match='publication research provider'):
         publication.compact_signal_row(row)
+
+
+@pytest.mark.parametrize('provider,competition', [
+    ('foreign-provider', 'NHL'), ('ESPN', 'NHL'), ('NHL', 'NBA'),
+])
+def test_research_snapshot_rejects_form_annex_from_changed_source(
+        research_snapshot, provider, competition):
+    from dataclasses import replace
+    from riskobet_domain import stable_event_key
+    assert research_snapshot.customer_recent_results is not None
+    payload = replace(research_snapshot.team_sport_forecast, provider=provider)
+    with pytest.raises(ValueError, match='recent results (identity|competition)'):
+        replace(research_snapshot, competition=competition,
+            event_key=stable_event_key(payload.sport, provider, payload.provider_event_id),
+            team_sport_forecast=payload)

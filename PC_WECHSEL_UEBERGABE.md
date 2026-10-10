@@ -1,5 +1,36 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg – strukturierte Teamsport-Form, 11.10.2026
+
+Code lokal `702beca`; GitHub/VPS noch `2ad2ba6`. Der begrenzte Fix bewahrt echte
+bereits verbrauchte Basketball-/Eishockey-Spiele bis zu den 5/10-Formkacheln.
+Maximal zehn je Team, tatsächliche Endstände statt bereinigter Modelltorzahl,
+exakte Quelle/Identität/Zeiten/Modellhash. Alter UI-Test hatte den Producerweg
+umgangen; reale Adapter-/SQLite-/JSON-/Kartenregression jetzt vorhanden.
+Neue Anzeigeanhänge erzeugen neue Revisionen; alte IDs und Payloadbytes bleiben
+unverändert. 266 betroffene Tests + vier Untertests, 47 Portaltests und acht
+unabhängige Transport-Gegentests grün. Interner Browser mit isolierten Testdaten
+Desktop/390/320, Umschaltung und Gegnerliste ohne Fehler geprüft.
+
+Vollsuite mit 13.015 gesammelten Tests beim 60-Sekunden-Faulthandler-Dump nativ
+abgestürzt (`0xC0000005`), nicht als PASS gezählt. Exakter Einzeltest gleich
+reproduziert; ohne rein diagnostischen Dump-Timer vollständig grün (103,31 s).
+Kompletter Wiederholungslauf ohne periodischen Dump beendet: 12.909 bestanden,
+neun Testaufbaufehler, 97 Skips, 115 Untertests, Exit 1 (52:13 min). Alle neun
+Quelle-/Wettbewerbsmutationen behielten den ursprünglich gebundenen Anhang;
+korrekte frühzeitige Domain-Ablehnung. Nur die absichtlich fremde Fixture
+korrigiert, neun zusätzliche frühe Ablehnungsfälle ergänzt; Produktionscode und
+Guards unverändert. Ganze geänderte Testdatei + betroffene Module frisch:
+586 bestanden, Exit 0 (20,04 s); unabhängiger Review ohne weiteren Befund.
+Keinen einteiligen Vollsuite-PASS aus diesen getrennten Läufen behaupten.
+Noch veröffentlichen, ohne Backup/API-Scan/Migration; regulärer Tennisjob läuft
+seit 11.10.00:05 CEST und wird nicht unterbrochen.
+Alte Produktionssnapshots über beide Lader prüfen; neue Formdaten erst nach dem
+normalen Modelllauf. Keine rückwirkende BOS-Historie erfinden. Aktuellen Status
+im obersten [TODO-Block](TODO_AKTUELL.md) und im
+[Prüfbericht](docs/audits/2026-10-10-teamsport-formtransport.md) nachlesen.
+Alle geerbten ungetrackten Dateien unverändert erhalten.
+
 ## Aktueller Einstieg – Eishockey-Kurzcheck / BOS–PHI, 10.10.2026
 
 Der alte Stand 04:12 CEST hatte Eishockeypreise vor dem Producer-Fix ausgeschaltet.

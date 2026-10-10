@@ -1,5 +1,58 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 11.10.2026 – echte Teamsport-Formkarten und Abschlussprüfung
+
+Fortsetzung des Boston-Fixes; Codecommit lokal `702beca`, GitHub/VPS noch
+`2ad2ba6`. Dieser Block hat Vorrang vor den älteren Prüflaufständen darunter.
+
+- [x] Ursache der fehlenden Formkarten reproduziert: bereits vom Modell
+  verbrauchte Spielzeilen gingen im Adapter verloren; alter UI-Test umging
+  den Producer. Jetzt begrenzter strukturierter Anhang mit höchstens zehn
+  echten Spielen pro Team, ohne zusätzliche Abfrage oder Prognoseberechnung.
+- [x] Adapter → SQLite → JSON → beide Lader → Formkacheln für Basketball und
+  Eishockey geprüft. Gegner, tatsächlicher Endstand, Datum und Sieg/Niederlage;
+  NHL-Namen nur exakt quellen-/liga-/ID-gebunden. Keine Prosa-Rekonstruktion.
+- [x] Sport/Quelle/Wettbewerb/Teilnehmer/Zeiten/Modellhash strikt gebunden;
+  beide Speicherprüfer gegen den im Review gefundenen Bindungsfehler gehärtet.
+  Originalprognosen und alte Snapshot-IDs bleiben unverändert. Neue Anhänge
+  sind neue unveränderliche Revisionen, keine rückwirkenden Änderungen.
+- [x] Nach allen Korrekturen 266 betroffene Tests + vier Untertests bestanden;
+  separater korrekter Django-Runner: 47 Portaltests. Unabhängiger finaler
+  Code-Gegentest: acht Transporttests grün, keine verbleibenden Findings.
+- [x] Interner Browser mit klar markierten isolierten Testdaten: 5/10-Spiele-
+  Umschaltung, Gegnerliste, Desktop/390/320 Pixel ohne horizontalen Überlauf
+  und ohne Warnungen/Fehler. Kein zusätzlicher Produktions-Sport-/API-Lauf.
+- [x] Vollständige Sportsuite beendet und alle gemeldeten Fehler nachgeprüft:
+  12.909 bestanden, neun Testaufbaufehler, 97 Skips, 115 Untertests, Exit 1
+  (52:13 min). Die neun fremden Quellen-Fixtures behielten einen unpassend
+  gebundenen Formanhang; korrekte frühzeitige Domain-Ablehnung. Nur Testaufbau
+  repariert, keine Produktionsguards gelockert und kein Produktionscode geändert.
+  Alle neun Originalfälle plus neun neue Frühablehnungsfälle und die gesamten
+  betroffenen Module frisch: 586 bestanden (20,04 s), Exit 0; unabhängiger Review
+  ohne weiteren Befund. Getrennte Läufe, kein einteiliger Vollsuite-PASS.
+- [x] Diagnose des vorangegangenen Runnerabbruchs: 13.015 Tests gesammelt.
+  Lauf mit 60-Sekunden-Faulthandler
+  bei ~22 % nativ abgestürzt (`0xC0000005`), kein PASS. Exakter Einzeltest
+  reproduziert den Crash beim Dump, ohne Dump bestanden (103,31 s).
+  Vollständiger Lauf ohne periodischen Diagnose-Dump abgeschlossen wie oben;
+  keine Tests ausgeschlossen. Logs unter
+  `C:/Projekt/BetBoy/output/team-form-20261010/`.
+- [ ] Code veröffentlichen und VPS-Fast-forward ohne Backup/Scan/Migration;
+  App/Healthchecks, alte gespeicherte Snapshots und unveränderte Artefaktbytes
+  nach Deployment prüfen. Altes Backup bleibt abgeschaltet.
+- [ ] Neue echte Formanhänge aus dem nächsten regulären Modelllauf in
+  Produktion nachweisen. Alte BOS/PHI-Daten enthalten diesen Anhang nicht und
+  werden nicht aus Text oder fremden Historien nachträglich ergänzt.
+- [ ] Separater Shadow-Preisnachweis: 11.10.00:02-Lauf auf altem `2ad2ba6`
+  meldete Teilabschluss, weil Ereignis 1550985 keine frische Bet365-Quote mit
+  Providerzeit hatte. Wiederholung regulär, kein Crash, kein Zusammenhang zum
+  Formpatch. Fehlenden Preis nicht erfinden; nicht alle Dienste als erfolgreich
+  darstellen, nur weil App/Healthchecks gesund sind.
+
+Keine Änderungen an Modellchance, Marktlogik, Reihenfolge oder Geldkonten.
+Sortierung, zusätzliche Eishockeyligen und empirische Kontexteffekte bleiben
+getrennte offene Arbeiten. [Prüfbericht](docs/audits/2026-10-10-teamsport-formtransport.md).
+
 ## 10.10.2026 – BOS/PHI: echter Preis und nachvollziehbarer Kurzcheck
 
 - [x] Produktionsursache belegt: Tagesstand 04:12 CEST stammt vor dem
@@ -42,9 +95,9 @@
   Wiederholung außerhalb der Sandbox bei 8 % ohne ausgegebenen Fehler gestoppt;
   keine Testprozesse dieses QA-Laufs mehr aktiv. Frische 677er-Regression ist
   vollständig grün; der Anzeige-Fix ist keine Freigabe der gesamten App.
-- [ ] Separate strukturierte Eishockey-/Basketball-Formlücke: echter Producer
-  speichert derzeit Textzusammenfassungen, aber keine `customer_recent_results`-
-  Zeilen für die Formkacheln. Nicht aus Prosa zurückparsen und keine Spiele erfinden.
+- [x] Separate strukturierte Eishockey-/Basketball-Formlücke im Code behoben;
+  aktueller Nachweis und noch offene Veröffentlichung im obersten Block.
+  Keine Spiele aus Prosa zurückparsen oder erfinden.
 
 Vorige Anfrage weiterhin offen: globale Sortierung Startzeit aufsteigend oder
 Modellchance absteigend sowie Eishockey-Ligaabdeckung über NHL hinaus. NHL ist
