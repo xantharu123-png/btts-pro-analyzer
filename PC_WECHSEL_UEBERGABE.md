@@ -1,5 +1,22 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg – Tennis-Quotenfilter, 10.10.2026
+
+Der unterbrochene Alcaraz-Fix ist abgeschlossen: Code `097f4fa` auf main und
+BetBoy-VPS live. Ursache war das Zehn-Ereignis-Limit im Tennis-Preisabruf;
+Alcaraz war Spiel 15 von 16. Jetzt voller begrenzter Tagesbatch und Erhalt
+exakter alter Niedrigquoten bei erfolglosen/fremden neuen Antworten.
+352 betroffene Tests bestanden, unabhängiger Review und Linux-Offline-Replay.
+Echter einmaliger Quotenlauf um 08:43 Europe/Zurich: acht bevorstehende Spiele,
+acht Preise, null Fehler, nur ein Credit; Alcaraz-Bestquote 1,05 korrekt unter
+1,20 ausgefiltert. Tatsächlicher Katalog und interner Browser/Daily3-Kurzliste
+bestätigt; Modelle und Originalzeiten unverändert, keine Geldbuchung.
+App/Caddy und beide Healthchecks ok. Keine neuen Backups/Scans/Bereinigungen.
+[Aktuelle To-do-Liste](TODO_AKTUELL.md) und
+[Produktionsnachweis](docs/audits/2026-10-10-tennis-quotenfilter.md) zuerst lesen.
+Separater Wettfinder-Fehlstatus, Daily3-Zeitplanung, Kontextmodelle, Domainumzug,
+Stripe und Store-Release bleiben offen. Geerbtes ungetracktes WIP erhalten.
+
 ## Aktueller Einstieg – 15K Sports Editorial, 09.10.2026
 
 15K-Karten sind an den gemeinsamen Wettfinder-Renderer angeschlossen:

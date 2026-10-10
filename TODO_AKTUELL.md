@@ -1,5 +1,34 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 10.10.2026 – Alcaraz-Quotenabruf und 1,20-Filter repariert
+
+- [x] Konkrete Ursache am VPS belegt: 16 Tenniszeilen, nur zehn Preisprüfungen;
+  Alcaraz/Cerundolo war als 15. Spiel unbepreist und wurde deshalb nicht gefiltert.
+- [x] Tennis-Sammelabfrage prüft jetzt den vorhandenen begrenzten Tageskatalog.
+  Gleiches Ereignis-/Spieler-/Markt-/Startmatching, bestehende Kontingente und
+  Cooldown; keine Beeinflussung der Modellwahrscheinlichkeit durch Quoten.
+- [x] Erfolgloser oder fremder neuer Preisabruf löscht einen alten exakt gebundenen
+  Niedrigpreis nicht mehr. Originalzeitstempel bleiben erhalten; daraus keine
+  neue Ausführungsfreigabe. Zusätzliche Gegenpreisbelege weiterhin 10 Events/20 Seiten.
+- [x] 352 betroffene Tests frisch bestanden; unabhängiger Abschlussreview ohne
+  blockierende Befunde. Linux-Gegentest im Arbeitsspeicher: 16 statt 10 exakte
+  Prüfungen, 1,02 erreicht den Filter, keine Netzwerk-/Datenbankoperationen.
+- [x] Code `097f4fa` auf GitHub main und VPS live, App/Caddy aktiv, beide
+  Healthchecks ok. Ein einmaliger **Quotenlauf**, kein Sport-/Modellscan:
+  acht noch bevorstehende Spiele / acht exakte Preise / null Abruffehler.
+- [x] Echte Alcaraz-Bestquote um 08:43 Europe/Zurich **1,05**, ebenfalls unter
+  1,20; aus tatsächlichem Katalog und Daily3-Kurzliste ausgefiltert. Interner
+  Browser nach Reload bestätigt; erlaubte 1,46 bleibt sichtbar.
+- [x] Nur ein Zusatzcredit verbraucht (offizieller Anbieterstand 490 → 489).
+  Originalmodellzeit und alle Modellwerte unverändert; RisikoBet-JSON unverändert.
+  Keine Geldbuchung, Sicherung, Bereinigung oder Schlüsseloffenlegung.
+
+[Prüfbericht](docs/audits/2026-10-10-tennis-quotenfilter.md).
+Nur dieser Preisabruf-/Filterfix abgeschlossen. Daily3-Zeitplanung, vorhandener
+Wettfinder-Fehlstatus, Kontextmodelle und Domain-/Stripe-/Store-Aufgaben nicht
+als erledigt ausgeben. Fehlende echte Preise bleiben nach bisheriger Produktregel
+offen; keine geschätzte Quote als Buchmacherangebot ausgeben.
+
 ## 09.10.2026 – 15K an die Wettfinder-Darstellung angeglichen
 
 - [x] 15K-Modellauswahlen verwenden dieselben Sports-Editorial-Karten wie
