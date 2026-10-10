@@ -24,12 +24,20 @@ Navigation; keine zusätzliche Bereichsauswahl oder doppelte Mobile-Navigation.
   mobile interne Scrollleiste statt Seitenüberlauf, Tastatur, kombinierte Filter,
   fehlender Preis und ungültiger Quotenbereich geprüft. Lokale Beispieldaten
   ausdrücklich markiert; keine Produktions-Sportabfrage.
-- [ ] Laufende Vollsuite abschließen und tatsächlichen Stand dokumentieren.
-- [ ] Eng begrenzt committen/pushen und VPS-Fast-forward ohne neues Backup;
-  danach echte Produktionsseite und beide Healthchecks prüfen.
+- [ ] Ergänzende Vollsuite läuft weiter: am 10.10. um 12:09 bei 24 %, bislang
+  keine Fehler ausgegeben. Log außerhalb Git: `C:/Projekt/BetBoy/output/manual-navigation-20261010/fullsuite.log`.
+  Der Lauf begann vor dem letzten CSS-/Vergleichsfix; diese sind in der frischen
+  gemeinsamen 382er-Runde enthalten. Keine grüne Vollsuite behaupten.
+- [x] Code `f01e83e` committed, auf main gepusht und VPS-fast-forward live ohne
+  neues Backup. Produktionsbrowser 1440/390/320, Hauptmenü, Tastatur-Rückwechsel,
+  Filtercontrols und eine Navigation ohne Seitenüberlauf bestätigt. Nach Reload
+  keine neuen Browserfehler. Kein „Tipps finden“-Klick oder zusätzlicher Scan.
+- [x] App/Caddy aktiv, sieben Timer aktiv/geplant, beide Healthchecks `ok`.
+  Wettfinder-/RisikoBet-Schnappschüsse bytegleich. Vorhandene Wettfinder- und
+  Football-Shadow-Dienstfehlzustände separat offen, nicht durch UI-Deploy behoben.
 
 [Prüfbericht](docs/audits/2026-10-10-hauptnavigation-manuelle-filter.md).
-Vorhandener Wettfinder-Datenfehlstatus, Daily3-Zeitfolge, empirische Kontexteffekte,
+Vorhandene Sportdienst-Datenfehlzustände, Daily3-Zeitfolge, empirische Kontexteffekte,
 Domainumzug, Stripe und Stores bleiben separate offene Aufgaben.
 
 ## 10.10.2026 – Gemeinsames Wettfinder-Dach

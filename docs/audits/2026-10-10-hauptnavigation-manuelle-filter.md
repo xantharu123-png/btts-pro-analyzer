@@ -86,10 +86,37 @@ Belege außerhalb Git: `C:/Projekt/BetBoy/output/manual-navigation-20261010/`
 
 ## Veröffentlichung / verbleibende Aufgaben
 
-Noch ausstehend: Vollsuite-Endstand, Narrow Commit/Push, kontrollierter
-VPS-Fast-forward und frische Produktionsbrowserprüfung. Deployment prüft
-exakte Revisions-/Dateiliste, ruhende Jobs, Timerabstand, beide Healthchecks und
-unveränderte Wettfinder-/RisikoBet-Schnappschüsse. Keine neue Sicherung.
+Code `f01e83eb8b5dfcdc5a47cef7075af5042b56fe08` auf GitHub main und VPS
+fast-forward veröffentlicht. Deployment mit exakter Revisions-/Dateiliste,
+ruhenden Jobs, Timerabstand und beiden Healthchecks; keine neue Sicherung,
+Migration oder Bereinigung. Der erste Health-Aufruf wartete auf den gerade
+gestarteten Prozess; die Wiederholungen und separate Abschlussprüfung sind `ok`.
+Der SSH-stdin-Transport fügte nach dem fertig abgeschlossenen Script eine leere
+CR-Zeile an und meldete deshalb Exit 127. Kein Appfehler: vorher bereits
+`DEPLOYED`, beide Dienste aktiv, beide Healthchecks und Prüfsummen bestätigt;
+danach unabhängig erneut Revision/sauberen Gitstand/Healthchecks geprüft.
+
+Unveränderte SHA-256 vor und nach Deployment und manueller UI-Prüfung:
+
+```text
+wettfinder_latest.json a51c9d865ab14db2d7d17971e469cbb029045a7107dd7417f2ff9da17af4298e
+riskobet_latest.json 593846dd998bad9ed2d7503baa710bfb1ef72db65ec38849ea8b18885bb48024
+```
+
+Produktionsbrowser nach frischem Reload: echtes neues Hauptmenü, manueller
+Quotenbereich und Prozentfilter, alle Sport-/Wettart-/Liga-Controls. Ohne Klick
+auf „Tipps finden“, daher kein neuer Sportscan. 1440 × 1000, 390 × 844 und
+320 × 844 ohne horizontalen Seitenüberlauf, genau eine Navigation; Mobilmenü
+intern scrollbar (361/529 bzw. 289/524 Pixel), 48 Pixel hohe Menüpunkte.
+Tastatur bis „Meine Tipps“ und Rückwechsel zur Suche bestanden. Nach Reload
+keine neuen Warn-/Fehlerlogs. Belege `production-desktop.png`,
+`production-mobile-390.png`, `production-mobile-320.png` im genannten QA-Ordner.
+Viewport danach zurückgesetzt; lokale QA-Vorschau beendet.
+
+App und Caddy aktiv; sieben Timer aktiv/geplant. Ergänzende Vollsuite am
+10.10. um 12:09 bei 24 %, bislang keine ausgegebenen Fehler; noch kein
+Endergebnis. Diese bleibt ein separater offener QA-Nachweis, nicht als bestanden
+ausgeben. Die frische gemeinsame 382er-Runde enthält alle finalen Codeänderungen.
 
 Bereits vor diesem Patch war `betboy-wettfinder.service` im Daten-Fehlstatus.
 Die SSH-Vorprüfung um 12:06 zeigt auch für den bereits regulär gelaufenen

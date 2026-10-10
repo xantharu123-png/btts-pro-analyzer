@@ -11,7 +11,15 @@ Preise sind bei aktivem Quotenfilter keine Treffer. Filter ändern keine Modelle
 Richtungen, Rangfolge, Prognosen oder Konten und starten keine neuen Scans.
 382 frische Tests und unabhängiger Abschlussreview ohne offene konkrete P1/P2;
 echter interner Browser 1440/390/320 und Tastatur/Filter geprüft. Vollsuite läuft.
-Code ist noch uncommitted; Veröffentlichung und Produktionsprüfung ausstehend.
+Code `f01e83e` auf main und VPS live; Produktionsseite 1440/390/320, Tastatur,
+Rückwechsel und neue Filtercontrols geprüft, keine neuen Browserfehler nach Reload.
+App/Caddy und beide Healthchecks ok, sieben Timer geplant. Gespeicherte
+Wettfinder-/RisikoBet-Prognosen bytegleich. Kein zusätzlicher Sportscan/Backup.
+Die ergänzende Vollsuite läuft am 10.10. um 12:09 bei 24 % ohne ausgegebenen
+Fehler weiter; Log `C:/Projekt/BetBoy/output/manual-navigation-20261010/fullsuite.log`.
+Nicht als grüne Vollsuite darstellen; 382 frische betroffene Tests sind grün.
+Vorhandene Wettfinder-/Football-Shadow-Fehlzustände separat offen. Dieser
+Dokumentationsnachtrag darf einen neueren HEAD als den Codecommit haben.
 Zuerst obersten [TODO-Block](TODO_AKTUELL.md) und
 [Prüfbericht](docs/audits/2026-10-10-hauptnavigation-manuelle-filter.md) lesen.
 Kein neues Backup, Produktionsscan, Migration oder Bereinigung für diesen Patch.
