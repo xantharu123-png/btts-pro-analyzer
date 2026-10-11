@@ -120,9 +120,36 @@ Keine neuen pauschalen Prozentabschläge, keine aufgeweichte Abnahme.
   drei ganze Owner-Gegenfälle: frische Kontrolle, Anpfiff während Ladezeit,
   Quote während Ladezeit veraltet; zusätzlich zwei ganze E-Sport-Quote-
   Ownerfälle an der 24h-Anzeigegrenze. Keine neue Vollsuite behauptet.
-- Schlussprüfung nach der letzten Rücknahme-Korrektur und VPS-Veröffentlichung
-  werden in `TODO_AKTUELL.md` dokumentiert. Eine neue Vollsuite ist damit nicht
-  behauptet.
+- Schlussprüfung nach der letzten Rücknahme-Korrektur abgeschlossen;
+  drei unabhängige Reviewpfade ohne verbleibenden Befund. Eine neue Vollsuite
+  ist damit nicht behauptet.
 - Tatsächliche Katalogfreischaltung/Spiel-/Historienabdeckung erst beim nächsten
   regulären Tageslauf prüfen. Kein eigener zusätzlicher API-Scan durchgeführt.
 - Cricket bleibt unverändert.
+
+## Veröffentlichung, 11.10.2026 14:23 CEST
+
+Codecommit `090cf93a03cdf329774e6caac2458cd69b1d28f9` auf GitHub-main gepusht,
+auf dem VPS per geprüftem Fast-forward veröffentlicht. Lokaler/GitHub-/VPS-
+Codehash identisch, getrackter Stand sauber. Offlineimports erfolgreich;
+App/Caddy und sieben reguläre Timer aktiv, interner und öffentlicher Healthcheck
+`ok`. Nur die App im natürlichen Leerlauf nach dem regulären Shadowjob neu
+gestartet; kein Sportjob/Timer gestoppt, kein Zusatzscan/Backup/Datenumbau.
+Vorprüfung bei zu kurzem Timerfenster zunächst ohne Mutation abgebrochen.
+Der danach korrigierte und unabhängig geprüfte Helfer begrenzt sämtliche
+Mutation-/Nachprüfungs- und Fehler-Recoveryschritte zusammen auf höchstens
+336 s innerhalb eines geprüften 360-s-Fensters; kein alter Code-/Datenrollback
+damit behauptet.
+
+Beide veröffentlichten Datenartefakte bytegleich vor/nach dem Deploy:
+Wettfinder SHA256 `a51c9d865ab14db2d7d17971e469cbb029045a7107dd7417f2ff9da17af4298e`,
+RisikoBet SHA256 `acf24df6d14786a744b8fdf30a690bada1b34f84d54e32eb1e3915cdc3350ede`.
+Der nächste reguläre Hockeylauf am 12.10.03:35 CEST ist der erste reale
+Account-/Katalog-/Abdeckungsnachweis. Keine synthetischen Tests als Livebeleg.
+
+Separater alter Dienststatus 14:23:21 CEST: Tageslauf noch `timeout`/Status 15,
+Shadow-Abschluss 14:22:42 Status 1; Vorläufe hatten fehlende frische Bet365-
+Preise und zwei alte ungültige Belege. Tennis letzter regulärer Abschluss
+00:32:29 erfolgreich/Status 0. Diese Status wurden nicht durch Neustart oder
+Löschen überschrieben. Numerische Kontexteffektabnahme und bessere Wettqualität
+bleiben trotz des erfolgreichen Code-Deploys offen.

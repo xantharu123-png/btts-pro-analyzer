@@ -4,7 +4,10 @@
 
 Dieser Block und der erste Block von `TODO_AKTUELL.md` haben Vorrang.
 Ausgang gemeinsam lokal/GitHub/VPS `4bd5da446c8e19ebc9151e9df7b2cf68fef7134a`.
-Neue lokale Anbindung: eigene API-Hockey-Quelle, National League/Swiss League
+**Code `090cf93a03cdf329774e6caac2458cd69b1d28f9` auf main gepusht und am
+11.10. gegen 14:23 CEST auf dem VPS live.** Folgender reiner Dokumentationscommit
+enthält diesen Nachweis, keine weiteren Produktivänderungen.
+Neue Anbindung: eigene API-Hockey-Quelle, National League/Swiss League
 zuerst, zwanzig Name/Land-Kandidaten inklusive vorhandener NHL; dynamische
 native IDs und echte Periodenscores, gemeinsame Tages-/Suchanbindung, native
 Quotenbindung und nur lesender Ergebnis-Cacheadapter. Noch kein Beleg realer
@@ -26,7 +29,13 @@ Gegentest schützt gegen alte Publikationsuhren, inzwischen gestartete Spiele
 und während langer Ladezeiten veraltete gespeicherte Quotes; kein neuer Abruf,
 keine rückdatierten Empfangszeiten. E-Sport-24h-Anzeigegrenze separat abgesichert,
 keine E-Sport-Tippfreigabe durch Preise. Unabhängige Reviews fertig; Git/VPS-
-Veröffentlichungsnachweis wird im ersten TODO-Block ergänzt.
+Veröffentlichungsnachweis im ersten TODO-Block: Offlineimports, App/Caddy,
+sieben Timer und beide Healthchecks bestätigt. Modell-/RisikoBet-JSONs während
+des Deploys bytegleich. Kein Sportjob unterbrochen, kein Backup/zusätzlicher
+Scan gestartet. Reale Hockey-Account-/Ligaabdeckung erst im regulären Lauf
+12.10.03:35 CEST prüfen. Alte Tages-Timeout-/Shadow-Teilstatus nicht beschönigen;
+Tennis letzter Lauf erfolgreich. Belastbare numerische Kontexteffekte bleiben
+wegen der oben genannten Daten-/Validierungslücken ausdrücklich offen.
 Details: `docs/audits/2026-10-11-ausfaelle-hockey-anbindung.md`.
 
 ## Neuester Einstieg – 11.10.2026, Fortsetzung ab 10:38 Uhr

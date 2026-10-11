@@ -3,8 +3,10 @@
 ## 11.10.2026 – Fortsetzung: Ausfall-Kaderbindung und zusätzliche Hockeyligen
 
 Dieser neueste Block hat Vorrang. Ausgang lokal/GitHub/VPS gemeinsam
-`4bd5da446c8e19ebc9151e9df7b2cf68fef7134a`. Aktuelle Änderungen zunächst lokal;
-Commit/Push/VPS-Nachweis folgt erst nach abschließender QA.
+`4bd5da446c8e19ebc9151e9df7b2cf68fef7134a`. **Code committed, auf main gepusht
+und am 11.10. gegen 14:23 CEST auf dem VPS live:**
+`090cf93a03cdf329774e6caac2458cd69b1d28f9`. Der folgende reine
+Dokumentationscommit hält diesen Nachweis fest; keine weitere Codeänderung.
 Keine neuen Backups, zusätzlichen Sport-/API-Scans, Datenbereinigungen,
 Prognose-/Ergebnis-Umschreibungen oder Geldänderungen. Cricket unverändert.
 
@@ -38,8 +40,19 @@ Prognose-/Ergebnis-Umschreibungen oder Geldänderungen. Cricket unverändert.
   Keine zweite Quotenabfrage; ursprüngliche Abrufzähler sind keine neuen Checks.
 - [x] Unabhängiger letzter Diff-Abschluss: drei Reviewpfade plus echte ganze
   Owner-/Artefakt-Gegenfälle; gefundene Uhr-/Overlay-Grenzen alle korrigiert.
-- [ ] Code committen/pushen und ohne Backup/zusätzlichen Scan auf VPS deployen;
-  aktuellen Commit, Imports und Healthchecks separat bestätigen.
+- [x] Code committen/pushen und ohne Backup/zusätzlichen Scan auf VPS deployen.
+  Commit lokal/GitHub/VPS exakt `090cf93a03cdf329774e6caac2458cd69b1d28f9`;
+  Offlineimports erfolgreich, getrackter VPS-Stand sauber. App/Caddy aktiv,
+  sieben reguläre Timer weiter aktiv, interne/öffentliche Healthchecks `ok`.
+  Natürliches freies Fenster nach dem regulären Shadow-Abschluss 14:22:42
+  genutzt; keinen Sportjob oder Timer unterbrochen/zusätzlich gestartet.
+  Wettfinder-JSON SHA256 vorher/nachher unverändert:
+  `a51c9d865ab14db2d7d17971e469cbb029045a7107dd7417f2ff9da17af4298e`;
+  RisikoBet-JSON ebenso:
+  `acf24df6d14786a744b8fdf30a690bada1b34f84d54e32eb1e3915cdc3350ede`.
+  Deployment-Helfer unabhängig geprüft: maximal 336 s einschließlich
+  Fehler-Recovery innerhalb des geprüften 360-s-Fensters; kein Datenrollback
+  oder Wiederherstellen des vorherigen Codes behauptet.
 - [ ] Beim regulären Lauf 12.10.03:35 CEST echte Liga-/Saisonauflösung,
   Accountberechtigung und verwertbare Spiel-/Historienabdeckung prüfen.
   Synthetische Schweizer Test-IDs sind keine echten IDs/Live-Abdeckung.
@@ -54,12 +67,15 @@ Prognose-/Ergebnis-Umschreibungen oder Geldänderungen. Cricket unverändert.
 
 Details: `docs/audits/2026-10-11-ausfaelle-hockey-anbindung.md`.
 
-Aktueller separater Produktionsstatus vor diesem Deployment: Der alte
+Aktueller separater Produktionsstatus nach diesem Deployment, 14:23:21 CEST: Der alte
 Tageslauf steht noch auf Timeout; neues 60-Minuten-Limit erst beim nächsten
-regulären Lauf bewertbar. Fußball-Shadow 11.10.13:52/14:02 CEST ist `partial`/
-Exit 1: fehlende frische Bet365-Preise und zwei alte ungültige Provenienz-/
-Settlementzeilen. Nicht als erfolgreicher Gesamtlauf darstellen; alte Belege
-nicht ändern oder durch Löschen beschönigen. App-/Healthchecks separat `ok`.
+regulären Lauf bewertbar. Fußball-Shadow zuletzt 14:22:42 CEST weiterhin Exit 1;
+die bereits geprüften Vorläufe waren `partial`: fehlende frische Bet365-Preise
+und zwei alte ungültige Provenienz-/Settlementzeilen. Nicht als erfolgreicher
+Gesamtlauf darstellen; alte Belege nicht ändern oder durch Löschen beschönigen.
+Tennis letzter regulärer Abschluss erfolgreich (Exit 0, 00:32:29 CEST).
+App-/Healthchecks separat `ok`. Der Deploymenterfolg belegt keine aktive
+Verletzungs-/Wetter-/Müdigkeitswirkung oder bessere Wettqualität.
 
 ## 11.10.2026 – Fortsetzung ab 10:38 Uhr: Inventur, Vergleichsmodell, NHL
 
