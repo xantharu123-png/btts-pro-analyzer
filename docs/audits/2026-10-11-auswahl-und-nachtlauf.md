@@ -178,6 +178,37 @@ dem Sieger des höchsten Prozentwerts. [Gneiting/Raftery](https://sites.stat.was
 
 ## Offene echte Abnahmen
 
+### Tatsächliche Veröffentlichung
+
+Codecommit `be1ecb389c974435ce53f8eaf2fecf0add5fd4b1` auf main gepusht,
+VPS per geschlossenem Whitelist-Fast-forward übernommen. App und Worker
+während der expliziten Indexinitialisierung inaktiv; vorhandene forecast-only
+Datenbank, exakt vier Tabellen und acht Immutabilitätstrigger vor/nach geprüft.
+Unveränderte Zeilenzahlen: 816 Läufe, 86.300 Prognosen, 52.441 Quotenbelege,
+4.628 Ergebnisse. Nicht eindeutiger, nicht partieller Index mit exakt den
+vier geprüften Spalten vorhanden.
+
+App/Caddy und sieben reguläre Timer aktiv, Backup weiter deaktiviert;
+interner/öffentlicher Healthcheck `ok`. Veröffentlichte Prognosedateien bytegleich:
+
+- Wettfinder `a51c9d865ab14db2d7d17971e469cbb029045a7107dd7417f2ff9da17af4298e`
+- RisikoBet `acf24df6d14786a744b8fdf30a690bada1b34f84d54e32eb1e3915cdc3350ede`
+
+Der Helfer meldete **nach** abgeschlossenen Änderungen/Healthprüfungen noch
+Exit 127: PowerShell ergänzte hinter der abschließenden LF-Leerzeile ein CR,
+das Bash als einzelnen Befehl behandelte. Kein Rollback oder wiederholter Scan.
+Separater unverändernder Nachcheck bestätigte Commit, Index, alle Zeilenzahlen,
+Triggerzahl, Artefakthashes und Gesundheit. Diesen Ablauf nicht als vollständig
+fehlerfreien Helferlauf darstellen. Künftig den Transporttext vor stdin mit
+`.TrimEnd([char[]]"`r`n")` abschließen. Beleg außerhalb Git:
+`C:/Projekt/BetBoy/output/winner-audit-20261011/release-verification.txt`.
+
+Finale kombinierte Offline-Runde: 248 bestanden, 9,50 Sekunden; mathematischer
+und kausaler Zweitreview abgeschlossen. Keine offenen Blocker für den
+ausdrücklich isolierten Vergleich, keine aktive Qualitätsabnahme.
+
+### Noch offen
+
 1. Nächsten **regulären** Wettfinderlauf am 12.10.03:35 CEST nach Index und
    Zeitmarken prüfen. Heute kein neuer API-/Sportscan; vollständige Reparatur
    des Timeout erst bei tatsächlichem Abschluss bestätigen.

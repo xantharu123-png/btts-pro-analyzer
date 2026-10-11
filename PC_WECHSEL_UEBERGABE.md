@@ -11,6 +11,13 @@ Begrenzter fehlender Ergebnisindex und interne Phasenzeiten repariert;
 199 direkte und 519 breitere Tests grün, sieben Windows-Symlink-Skips.
 Keine Daten/Abrechnung/Modellkriterien verändert, kein Backup oder Zusatzscan.
 Vollständigen Nachtlauf-Nachweis erst am normalen 12.10.03:35-Termin erheben.
+**Codecommit `be1ecb3` gepusht und live**, Index auch in vorhandener VPS-DB
+angelegt. Vier Tabellen-Zeilenzahlen und acht Schutztrigger unverändert;
+Prognose-Dateien bytegleich, App/Timer/Healthchecks gesund. Nach abschließendem
+CR-Transportfehler des Helfers tatsächlichen Zustand separat rein lesend geprüft;
+Exit 127 deshalb nicht als fehlerfreien Helferlauf ausweisen.
+Bei erneutem PowerShell-stdin-Transport `.TrimEnd([char[]]"`r`n")` verwenden.
+Folgender Dokumentationscommit ändert keinen Produktivcode.
 
 User lehnt künstliches Zählen von zwei positiven Argumenten ab. Neues
 `football_opponent_strength.py` ist ein isolierter **Offline-Vergleich**, kein
@@ -21,6 +28,10 @@ Defensive und Spielort bereits als gemeinsame Modellbasis. Alte 75/25- und
 Native Liga-Belege 274/333 lokal für retrospektiven Vergleich vorhanden,
 158 KB Spiel-/Ergebnisdaten, keine Secrets oder DB-Kopie. Individuelle
 historische Ergebnis-Empfangszeiten fehlen: keine prospektive Qualität behaupten.
+49 neue Modelltests und final 248 kombinierte Tests grün; zwei unabhängige
+Reviews ohne offene Offline-Blocker. Echte Paarprobe: 72 aus 100 versuchten
+Spielen, 28 mangels acht früherer Teamspiele ausgelassen. Brier/Logloss in
+beiden vorhandenen Ligen niedriger; kein Beweis verbesserter aktiver Tipps.
 
 Aktuellen Abschluss-/Veröffentlichungsstand im obersten TODO-Block und
 [Prüfbericht](docs/audits/2026-10-11-auswahl-und-nachtlauf.md) nachlesen.

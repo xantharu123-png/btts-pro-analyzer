@@ -18,8 +18,19 @@ dreifacher Nachweis.
 - [x] Direkt betroffene Runde 199 grün. Breitere identische 526 Fälle nach
   Windows-Umgebungskorrektur **519 bestanden, sieben bestehende Skips**;
   unabhängiger Review ohne blockierenden Befund. Kein neuer Vollsuite-PASS.
-- [ ] Veröffentlichungsnachweis für diese Fortsetzung nach sicherem
-  Fast-forward ergänzen; keine neuen Sicherungen oder API-/Sportscans.
+- [x] Codecommit **`be1ecb3`** auf main gepusht und per geprüftem Fast-forward
+  auf den VPS übernommen. Fehlender Ergebnisindex dort ausdrücklich angelegt:
+  86.300 Prognosen, 52.441 Quotenbelege, 4.628 Ergebnisse und 816 Läufe
+  unverändert; alle acht Immutabilitätstrigger identisch.
+- [x] App/Caddy, sieben reguläre Timer und beide Healthchecks nach Deploy
+  gesund; Backup weiter deaktiviert. Prognose-Dateien bytegleich. Ein
+  nachgelagerter CR-Zeilenumbruchfehler im Helfer ergab Exit 127, **nachdem**
+  Fast-forward, Index und Healthprüfungen abgeschlossen waren. Separater
+  Nur-Lese-Nachcheck bestätigt den echten Zustand; nicht als völlig fehlerfreien
+  Helferlauf zählen. Transport künftig `.TrimEnd([char[]]"`r`n")` vor stdin.
+- [x] Final kombiniert 248 Tests grün (49 Modell- + 199 Betriebsfälle).
+  Zwei unabhängige Reviews inklusive Nullwahrscheinlichkeits-Grenzfall fertig.
+  Neuer Modellbaustein bleibt ausschließlich offline, aktive Auswahl unverändert.
 - [ ] Nächsten normalen Wettfinderlauf **12.10.03:35 CEST** nachprüfen.
   Der Index behebt einen bestätigten inneren Vollscan, noch keinen belegten
   Gesamtlauf-Timeout. Fußball-Spielereinsatzhistorie bleibt weiterer Verdacht.
@@ -44,6 +55,8 @@ dreifacher Nachweis.
 [Prüfbericht und genaue Abnahmegrenzen](docs/audits/2026-10-11-auswahl-und-nachtlauf.md).
 Vorhandene ungetrackte Arbeit erhalten; zusätzliche Rohdaten nur unter
 `C:/Projekt/BetBoy/output/winner-audit-20261011/`, kein Datenbankarchiv.
+Ein folgender reiner Dokumentationscommit aktualisiert diesen Nachweis, keine
+weitere App-/Datenänderung. Codebasis der Reparatur ist `be1ecb3`.
 
 ## 11.10.2026 – echte Teamsport-Formkarten und Abschlussprüfung
 
