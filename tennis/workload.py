@@ -47,6 +47,53 @@ def _whole(value: object, minimum: int, maximum: int) -> int | None:
     return int(value)
 
 
+def _latest_observed_matches(rows, *, cutoff):
+    """Resolve event revisions before player/terminal filtering, never by order.
+
+    Different model/policy parents can describe the same native match. Their
+    newest causal result owns its identity and played facts; a withdrawal must
+    not expose an older completed parent. Simultaneous contradictions remain
+    unavailable. Equivalent reversed player orientation is the same fact.
+    ATP/WTA native event numbers are separate namespaces. A legacy tourless
+    parent cannot be assigned a tour from names or counted again alongside a
+    scoped parent; a newer/equal unscoped correction makes that scope unknown.
+    """
+    latest = {}
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        tour = row.get("tour")
+        scope = tour if isinstance(tour, str) and tour in ("ATP", "WTA") else None
+        identity = (str(row.get("fixture_source") or ""), str(row.get("provider_event_id") or ""), scope)
+        recorded = _instant(row.get("result_observed_at"))
+        if not all(identity[:2]) or recorded is None or recorded > cutoff:
+            continue
+        names = (normalize_player_name(str(row.get("player_a") or "")),
+                 normalize_player_name(str(row.get("player_b") or "")))
+        sets = (_whole(row.get("player_a_sets"), 0, 3), _whole(row.get("player_b_sets"), 0, 3))
+        signature = (
+            tuple(sorted(zip(names, sets), key=lambda item: item[0])),
+            _instant(row.get("scheduled_start_utc")), row.get("termination"),
+            _whole(row.get("match_duration_minutes"), 1, 1500), row.get("tour"),
+            (type(row.get("settled")), row.get("settled")),
+        )
+        previous = latest.get(identity)
+        if previous is None or recorded > previous[0]:
+            latest[identity] = (recorded, signature, row)
+        elif recorded == previous[0] and signature != previous[1]:
+            latest[identity] = (recorded, previous[1], None)
+    scoped_events = {identity[:2] for identity in latest if identity[2] is not None}
+    selected = []
+    for identity, item in latest.items():
+        unscoped = latest.get((*identity[:2], None))
+        if item[2] is None or (identity[2] is None and identity[:2] in scoped_events):
+            continue
+        if identity[2] is not None and unscoped is not None and unscoped[0] >= item[0]:
+            continue
+        selected.append(item[2])
+    return tuple(selected)
+
+
 def observed_workload_context(
     player_a: str, player_b: str, history: Iterable[Mapping[str, object]], *,
     as_of: datetime,
@@ -59,7 +106,7 @@ def observed_workload_context(
     cutoff = _instant(as_of)
     if cutoff is None:
         raise ValueError("workload cutoff must be timezone-aware")
-    rows = tuple(history)
+    rows = _latest_observed_matches(tuple(history), cutoff=cutoff)
     result = {
         "schema_version": 1,
         "observed_at": cutoff.isoformat(),
@@ -77,7 +124,6 @@ def observed_workload_context(
     for side, player in (("a", player_a), ("b", player_b)):
         key = normalize_player_name(player)
         observed = []
-        seen = set()
         for row in rows:
             if not isinstance(row, Mapping) or row.get("settled") != 1:
                 continue
@@ -93,9 +139,6 @@ def observed_workload_context(
             identity = (str(row.get("fixture_source") or ""), str(row.get("provider_event_id") or ""))
             if not all(identity):
                 continue
-            if identity in seen:
-                continue
-            seen.add(identity)
             a_sets = _whole(row.get("player_a_sets"), 0, 3)
             b_sets = _whole(row.get("player_b_sets"), 0, 3)
             total_sets = a_sets + b_sets if a_sets is not None and b_sets is not None else None

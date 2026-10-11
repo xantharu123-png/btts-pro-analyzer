@@ -178,6 +178,136 @@ def test_unrelated_league_roster_cannot_withdraw_known_target_roster_features(tm
     assert past + unrelated + facts == frozen
 
 
+def test_unconsumed_same_team_history_cannot_withdraw_base_roster_features(tmp_path):
+    past = appearance(tmp_path, 75) + appearance(tmp_path, 90, player=8, team=2)
+    facts = availability(tmp_path, "out") + availability(
+        tmp_path, "available", player=8, team=2, kind="confirmed_lineup", started=True)
+    base = reference_base()
+    # Fixture 98 belongs to the target team, but the owning baseline's actual
+    # sample support references fixture 99 only. An unreported former player
+    # from that broader league pool is not an unknown member of this cohort.
+    extra = appearance(tmp_path, 80, player=9, fixture=98, team=1)
+    assert all(row["native_event_key"] != extra[0]["event_key"] for row in base["history_refs"])
+    frozen = deepcopy(past + extra + facts)
+    control = football_features(event(), past + facts, base, cutoff=NOW)
+    actual = football_features(event(), past + extra + facts, base, cutoff=NOW)
+    assert actual == control
+    assert actual["values"]["home.venue_attack.goals.api-football:player:7"] == -.078125
+    assert not any(row["digest"] in refs for row in extra for refs in actual["refs"].values())
+    assert past + extra + facts == frozen
+
+
+@pytest.mark.parametrize("invalid_receipt", [False, True])
+def test_zero_weight_sample_is_not_a_roster_dependency_but_its_source_is_validated(
+        tmp_path, invalid_receipt):
+    from context_models.contracts import OBSERVATION_FIELDS, validate_base_distribution
+    from context_sources.football import _collection_digest
+    past = appearance(tmp_path, 75) + appearance(tmp_path, 90, player=8, team=2)
+    facts = availability(tmp_path, "out") + availability(
+        tmp_path, "available", player=8, team=2, kind="confirmed_lineup", started=True)
+    extra = deepcopy(appearance(tmp_path, 80, player=9, fixture=98, team=1))
+    base = reference_base()
+    declared = {**base["history_refs"][0], "ref": digest({"fixture": 98}),
+                "source_event_id": "98", "native_event_key": "api-football:football:98"}
+    base["history_refs"].append(declared)
+    base["reference_weights"]["heads"]["home"]["components"]["venue_attack"]["goals"]["samples"].append(
+        {"ref": declared["ref"], "weight": 0.})
+    base = validate_base_distribution(base)
+    if invalid_receipt:
+        row = extra[0]
+        row["payload"]["regulation_minutes"] = 79
+        row["payload"]["collection_hash"] = _collection_digest(
+            row["event_key"], row["schedule_revision"], row["kind"], row["payload"]["team_id"], [row["payload"]])
+        row["source_revision"] = digest(row["payload"])
+        row["content_digest"] = digest({key: row[key] for key in OBSERVATION_FIELDS})
+        row["digest"] = digest({"content_digest": row["content_digest"], "observed_at": row["observed_at"]})
+        with pytest.raises(ContextContractError, match="regulation exposure differs"):
+            football_features(event(), past + extra + facts, base, cutoff=NOW)
+        return
+    saved = deepcopy((past + extra + facts, base))
+    control = football_features(event(), past + facts, reference_base(), cutoff=NOW)
+    actual = football_features(event(), past + extra + facts, base, cutoff=NOW)
+    for key in ("values", "states", "refs", "coverage"):
+        assert actual[key] == control[key]
+    assert actual["values"]["home.venue_attack.goals.api-football:player:7"] == -.078125
+    assert not any(row["digest"] in refs for row in extra for refs in actual["refs"].values())
+    # The frozen base transport remains different; only its zero-support row
+    # is irrelevant to numerical features, not to the owning reference hash.
+    assert actual["reference_hash"] != control["reference_hash"]
+    assert (past + extra + facts, base) == saved
+
+
+@pytest.mark.parametrize("current", ["new-player", "transfer"])
+def test_projected_current_players_keep_missing_history_and_transfer_semantics(tmp_path, current):
+    past = appearance(tmp_path, 75) + appearance(tmp_path, 90, player=8, team=2)
+    facts = availability(tmp_path, "out") + availability(
+        tmp_path, "available", player=8, team=2, kind="confirmed_lineup", started=True)
+    if current == "transfer":
+        past += appearance(tmp_path, 80, player=9, fixture=98, team=2)
+    facts += availability(tmp_path, "available", player=9, team=1,
+                          kind="confirmed_lineup", started=True)
+    actual = football_features(event(), past + facts, reference_base(), cutoff=NOW)
+    # A presently projected player must not be dropped merely because the
+    # baseline did not consume them. No history or a transfer is still unknown.
+    assert actual["coverage"]["case"] == "incomplete"
+    assert actual["values"]["home.venue_attack.goals.api-football:player:7"] is None
+    assert not any(actual["refs"].values())
+
+
+def test_unconsumed_same_team_history_still_validates_its_source_payload(tmp_path):
+    past = appearance(tmp_path, 75) + appearance(tmp_path, 90, player=8, team=2)
+    facts = availability(tmp_path, "out") + availability(
+        tmp_path, "available", player=8, team=2, kind="confirmed_lineup", started=True)
+    extra = deepcopy(appearance(tmp_path, 80, player=9, fixture=98, team=1))
+    row = extra[0]
+    row["payload"]["regulation_minutes"] = 79
+    from context_models.contracts import OBSERVATION_FIELDS
+    from context_sources.football import _collection_digest
+    row["payload"]["collection_hash"] = _collection_digest(
+        row["event_key"], row["schedule_revision"], row["kind"], row["payload"]["team_id"], [row["payload"]])
+    row["source_revision"] = digest(row["payload"])
+    row["content_digest"] = digest({key: row[key] for key in OBSERVATION_FIELDS})
+    row["digest"] = digest({"content_digest": row["content_digest"], "observed_at": row["observed_at"]})
+    with pytest.raises(ContextContractError, match="regulation exposure differs"):
+        football_features(event(), past + extra + facts, reference_base(), cutoff=NOW)
+
+
+def test_broader_history_remains_role_support_for_base_consumed_players(tmp_path):
+    past = appearance(tmp_path, 75) + appearance(tmp_path, 90, player=8, team=2)
+    past += appearance(tmp_path, 45, fixture=98, player=7)
+    facts = availability(tmp_path, "available", kind="confirmed_lineup", started=True)
+    facts += availability(tmp_path, "available", player=8, team=2,
+                          kind="confirmed_lineup", started=True)
+    actual = football_features(event(), past + facts, reference_base(), cutoff=NOW)
+    # Player 7 belongs to the actual base support. Their other known start is
+    # still valid role support: expected minutes (75+45)/2 versus base 75.
+    key = "home.venue_attack.goals.api-football:player:7"
+    assert actual["values"][key] == -.015625
+    assert any(row["digest"] in actual["refs"][key] for row in past
+               if row["event_key"] == "api-football:football:98")
+
+
+def test_old_effect_evaluation_cannot_inherit_changed_football_implementation(monkeypatch):
+    import context_models.evaluator as evaluator
+    import model_artifacts
+    from context_models.contracts import ContextIntegrityError
+    hashes = evaluator.implementation_hashes()
+    assert "context_models/football.py" in hashes
+    old_hashes = {**hashes, "context_models/football.py": "f" * 64}
+    assert old_hashes != hashes
+    # The outer stored hash is valid. The old owning proof must still fail at
+    # its implementation boundary before any fit/receipt/approval is reused.
+    report = {field: None for field in evaluator.REPORT_FIELDS}
+    report.update(schema=1, evaluator_version=evaluator.EVALUATOR_VERSION,
+                  implementation_hashes=old_hashes)
+    envelope = {"kind": evaluator.EVALUATION_KIND, "payload": report}
+    saved = deepcopy(envelope)
+    monkeypatch.setattr(model_artifacts, "_load_artifact", lambda _connection, _ref: envelope)
+    with pytest.raises(ContextIntegrityError, match="evaluation implementation differs"):
+        evaluator._verify_evaluation(object(), digest(envelope))
+    assert envelope == saved
+
+
 def test_changed_target_native_team_cannot_inherit_old_roster_reference(tmp_path):
     past = appearance(tmp_path, 75) + appearance(tmp_path, 90, player=8, team=2)
     facts = availability(tmp_path, "out") + availability(

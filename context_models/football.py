@@ -200,7 +200,8 @@ def _participation_probability(envelope, *, cutoff, rows):
 
 
 def expected_roster(appearances: tuple[dict, ...], availability: tuple[dict, ...], *,
-                    cutoff: datetime, participation: dict | None = None) -> dict:
+                    cutoff: datetime, participation: dict | None = None,
+                    reference_players: frozenset[str] | None = None) -> dict:
     """Expected regulation exposure for the explicitly reported player cohort.
 
     Historical minutes are conditional on a confirmed starter/bench role; a
@@ -208,7 +209,15 @@ def expected_roster(appearances: tuple[dict, ...], availability: tuple[dict, ...
     With no status model, named all-present/all-absent scenarios are contrasts,
     not an exhaustive scenario distribution or an implied 50/50 mixture.
     Missing team coverage never becomes a 'healthy' roster.
+
+    A supplied reference cohort limits unreported historical players, not
+    source validation or current projections. All currently reported players
+    remain in the expected roster, including replacements and transfers.
     """
+    if reference_players is not None and (
+            type(reference_players) is not frozenset
+            or any(not _native_identity(player, "player") for player in reference_players)):
+        raise ContextContractError("reference roster needs immutable native player identities")
     past, facts = _selected(appearances, cutoff=cutoff), _selected(availability, cutoff=cutoff)
     chance = _participation_probability(participation, cutoff=cutoff, rows=facts)
     history, facts_by_player, conflicts = {}, {}, _collection_conflicts(past + facts)
@@ -233,8 +242,11 @@ def expected_roster(appearances: tuple[dict, ...], availability: tuple[dict, ...
         if row["payload"]["player_id"] != row["subject_id"]:
             raise ContextIntegrityError("availability player identity mismatch")
         facts_by_player.setdefault(row["subject_id"], []).append(row)
+    cohort = ((set(history) if reference_players is None else set(history) & reference_players)
+              | set(facts_by_player))
+    conflicts.intersection_update(cohort)
     central, present, absent, missing, uncertain = {}, {}, {}, set(), set()
-    for player in sorted(set(history) | set(facts_by_player)):
+    for player in sorted(cohort):
         if player in conflicts:
             continue
         selected_fact = None
@@ -359,9 +371,31 @@ def football_features(event: dict, observations: tuple[dict, ...], base: dict, *
             participation = {"digest": key, **value}
             _participation_probability(participation, cutoff=cutoff, rows=facts)
             preprocessing_refs.append(key)
-    expected = expected_roster(past, facts, cutoff=cutoff, participation=participation)
-    values, states, refs = {}, {}, {}
     provenance = base["reference_weights"]
+    historical = {r["ref"]: r for r in base["history_refs"]}
+    reference_scopes = set()
+    if provenance["kind"] != "unavailable":
+        for head in provenance["heads"].values():
+            for component in head["components"].values():
+                if component["team_join"] != "verified_native":
+                    continue
+                for metric in ("goals", "xg"):
+                    term = component[metric]
+                    for sample in term["samples"] if term is not None else ():
+                        if sample["weight"] == 0:
+                            continue
+                        row = historical[sample["ref"]]
+                        if row["event_join"] == row["roster_join"] == "verified_native":
+                            reference_scopes.add((row["native_event_key"], component["team_id"]))
+    # The frozen league history is broader than the base's declared venue/form
+    # support. Keep that history as role support for consumed/current players,
+    # but do not require today's status for every former player in the league.
+    reference_players = frozenset(row["subject_id"] for row in past
+        if not _is_empty_collection(row)
+        and (row["event_key"], row["payload"]["team_id"]) in reference_scopes)
+    expected = expected_roster(past, facts, cutoff=cutoff, participation=participation,
+                              reference_players=reference_players)
+    values, states, refs = {}, {}, {}
     reference_hash = digest({"version": "football-context-reference-v2", "base_hash": digest(base),
                              "event_hash": digest(event), "preprocessing": sorted(preprocessing_refs)})
     case = expected["coverage"]["case"]
@@ -376,7 +410,6 @@ def football_features(event: dict, observations: tuple[dict, ...], base: dict, *
         add("roster_reference", None)
         case = "reference_unavailable"
     else:
-        historical = {r["ref"]: r for r in base["history_refs"]}
         appearances_by_event_team = {}
         for row in past:
             if _is_empty_collection(row):
@@ -397,6 +430,8 @@ def football_features(event: dict, observations: tuple[dict, ...], base: dict, *
                     prefix = f"{side}.{component_name}.{metric}"
                     matches, players, valid = [], set(), component["team_join"] == "verified_native"
                     for sample in term["samples"]:
+                        if sample["weight"] == 0:
+                            continue
                         historical_row = historical[sample["ref"]]
                         if historical_row["event_join"] != "verified_native" or historical_row["roster_join"] != "verified_native":
                             valid = False

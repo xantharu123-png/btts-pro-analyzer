@@ -1,5 +1,77 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 11.10.2026 – Abendfortsetzung: tatsächlicher Kader und Tennis-Korrekturen
+
+Dieser Block hat Vorrang vor früheren Fertigmeldungen. Verifizierter Ausgang
+lokal/GitHub-main/VPS um 19:38 CEST gemeinsam:
+`8dfabe964ad382ecc32a2a21ae4c48b926129458`. Die unten genannten Reparaturen
+sind zunächst lokal; Veröffentlichung und abschließende QA werden hier erst
+nach echtem Nachweis ergänzt. Keine zusätzlichen API-/Sportscans, Backups,
+Bereinigungen, Migrationen oder Änderungen alter Prognosen/Geldbuchungen.
+
+- [x] Zweite Fußballursache reproduziert: Auch ein früherer Spieler des
+  richtigen Vereins blockierte die Kaderberechnung, obwohl dessen Spiel nicht
+  zur tatsächlich verwendeten Modellhistorie gehörte. Der native Zielkader
+  wird nun an die verwendeten Spiel-/Teamreferenzen gebunden; die breitere
+  Rollenhistorie der wirklich verwendeten und aktuell gemeldeten Spieler bleibt.
+  Neue Spieler/Transfers ohne belegte Rolle bleiben unbekannt. Alle Quellen
+  werden weiterhin vor dieser Einschränkung vollständig geprüft.
+- [x] Zusätzliche Nullgewicht-Kante korrigiert und unabhängig geprüft:
+  Ein gültiger historischer Sample mit Gewicht 0 darf weder einen fremden
+  ehemaligen Spieler verpflichtend machen noch vorhandene Merkmale blockieren.
+  Nullgewicht ist keine Erlaubnis, fehlerhafte Quellen zu akzeptieren.
+  Owning-Datei 31 Tests bestanden; unabhängige gemeinsame Ownerprüfung
+  57 Tests und 26 zusätzliche Gegenproben bestanden. Diese Runden überlappen.
+- [x] Tennis-Belastungsanzeige aus echter SQLite-Historie repariert:
+  mehrere Modell-/Policy-Eltern desselben Events verwenden die neueste zum
+  Stichtag bekannte Ergebniskorrektur, unabhängig von Zeilenreihenfolge.
+  Zurückgenommene Paarung/Spielausgang darf keine alte Belastung reaktivieren;
+  ATP/WTA-Eventnummern sind getrennt, tourlose Altdaten werden nicht geraten.
+  Keine Beobachtungszeit als Erholung, keine Wahrscheinlichkeitskorrektur.
+- [x] Finale gemeinsame Offline-Regression und unabhängigen Review beendet:
+  **1.039 bestanden, keine Fehler/Skips**, 700,86 s, Exit 0, 25 ganze Module.
+  `C:/Projekt/BetBoy/output/context-followup-20261011/release-01.xml`.
+  Eingefrorene Quell-/Testhashes vorher/nachher identisch. Keine neue Vollsuite;
+  Agentenrunden überlappen und werden nicht addiert.
+- [ ] Explizite Dateien committen/pushen, natürliches freies VPS-Fenster nutzen,
+  ohne Backup/zusätzlichen Scan deployen; Code-, Daten- und Healthnachweise
+  getrennt dokumentieren.
+
+**Wichtige Korrektur der bisherigen Übergabe:** Hockey-/Basketball-Kontexteffekte
+sind nicht nur wegen fehlender Daten offen. Ihre produktive, quellengebundene
+Trainings-/Ergebnis-/Bewertungs-/Aktivierungskette ist noch nicht implementiert.
+Bestehende interne Effektfunktionen und synthetische Tests ersetzen sie nicht.
+
+- [ ] Bestehende NBA/EuroLeague/NHL-Antwortbeobachter tatsächlich in den
+  produktiven Ladepfad einbinden, mit explizitem Speicherbudget und ohne
+  zusätzliche Abfragen. `capture_team_sports_worker` hat derzeit nur Tests als
+  Aufrufer; im normalen Lauf bleibt der Beobachter inaktiv. NBA-Normalisierung
+  verwirft zudem vorhandene Saisonwerte. Alte Cachezeilen nicht als neue
+  native Empfangsbelege ausgeben.
+- [ ] Originalverteilung desselben echten Modellaufrufs vor Spielbeginn
+  veröffentlichen und nativ an Quellen, Uhr, Saison/Regeln und Historie binden.
+  `build_hockey_live_original` ist nicht produktiv aufgerufen und liefert ein
+  `unresolved`-Original; es ist kein abnahmefähiger NHL-Fit. Die vorhandenen
+  Live-/Fit-Vertragsversionen sind nicht austauschbar.
+- [ ] NHL-Regulär-Ergebnisadapter, quellengebundenen Replay, geschlossenen
+  saisongebundenen Fit mit gepoolten gespiegelten Heads sowie passende
+  Verlust-/Abnahme-/Aktivierungspfade vollständig gemeinsam ergänzen.
+  Aktuelle D1/D2-Fit-Verträge und Evaluator unterstützen nur Fußball/Tennis.
+  Keine NHL-Freigabe auf API-Hockey-Ligen übertragen.
+- [ ] Echte gemessene Einsatzzeiten, Torhüter-/Aufstellungsstatus und
+  tatsächliche Spielzeiten für Belastung erfassen, wo Quellen sie wirklich
+  liefern. Vorhandene NHL/NBA-Spielpläne belegen diese Angaben nicht.
+- [ ] Tennis: point-kompatible Kontextparameter und echte Zeit-/Verletzungsdaten
+  fehlen. Der produktive `serve-points-joint-v2`-Pfad nimmt die alte
+  Siegerkorrektur absichtlich nicht an: ein Siegerlabel identifiziert nicht
+  zwei Aufschlagparameter. Keine Siegerkorrektur auf alle Wettmärkte umdeuten.
+- [ ] Fußball: eigene Trainings-/Abstimmungsdaten und mindestens 200 unberührte
+  Testspiele zusätzlich, zeitlich getrennt, nach genehmigter Spezifikation.
+  Acht vollständige Bindungen reichen nicht; kein geratenes Wetter-/Ausfallplus.
+
+Details und konkrete Fortsetzungsreihenfolge:
+`docs/audits/2026-10-11-kontext-abendfortsetzung.md`.
+
 ## 11.10.2026 – Fortsetzung: Ausfall-Kaderbindung und zusätzliche Hockeyligen
 
 Dieser neueste Block hat Vorrang. Ausgang lokal/GitHub/VPS gemeinsam

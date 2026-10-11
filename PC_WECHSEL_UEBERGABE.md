@@ -1,5 +1,34 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Neuester Einstieg – 11.10.2026, Abendfortsetzung
+
+Der erste Block in `TODO_AKTUELL.md` und
+`docs/audits/2026-10-11-kontext-abendfortsetzung.md` haben Vorrang.
+Verifizierter Ausgang lokal/GitHub/VPS am Abend gemeinsam
+`8dfabe964ad382ecc32a2a21ae4c48b926129458`. Neue lokale Reparaturen:
+Fußball-Kader an wirklich verwendete native Modellspiele binden, auch gültige
+Nullgewicht-Samples aus mathematischem Support ausschließen; Tennis zeigt die
+neueste bekannte Ergebniskorrektur pro Quelle/Event/Tour statt des zufällig
+ersten Modell-Elternsatzes. ATP/WTA nicht vermischen, keine Erholung erfinden.
+Keine Wahrscheinlichkeits-/Quote-/Geldänderung durch die Tennisanzeige.
+Finale gemeinsame Offline-QA: **1.039 bestanden, keine Fehler/Skips** in 25
+ganzen Modulen, 700,86 s, Exit 0. Quell-/Testhashes vor/nach QA identisch.
+Unabhängiger Review grün; überlappende Agentenzahlen nicht addieren. Kein neuer
+Vollsuite-PASS behauptet. Commit-/Deploystände folgen im ersten TODO-Block.
+Keine zusätzlichen Scans, Backups, Bereinigungen oder alten Belegänderungen.
+
+**Nicht wieder als bloße Datenwartezeit darstellen:** Die produktive
+Hockey-/Basketball-Quellenaufnahme und Originalveröffentlichung sowie deren
+quellengebundener Fit, Ergebnis-Replay, Evaluator und Aktivierung fehlen noch.
+`capture_team_sports_worker` und `build_hockey_live_original` haben keine
+produktiven Aufrufer; der Live-Originalvertrag bleibt `unresolved`. D1/D2 kann
+gegenwärtig nur Fußball/Tennis qualifizieren. Synthetische Funktionstests oder
+zusätzliche Liga-Scanner sind kein Nachweis tatsächlich aktiver Kontexteffekte.
+Tennis braucht außerdem eine echte Timing-/Verletzungsquelle und
+point-kompatible Effekte statt Siegerkorrekturen auf dem Serve-Modell.
+Fußball benötigt zusätzlich ausreichende unabhängige Abnahmedaten.
+Die genaue minimale Ende-zu-Ende-Reihenfolge steht im neuen Auditbericht.
+
 ## Neuester Einstieg – 11.10.2026, Ausfälle und weitere Hockeyligen
 
 Dieser Block und der erste Block von `TODO_AKTUELL.md` haben Vorrang.
