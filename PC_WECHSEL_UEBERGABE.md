@@ -1,5 +1,32 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Neuester Einstieg – 11.10.2026, fachlicher Gegnervergleich und Timeout
+
+Ausgang lokal/GitHub/VPS `02943e9`. Heutiger Wettfinderlauf endete nach
+45 Minuten mit Timeout, obwohl App/Healthchecks gesund sind. Neue echte
+Formanhänge und beide Lader geprüft (129 Snapshots, 43 Kontextverweise, zwei
+Formanhänge). Nicht den alten vollständigen Tageslauf als heutigen Erfolg melden.
+
+Begrenzter fehlender Ergebnisindex und interne Phasenzeiten repariert;
+199 direkte und 519 breitere Tests grün, sieben Windows-Symlink-Skips.
+Keine Daten/Abrechnung/Modellkriterien verändert, kein Backup oder Zusatzscan.
+Vollständigen Nachtlauf-Nachweis erst am normalen 12.10.03:35-Termin erheben.
+
+User lehnt künstliches Zählen von zwei positiven Argumenten ab. Neues
+`football_opponent_strength.py` ist ein isolierter **Offline-Vergleich**, kein
+aktivierter Forecast und keine nachgewiesene bessere Wettqualität. Fußball
+braucht echten historischen Gegnervergleich; Hockey verwendet Angriff,
+Defensive und Spielort bereits als gemeinsame Modellbasis. Alte 75/25- und
+50/50-Rezepte nicht mit neuen Torwerten falsch weiterverwenden.
+Native Liga-Belege 274/333 lokal für retrospektiven Vergleich vorhanden,
+158 KB Spiel-/Ergebnisdaten, keine Secrets oder DB-Kopie. Individuelle
+historische Ergebnis-Empfangszeiten fehlen: keine prospektive Qualität behaupten.
+
+Aktuellen Abschluss-/Veröffentlichungsstand im obersten TODO-Block und
+[Prüfbericht](docs/audits/2026-10-11-auswahl-und-nachtlauf.md) nachlesen.
+Verletzungs-/Müdigkeits-/Wetterwirkung, zehn Tennis-Ergebnisfälle, RisikoBet-
+Abrechnungsmehrdeutigkeit, Sortierung und weitere Hockeyligen weiterhin offen.
+
 ## Aktueller Einstieg – strukturierte Teamsport-Form, 11.10.2026
 
 Formrelease `fa42917` und Kontext-Laderfix `55f35e7` auf GitHub und VPS

@@ -47,6 +47,8 @@ CREATE TABLE IF NOT EXISTS forecast_results (
     selection TEXT NOT NULL, outcome TEXT NOT NULL, observed_at TEXT NOT NULL,
     payload_json TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS forecast_result_identity_time
+ON forecast_results(event_key,market_key,selection,observed_at);
 """
 _TABLES = {"forecast_runs", "forecast_rows", "forecast_quotes", "forecast_results"}
 _SPORTS = {"fußball": "football", "fussball": "football", "football": "football", "tennis": "tennis", "e-sport": "esports", "esports": "esports", "basketball": "basketball", "eishockey": "ice_hockey", "ice_hockey": "ice_hockey", "cricket": "cricket"}

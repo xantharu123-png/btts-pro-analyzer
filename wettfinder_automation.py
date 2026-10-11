@@ -24,6 +24,8 @@ import logging
 import math
 import os
 from pathlib import Path
+import sys
+from time import perf_counter
 import traceback
 from typing import Any, Callable, Iterable, Mapping, Optional
 import unicodedata
@@ -129,6 +131,36 @@ FOOTBALL_CONTEXT_MIN_GAP = timedelta(minutes=25)
 FOOTBALL_CONTEXT_MAX_AGE = timedelta(minutes=75)
 FOOTBALL_CONTEXT_BATCH_SIZE = 20
 FOOTBALL_CONTEXT_MAX_BATCHES_PER_RUN = 3
+
+
+def _logged_stage(stage, callback, *args, **kwargs):
+    """Internal worker timing only; preserve callback results and failures.
+
+    Entry is flushed before the work so a killed worker leaves its last stage.
+    Completion means the callback returned, not that its domain status is OK.
+    Neither arguments, provider messages nor returned payloads enter the log.
+    """
+    started = perf_counter()
+
+    def emit(phase, *, elapsed=None):
+        row = {'diagnostic': 'wettfinder_stage', 'stage': stage, 'phase': phase}
+        if elapsed is not None:
+            row['elapsed_seconds'] = round(elapsed, 3)
+        try:
+            print(json.dumps(row), file=sys.stderr, flush=True)
+        except Exception:
+            # Broken/closed diagnostics must not alter publication or hide the
+            # original work exception. There is deliberately no log fallback.
+            pass
+
+    emit('started')
+    try:
+        result = callback(*args, **kwargs)
+    except BaseException:
+        emit('failed', elapsed=perf_counter() - started)
+        raise
+    emit('completed', elapsed=perf_counter() - started)
+    return result
 
 
 @dataclass(frozen=True)
@@ -3286,6 +3318,12 @@ def run_wettfinder(
     if any(not callable(loader) for loader in (riskobet_result_loaders or {}).values()):
         raise TypeError("RisikoBet result loaders must be callable")
     production_state = _same_artifact_path(state_path, STATE_PATH)
+
+    def stage(name, callback, *args, **kwargs):
+        if production_state:
+            return _logged_stage(name, callback, *args, **kwargs)
+        return callback(*args, **kwargs)
+
     original_collection_attempted = False
     original_collection_admission = None
     original_collection_budget = None
@@ -3378,7 +3416,7 @@ def run_wettfinder(
                 lambda scan_date: _default_football_scan(scan_date, app_config,
                     **original_capture_options(app_config))
             )
-            snapshot = scanner(target)
+            snapshot = stage('football_discovery', scanner, target)
             if not isinstance(snapshot, dict):
                 raise RuntimeError("football scanner returned no document")
             football_state = _football_state_from_snapshot(
@@ -3456,7 +3494,7 @@ def run_wettfinder(
                         )
                     )
                 )
-                refresh_result = refresher(
+                refresh_result = stage('football_context', refresher,
                     context_candidates,
                     target,
                     current,
@@ -3585,7 +3623,8 @@ def run_wettfinder(
         try:
             from scripts.tennis_daily import refresh_pending_predictions
             refresher = tennis_model_refresher or refresh_pending_predictions
-            tennis_refresh = refresher(db_path=TENNIS_DB, as_of=current if fixed_now else None)
+            tennis_refresh = stage('tennis_refresh', refresher,
+                db_path=TENNIS_DB, as_of=current if fixed_now else None)
         except Exception as exc:
             tennis_refresh = {"status": "failed", "failure_type": type(exc).__name__}
             # Keep diagnostic locations in the server log, not the public
@@ -4092,7 +4131,7 @@ def run_wettfinder(
                     riskobet_history_loaders
                 )
             configured_risk_sources, risk_source_due = (
-                _riskobet_default_sources(
+                stage('riskobet_sources', _riskobet_default_sources,
                     football_state,
                     **default_source_kwargs,
                 )
@@ -4122,7 +4161,7 @@ def run_wettfinder(
                     riskobet_settlement_runner or run_riskobet_settlements
                 )
                 try:
-                    settlement_result = settlement_runner(
+                    settlement_result = stage('riskobet_results', settlement_runner,
                         db_path=resolved_riskobet_db,
                         latest_path=resolved_riskobet_latest,
                         now=current,
@@ -4158,7 +4197,7 @@ def run_wettfinder(
                         ],
                     }
             runner = riskobet_runner or run_riskobet
-            risk_run = runner(
+            risk_run = stage('riskobet_models', runner,
                 football_source=configured_risk_sources.get("football"),
                 tennis_source=configured_risk_sources.get("tennis"),
                 basketball_source=configured_risk_sources.get("basketball"),
@@ -4207,7 +4246,7 @@ def run_wettfinder(
                                   'checked': 0, 'quotes': 0}
             if production_state and team_price_key and team_price_rows:
                 try:
-                    team_price_summary = refresh_team_sport_prices(
+                    team_price_summary = stage('team_prices', refresh_team_sport_prices,
                         team_price_rows, api_key=team_price_key,
                         path=Path(state_path).parent / 'team_sport_quotes.json',
                         now=current if fixed_now else None)
@@ -4247,7 +4286,7 @@ def run_wettfinder(
     if production_state or esports_settlement_runner is not None:
         from esports_shadow import settle_due_predictions
         try:
-            document['esports_settlement'] = (esports_settlement_runner or settle_due_predictions)(
+            document['esports_settlement'] = stage('esports_results', esports_settlement_runner or settle_due_predictions,
                 ESPORTS_DB, now=current if fixed_now else None)
             if document['esports_settlement']['status'] == 'partial':
                 document['run_status'] = 'degraded'
@@ -4260,7 +4299,7 @@ def run_wettfinder(
         from forecast_evidence import record_forecast_run
         evidence_path = evidence_db_path or ROOT / "runtime_state" / "forecast_evidence.db"
         try:
-            evidence = record_forecast_run(
+            evidence = stage('forecast_recording', record_forecast_run,
                 document,
                 evidence_path,
                 model_version=CHALLENGE_PREDICTION_VERSION,
@@ -4285,7 +4324,7 @@ def run_wettfinder(
                 # receiver was outside capture, so those facts were discarded.
                 # No additional requests, inferred minutes or backdated data.
                 with (capture_football_worker(provider) if provider is not None else nullcontext()) as result_capture:
-                    document["forecast_evidence"]["settlement"] = settle_evidence(
+                    document["forecast_evidence"]["settlement"] = stage('forecast_results', settle_evidence,
                         db_path=evidence_path, football_provider=provider,
                         now=current if fixed_now else None,
                         tennis_db_path=TENNIS_DB, esports_db_path=ESPORTS_DB,
@@ -4307,7 +4346,7 @@ def run_wettfinder(
             app_config = config or load_app_config()
             if app_config.api_football_key:
                 appearance_provider = ChallengeDataProvider(app_config.api_football_key, app_config.weather_key)
-                document["football_context_history"] = refresh_football_appearances(
+                document["football_context_history"] = stage('football_appearances', refresh_football_appearances,
                     appearance_provider, now=current if fixed_now else None)
             else:
                 document["football_context_history"] = {"status": "missing_api_key", "requested_count": 0}
@@ -4332,10 +4371,10 @@ def run_wettfinder(
         document['football_original_admission'] = original_collection_admission
     if original_collection_budget is not None:
         document['football_original_usage'] = original_collection_budget.report()
-    write_state(document, state_path)
+    stage('forecast_publication', write_state, document, state_path)
     if production_state:
         from tip_publication import record_automatic_publication
-        record_automatic_publication(state_path)
+        stage('tip_receipts', record_automatic_publication, state_path)
     return document
 
 

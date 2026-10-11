@@ -284,3 +284,104 @@ def test_sport_coverage_counts_events_not_revisions_or_policy_groups(db, monkeyp
     report = evidence.build_quality_report(db, as_of=observed)
     assert report['sport_coverage'] == [dict(sport='football', forecast_revisions=3,
         unique_events=2, events_with_any_result=1, events_without_results=1)]
+
+
+RESULT_LOOKUP_INDEX = "forecast_result_identity_time"
+
+
+def _queue_with_actual_plan(db, cutoff, monkeypatch):
+    """Inspect the SQL actually used by the read-only production queue."""
+    connect = sqlite3.connect
+    queries = []
+
+    def traced_connect(*args, **kwargs):
+        connection = connect(*args, **kwargs)
+        connection.set_trace_callback(
+            lambda sql: queries.append(sql)
+            if sql.startswith("SELECT f.* FROM forecast_rows f WHERE") else None
+        )
+        return connection
+
+    with monkeypatch.context() as patch:
+        patch.setattr(evidence.sqlite3, "connect", traced_connect)
+        queued = evidence.unresolved_forecasts(db, as_of=cutoff)
+    assert len(queries) == 1
+    with connect(db) as connection:
+        plan = connection.execute("EXPLAIN QUERY PLAN " + queries[0]).fetchall()
+    return queued, [row[3] for row in plan]
+
+
+def _stored_rows(db):
+    with sqlite3.connect(db) as connection:
+        return {
+            table: connection.execute(f"SELECT * FROM {table} ORDER BY 1").fetchall()
+            for table in sorted(evidence._TABLES)
+        }
+
+
+def test_result_lookup_index_is_present_in_fresh_database(db, monkeypatch):
+    evidence.record_forecast_run(document([candidate()]), db, "model-v1")
+    with sqlite3.connect(db) as connection:
+        indexes = connection.execute("PRAGMA index_list(forecast_results)").fetchall()
+        matching = [row for row in indexes if row[1] == RESULT_LOOKUP_INDEX]
+        assert len(matching) == 1 and matching[0][2] == 0
+        columns = connection.execute(f"PRAGMA index_info({RESULT_LOOKUP_INDEX})").fetchall()
+    assert [row[2] for row in columns] == [
+        "event_key", "market_key", "selection", "observed_at"
+    ]
+    _, plan = _queue_with_actual_plan(db, START, monkeypatch)
+    assert any("SEARCH r USING COVERING INDEX " + RESULT_LOOKUP_INDEX in step for step in plan)
+    assert not any(step == "SCAN r" for step in plan)
+
+
+def test_legacy_result_lookup_migration_preserves_bytes_cutoffs_and_exact_identity(db, monkeypatch):
+    rows = [candidate(number) for number in range(1, 8)]
+    wrong_market = dict(candidate(3), market_key="BTTS_NO", selection="Nein")
+    wrong_selection = dict(candidate(4), selection="Nein")
+    rows[4]["scheduled_start"] = (START + timedelta(hours=2)).isoformat()
+    rows[6].pop("modeled_at")
+    rows[6].pop("input_cutoff_at")
+    evidence.record_forecast_run(document([*rows, wrong_market, wrong_selection]), db, "model-v1")
+    later = NOW + timedelta(minutes=10)
+    monkeypatch.setattr(evidence, "_now", lambda: later)
+    causal_revision = evidence.record_forecast_run(document([candidate(7)], later), db, "model-v1")
+    cutoff = START + timedelta(hours=1)
+    monkeypatch.setattr(evidence, "_now", lambda: cutoff + timedelta(hours=2))
+    result(db, fixture=1, observed=cutoff)
+    result(db, fixture=2, observed=cutoff + timedelta(microseconds=1))
+    for fixture, market, selection in ((3, "BTTS_NO", "Nein"), (4, "BTTS_YES", "Nein")):
+        evidence.append_result(f"football:{fixture}", market, selection, "WIN",
+            observed_at=cutoff, db_path=db,
+            provenance={"provider": "api-football", "provider_event_id": str(fixture),
+                "source_record_id": f"fixture:{fixture}:final", "payload_sha256": "a" * 64,
+                "settlement_rule": "football-fulltime-v1"})
+    future = dict(candidate(8), scheduled_start=(cutoff + timedelta(hours=2)).isoformat())
+    future_decision = cutoff + timedelta(minutes=1)
+    monkeypatch.setattr(evidence, "_now", lambda: future_decision)
+    assert evidence.record_forecast_run(document([future], future_decision), db, "model-v1")["recorded"] == 1
+    with sqlite3.connect(db) as connection:
+        connection.execute(f"DROP INDEX IF EXISTS {RESULT_LOOKUP_INDEX}")
+    frozen_rows = _stored_rows(db)
+    before, old_plan = _queue_with_actual_plan(db, cutoff, monkeypatch)
+    assert "SCAN r" in old_plan
+    assert {row["event_key"] for row in before} == {
+        "football:2", "football:3", "football:4", "football:6", "football:7"
+    }
+    seventh = next(row for row in before if row["event_key"] == "football:7")
+    assert seventh["forecast_id"] == causal_revision["forecast_ids"][0]
+    assert seventh["causal_provenance_complete"] is True
+    cutoffs = (NOW, START, cutoff, cutoff + timedelta(microseconds=1), cutoff + timedelta(hours=3))
+    queues = [evidence.unresolved_forecasts(db, as_of=value) for value in cutoffs]
+
+    for _ in range(2):
+        connection = evidence._connect(db)
+        connection.close()
+        assert _stored_rows(db) == frozen_rows
+        assert [evidence.unresolved_forecasts(db, as_of=value) for value in cutoffs] == queues
+        after, plan = _queue_with_actual_plan(db, cutoff, monkeypatch)
+        assert after == before
+        assert any("SEARCH r USING COVERING INDEX " + RESULT_LOOKUP_INDEX in step for step in plan)
+        assert not any(step == "SCAN r" for step in plan)
+    with sqlite3.connect(db) as connection:
+        assert sum(row[1] == RESULT_LOOKUP_INDEX
+                   for row in connection.execute("PRAGMA index_list(forecast_results)")) == 1

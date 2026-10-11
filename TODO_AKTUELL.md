@@ -1,5 +1,50 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 11.10.2026 – Fortsetzung 09 Uhr: fachliche Auswahl und Nachtlauf
+
+Dieser Block hat Vorrang. Ausgang lokal/GitHub/VPS gemeinsam `02943e9`.
+Keine künstliche „zwei Argumente“-Abstimmung: Strategie und tatsächliche
+mathematische Grundlage müssen passen; drei abgeleitete Torzahlen sind kein
+dreifacher Nachweis.
+
+- [x] Echter Nachtlauf nach Accountwechsel geprüft: Wettfinder heute
+  **45-Minuten-Timeout**, kein vollständiger neuer veröffentlichter Tageslauf.
+  App/Healthchecks trotzdem gesund. Nicht aus alten Übergaben Erfolg ableiten.
+- [x] Neue echte Formdaten über beide Lader geprüft: 129 Snapshots,
+  43 Kontextverweise, zwei strukturierte Formanhänge; IDs/Payloads unverändert.
+- [x] Fehlender Ergebnis-Lookupindex ergänzt; alte/neue DB und identische
+  Queue-/Ergebnisdaten geprüft. Interne stderr-Zeiten für ausgewählte Phasen,
+  ohne Providertexte, Tokens oder Änderungen der Kundendokumente.
+- [x] Direkt betroffene Runde 199 grün. Breitere identische 526 Fälle nach
+  Windows-Umgebungskorrektur **519 bestanden, sieben bestehende Skips**;
+  unabhängiger Review ohne blockierenden Befund. Kein neuer Vollsuite-PASS.
+- [ ] Veröffentlichungsnachweis für diese Fortsetzung nach sicherem
+  Fast-forward ergänzen; keine neuen Sicherungen oder API-/Sportscans.
+- [ ] Nächsten normalen Wettfinderlauf **12.10.03:35 CEST** nachprüfen.
+  Der Index behebt einen bestätigten inneren Vollscan, noch keinen belegten
+  Gesamtlauf-Timeout. Fußball-Spielereinsatzhistorie bleibt weiterer Verdacht.
+- [x] Aktives Fußball-Grundmodell fachlich geprüft: historische Gegnerstärke
+  fehlt systematisch. Hockey hat bereits Angriff/Defensive/Spielort gemeinsam;
+  Torerwartung ist kein eigenständiger Beweis neben daraus berechneter Siegchance.
+- [x] Neuer isolierter API-FT-Gegnervergleich: 49 Softwaretests grün,
+  historische Gegnerstärke statt bloßer Tor-/Siegzählung. 730-Tage-Grenze,
+  exakt gleiche Eingabepräfixe und keine späteren Ergebnis-/xG-Revisionen.
+- [x] Echte retrospektive Paarprobe aus vorhandenen Liga-Belegen: 72 von
+  100 versuchten Zielspielen, 28 mangels acht vorheriger Teamspiele ausgelassen.
+  Brier/Logloss in beiden Ligen niedriger, unveränderte Parameter.
+  Individuelle Empfangszeiten fehlen: **kein prospektiver Qualitätsnachweis**.
+  **Noch kein aktiver Modellwechsel**, keine besseren Tipps versprechen.
+- [ ] Eigenen nachvollziehbaren Fußball-Modellvertrag integrieren; alte
+  `football-goals-v1`-Gewichte/Prognosebelege nicht mit neuen Torwerten vermischen.
+  Qualität getrennt prüfen, statt bloß Auswahltexte ausführlicher zu machen.
+- [ ] Numerisch nachgewiesene Verletzungs-/Müdigkeits-/Wettereffekte,
+  zehn Tennis-Ergebnislücken und alte RisikoBet-Ergebnismehrdeutigkeit offen.
+  Sortierung/weitere Eishockeyligen ebenfalls nicht erledigt.
+
+[Prüfbericht und genaue Abnahmegrenzen](docs/audits/2026-10-11-auswahl-und-nachtlauf.md).
+Vorhandene ungetrackte Arbeit erhalten; zusätzliche Rohdaten nur unter
+`C:/Projekt/BetBoy/output/winner-audit-20261011/`, kein Datenbankarchiv.
+
 ## 11.10.2026 – echte Teamsport-Formkarten und Abschlussprüfung
 
 Fortsetzung des Boston-Fixes; Formrelease `fa42917` und ergänzender
