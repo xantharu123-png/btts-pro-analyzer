@@ -56,6 +56,7 @@ def test_full_verification_decodes_physical_once_and_keeps_independent_seal(five
         monkeypatch.setattr(module, name, observed)
     spy(context_observations, "_decode_receipt", "physical")
     spy(context_observations, "normalize_observation", "physical_generic")
+    spy(context_observations, "_validate_canonical_observation_content", "physical_canonical")
     spy(status, "_validate_selected_tennis_receipt_cold", "cold")
     spy(status, "normalize_observation", "selected_generic")
     spy(tennis.predict, "predict_match", "predictor")
@@ -70,7 +71,8 @@ def test_full_verification_decodes_physical_once_and_keeps_independent_seal(five
     assert report["counts"]["observations"] == len(order) == 10
     assert calls["physical"] == 10
     assert calls["cold"] == 10  # Full cold seal of ten independently decoded encodings.
-    assert calls["physical_generic"] == calls["selected_generic"] == 10
+    assert calls["physical_generic"] == 0  # No redundant copy of already decoded canonical content.
+    assert calls["physical_canonical"] == calls["selected_generic"] == 10
     assert calls["predictor"] == calls["transport"] == len(histories) == 10
     assert all(history == histories[0] for history in histories)
     assert not report["empirical_approval_verified"]

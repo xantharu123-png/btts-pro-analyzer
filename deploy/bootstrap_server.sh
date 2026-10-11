@@ -367,7 +367,7 @@ expected_unit_sha256() {
         deploy/systemd/betboy-redcard-settlement.timer) printf '%s\n' d5bcfcd0962ffc3587ad7590c5d91b49ce6c4cc26b00967c528c2693879ac4cc ;;
         deploy/systemd/betboy-tennis.service) printf '%s\n' 8f0239135e214f1ffe2cdf1adeda62d2852b5a9ff36ebdf5a1d347850cbef146 ;;
         deploy/systemd/betboy-tennis.timer) printf '%s\n' ccab53f62d2683b8cc2290362ff901c8b10f2c14905f436e0b21fa25bb1ee287 ;;
-        deploy/systemd/betboy-wettfinder.service) printf '%s\n' 698cbda1b157603f735e079c9f30b25bdfb1d78b74d693b8a05036b811d36d1b ;;
+        deploy/systemd/betboy-wettfinder.service) printf '%s\n' e0f268684dbe3c850afbf1ca9f55fc41a9a5e6815ba7d86b6c49b0988ba5e0d7 ;;
         deploy/systemd/betboy-wettfinder.timer) printf '%s\n' 1fa5808a0b659477285a35bdb2f348539b5620cacc148cd9b53266e55fb9c839 ;;
         *) die "Unit is not byte-allowlisted: $1" ;;
     esac

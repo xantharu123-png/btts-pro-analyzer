@@ -52,14 +52,22 @@ Empfangszeiten verwendet; spätere Revisionen und freie Empfangszeitfelder sind
 kein früherer Beleg. Ein Vergleich benötigt gemessen 2.997 Bytes, maximal
 16.384 Bytes; Spielhistorie und Scorezellen werden nicht nochmals kopiert.
 
-Original und Vergleich werden atomar unter dem bisherigen gemeinsamen
-Bytebudget veröffentlicht. Das Original hat Vorrang, der optionale Vergleich
-kann entfallen. Ein legitim nach Anpfiff fertiggestelltes altes Original darf
+Originale werden zuerst über **alle Batches desselben reservierten Workers**
+veröffentlicht. Erst danach wird der Worker versiegelt und der kompakte,
+byte-/anzahlbegrenzte Vergleichsvorrat separat atomar aus dem verbleibenden
+unveränderten Bytebudget geschrieben. Ein Gegentest fand zunächst, dass ein
+früher Vergleich einen späteren Originalbeleg verdrängen konnte; die neue
+Zwei-Owner-/Zwei-Batch-Abnahme schließt genau diesen Fehler. Bei engem Budget
+bleiben beide Originale erhalten und null Vergleiche werden gespeichert.
+Echte abschließende Veröffentlichungszeit, Quellen, Originalbindung,
+Trigger-Readback und Rollback bleiben geprüft. Ein legitim nach Anpfiff
+fertiggestelltes altes Original darf
 nicht wegen des neuen optionalen Vergleichs abstürzen; ein solcher Vergleich
 gilt als nicht prospektiv verwendbar. Quellen-/Hashverletzungen bleiben Fehler.
 
 178 breite Fußballfälle, zwei Schlussfälle und 17 unabhängige Reviewfälle
-bestanden. Die aktive 75/25-Kundenberechnung, bisherige Kalibrierung und alte
+bestanden; zusätzlich 84 betroffene Deferral-/Grenzfälle und 44 unabhängige
+Abschlussfälle. Die aktive 75/25-Kundenberechnung, bisherige Kalibrierung und alte
 Originalprognosen bleiben unverändert. Der neue Vergleich trägt ausdrücklich
 `experimental-not-applied`, keine Effektfreigabe. Das ist eine reale Anbindung
 zur getrennten Abnahme, **noch kein aktiver Modellwechsel oder Renditenachweis**.
@@ -170,10 +178,34 @@ derselben fehlenden Merkmale ersetzt dies nicht. Aktuell nicht fertig.
 
 ## Veröffentlichung und Gesamtabnahme
 
+Die echte Morgenlaufzeit stieg an den drei Vortagen von 27:31 über 36:10 auf
+44:04 Minuten. Am 11.10. brach systemd den noch fortschreitenden Lauf bei genau
+45 Minuten ab (40:35 CPU-Minuten, letzte neue Projektion bei 41:48). Die
+Dienstgrenze wird begrenzt auf **60 Minuten** gesetzt; 03:35 einmal täglich,
+Spiel-/Kontext-/Quoten- und bestehende Bytegrenzen bleiben unverändert. Beide
+Deployment-Allowlisten erhalten den neuen exakten Unit-Hash; die geprüften
+Preflight-Algorithmen und ihre rekonstruierten Vorgänger-Hashes bleiben gleich.
+84 Serverjobtests bestanden, sieben vorhandene Plattform-Skips. Das ist
+vertretbare Reserve, kein vorweggenommener Beweis für den nächsten Gesamtlauf.
+
 Die Vollsuite wird auf dem eingefrorenen Endstand ohne zusätzliche Provider-
-aufrufe ausgeführt. Zwei noch laufende Vorversuche wurden nach den abschließenden
-Randfallkorrekturen gezielt beendet und zählen nicht als bestandene Läufe.
-Ergebnis, Commit und Deployment werden nach Abschluss hier ergänzt.
+aufrufe ausgeführt. Drei noch laufende Vorversuche wurden nach abschließenden
+Korrekturen gezielt beendet und zählen nicht als bestandene Läufe. Der dritte
+identifizierte einen veralteten Decoder-Prüfzähler, einen durch die legitime
+Unit-Änderung veralteten SHA-Pin sowie zwei mathematisch inkonsistente
+Hockey-Anzeige-Mocks. Kein Produktionsguard wurde zur Reparatur gelockert.
+Die Prüfzähler behalten unabhängige Decode-/Quellensiegelprüfungen; der neue
+Updater-Pin rekonstruiert beide bisher geprüften Vorgänger. Alle betroffenen
+Module ohne Filter bestanden: 330 + 111 + 245 Tests, neun bzw. ein vorhandener
+Plattform-Skip. Weitere vier Fälle aus der letzten Pufferausgabe waren
+Testadapter auf einen inzwischen entfernten RisikoBet-Renderpfad. Der Adapter
+nutzt jetzt den echten geordneten Renderer; sämtliche Preis-/Uhren-/Publikations-
+Assertions bleiben erhalten. Alle acht owning Nachbarmodule: 208 bestanden.
+Der gleichartige alte Aufruf in der lokalen Produktvorschau ist korrigiert;
+beide tatsächlichen 15K-/RisikoBet-AppTest-Ansichten ohne Exceptions geladen.
+Netzwerk und SQLite-Verbindungen gesperrt, null Versuche. Inhalte und
+synthetische Zahlen unverändert; Lauf 4,68 s. Quellstand jetzt eingefroren.
+Finale Vollsuite: `full-04.xml`, Ergebnis und Deployment folgen.
 
 Separater Portalrunner in bestehender `.portal-venv`, QA-In-Memory-Datenbank,
 lokaler Testmail und blockiertem externen Netz: **47 Tests bestanden**, 15,501 s,

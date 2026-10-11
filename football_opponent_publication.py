@@ -153,7 +153,8 @@ def prepare_opponent_comparison(original, binding, receipts):
 
     A missing/insufficient cohort raises ComparisonUnavailable. Invalid hashes,
     receipt swaps or future revisions raise integrity errors and must propagate.
-    The caller publishes atomically with the original under its existing budget.
+    The caller defers these compact bytes until all originals in the reserved
+    worker finish; only the same worker's leftover budget may publish them.
     """
     import challenge_engine as engine
     from context_models.football_original_publication import BINDING_KIND

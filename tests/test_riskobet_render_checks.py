@@ -94,8 +94,8 @@ def fake_render(monkeypatch, *, manual=None, expired=None):
         return {candidate.candidate_id: price}
 
     monkeypatch.setattr(ui, "load_shared_price_overlays", overlay_loader)
-    monkeypatch.setattr(ui, "_render_featured", lambda cards, *_: calls.update(featured=cards))
-    monkeypatch.setattr(ui, "_render_additional", lambda cards, *_: calls.update(additional=cards))
+    monkeypatch.setattr(ui, "_render_ordered_scenarios", lambda catalog, *_: calls.update(
+        featured=catalog.featured, additional=catalog.additional))
     import tip_publication
     monkeypatch.setattr(tip_publication, "record_riskobet_catalog",
         lambda *args, **kwargs: calls.update(publication=kwargs))

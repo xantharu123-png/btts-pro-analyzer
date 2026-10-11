@@ -25,6 +25,7 @@ from context_observations import freeze_named_receipts, _SELECT, _decode_receipt
 
 CODE_KIND = "football-executed-code-v2"
 BINDING_KIND = "football-original-b1-binding-v1"
+MAX_PENDING_OPPONENT_COMPARISONS = 1200
 
 
 def publication_for_worker(capture, limits, *, shared_budget=None):
@@ -97,6 +98,84 @@ class FootballOriginalBudget:
         self.max_worker_payload_bytes = self.remaining_payload_bytes = max_worker_payload_bytes
         self.max_source_payload_bytes = self.remaining_source_bytes = max_source_payload_bytes
         self.lock = Lock()
+        self._sealed = False
+        self._optional = {}
+        self._optional_bytes = 0
+
+    def _defer_comparison(self, path, prepared, *, captured_at, scheduled_start):
+        """Called under the shared lock; retain compact bytes, never history/owners."""
+        if self._sealed:
+            raise ContextContractError("reserved original worker is already finished")
+        key = (str(Path(path).resolve()), prepared.digest)
+        if key in self._optional:
+            return
+        size = len(prepared.payload_bytes)
+        if (len(self._optional) >= MAX_PENDING_OPPONENT_COMPARISONS
+                or self._optional_bytes + size > self.max_worker_payload_bytes):
+            return  # Optional research cannot reserve or enlarge ORIGINAL bytes.
+        self._optional[key] = (Path(path), prepared, captured_at, scheduled_start)
+        self._optional_bytes += size
+
+    def finish_optional_comparisons(self):
+        """Seal ALL original batches, then spend only the existing leftover bytes.
+
+        Idempotent and fail-closed. A failed optional transaction cannot roll
+        back committed originals or regain the worker's payload/source budget.
+        """
+        from context_models.football_training import _load_publication
+        with self.lock:
+            if self._sealed:
+                return
+            self._sealed = True
+            pending, self._optional = self._optional, {}
+            self._optional_bytes = 0
+            for path, obj, captured_at, scheduled_start in pending.values():
+                # This is the actual new physical publication clock, not the
+                # earlier decision/capture clock carried by the original.
+                created = canonical_timestamp(datetime.now(timezone.utc))
+                if created < captured_at:
+                    raise ContextIntegrityError("optional publication precedes actual ORIGINAL capture")
+                if created >= scheduled_start:
+                    continue  # A late batch is not prospective research evidence.
+                if len(obj.payload_bytes) > self.remaining_payload_bytes:
+                    continue
+                payload = a1._decode_object(obj.payload_bytes, label="opponent comparison")
+                binding_ref = payload["original_binding_ref"]
+                with closing(a1._connect(path)) as connection:
+                    try:
+                        connection.execute("BEGIN IMMEDIATE")
+                        binding, _, _ = _load_publication(connection, binding_ref, latest=created)
+                        value = binding["payload"]
+                        if (value["captured_at"] != captured_at
+                                or value["native_event"]["scheduled_start"] != scheduled_start
+                                or value["original_manifest_digest"] != payload["original_manifest_ref"]
+                                or value["code_digest"] != payload["original_code_ref"]):
+                            raise ContextIntegrityError("deferred comparison differs from its stored original binding")
+                        refs = tuple(sorted({ref for group in value["inspected_receipts"].values() for ref in group}))
+                        def check_receipts():
+                            for ref in refs:
+                                raw = connection.execute(_SELECT + " WHERE r.digest=?", (ref,)).fetchone()
+                                if raw is None or _decode_receipt(raw)["digest"] != ref:
+                                    raise ContextIntegrityError("deferred comparison source dependency changed")
+                        check_receipts()
+                        _, fresh = a1._insert_artifact(connection, obj, created)
+                        inserted = len(obj.payload_bytes) if fresh else 0
+                        if inserted > self.remaining_payload_bytes:
+                            raise StorageBudgetExceeded("optional comparison leftover budget exhausted")
+                        row = connection.execute("SELECT kind,payload,created_at FROM artifacts WHERE digest=?", (obj.digest,)).fetchone()
+                        actual = a1._decode_artifact_row(obj.digest, row)
+                        if (actual["kind"] != obj.kind or a1.canonical_bytes(actual["payload"]) != obj.payload_bytes
+                                or row[2] < captured_at or row[2] >= scheduled_start or row[2] > created):
+                            raise ContextIntegrityError("deferred comparison readback or publication clock differs")
+                        # Trigger changes to existing dependencies are checked
+                        # inside the same transaction before any budget debit.
+                        _load_publication(connection, binding_ref, latest=created)
+                        check_receipts()
+                        connection.commit()
+                    except BaseException:
+                        connection.rollback()
+                        raise
+                self.remaining_payload_bytes -= inserted
 
     def report(self):
         with self.lock:
@@ -119,6 +198,8 @@ class FootballOriginalPublication:
                 or shared_budget.max_source_payload_bytes != max_source_payload_bytes):
             raise ContextContractError("publication differs from the shared worker budget")
         self._budget = shared_budget
+        if shared_budget._sealed:
+            raise ContextContractError("reserved original worker is already finished")
         self.inserted_payload_bytes = 0
         self.source_inserted_bytes = 0
         self.events = []
@@ -140,10 +221,14 @@ class FootballOriginalPublication:
         """Flush then freeze the exact independent source refs once per scan."""
         if self._rows is not None:
             raise ContextContractError("publication source set already frozen")
+        if self._budget._sealed:
+            raise ContextContractError("reserved original worker is already finished")
         if type(selected_input_scope) is not tuple:
             raise ContextContractError("publication input scope must be a tuple")
         if self.capture is not None:
             with self._lock:
+                if self._budget._sealed:
+                    raise ContextContractError("reserved original worker is already finished")
                 before = self.capture.source_inserted_bytes
                 try:
                     self._associations = self.capture.flush_baseline_receipts(selected_input_scope,
@@ -278,6 +363,8 @@ class FootballOriginalPublication:
         except ComparisonUnavailable:
             opponent = None
         with self._lock:
+            if self._budget._sealed:
+                raise ContextContractError("reserved original worker is already finished")
             created_at = datetime.now(timezone.utc)
             created = canonical_timestamp(created_at)
             limit = min(self.max_publication_payload_bytes, self.remaining_payload_bytes)
@@ -299,15 +386,9 @@ class FootballOriginalPublication:
                             inserted += len(obj.payload_bytes) if fresh else 0
                         if inserted > limit:
                             raise StorageBudgetExceeded("code/binding publication budget exhausted")
-                        additional = ()
-                        if opponent is not None and (len(opponent.payload_bytes) <= limit - inserted
-                                or connection.execute("SELECT 1 FROM artifacts WHERE digest=?", (opponent.digest,)).fetchone()):
-                            _, fresh = a1._insert_artifact(connection, opponent, created)
-                            inserted += len(opponent.payload_bytes) if fresh else 0
-                            additional = (opponent,)
                         # Verify final actual readback, including trigger effects.
                         final_original_rows = {}
-                        for obj in (*prepared.artifacts, self._code, binding, *additional):
+                        for obj in (*prepared.artifacts, self._code, binding):
                             row = connection.execute("SELECT kind,payload,created_at FROM artifacts WHERE digest=?", (obj.digest,)).fetchone()
                             actual = a1._decode_artifact_row(obj.digest, row)
                             if actual["kind"] != obj.kind or a1.canonical_bytes(actual["payload"]) != obj.payload_bytes:
@@ -327,6 +408,9 @@ class FootballOriginalPublication:
                         raise
                 self._budget.remaining_payload_bytes -= inserted
                 self.inserted_payload_bytes += inserted
+                if opponent is not None and len(opponent.payload_bytes) <= self.max_publication_payload_bytes - inserted:
+                    self._budget._defer_comparison(self.path, opponent,
+                        captured_at=packet["captured_at"], scheduled_start=native_event["scheduled_start"])
                 status = "partial" if selected["unresolved"] else "captured"
                 ref = binding.digest
             except StorageBudgetExceeded:

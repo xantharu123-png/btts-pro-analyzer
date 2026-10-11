@@ -15,7 +15,8 @@ from challenge_engine import MARKET_BY_KEY
 from test_challenge_15k import candidate
 from test_riskobet_ui import _bundle
 from riskobet_domain import FactorRole
-from riskobet_surface import build_riskobet_card
+from riskobet_surface import RiskBetCatalog, build_riskobet_card
+from tip_display_order import START_TIME
 import riskobet_ui
 
 st.set_page_config(page_title='BetBoy · lokale Reparaturprüfung', layout='wide')
@@ -45,4 +46,5 @@ else:
                    cons=('Verletzungs- und Müdigkeitswirkung noch nicht belegt.',))
     display = build_riskobet_card(card)
     with st.container(key='riskobet_page'):
-        riskobet_ui._render_featured((display,), {card.candidate_id: card}, {snapshot.snapshot_id: snapshot})
+        riskobet_ui._render_ordered_scenarios(RiskBetCatalog((display,), ()),
+            {card.candidate_id: card}, {snapshot.snapshot_id: snapshot}, START_TIME)

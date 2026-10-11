@@ -47,7 +47,8 @@ Auslassung von History-Zeilen und keine Lockerung der Modellfreigaben.
   und sämtlicher Hash-/SQL-Indexänderungen.
 - Fokus: 156 Tests bestanden. Breitere Source-/Worker-/Replay-Abnahme:
   **498 Tests in 204,15 s bestanden**, zwölf Module, externes Netzwerk gesperrt.
-  Kein Vollsuite-PASS; unabhängiger Abschlussreview bleibt vor Veröffentlichung.
+  Kein Vollsuite-PASS; unabhängiger Abschlussreview: 4.550 Differentialfälle,
+  null Akzeptanz-/Ergebnisabweichung oder Eingabemutation.
 - Die Stichprobe beweist keine exakt entsprechende Gesamtbeschleunigung.
   Der vollständige nächste reguläre Tageslauf bleibt ein eigener Nachweis.
 - Das Wachstum durch wiederholte Source-Inhalte ist eine zusätzliche Ursache;

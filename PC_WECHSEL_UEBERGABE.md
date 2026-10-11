@@ -15,10 +15,16 @@ und maximal 16 KiB; NHL 2026/27 strikt gebunden; unmögliche Hockey-Gesamtsieg-
 verteilungen am owning Datenvertrag abgelehnt. Bestehende Kundenschätzungen
 bleiben gleich. Alter Football-Abrechnungsbericht ist nicht der aktuelle Code.
 
-Finale **ungefilterte Offline-Sportsuite läuft**, Session 7441, JUnitziel
-`C:/Projekt/BetBoy/output/context-audit-20261011/full-03.xml`; zwei Vorversuche
-nach letzten Randfallkorrekturen absichtlich beendet, kein PASS. Source-/Test-
-dateien eingefroren. Alle 12.706 produktiven Snapshots sind hash-/ID-kompatibel;
+Finale **ungefilterte Offline-Sportsuite steht an**, JUnitziel
+`C:/Projekt/BetBoy/output/context-audit-20261011/full-04.xml`; drei Vorversuche
+nach letzten Korrekturen absichtlich beendet, kein PASS. Vier veraltete
+Prüfannahmen wurden korrigiert und ihre kompletten Module bestanden; vier
+weitere Fälle waren veraltete RisikoBet-Renderadapter (208 Nachbartests grün).
+Der identische lokale Vorschauaufruf ist korrigiert; beide AppTest-Ansichten
+ohne Exceptions oder Netzwerk-/DB-Versuch geladen. Quellstand eingefroren. Der Vergleich
+nutzt erst nach allen Original-Batches übrige Bytes; der Zwei-Batch-Fehler ist
+unabhängig geschlossen. 60-Minuten-Reserve und geprüfte Unit-Allowlisten sind
+lokal, noch nicht installiert. Alle 12.706 Snapshots sind hash-/ID-kompatibel;
 separater Portalrunner 47 Tests grün. Erst Resultat lesen, dann gezielten Commit,
 main-Push und VPS-Fast-forward ohne neue Sicherung/zusätzlichen Scan abschließen.
 Vorbereiteter begrenzter Helfer außerhalb Git:

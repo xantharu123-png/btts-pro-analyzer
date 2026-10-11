@@ -73,6 +73,8 @@ def test_wettfinder_timer_is_installed_and_enabled_by_deploy_scripts():
     )
 
     assert "wettfinder_automation.py" in service
+    assert service.count("TimeoutStartSec=") == 1
+    assert "TimeoutStartSec=60min" in service
     assert "OnCalendar=*-*-* 03:35:00 Europe/Zurich" in timer
     for expected in EXPECTED_TIMERS:
         assert update.count(f"    {expected}\n") == 1

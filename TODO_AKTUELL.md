@@ -18,7 +18,10 @@ Kein Backup, zusätzlicher Sport-/API-Scan, Löschen alter Belege oder Geldände
 - [x] Eigene gegnerbereinigte Fußballrechnung im Original-Publisher angebunden:
   alle 40 Tormärkte aus einer Verteilung, Quellen/Uhren/Revisionen gebunden,
   eigener Modellhash, etwa 3 KB statt kopierter Historie, maximal 16 KiB,
-  vorhandenes atomares Bytebudget mit Originalvorrang. Spätes Original wird
+  vorhandenes Bytebudget: alle Original-Batches zuerst, danach versiegelter
+  Worker und optionale atomare Vergleiche ausschließlich aus Restbytes. Der
+  unabhängig gefundene Zwei-Batch-Budgetfehler ist damit behoben; 84 betroffene
+  und 44 unabhängige Fälle bestanden. Spätes Original wird
   nicht durch den optionalen Vergleich blockiert. **Vergleich, nicht aktiv**.
 - [x] NHL-Saisonvertrag 2026/27 belegt und strikt getrennt von 2025/26.
   Keine alte Effektfreigabe übertragen; weitere Liga-IDs nicht geraten.
@@ -32,10 +35,21 @@ Kein Backup, zusätzlicher Sport-/API-Scan, Löschen alter Belege oder Geldände
   `5467b88` behandelt dies. Vier Kandidaten und 35 Run-Mitgliedschaften
   unverändert valide; kein weiterer Quellcodefix oder geratene Abrechnung.
 - [x] Separater Portal-QA-Runner: 47 Tests grün, keine echten externen Aufrufe.
-- [ ] **Vollsuite läuft:** finaler eingefrorener Code, alle Sporttests über
-  `output/team-form-20261010/pytest_offline.py`, finaler JUnit
-  `C:/Projekt/BetBoy/output/context-audit-20261011/full-03.xml`, Session 7441.
-  Zwei gezielt beendete Vorversuche zählen nicht als PASS. Keine Fälle gefiltert.
+- [x] Begrenzte Laufzeitreserve 60 statt 45 Minuten anhand echter Fortschritte
+  und Vortage 27/36/44 Minuten. Start 03:35 einmal täglich, API-/Byte-/Spielgrenzen
+  gleich. 84 Serverjobtests bestanden, sieben vorhandene Skips; Unit noch nicht
+  auf VPS installiert. Kein Erfolg des nächsten Gesamtlaufs vorwegnehmen.
+- [ ] **Finale Vollsuite:** finaler eingefrorener Code, alle Sporttests über
+  `C:/Projekt/BetBoy/output/context-audit-20261011/pytest_final.py`, finaler JUnit
+  `C:/Projekt/BetBoy/output/context-audit-20261011/full-04.xml`.
+  Drei beendete Vorversuche zählen nicht als PASS. Vier Prüffehler aus dem
+  dritten Lauf vollständig erklärt und owning Module grün: Decoderzähler,
+  legitim geänderter Unit-Hash und zwei inkonsistente Anzeige-Mocks.
+  Weitere vier Fälle waren veraltete RisikoBet-Renderadapter; alle acht
+  owning Nachbarmodule mit 208 Tests bestanden. Derselbe veraltete Aufruf in
+  der lokalen Produktvorschau korrigiert; echte 15K-/RisikoBet-AppTest-Ansichten
+  ohne Exceptions oder Netzwerk-/DB-Versuch geladen. Quellstand eingefroren.
+  Keine Produktionsprüfung gelockert oder Fälle gefiltert.
 - [ ] Finalen Diff prüfen, ausdrücklich nur eigene Code-/Test-/Auditdateien
   committen; main pushen und geprüften Fast-forward auf VPS ohne Backup/Scan.
 - [ ] Nach Veröffentlichung regulären Tennislauf **12.10.00:05 CEST** und

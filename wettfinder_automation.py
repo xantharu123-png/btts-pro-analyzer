@@ -4370,6 +4370,7 @@ def run_wettfinder(
     if original_collection_admission is not None:
         document['football_original_admission'] = original_collection_admission
     if original_collection_budget is not None:
+        stage('football_opponent_comparisons', original_collection_budget.finish_optional_comparisons)
         document['football_original_usage'] = original_collection_budget.report()
     stage('forecast_publication', write_state, document, state_path)
     if production_state:
