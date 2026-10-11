@@ -14,7 +14,15 @@ Keine Wahrscheinlichkeits-/Quote-/Geldänderung durch die Tennisanzeige.
 Finale gemeinsame Offline-QA: **1.039 bestanden, keine Fehler/Skips** in 25
 ganzen Modulen, 700,86 s, Exit 0. Quell-/Testhashes vor/nach QA identisch.
 Unabhängiger Review grün; überlappende Agentenzahlen nicht addieren. Kein neuer
-Vollsuite-PASS behauptet. Commit-/Deploystände folgen im ersten TODO-Block.
+Vollsuite-PASS behauptet. Reparaturcommit
+`dccef90a86491709988bc5adebedebf580ccb78b` auf main gepusht und am 11.10.
+gegen 20:13 CEST auf dem VPS live. Ein reiner Dokumentationscommit enthält
+diese Abschlussnachweise. Offlineimports, Server-Git-/Quellbyteabgleich,
+App/Caddy, sieben reguläre Timer und beide Healthchecks bestätigt; beide
+Prognose-JSONs während Deployment bytegleich. Kein Timer-/Jobabbruch.
+Shadow zuletzt weiterhin `partial` wegen frischer Bet365-Quote, alte zwei
+Evidenzprobleme weiterhin erkannt. Tageslaufalter Timeout nicht als neuer
+Erfolg darstellen. Tatsächliche numerische Effekte sind weiterhin offen.
 Keine zusätzlichen Scans, Backups, Bereinigungen oder alten Belegänderungen.
 
 **Nicht wieder als bloße Datenwartezeit darstellen:** Die produktive

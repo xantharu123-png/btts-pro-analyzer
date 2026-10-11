@@ -156,7 +156,7 @@ werden. Keine geratenen Wetter-/Ausfallkoeffizienten.
 
 ## 4. QA und Veröffentlichung
 
-Final eingefrorene Quellhashes SHA256:
+Final eingefrorene lokale Windows-QA-Dateihashes SHA256:
 
 ```text
 context_models/football.py
@@ -168,6 +168,12 @@ tests/test_football_context_features.py
 tests/test_tennis_workload_truth.py
 f5d8424cae9bb385e2a19ec0322fef191d8f67865d3574e818a294f5781184eb
 ```
+
+Diese vier Hashes belegen den unveränderten lokalen QA-Snapshot, nicht eine
+plattformübergreifende Byteidentität: Git normalisiert hier Python-Zeilenenden
+von Windows-CRLF auf LF. Der Servernachweis erfolgt deshalb über den exakten
+Commit und zusätzlich dessen Git-Blob-/VPS-Quellbytes. Kein lokaler D2-Fit wird
+auf den VPS übertragen; dessen Implementierungsbindung bleibt exakt.
 
 - Eigene Fußballregression 31/31, Tennisregression 26/26.
 - Finaler unabhängiger gemeinsamer Ownerlauf 57 bestanden, 11,16 s, Exit 0;
@@ -208,6 +214,52 @@ Qualitäts- oder Renditenachweis. Tennis zuletzt Exit 0 um 00:32:29.
 Tageslauf weiter alter Timeout/Exit 15 um 04:20:22; neues Laufzeitlimit erst beim
 nächsten regulären Lauf bewertbar. Kein Dienst zusätzlich gestartet/zurückgesetzt.
 
-Commit-/VPS-Nachweis folgt nach Abschluss. Bereits vorhandene ungetrackte
-Audit-/Browserdateien bleiben unberührt. Kein neuer Sportscan, Backup, Löschen
-oder Geld-/Ergebnisänderung für diesen Nachweis.
+Code-/Test-/Auditcommit `dccef90a86491709988bc5adebedebf580ccb78b` ist auf
+main gepusht; VPS origin/main wurde nur vorbereitend gefetcht. Bei 20:07:02
+bleibt der laufende VPS-Appcode auf dem Ausgang `8dfabe9`; das natürliche
+sechsminütige Fenster ist vor 20:12 zu kurz. Kein Timer wird dafür angehalten.
+Der reguläre 20:02-Lauf endete inzwischen mit Exit 1/`partial`: ein geprüfter
+Kandidat ohne frische Bet365-Providerquote, regulärer Retry. Kein App-Absturz;
+die zwei alten ungültigen Evidenzzeilen weiterhin unverändert erkannt.
+19:52-Erfolg ist deshalb nicht der neueste vollständige Status. Alle Scans
+waren bereits regulär geplant, nicht durch diese Prüfung zusätzlich ausgelöst.
+
+**VPS-Veröffentlichung abgeschlossen gegen 20:13 CEST:** nach dem regulären
+Shadow-Abschluss 20:12:17 waren alle Sportdienste inaktiv/failed und das nächste
+natürliche Timerfenster über sechs Minuten entfernt. Beide Guards erfüllt;
+kein Timer oder Job unterbrochen. Codecommit `dccef90a86491709988bc5adebedebf580ccb78b`
+per geprüftem Fast-forward deployed, beide Offlineimports erfolgreich, getrackter
+VPS-Stand sauber. App/Caddy und sieben reguläre Timer aktiv; tägliches Backup
+weiter inaktiv. Beide Healthchecks `ok` am 11.10.20:13:47. Zwei kurzzeitige
+Start-Verbindungs-Retries im Deployment, danach innerhalb des Budgets gesund.
+Keine dauerhafte Verbindungsstörung oder Fehler-Recovery notwendig.
+
+Die echten VPS-Quellbytes entsprechen ihren Git-Blobs SHA256:
+
+```text
+context_models/football.py
+f101a6d57645b365bfc7f6adb4004d93e769349d4841fbb80a7b8069a8de768d
+tennis/workload.py
+60440fa4d0c0cbe3a09ec9bd09d87ec857fbf3f02505be8e12c184beb9babf04
+```
+
+Erste Hashleseprobe als unprivilegierter SSH-Nutzer hatte nur fehlende
+Leseberechtigung; korrekt als Appnutzer wiederholt, keine Permissions geändert.
+Wettfinder-JSON SHA256 vor/nach Deployment identisch:
+`a51c9d865ab14db2d7d17971e469cbb029045a7107dd7417f2ff9da17af4298e`.
+RisikoBet-JSON ebenso:
+`acf24df6d14786a744b8fdf30a690bada1b34f84d54e32eb1e3915cdc3350ede`.
+Keine neue Preisabfrage, Prognosepublikation, Effektaktivierung oder Geld-/Ergebnisänderung.
+
+Letzter tatsächlicher regulärer Shadow-Bericht 20:12:17 weiterhin Exit 1/`partial`:
+ein Kandidat zur erneuten Prüfung zurückgestellt, keine neue Prognose/Schlussquote/Abrechnung, keine
+frische Bet365-Providerquote für Fixture 1638630; normaler weiterer Retry.
+Die zwei alten ungültigen Provenienz-/Settlementzeilen bleiben erkannt.
+Tageslauf weiterhin der alte Timeoutstatus, Tennis letzter regulärer Lauf
+erfolgreich. Neues Tageslimit und echte zusätzliche Hockeyabdeckung erst beim
+12.10.03:35-Lauf beweisbar. Ein Deploy/Healthcheck ist kein Sportlaufnachweis.
+
+Der anschließende reine Nachweis-/Übergabecommit enthält nur diese drei
+Dokumente und wird ohne Appneustart auf dem VPS fast-forwarded. Bereits
+vorhandene ungetrackte Audit-/Browserdateien bleiben unberührt. Kein neuer
+Sportscan, Backup, Löschen oder Geld-/Ergebnisänderung für diesen Nachweis.

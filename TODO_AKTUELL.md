@@ -4,9 +4,11 @@
 
 Dieser Block hat Vorrang vor früheren Fertigmeldungen. Verifizierter Ausgang
 lokal/GitHub-main/VPS um 19:38 CEST gemeinsam:
-`8dfabe964ad382ecc32a2a21ae4c48b926129458`. Die unten genannten Reparaturen
-sind zunächst lokal; Veröffentlichung und abschließende QA werden hier erst
-nach echtem Nachweis ergänzt. Keine zusätzlichen API-/Sportscans, Backups,
+`8dfabe964ad382ecc32a2a21ae4c48b926129458`. **Code auf main gepusht und am
+11.10. gegen 20:13 CEST auf dem VPS live:**
+`dccef90a86491709988bc5adebedebf580ccb78b`. Der folgende reine
+Dokumentationscommit hält diese Nachweise fest, keine weitere Codeänderung.
+Keine zusätzlichen API-/Sportscans, Backups,
 Bereinigungen, Migrationen oder Änderungen alter Prognosen/Geldbuchungen.
 
 - [x] Zweite Fußballursache reproduziert: Auch ein früherer Spieler des
@@ -33,9 +35,27 @@ Bereinigungen, Migrationen oder Änderungen alter Prognosen/Geldbuchungen.
   `C:/Projekt/BetBoy/output/context-followup-20261011/release-01.xml`.
   Eingefrorene Quell-/Testhashes vorher/nachher identisch. Keine neue Vollsuite;
   Agentenrunden überlappen und werden nicht addiert.
-- [ ] Explizite Dateien committen/pushen, natürliches freies VPS-Fenster nutzen,
-  ohne Backup/zusätzlichen Scan deployen; Code-, Daten- und Healthnachweise
-  getrennt dokumentieren.
+- [x] Sieben explizite Dateien als
+  `dccef90a86491709988bc5adebedebf580ccb78b` committed und auf main gepusht.
+- [x] Nach regulärem Shadow-Abschluss 20:12:17 ein natürliches freies Fenster
+  mit über sechs Minuten Reserve genutzt; kein Timer/Job unterbrochen.
+  Kontrollierter Fast-forward auf Codecommit, Offlineimports Exit 0,
+  App/Caddy und alle sieben regulären Timer aktiv. Beide Healthchecks `ok`;
+  während Startup zwei erwartete Verbindungs-Retries, danach erfolgreich.
+  Getrackter VPS-Stand sauber; die beiden Serverquellhashes stimmen genau mit
+  den kanonischen Git-Blobs überein, nicht nur mit Windows-Arbeitsdateien.
+  Wettfinder-JSON vor/nachher bytegleich:
+  `a51c9d865ab14db2d7d17971e469cbb029045a7107dd7417f2ff9da17af4298e`;
+  RisikoBet-JSON ebenso:
+  `acf24df6d14786a744b8fdf30a690bada1b34f84d54e32eb1e3915cdc3350ede`.
+  Kein Backup, zusätzlicher Sportscan, Aktivieren eines Effekts oder Löschen.
+
+Separater tatsächlicher Produktionsstatus um 20:13:47 CEST: App gesund;
+letzter Shadow-Lauf 20:12:17 Exit 1/`partial`, ein Kandidat ohne frische
+Bet365-Providerquote und zwei weiterhin erkannte alte ungültige Evidenzzeilen.
+Kein App-Absturz, keine rückwirkende Preis-/Ergebnisreparatur behauptet.
+Tennis zuletzt Exit 0; Tageslauf noch alter Timeout. Neues Tageslimit und
+neue Hockey-Ligaabdeckung erst im regulären Lauf 12.10.03:35 nachweisbar.
 
 **Wichtige Korrektur der bisherigen Übergabe:** Hockey-/Basketball-Kontexteffekte
 sind nicht nur wegen fehlender Daten offen. Ihre produktive, quellengebundene
