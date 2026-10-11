@@ -1,5 +1,71 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 11.10.2026 – Abschluss 10 Uhr: Sortierung, Erklärung und Ergebnisidentität
+
+Dieser Block hat Vorrang. **Codecommit `5467b888b38fe0ed3b350471511d8bf2245351cc`
+ist committed, auf main gepusht und auf dem VPS live.** Ausgang war
+`8052ff916add24b27f5e517513b610490b5dae62`. Ein folgender Dokumentationscommit
+ändert keinen Produktivcode. Keine neue Sicherung oder zusätzlicher Sport-/API-Scan.
+
+- [x] Startzeit aufsteigend als Standard in den Empfehlungssichten; optional
+  Wahrscheinlichkeit. Spielgruppen bleiben zusammen, ganze Spielblöcke werden
+  paginiert. Auswahlpool, Modellwerte und bestätigte Linien bleiben unverändert.
+  Daily3 behält die chronologische Einsatzfolge. Reine Spielpläne bieten keine
+  erfundene Wahrscheinlichkeitssortierung.
+- [x] Hockey/Basketball: Angriff/gegnerische Defensive/Spielort beziehungsweise
+  Gegnerstärke/Spielort aus **demselben bereits gefitteten Modell** als kurze
+  Begründung transportiert; echte Gegenargumente sichtbar. Kein zusätzliches
+  Fitten, keine neue Wahrscheinlichkeit und keine künstliche Mehrfachabstimmung.
+  Alte Originalpakete bleiben zweifaktorig und unverändert; der zusätzliche
+  Faktenanhang gehört nur zu neuen, quellengebundenen Snapshots. Alte Karten
+  erhalten keine nachträglich erfundene Begründung.
+- [x] Fußball-Terminrevisionen: natives Ergebnis muss Spiel-ID, Heim/Gast und
+  einen eingefrorenen Anstoß belegen. Der Runner prüft dies erneut. Modellzeit
+  **und** Datenstichtag müssen vor dem tatsächlichen nativen Start liegen;
+  ein später gebautes Modell wird nicht rückwirkend als Gewinn abgerechnet.
+- [x] Zehn Tennislücken konkret diagnostiziert: geänderte Teilnehmer unter
+  derselben nativen ID. Eigene `identity_conflict_outcome_events`-Diagnose,
+  weiterhin `partial`, ohne Zuordnung des fremden Gewinners. Originale,
+  Ergebnisbelege und Geldbuchungen werden nicht gelöscht oder umgeschrieben.
+  Erst der nächste normale Lauf veröffentlicht diese neue Diagnose.
+- [x] Eigener Readiness-SQL-Zeitbudgetabbruch korrekt als Timeout statt als
+  beschädigte Datenbank klassifiziert. Fremde SQL-Interrupts bleiben Fehler;
+  abgelaufener Handler kann nicht mehr den Rollback unterbrechen.
+- [x] Gemeinsame Abschlussrunde: **1.517 Tests + 36 Untertests bestanden,
+  ein erwarteter Windows-Symlink-Skip**, 106,24 s, Exit 0, externes Netzwerk
+  gesperrt. 34 betroffene/Nachbarmodule, kein neuer Vollsuite-PASS.
+  Unabhängige Reviews fanden Prozent-/Bruchsortierung und verspätete
+  Forecast-Abrechnung; beide reproduziert und korrigiert, Abschluss ohne
+  weiteren konkreten Blocker.
+- [x] Interner Browser: tatsächliche Sortierumschaltung mit markierten
+  Testdaten, Desktop/390/320 px ohne Überlauf; keine Console-Warnungen/-Fehler.
+  Frische Produktionsseite lädt mit Startzeit-Standard ohne Browserfehler.
+  Heute zeigt sie weiterhin kein neues automatisches Ergebnis, siehe unten.
+- [x] Deployment ohne Datenmigration/Backup/Zusatzscan, Fast-forward Exit 0.
+  App/Caddy aktiv, interner und öffentlicher Healthcheck `ok`; beide gespeicherten
+  Prognose-Dateien vor/nach Deploy bytegleich. Sieben Timer bleiben aktiv.
+- [ ] Vollständigen Wettfinderlauf **12.10.03:35 CEST** nachprüfen. Der heutige
+  Lauf hatte Timeout; ein reparierter Lookupindex und grünes Software-QA sind
+  noch kein erfolgreicher Tageslauf oder Nachweis neuer heutiger Auswahlen.
+- [ ] Tennis **12.10.00:05 CEST**: Modellfehler, gespeicherte Prognosen,
+  `unresolved_outcome_events` und getrennte `identity_conflict_outcome_events`
+  prüfen. Exit 0 darf trotz Teilnehmerkonflikten nicht als volle Abdeckung gelten.
+- [ ] Fußball-Shadow: reguläre Läufe weiterhin Exit 1 wegen fehlender aktueller
+  Bet365-Quote mit Providerzeit. Zwei alte Shadow-Zeilen haben ungültige
+  Quoten-/Abrechnungsprovenienz und bleiben vom Qualitätsnachweis ausgeschlossen.
+  Keine Abrufzeit als Providerzeit erfinden und keine alten Zeilen schönrechnen.
+- [ ] Aktiver neuer Fußball-Gegnerstärkevertrag und empirisch geprüfte
+  Verletzungs-/Müdigkeits-/Wettereffekte fehlen weiterhin. Heutiger rein lesender
+  VPS-Bestand enthält **keine `context-effect-v1`- oder `context-approval-v1`-
+  Artefakte**. Bereits vorhandener Quell-/Training-/Registrypfad ersetzt keine
+  echte zeitgebundene Kohorte. Keine Koeffizienten oder Qualität erfinden.
+- [ ] Weitere Hockeyligen/Schweiz/Top20: weiterhin nur NHL-Discovery und
+  Ergebnis-/Preisadapter. Kontextverträge auf `20252026` gebunden; aktuellen
+  Saison-/REG-/OT-/SO-Vertrag und native Liga-IDs vor jeder Erweiterung belegen.
+
+[Abnahme, Grenzen und genaue Nachweise](docs/audits/2026-10-11-sortierung-und-begruendung.md).
+Vorhandene ungetrackte Audit-/Browser-/Stripe-Arbeit bleibt unberührt.
+
 ## 11.10.2026 – Fortsetzung 09 Uhr: fachliche Auswahl und Nachtlauf
 
 Dieser Block hat Vorrang. Ausgang lokal/GitHub/VPS gemeinsam `02943e9`.

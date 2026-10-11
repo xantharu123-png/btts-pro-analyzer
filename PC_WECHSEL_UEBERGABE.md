@@ -1,5 +1,42 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Neuester Einstieg – 11.10.2026, Abschluss 10 Uhr
+
+**Code `5467b888b38fe0ed3b350471511d8bf2245351cc` ist gepusht und live.**
+Ein folgender Dokumentationscommit ändert keinen Produktivcode. Hauptcheckout
+`C:/Projekt/BetBoy/betboy-app`, main; vorhandene ungetrackte Arbeit erhalten.
+Kein Backup, Zusatzscan, Löschen alter Prognosen oder Geldänderung.
+
+Startzeit/optionale Wahrscheinlichkeit in den Empfehlungssichten umgesetzt,
+Spielgruppen zusammen und Auswahlidentitäten bei Sortierwechsel unverändert.
+Daily3 bleibt chronologisch; rohe Spielpläne bieten nur Startzeit. Hockey- und
+Basketball-Erklärung exportiert Komponenten **eines** vorhandenen Fits; alte
+Originalpakete/Modellwerte bleiben gleich, keine drei unabhängigen Belege.
+Fußball-Terminrevisionen jetzt native ID/Teams/Start doppelt gebunden; verspätete
+Modell- und Inputzeit werden abgelehnt. Zehn echte Tennislücken sind geänderte
+Teilnehmer, getrennte Diagnose statt fremder Ergebniszuordnung. `partial`
+bleibt sichtbar im Adminbericht, Originale/Geldbuchungen unverändert.
+Readiness-SQL-Deadline und Rollback-Handler korrigiert.
+
+Frisch kombiniert **1.517 bestanden, 36 Untertests, ein erwarteter Skip** in
+34 Modulen, Exit 0; kein Vollsuite-PASS. Unabhängige Schlussreviews ohne weitere
+konkrete Blocker. Interner Browser Desktop/390/320 und Sortierwechsel grün;
+frische Produktionsseite mit Startzeit-Standard ohne Consolefehler geladen.
+Fast-forward-Deploy Exit 0, App/Caddy und beide Healthchecks grün,
+gespeicherte Wettfinder-/RisikoBet-Dateien bytegleich, sieben Timer aktiv.
+
+**Nicht alles fertig:** heutiger Wettfinder hatte Timeout und die Live-Seite
+zeigt keine neuen automatischen Ergebnisse. Nächster regulärer Vollscan
+12.10.03:35 CEST; Tennis 12.10.00:05, inklusive getrenntem Teilnehmerkonflikt-
+Zähler prüfen. Shadow weiter fehlende frische Bet365-Providerzeit und zwei
+alte ungültige Evidenzzeilen; nicht löschen oder rückwirkend gültig machen.
+Aktive Fußball-Gegnerstärke/qualifizierte Kontexteffekte weiter offen; heutige
+VPS-Artefaktzählung enthält null Effect-/Approval-Artefakte. Schweiz/Top20-Hockey
+und aktueller Saison-Kontextvertrag fehlen. Keine neue Liga oder Wirkung raten.
+
+Fortsetzung über obersten [TODO-Block](TODO_AKTUELL.md) und
+[Abnahmebericht](docs/audits/2026-10-11-sortierung-und-begruendung.md).
+
 ## Neuester Einstieg – 11.10.2026, fachlicher Gegnervergleich und Timeout
 
 Ausgang lokal/GitHub/VPS `02943e9`. Heutiger Wettfinderlauf endete nach
