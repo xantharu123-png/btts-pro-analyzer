@@ -6,11 +6,13 @@ experiment's opaque test labels. Result payloads are used only to verify native
 identity and normal completion; winners are not returned or scored.
 """
 from collections import Counter
+from contextlib import contextmanager
 from datetime import datetime
 import json
+import sqlite3
 from time import monotonic
 
-from context_models.contracts import ContextContractError, canonical_timestamp
+from context_models.contracts import ContextContractError, ContextIntegrityError, canonical_timestamp
 from context_models.dataset import _reader, _artifact
 from context_models.tennis_live import ORIGINAL_ARTIFACT_KIND, original_base, validate_original_publication
 from context_models.tennis_v4 import tennis_features_v4
@@ -18,6 +20,25 @@ from context_observations import _SELECT, _decode_receipt
 from context_sources.outcomes import validate_outcome_record
 from context_sources.tennis_status import STATUS_SCHEMA, validate_selected_tennis_receipt
 from context_sources.tennis import SOURCE_SCHEMA
+
+
+@contextmanager
+def _deadline_reader(path, *, cancelled):
+    """Own only this diagnostic's interruption, not other database failures."""
+    try:
+        with _reader(path) as connection:
+            try:
+                yield connection
+            finally:
+                # An expired progress handler must not interrupt rollback and
+                # replace the original error while the owning reader closes.
+                connection.set_progress_handler(None, 0)
+    except ContextIntegrityError as exc:
+        cause = exc.__cause__
+        if (cancelled() and isinstance(cause, sqlite3.OperationalError)
+                and getattr(cause, 'sqlite_errorcode', None) == sqlite3.SQLITE_INTERRUPT):
+            raise TimeoutError('native context readiness time budget exhausted') from exc
+        raise
 
 
 def audit_tennis_readiness(path, *, as_of, sample_limit=25, seconds=120, progress=None,
@@ -37,11 +58,16 @@ def audit_tennis_readiness(path, *, as_of, sample_limit=25, seconds=120, progres
         raise ValueError('seconds must be between 1 and 600')
     clock = canonical_timestamp(as_of)
     started = monotonic()
+    sql_cancelled = False
     def budget():
         if monotonic()-started > seconds:
             raise TimeoutError('native context readiness time budget exhausted')
-    with _reader(path) as conn:
-        conn.set_progress_handler(lambda: int(monotonic()-started > seconds), 10000)
+    def sql_budget():
+        nonlocal sql_cancelled
+        sql_cancelled = monotonic()-started > seconds
+        return int(sql_cancelled)
+    with _deadline_reader(path, cancelled=lambda: sql_cancelled) as conn:
+        conn.set_progress_handler(sql_budget, 10000)
         kinds = dict(conn.execute('SELECT kind,count(*) FROM artifacts GROUP BY kind'))
         originals = {}
         publications = 0

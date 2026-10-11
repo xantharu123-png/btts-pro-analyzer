@@ -345,10 +345,15 @@ def test_cross_snapshot_result_lookup_refuses_conflicting_frozen_identity(tmp_pa
     store.append_run(run)
     store.publish_latest(run.run_id)
     def must_not_run(*_args):
+        if mismatch == "start":
+            requests, observed = _args
+            return (ObservedResult("football", requests[0].event_key, observed,
+                FootballResult(EventStatus.FINAL, 1, 2), "fixture:77:FT"),)
         raise AssertionError("conflicting source identities must not reach provider")
     summary = run_riskobet_settlements(store=store, now=NOW, result_loaders={"football": must_not_run})
-    assert summary.errors == ("football:event_snapshot_ambiguous",)
-    assert summary.operational_error_count == 1
+    assert summary.errors == (("football:native_identity_unproven",) if mismatch == "start"
+        else ("football:event_snapshot_ambiguous",))
+    assert summary.operational_error_count == (0 if mismatch == "start" else 1)
     assert summary.unresolved_candidates == 2
     assert _terminal_rows(store) == []
 

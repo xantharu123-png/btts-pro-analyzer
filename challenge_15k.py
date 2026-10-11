@@ -5278,6 +5278,11 @@ def _render_model_challenge(
 
     st.subheader("15K-Modellauswahl")
     st.caption("Nach Modell ausgewählt · bekannte Quoten ab 1,20. Deine tatsächliche Quote erfasst du mit der Wette.")
+    from tip_display_order import display_order_control, ordered_event_rows
+    sort_mode = display_order_control(st, key='challenge_model_order')
+    selections = ordered_event_rows(selections, mode=sort_mode,
+        event_key=lambda candidate: candidate.fixture_id, starts_at=lambda candidate: candidate.kickoff,
+        probability=lambda candidate: candidate.probability)
     from wettfinder_identity import rendered_identity_card
     from wettfinder_surface import build_wettfinder_card, render_editorial_card_html
 

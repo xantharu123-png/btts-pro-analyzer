@@ -390,6 +390,65 @@ def _hockey_goal_reason(factors, a, b, chosen):
     return (text, 'Die Siegschätzung umfasst auch Verlängerung und Penaltyschießen.')
 
 
+def _joint_strength_reason(factors, sport, a, b, chosen):
+    """Read the owning fit's closed factor; never count its parts as votes.
+
+    An older forecast cannot grow opponent/defence evidence from its win
+    chance. New factors must also reconstruct its saved rounded rates/margin.
+    """
+    if not isinstance(factors, (list, tuple)):
+        return None
+    selected = [value for value in factors if isinstance(value, str)
+                and value.startswith('Gemeinsamer Stärkenvergleich Heim–Gast (')]
+    if len(selected) != 1 or len(selected[0]) > 220 or not factors:
+        return None
+    if not isinstance(factors[0], str) or len(factors[0]) > 220:
+        return None
+    number = r'(-?[0-9]+\.[0-9]{6})'
+    if sport == 'ice_hockey':
+        pattern = (r'Gemeinsamer Stärkenvergleich Heim–Gast \(Log-Torverhältnis\): '
+                   r'Angriff '+number+r'; Defensive '+number+r'; Spielort '+number+r'\.')
+        labels, bounds = ('Angriff', 'Abwehr', 'Spielort'), (8, 8, 3)
+        saved = re.fullmatch(r'Erwartete Tore in regulärer Spielzeit: '
+                            r'([0-9]+\.[0-9]{2})/([0-9]+\.[0-9]{2})\.', factors[0])
+        if saved is None:
+            return None
+        home, away = (float(value) for value in saved.groups())
+        if not 0 < min(home, away) <= max(home, away) <= 30:
+            return None
+        low = math.log(max(home-.005, 1e-300)/(away+.005))
+        high = math.log((home+.005)/max(away-.005, 1e-300))
+    else:
+        pattern = (r'Gemeinsamer Stärkenvergleich Heim–Gast \(Punktedifferenz\): '
+                   r'Spielstärke '+number+r'; Spielort '+number+r'\.')
+        labels, bounds = ('Spielstärke', 'Spielort'), (1000, 1000)
+        saved = re.fullmatch(r'Gegnerbereinigte erwartete Punktedifferenz Heim–Gast: '
+                            r'(-?[0-9]+\.[0-9]{2}); einschließlich Overtime\.', factors[0])
+        if saved is None:
+            return None
+        margin = float(saved.group(1))
+        low, high = margin-.005, margin+.005
+    parsed = re.fullmatch(pattern, selected[0])
+    if parsed is None:
+        return None
+    values = tuple(float(value) for value in parsed.groups())
+    if (any(not math.isfinite(value) or abs(value) > bound for value, bound in zip(values, bounds))
+            or not low-2e-6 <= sum(values) <= high+2e-6):
+        return None
+    parts, opposing = [], []
+    for label, value in zip(labels, values):
+        if abs(value) <= .000001:
+            text = 'Kein Heimvorteil angesetzt' if label == 'Spielort' else label+' ausgeglichen'
+        elif label == 'Spielort':
+            text = ('Heimvorteil für ' if value > 0 else 'Spielortvergleich spricht für ')+(a if value > 0 else b)
+        else:
+            text = label+' spricht für '+(a if value > 0 else b)
+        parts.append(text)
+        if value * (1 if chosen == a else -1) < -.000001:
+            opposing.append(text)
+    return ('; '.join(parts)+'.', '; '.join(opposing)+'.' if opposing else None)
+
+
 def team_customer_explanation(signal, probability=None, *, recent_facts=None):
     """Return reasons/counterpoint/recent tuples for public card formatters."""
     empty = {'reasons': (), 'counterpoint': None, 'recent': ()}
@@ -465,6 +524,11 @@ def team_customer_explanation(signal, probability=None, *, recent_facts=None):
             reasons = _hockey_goal_reason(factors, display_a, display_b, display_chosen)
         elif isinstance(factors, (list, tuple)):
             reasons = tuple(value for value in factors[:2] if isinstance(value, str) and len(value) <= 220 and value.startswith(prefixes))
+        strength = _joint_strength_reason(factors, expected_sport, display_a, display_b, display_chosen)
+        if strength is not None:
+            reasons = (strength[0],) + reasons[:1]
+            if strength[1]:
+                counter = strength[1]+' '+counter
         facts = _mapping(recent_facts or snapshot.get('customer_recent_results'))
         if facts.get('schema') == 'team-recent-results-v2':
             try:

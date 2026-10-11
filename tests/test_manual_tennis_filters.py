@@ -29,6 +29,9 @@ class Recorder:
     def button(self, *_args, **_kwargs):
         return False
 
+    def selectbox(self, _label, options, *, index=0, **_kwargs):
+        return tuple(options)[index]
+
     def container(self, **_kwargs):
         return nullcontext()
 
@@ -222,6 +225,24 @@ def test_filter_rerender_reuses_storage_without_scan_and_retains_current_same_si
     first.metrics.clear()
     second = _render(SearchFilters(quote_min=1.60))
     assert not second.metrics and calls == [NOW, NOW]
+    assert (path.read_bytes(), quote_path.read_bytes()) == before
+
+
+@pytest.mark.parametrize('mode,expected', [('Startzeit', [2, 1]), ('Wahrscheinlichkeit', [1, 2])])
+def test_tennis_render_uses_actual_kickoff_and_favorite_probability_without_recalculation(offline, monkeypatch, mode, expected):
+    prepare, path, quote_path, _ = offline
+    before = prepare()
+    late = {**_row(.90), 'scheduled_start_utc': (START + timedelta(hours=2)).isoformat()}
+    early = {**_row(.70), 'id': 2, 'provider_event_id': 'other-native',
+        'scheduled_start_utc': START.isoformat()}
+    rows = [late, early]
+    rendered = []
+    monkeypatch.setattr(ui, '_load_current_predictions', lambda **_kwargs: rows)
+    monkeypatch.setattr(ui.st, 'selectbox', lambda _label, _options, **_kwargs: mode)
+    monkeypatch.setattr(ui, '_render_match_card', lambda row, **_kwargs: rendered.append(row['id']))
+    _render(SearchFilters())
+    assert rendered == expected
+    assert [row['id'] for row in rows] == [1, 2]
     assert (path.read_bytes(), quote_path.read_bytes()) == before
 
 

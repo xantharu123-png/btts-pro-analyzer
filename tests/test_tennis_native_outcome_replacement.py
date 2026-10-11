@@ -51,7 +51,7 @@ def test_verified_new_native_pair_is_data_unavailable_without_old_result(monkeyp
 
 
 @pytest.mark.parametrize("revision", ["missing", "late", "different_pair"])
-def test_replacement_without_timely_exact_native_revision_still_fails(
+def test_replacement_without_timely_exact_native_revision_is_identity_conflict(
         monkeypatch, tmp_path, revision):
     db, predictions, _, origin = original_store(monkeypatch, tmp_path, tour="WTA")
     event_id = origin["event"]["event_key"].rsplit(":", 1)[-1]
@@ -62,7 +62,8 @@ def test_replacement_without_timely_exact_native_revision_still_fails(
     before_predictions = predictions.read_bytes()
     with capture.capture_tennis_worker(path=db) as observer:
         record(observer, _final(event_id), tour="WTA")
-    assert observer.report()["issues"] == ["native-outcome-unavailable"]
+    assert observer.report()["issues"] == ["native-outcome-identity-conflict"]
+    assert observer.report()["identity_conflict_outcome_events"] == [origin["event"]["event_key"]]
     assert observer.report()["native_unavailable_outcome_events"] == []
     assert outcomes(db) == () and predictions.read_bytes() == before_predictions
 

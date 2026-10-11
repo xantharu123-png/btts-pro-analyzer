@@ -1062,6 +1062,11 @@ def render_tennis_finder(
                      and filters.matches(probability=_favorite_probability(row),
                          quote=prices[row['id']].observed_odds if row['id'] in prices else None,
                          market_kind='match_winner')]
+    from tip_display_order import display_order_control, ordered_event_rows
+    sort_mode = display_order_control(st, key='tennis_search_order')
+    matching_rows = ordered_event_rows(matching_rows, mode=sort_mode,
+        event_key=lambda row: row['id'], starts_at=lambda row: row.get('scheduled_start_utc'),
+        probability=_favorite_probability)
     if hidden_rows:
         st.warning(
             f"{len(hidden_rows)} Einträge ausgeblendet: angesetzte Startzeit "

@@ -201,8 +201,55 @@ def _verified_replacement_without_prematch_original(path, key, entries, scope, p
     return replacement_seen
 
 
+def _confirmed_pair_conflict(path, key, entries, scope, pending, index, source):
+    """Confirm only why the original is unscorable, not a replacement forecast.
+
+    A clean normal final with another native pair is sufficient to reject
+    association with one original pair. It is NOT evidence that a replacement
+    was known before play. Missing identities, foreign competitions, corrupt
+    receipts and conflicting same-clock revisions remain unresolved errors.
+    """
+    from context_sources.tennis import _espn
+    old_scopes = {(event["tour"], event["competition"], event["event_key"],
+        frozenset((event["home_id"], event["away_id"]))) for _, event in entries}
+    if (len(old_scopes) != 1 or next(iter(old_scopes))[:3] != scope[:3]
+            or next(iter(old_scopes))[3] == scope[3] or source is None):
+        return False
+    clock, rows = pending[index]
+    status = {**rows[0], "observed_at": canonical_timestamp(clock)}
+    validate_tennis_status_record(status)
+    payload = status["payload"]
+    current_scope = (payload["tour"], status["competition"], status["event_key"],
+        frozenset(payload["participant_ids"]))
+    if (current_scope != scope or len(scope[3]) != 2 or None in scope[3]
+            or payload["issues"] or payload["status"] != "completed" or status["format"] != "singles"
+            or any(payload["native_status"][flag] for flag in ("retired", "walkover", "unsupported"))
+            or status["observed_at"] <= payload["scheduled_start"]):
+        return False
+    try:
+        valid, projected = source_for_normal_winner(status, source["competition"])
+        native = _espn(source)
+    except (ContextContractError, TypeError, ValueError, KeyError):
+        return False
+    if not valid or projected != source or native["status"] != "completed":
+        return False
+    last_publication = max(created for created, _ in entries)
+    with _reader(path) as connection:
+        stored = connection.execute(_SELECT + " WHERE r.event_key=? AND r.kind=? AND r.observed_at>?"
+            " AND r.observed_at<? ORDER BY r.observed_at,r.digest",
+            (key, "event_status", last_publication, status["observed_at"])).fetchall()
+    seen = set()
+    for raw in stored:
+        selected = _select_tennis_row(_decode_receipt(raw), status["observed_at"], payload["tour"])
+        if (selected is None or selected["observed_at"] in seen
+                or selected["competition"] != status["competition"] or selected["format"] != "singles"):
+            return False
+        seen.add(selected["observed_at"])
+    return True
+
+
 def collect_outcomes(path, pending, sources, *, retired_events=None, native_unavailable_events=None,
-                     unresolved_events=None):
+                     unresolved_events=None, identity_conflict_events=None):
     """Return additions by batch position, preserving all actual receive clocks.
 
     Repeated persistence is B1-idempotent. Multiple forecasts of the exact same
@@ -222,6 +269,7 @@ def collect_outcomes(path, pending, sources, *, retired_events=None, native_unav
             unresolved_events.add(key)
 
     verified_replacement_scopes, ambiguous_replacement_rows = {}, []
+    identity_conflict_scopes = {}
     for (key, received), indices in groups.items():
         events = {}
         for created, event in originals.get(key, ()):
@@ -285,6 +333,14 @@ def collect_outcomes(path, pending, sources, *, retired_events=None, native_unav
                 native_unavailable_events.add(key)
                 verified_replacement_scopes.setdefault(key, set()).add(
                     (scope, pending[indices[0]][1][0]["schedule_revision"]))
+            elif (identity_conflict_events is not None and len(indices) == 1
+                    and _confirmed_pair_conflict(path, key, eligible, scope, pending,
+                        indices[0], sources.get(indices[0]))):
+                # Logical exclusion of this mismatch only. Never delete its
+                # original or attach the new pair's result to it.
+                issues.add("native-outcome-identity-conflict")
+                identity_conflict_events.add(key)
+                identity_conflict_scopes.setdefault(key, set()).add(scope)
             else:
                 unresolved(key)
             continue
@@ -313,6 +369,10 @@ def collect_outcomes(path, pending, sources, *, retired_events=None, native_unav
                 bound.append(next(iter(answers.values())))
         if bound:
             additions[indices[0]] = tuple(sorted(bound, key=digest))
+    for key, scopes in identity_conflict_scopes.items():
+        if len(scopes) > 1:
+            issues.add("native-outcome-conflicting")
+            identity_conflict_events.discard(key)
     for key, scopes in verified_replacement_scopes.items():
         if len(scopes) > 1:
             issues.add("native-outcome-conflicting")

@@ -137,6 +137,9 @@ class _Surface:
     def button(self, *_args, **_kwargs):
         return False
 
+    def selectbox(self, _label, options, *, index=0, **_kwargs):
+        return tuple(options)[index]
+
     def divider(self):
         pass
 

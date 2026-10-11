@@ -114,6 +114,57 @@ def test_hockey_derives_regulation_ties_and_keeps_ot_separate():
     assert result.p_home <= result.p_home_regulation + result.p_draw_regulation
 
 
+def test_hockey_strength_decomposition_uses_defence_and_not_only_attack():
+    # Home has the better attack but a much worse defence. It must not be
+    # described as the stronger side just because it scores plenty of goals.
+    fitted = model._Fit("ice_hockey", ("a", "b"),
+        (.5, .0, .8, -.2, 1.0, .1), overtime_home_rate=.5, overtime_games=20)
+    identity = model._Identity("NHL", "NHL", "2", "target", NOW, "a", "b", False)
+    values = model._strength_components(fitted, identity)
+    assert values == pytest.approx({"attack": .5, "defence": -1.0, "venue": .1})
+    p, rates = model._predict(fitted, "a", "b", False)
+    assert sum(values.values()) == pytest.approx(math.log(
+        rates["expected_home_goals"] / rates["expected_away_goals"]))
+    assert p < .5
+
+
+def test_basketball_strength_decomposition_keeps_neutral_venue_neutral():
+    fitted = model._Fit("basketball", ("a", "b"), (3., 5., 4.), residual_scale=10.)
+    identity = model._Identity("ESPN", "NBA", "", "target", NOW, "a", "b", True)
+    values = model._strength_components(fitted, identity)
+    assert values == {"strength": -2., "venue": 0.}
+    _, prediction = model._predict(fitted, "a", "b", True)
+    assert sum(values.values()) == prediction["expected_margin"]
+
+
+@pytest.mark.parametrize("sport", ["basketball", "ice_hockey"])
+def test_same_call_strength_factor_contains_actual_fitted_components(sport):
+    captures = []
+    prediction = model.predict_prematch(sport, event(sport), history(sport), NOW,
+        original_capture=captures.append)
+    original = captures[0]
+    components = model._strength_components(original.fitted, original.identity)
+    before = prediction.to_dict()
+    assert model.team_strength_factor(original) == model._strength_factor(sport, components)
+    assert prediction.to_dict() == before
+    assert len(prediction.factors) == 2
+
+
+@pytest.mark.parametrize("sport", ["basketball", "ice_hockey"])
+def test_owning_adapter_binds_strength_fact_without_changing_base_prediction(sport):
+    from riskobet_candidates import adapt_research_matchwinner
+    captures = []
+    target = event(sport, source_observed_at=NOW.isoformat())
+    result = adapt_research_matchwinner(sport, target, history(sport), modeled_at=NOW,
+        original_capture=captures.append)
+    original = captures[0]
+    forecast = result.snapshot.team_sport_forecast
+    assert forecast.factors == (*original.prediction.factors, model.team_strength_factor(original))
+    assert forecast.model_input_hash == original.input_hash
+    assert forecast.p_home.hex() == original.prediction.p_home.hex()
+    assert len(original.prediction.factors) == 2
+
+
 def test_hockey_never_treats_unidentified_final_score_as_regulation_goals():
     rows = history("ice_hockey")
     for row in rows:

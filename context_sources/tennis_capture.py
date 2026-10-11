@@ -59,6 +59,7 @@ class _Capture:
         self.retired_outcome_events = set()
         self.native_unavailable_outcome_events = set()
         self.unresolved_outcome_events = set()
+        self.identity_conflict_outcome_events = set()
         self._outcome_sources = {}
 
     def report(self):
@@ -70,6 +71,7 @@ class _Capture:
             "excluded_competitions": dict(sorted(self.exclusions.items())),
             "retired_outcome_events": sorted(self.retired_outcome_events),
             "native_unavailable_outcome_events": sorted(self.native_unavailable_outcome_events),
+            "identity_conflict_outcome_events": sorted(self.identity_conflict_outcome_events),
             "unresolved_outcome_events": sorted(self.unresolved_outcome_events)}
 
     def record(self, tour, payload, *, observed_at):
@@ -128,7 +130,8 @@ class _Capture:
         outcomes, issues = collect_outcomes(path, self.pending, self._outcome_sources,
             retired_events=self.retired_outcome_events,
             native_unavailable_events=self.native_unavailable_outcome_events,
-            unresolved_events=self.unresolved_outcome_events)
+            unresolved_events=self.unresolved_outcome_events,
+            identity_conflict_events=self.identity_conflict_outcome_events)
         self.issues.update(issues)
         chunk = []
         for index, (observed, rows) in enumerate(self.pending):

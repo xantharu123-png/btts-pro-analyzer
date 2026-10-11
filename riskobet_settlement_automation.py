@@ -97,9 +97,20 @@ class SettlementRequest:
     event_label: str
     factors: tuple[Mapping[str, object], ...]
     candidate_ids: tuple[str, ...]
-    # A moved schedule may share one tennis result only after the source row
-    # proves a real provider/event binding, not a legacy row-ID fallback.
+    # A moved schedule needs the adapter's actual native identity, not a
+    # legacy row-ID fallback or a blind "latest fixture" lookup.
     requires_native_identity: bool = False
+    frozen_starts: tuple[datetime, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class FootballFixtureIdentity:
+    """Identity from the actual API-Football response, never a frozen copy."""
+
+    fixture_id: int
+    starts_at: datetime
+    home_name: str
+    away_name: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,6 +122,7 @@ class ObservedResult:
     observed_at: datetime
     result: CanonicalResult
     source_result_id: str
+    football_identity: FootballFixtureIdentity | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -369,8 +381,9 @@ def _requests_by_sport(
                     sorted(str(item.payload["candidate_id"]) for item in items)
                 ),
                 requires_native_identity=(
-                    sport == "tennis" and len({item.starts_at for item in items}) > 1
+                    sport in {"football", "tennis"} and len({item.starts_at for item in items}) > 1
                 ),
+                frozen_starts=tuple(sorted({item.starts_at for item in items})),
             )
             requests.setdefault(sport, []).append(request)
             candidates_by_event[(sport, event_key)] = tuple(items)
@@ -385,10 +398,10 @@ def _compatible_result_snapshots(sport: str, items: Sequence[_DueCandidate]) -> 
     """Share one result lookup only for exactly identical frozen source identity.
 
     Model/context revisions may differ; participants and every native identity
-    field must agree. Only tennis may carry different frozen start times: its
-    reader verifies the same native event and prediction row, and the runner
-    checks the observed result against each candidate's own start separately.
-    Other adapters retain their exact-start/single-snapshot rules.
+    field must agree. Football and tennis may carry revised frozen start times
+    only because their adapters must additionally prove the native identity.
+    The runner still checks every candidate's own observation/start causality.
+    E-sports retains its exact-start rules.
     """
     patterns = {
         "football": (_FIXTURE_FACTOR_RE,),
@@ -414,7 +427,7 @@ def _compatible_result_snapshots(sport: str, items: Sequence[_DueCandidate]) -> 
             return False
         identities.append((
             item.payload["event_key"], label.strip(), tuple(native_ids),
-            None if sport == "tennis" else item.starts_at,
+            None if sport in {"football", "tennis"} else item.starts_at,
         ))
     return len(set(identities)) == 1
 
@@ -513,6 +526,7 @@ def football_result_loader(
                 )
             )
         results: list[ObservedResult] = []
+        requests_by_event = {request.event_key: request for request in requests}
         for event_key, fixture_id in fixture_by_event.items():
             item = details.get(fixture_id)
             if not isinstance(item, Mapping):
@@ -522,6 +536,25 @@ def football_result_loader(
             if not isinstance(fixture, Mapping) or fixture.get("id") != fixture_id:
                 issues.append(ResultIssue(event_key, "provider_identity_mismatch"))
                 continue
+            request = requests_by_event[event_key]
+            native_identity = None
+            if request.requires_native_identity:
+                teams = item.get("teams")
+                home = teams.get("home") if isinstance(teams, Mapping) else None
+                away = teams.get("away") if isinstance(teams, Mapping) else None
+                starts_at = _parse_time(fixture.get("date"))
+                if (not isinstance(home, Mapping) or not isinstance(away, Mapping)
+                        or not isinstance(home.get("name"), str) or not home["name"].strip()
+                        or not isinstance(away.get("name"), str) or not away["name"].strip()
+                        or starts_at is None):
+                    issues.append(ResultIssue(event_key, "native_identity_unproven"))
+                    continue
+                native_identity = FootballFixtureIdentity(fixture_id, starts_at,
+                    home["name"].strip(), away["name"].strip())
+                code = _football_schedule_identity_issue(request, native_identity)
+                if code:
+                    issues.append(ResultIssue(event_key, code))
+                    continue
             status_payload = fixture.get("status")
             status = (
                 str(status_payload.get("short") or "").upper()
@@ -562,11 +595,31 @@ def football_result_loader(
                         away_goals_90=away_goals,
                     ),
                     source_result_id=f"api-football:fixture:{fixture_id}:{status or 'unknown'}",
+                    football_identity=native_identity,
                 )
             )
         return ResultLoadBatch(tuple(results), tuple(issues))
 
     return load
+
+
+def _football_schedule_identity_issue(request, identity):
+    """Check shifted fixture proof at both the native adapter and runner."""
+    if not isinstance(identity, FootballFixtureIdentity):
+        return "native_identity_unproven"
+    fixture_id = _football_fixture_id(request)
+    if (type(identity.fixture_id) is not int or identity.fixture_id != fixture_id
+            or stable_event_key("football", "api-football", str(fixture_id)) != request.event_key
+            or not isinstance(identity.home_name, str) or not identity.home_name.strip()
+            or not isinstance(identity.away_name, str) or not identity.away_name.strip()
+            or f"{identity.home_name.strip()} vs {identity.away_name.strip()}" != request.event_label):
+        return "provider_identity_mismatch"
+    if isinstance(identity.starts_at, datetime) and identity.starts_at.tzinfo is None:
+        return "schedule_revision_unresolved"
+    starts_at = _parse_time(identity.starts_at)
+    if starts_at is None or starts_at not in request.frozen_starts:
+        return "schedule_revision_unresolved"
+    return None
 
 
 def _readonly_connection(path: Path) -> sqlite3.Connection:
@@ -1095,7 +1148,8 @@ def run_riskobet_settlements(
                 ambiguous_events.add(observation.event_key)
                 continue
             results_by_event[observation.event_key] = observation
-        requested_keys = {request.event_key for request in sport_requests}
+        requests_by_event = {request.event_key: request for request in sport_requests}
+        requested_keys = set(requests_by_event)
         for event_key in sorted(requested_keys):
             event_candidates = candidates_by_event[(sport, event_key)]
             observation = results_by_event.get(event_key)
@@ -1112,7 +1166,30 @@ def run_riskobet_settlements(
                 errors.append(_safe_issue(sport, "result_identity_or_time_invalid"))
                 unresolved += len(event_candidates)
                 continue
+            request = requests_by_event[event_key]
+            if sport == "football" and request.requires_native_identity:
+                code = _football_schedule_identity_issue(request, observation.football_identity)
+                if not code and not observation.source_result_id.startswith(
+                        f"api-football:fixture:{observation.football_identity.fixture_id}:"):
+                    code = "provider_identity_mismatch"
+                if not code and observed_at < _parse_time(observation.football_identity.starts_at):
+                    code = "result_identity_or_time_invalid"
+                if code:
+                    errors.append(_safe_issue(sport, code))
+                    unresolved += len(event_candidates)
+                    continue
             for candidate in event_candidates:
+                if sport == "football" and request.requires_native_identity:
+                    modeled_at = _parse_time(candidate.snapshot.get("modeled_at"))
+                    input_cutoff = _parse_time(candidate.snapshot.get("input_cutoff_at"))
+                    native_start = _parse_time(observation.football_identity.starts_at)
+                    if (modeled_at is None or input_cutoff is None
+                            or modeled_at >= native_start or input_cutoff >= native_start):
+                        # Reusing an old fixture's final must not turn a later
+                        # pre-match forecast into a retrospective success.
+                        errors.append(_safe_issue(sport, "schedule_revision_unresolved"))
+                        unresolved += 1
+                        continue
                 if observed_at < candidate.starts_at:
                     errors.append(_safe_issue(sport, "result_identity_or_time_invalid"))
                     unresolved += 1
@@ -1144,6 +1221,14 @@ def run_riskobet_settlements(
                     "source_result_id": observation.source_result_id,
                     "canonical_result": _canonical_result_payload(observation.result),
                 }
+                if sport == "football" and request.requires_native_identity:
+                    identity = observation.football_identity
+                    detail["native_fixture_identity"] = {
+                        "fixture_id": identity.fixture_id,
+                        "starts_at": _parse_time(identity.starts_at).isoformat(),
+                        "home_name": identity.home_name,
+                        "away_name": identity.away_name,
+                    }
                 try:
                     was_inserted = resolved_store.append_terminal_settlement(
                         candidate_id=str(candidate.payload["candidate_id"]),
@@ -1182,6 +1267,7 @@ def run_riskobet_settlements(
 __all__ = [
     "MAX_EVENTS_PER_SPORT",
     "MAX_SHADOW_ROWS_PER_SOURCE",
+    "FootballFixtureIdentity",
     "ObservedResult",
     "ResultIssue",
     "ResultLoadBatch",

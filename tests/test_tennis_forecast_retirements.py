@@ -108,7 +108,8 @@ def test_removed_participant_change_no_longer_errors_but_preserves_originals(mon
     raw["competitors"][1]["id"] = "3"
     with capture.capture_tennis_worker(path=db) as observer:
         record(observer, raw)
-    assert observer.report()["issues"] == ["native-outcome-unavailable"]
+    assert observer.report()["issues"] == ["native-outcome-identity-conflict"]
+    assert observer.report()["identity_conflict_outcome_events"] == [origin["event"]["event_key"]]
     retire(monkeypatch, predictions, ref, origin)
     with capture.capture_tennis_worker(path=db) as observer:
         record(observer, raw, clock=RECEIVED+timedelta(minutes=1))

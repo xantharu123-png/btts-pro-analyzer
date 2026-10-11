@@ -79,6 +79,7 @@ from config_loader import load_app_config
 from date_context import german_date_window, zurich_today
 from manual_search_filters import SearchFilters, render_search_filters
 from manual_search_results import esports_search_results
+from tip_display_order import START_TIME, display_order_control, ordered_event_rows, recommendation_probability
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES, ANALYZER_LEAGUE_IDS
 from multi_sport_recommendations import (
     EVIDENCE_RELEASED,
@@ -2619,6 +2620,10 @@ def _render_prematch_results(
         selectable_rows = ready_rows
 
     if selectable_rows:
+        sort_mode = display_order_control(st, key='prematch_display_order')
+        selectable_rows = ordered_event_rows(selectable_rows, mode=sort_mode,
+            event_key=lambda item: item[0].event_key, starts_at=lambda item: item[1].get('_fixture_date'),
+            probability=lambda item: recommendation_probability(item[0]))
         options = list(range(len(selectable_rows)))
         selected_position = st.selectbox(
             "Spiel auswählen",
@@ -2634,6 +2639,9 @@ def _render_prematch_results(
         render_model_selection(candidate)
 
     with st.expander(f"Alle {len(candidate_rows)} geprüften Spiele mit Einzelgründen"):
+        display_rows = ordered_event_rows(candidate_rows, mode=sort_mode,
+            event_key=lambda item: item[0].event_key, starts_at=lambda item: item[1].get('_fixture_date'),
+            probability=lambda item: recommendation_probability(item[0]))
         display_frame = pd.DataFrame(
             [
                 {
@@ -2649,7 +2657,7 @@ def _render_prematch_results(
                         item.blockers[0] if item.blockers else "Kriterien nicht erfüllt"
                     ),
                 }
-                for item, row in shortlist
+                for item, row in display_rows
             ]
         )
         st.dataframe(display_frame, use_container_width=True, hide_index=True)
@@ -2922,7 +2930,7 @@ def _scan_live_football(analyzer, config=None, progress_cb=None) -> dict:
     for index, match in enumerate(matches):
         analysis = scanner.analyze_live_match_ultra(match)
         if analysis:
-            analyses.append(analysis)
+            analyses.append({**analysis, 'scheduled_start': match.get('fixture', {}).get('date')})
         else:
             skipped += 1
         if progress_cb:
@@ -2983,6 +2991,7 @@ def _render_live_football(analyzer, market: str) -> None:
         help="Lokaler Filter auf den aktuellen Live-Snapshot; löst keinen neuen Provider-Abruf aus.",
     )
     minimum_quality = LIVE_DATA_BASIS_OPTIONS[0]
+    sort_mode = display_order_control(st, key='live_football_order')
     if st.session_state.get("live_snapshot_invalidated_by_red_card"):
         st.warning(
             "Seit dem letzten Live-Datenstand wurde ein neuer Platzverweis erkannt. "
@@ -3071,6 +3080,9 @@ def _render_live_football(analyzer, market: str) -> None:
             reverse=True,
         )
         candidate_items = candidate_items[:3]
+        candidate_items = ordered_event_rows(candidate_items, mode=sort_mode,
+            event_key=lambda pair: pair[0].event_key, starts_at=lambda pair: pair[1].get('scheduled_start'),
+            probability=lambda pair: recommendation_probability(pair[0]))
         live_detail_options = list(range(len(candidate_items)))
         live_detail_key = "live_match_detail"
         if st.session_state.get(live_detail_key) not in live_detail_options:
@@ -3091,6 +3103,9 @@ def _render_live_football(analyzer, market: str) -> None:
     # zeigen — auch wenn kein Kandidat das Gate passiert. Volle Transparenz
     # über den aktuellen Spieltag statt leerer Fehlerseite.
     board_rows = []
+    analyses = ordered_event_rows(analyses, mode=sort_mode,
+        event_key=lambda item: item.get('fixture_id'), starts_at=lambda item: item.get('scheduled_start'),
+        probability=lambda item: value / 100. if (value := _live_market_signal(item, market)[0]) is not None else None)
     for item in analyses:
         probability, _signal = _live_market_signal(item, market)
         over_under = item.get("over_under") or {}
@@ -3108,13 +3123,6 @@ def _render_live_football(analyzer, market: str) -> None:
                 ),
             }
         )
-    board_rows.sort(
-        key=lambda row: (
-            row[f"{market} %"] is None,
-            -(row[f"{market} %"] or 0.0),
-            -(row["Min."] if isinstance(row["Min."], int) else 0),
-        )
-    )
     with st.expander(
         f"Live-Überblick: alle {len(board_rows)} unterstützten Spiele",
         expanded=not opportunities,
@@ -3481,6 +3489,11 @@ def _render_red_cards(analyzer) -> None:
     except Exception:
         pass
     candidate_entries = candidate_entries[:3]
+    sort_mode = display_order_control(st, key='live_redcard_order')
+    candidate_entries = ordered_event_rows(candidate_entries, mode=sort_mode,
+        event_key=lambda pair: pair[0].event_key,
+        starts_at=lambda pair: pair[1].get('card', {}).get('match', {}).get('fixture', {}).get('date'),
+        probability=lambda pair: recommendation_probability(pair[0]))
     detail_key = "red_card_detail"
     detail_options = list(range(len(candidate_entries)))
     if st.session_state.get(detail_key) not in detail_options:
@@ -4177,6 +4190,10 @@ def render_multi_sport(
             st.info(f"Keine anstehenden {sport}-Ereignisse im Zeitraum.")
         return
 
+    # Snapshot positions remain stable when presentation order changes. Bind
+    # game selection and manually confirmed lines to that original event,
+    # never to its new visual position after a sort toggle.
+    original_positions = {id(item): index for index, item in enumerate(snapshot_items)}
     filtered_results = None
     if search_filters is not None:
         if sport == "E-Sport":
@@ -4189,12 +4206,28 @@ def render_multi_sport(
         if not snapshot_items:
             st.info("Keine Auswahl passt zu diesen Filtern.")
             return
-    selected_index = st.selectbox(
+    sort_mode = display_order_control(st, key=f'manual_{sport_key}_order',
+        probability_available=filtered_results is not None)
+    if filtered_results is not None:
+        filtered_results = ordered_event_rows(filtered_results, mode=sort_mode,
+            event_key=lambda result: result.candidate.event_key,
+            starts_at=lambda result: result.item.get('start_time') or result.item.get('begin_at'),
+            probability=lambda result: recommendation_probability(result.candidate))
+        snapshot_items = [result.item for result in filtered_results]
+    else:
+        snapshot_items = ordered_event_rows(snapshot_items, mode=sort_mode,
+            event_key=lambda item: (item.get('source'), item.get('id') or item.get('game_id') or item.get('match_id'))
+                if item.get('id') or item.get('game_id') or item.get('match_id') else None,
+            starts_at=lambda item: item.get('start_time') or item.get('begin_at'),
+            probability=lambda item: None)
+    by_position = {original_positions[id(item)]: index for index, item in enumerate(snapshot_items)}
+    selected_position = st.selectbox(
         "Spiel",
-        list(range(len(snapshot_items))),
-        format_func=lambda index: _multi_sport_event_label(sport, snapshot_items[index]),
+        list(by_position),
+        format_func=lambda position: _multi_sport_event_label(sport, snapshot_items[by_position[position]]),
         key=f"multi_sport_event_{scope_key}",
     )
+    selected_index = by_position[selected_position]
     selected_item = snapshot_items[selected_index]
     is_upcoming = (
         isinstance(selected_item, dict) and selected_item.get("status") == "upcoming"
@@ -4243,7 +4276,7 @@ def render_multi_sport(
         raw_line = st.text_input(
             line_label,
             placeholder="z. B. 221,5" if sport == "Basketball" else "z. B. 5,5",
-            key=f"multi_sport_line_{scope_key}_{selected_index}_{snapshot_token}",
+            key=f"multi_sport_line_{scope_key}_{selected_position}_{snapshot_token}",
         ).strip()
         if not raw_line:
             st.info("Für diesen Markt zuerst die exakte angebotene Linie eintragen.")
@@ -4257,7 +4290,7 @@ def render_multi_sport(
         line_confirmed = st.checkbox(
             f"Linie {raw_line} wurde unmittelbar beim Buchmacher abgeglichen",
             value=False,
-            key=f"multi_sport_line_confirmed_{scope_key}_{selected_index}_{snapshot_token}",
+            key=f"multi_sport_line_confirmed_{scope_key}_{selected_position}_{snapshot_token}",
         )
         if not line_confirmed:
             st.info("Bitte die angebotene Linie abgleichen und bestätigen.")
@@ -4634,27 +4667,31 @@ def _render_wettfinder_game(group, row_by_key, featured_keys) -> None:
                 ), unsafe_allow_html=True)
 
 
-def _render_wettfinder_games(catalog, row_by_key, *, sport_filter: str) -> None:
+def _render_wettfinder_games(catalog, row_by_key, *, sport_filter: str, sort_mode=START_TIME) -> None:
     featured_keys = {card.key for card in catalog.featured}
-    groups = group_wettfinder_games(catalog)
-    featured = tuple(group for group in groups if any(card.key in featured_keys for card in group.cards))
-    additional = tuple(group for group in groups if not any(card.key in featured_keys for card in group.cards))
-    if featured:
-        for group in featured:
-            _render_wettfinder_game(group, row_by_key, featured_keys)
-    if additional:
+    groups = ordered_event_rows(group_wettfinder_games(catalog), mode=sort_mode,
+        event_key=lambda group: group.fixture_identity,
+        starts_at=lambda group: group.cards[0].scheduled_start,
+        probability=lambda group: max((card.model_probability for card in group.cards
+            if card.model_probability is not None), default=None))
+    groups = tuple(replace(group, cards=ordered_event_rows(group.cards, mode=sort_mode,
+        event_key=lambda card: group.fixture_identity, starts_at=lambda card: card.scheduled_start,
+        probability=lambda card: card.model_probability)) for group in groups)
+    # A highlighted later game must not jump ahead of the user's chronological
+    # order. Highlight/expansion state remains attached to the selected cards.
+    if groups:
         with st.container(key='wettfinder_v2_additional'):
-            st.markdown('<div class="wf-additional-heading"><h2>Weitere Spiele</h2></div>',
+            st.markdown('<div class="wf-additional-heading"><h2>Spiele</h2></div>',
                         unsafe_allow_html=True)
             # Page complete games, never cut a game's markets across pages.
             page_size = 20
-            pages = (len(additional) + page_size - 1) // page_size
+            pages = (len(groups) + page_size - 1) // page_size
             page = st.selectbox('Spiele – Seite', list(range(1, pages + 1)),
                                 key=f'wettfinder_games_page_{sport_filter}_{pages}') if pages > 1 else 1
             first = (page - 1) * page_size
             if pages > 1:
-                st.caption(f'{first + 1}–{min(first + page_size, len(additional))} von {len(additional)} weiteren Spielen')
-            for group in additional[first:first + page_size]:
+                st.caption(f'{first + 1}–{min(first + page_size, len(groups))} von {len(groups)} Spielen')
+            for group in groups[first:first + page_size]:
                 _render_wettfinder_game(group, row_by_key, featured_keys)
 
 
@@ -4691,6 +4728,7 @@ def _render_automated_daily_selection() -> None:
             with st.container(key='wettfinder_v2_sports'):
                 sport_filter = _segmented('Sportart', list(FINDER_SPORT_OPTIONS),
                     'wettfinder_automatic_sport_v2', 'Alle')
+            sort_mode = display_order_control(st, key='wettfinder_automatic_order')
             catalog = compose_wettfinder_catalog((card for _signal, card in rows), sport_filter=sport_filter)
             if not catalog.featured and not catalog.additional:
                 message = ('Aktuell ist noch kein automatisches Ergebnis verfügbar.' if status is None else
@@ -4698,7 +4736,8 @@ def _render_automated_daily_selection() -> None:
                     f'Für {sport_filter} gibt es aktuell keine passende Auswahl.')
                 st.info(message)
             else:
-                _render_wettfinder_games(catalog, {card.key: (signal, card) for signal, card in rows}, sport_filter=sport_filter)
+                _render_wettfinder_games(catalog, {card.key: (signal, card) for signal, card in rows},
+                                        sport_filter=sport_filter, sort_mode=sort_mode)
             if status is not None:
                 from tip_publication import record_signal_catalog
                 selected_order = [card.key for card in (*catalog.featured, *catalog.additional)]
@@ -4709,7 +4748,12 @@ def _render_automated_daily_selection() -> None:
                     featured_keys=(card.key for card in catalog.featured),
                     source_run_id=status.generated_at.isoformat())
         with rail:
-            _render_editorial_rail(choices, tennis_cards, daily3_allowed=daily3_allowed, target_label=target_label,
+            ordered_tennis = ordered_event_rows(tennis_cards, mode=sort_mode,
+                event_key=lambda card: (card.sport, card.fixture_source, card.provider_event_id or card.fixture_id)
+                    if card.provider_event_id or card.fixture_id else None,
+                starts_at=lambda card: card.scheduled_start,
+                probability=lambda card: card.model_probability)
+            _render_editorial_rail(choices, ordered_tennis, daily3_allowed=daily3_allowed, target_label=target_label,
                 as_of=evaluation_now, source_run_id=status.generated_at.isoformat() if status else None)
 
 

@@ -87,6 +87,9 @@ class RecordingStreamlit:
         self.segmented_controls.append((label, options, default, key))
         return self.widget_values.get(key, default)
 
+    def selectbox(self, label, options, *, index=0, key=None, **_kwargs):
+        return self.widget_values.get(key, tuple(options)[index])
+
     def text_input(self, label, *, key=None, **_kwargs):
         self.text_inputs.append((label, key))
         return self.widget_values.get(key, self.session_state.get(key, ""))
@@ -492,7 +495,6 @@ def test_featured_grid_flat_rows_and_exact_stable_keys(monkeypatch):
     assert "riskobet_page" in first.containers
     assert "riskobet_filters" in first.containers
     assert "riskobet_featured_grid" in first.containers
-    assert "riskobet_additional" in first.containers
     assert {
         "riskobet_featured_card_0",
         "riskobet_featured_card_1",
@@ -530,9 +532,9 @@ def test_featured_grid_flat_rows_and_exact_stable_keys(monkeypatch):
     assert _rendered_candidate_ids(first) == [
         candidate.candidate_id for candidate in view.candidates
     ]
-    assert "## Szenarien nach Datenqualität" in _all_text(first)
+    assert "## Risiko-Szenarien" in _all_text(first)
     assert "## Top-Szenarien" not in _all_text(first)
-    assert "## Weitere Szenarien" in _all_text(first)
+    assert "## Weitere Szenarien" not in _all_text(first)
 
 
 def test_isolated_set_observations_do_not_create_an_analysis_drawer(monkeypatch):

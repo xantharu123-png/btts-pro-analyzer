@@ -814,13 +814,13 @@ def test_manual_surface_promotes_useful_market_and_keeps_all_others(
         "away-under-2",
         "away-under-3",
     ]
-    primary_group = rendered[0][0]
-    assert [group for group, _key in rendered[:2]] == [primary_group, primary_group]
-    assert all(group != primary_group for group, _key in rendered[2:])
-    assert all(
-        str(group).startswith("Weitere Märkte zu ")
-        for group, _key in rendered[2:]
-    )
+    # Distinct featured games now have their own named blocks, rather than
+    # sharing the old ungrouped top tier (whose expander was None).
+    assert 'Osasuna vs Real Sociedad' in rendered[0][0]
+    assert len({group for group, _key in rendered}) == len(forecasts)
+    # Every game now has one named block; featured status does not create a
+    # separate ungrouped tier or break the global chronological display.
+    assert all(group and " vs " in str(group) for group, _key in rendered)
     assert len({key for _group, key in rendered}) == len(forecasts)
     html = '\n'.join(value for value, kwargs, _context in recording_st.markdown_calls
                      if kwargs.get('unsafe_allow_html'))

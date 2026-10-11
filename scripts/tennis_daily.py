@@ -1138,6 +1138,7 @@ def main() -> int:
         "retired_outcome_events": report.get("retired_outcome_events", []),
         "native_unavailable_outcome_events": report.get("native_unavailable_outcome_events", []),
         "unresolved_outcome_events": report.get("unresolved_outcome_events", []),
+        "identity_conflict_outcome_events": report.get("identity_conflict_outcome_events", []),
     }, ensure_ascii=True, sort_keys=True))
     final_errors = []
     if batch.pending:
@@ -1147,8 +1148,11 @@ def main() -> int:
         if final_errors:
             print("Prognose-Abschluss mit Teildaten: " + json.dumps(final_errors, ensure_ascii=True))
         print("Shadow-Stand:", shadow.summary())
-    fatal_issues = [issue for issue in report["issues"]
-        if issue != "native-outcome-unavailable" or not report["unresolved_outcome_events"]]
+    reported_data_gaps = {
+        "native-outcome-unavailable": report.get("unresolved_outcome_events", []),
+        "native-outcome-identity-conflict": report.get("identity_conflict_outcome_events", []),
+    }
+    fatal_issues = [issue for issue in report["issues"] if not reported_data_gaps.get(issue)]
     return 1 if fatal_issues or final_errors else result
 
 

@@ -435,6 +435,50 @@ def _enough_for_event(matches: tuple[_Match, ...], home: str, away: str) -> bool
             and counts[away] >= MIN_TEAM_GAMES and _connected(matches, home, away))
 
 
+def _strength_components(fitted: _Fit, identity: _Identity) -> dict[str, float]:
+    """Decompose ONE existing fit, not independent votes or a new probability.
+
+    Hockey defence parameters measure goals conceded: a lower parameter is
+    better. These three terms sum to the fitted home/away log-rate ratio.
+    Basketball terms sum to its expected margin. No table rank is inferred.
+    """
+    h, a = fitted.teams.index(identity.home), fitted.teams.index(identity.away)
+    beta = fitted.coefficients
+    venue = 0.0 if identity.neutral else beta[-1]
+    if fitted.sport == "basketball":
+        return {"strength": beta[h] - beta[a], "venue": venue}
+    if fitted.sport == "ice_hockey":
+        t = len(fitted.teams)
+        return {"attack": beta[h] - beta[a],
+                "defence": beta[t + a] - beta[t + h], "venue": venue}
+    raise ValueError("strength explanation supports basketball and ice_hockey only")
+
+
+def _strength_factor(sport: str, values: Mapping[str, float]) -> str:
+    # Closed, same-call presentation transport. Six decimals prevent rounded
+    # near-zero components from being described as a material advantage.
+    if sport == "ice_hockey":
+        return ("Gemeinsamer Stärkenvergleich Heim–Gast (Log-Torverhältnis): "
+                f"Angriff {values['attack']:.6f}; Defensive {values['defence']:.6f}; "
+                f"Spielort {values['venue']:.6f}.")
+    return ("Gemeinsamer Stärkenvergleich Heim–Gast (Punktedifferenz): "
+            f"Spielstärke {values['strength']:.6f}; Spielort {values['venue']:.6f}.")
+
+
+def team_strength_factor(original: OriginalPrematch) -> Optional[str]:
+    """Display-only export from the actual same-call fit, no second fitting.
+
+    The default model packet, original prediction and historical contracts
+    remain byte-identical. An owning adapter may bind this additional fact to
+    its NEW snapshot, but never attach it retrospectively to an old forecast.
+    """
+    if type(original) is not OriginalPrematch or original.sport not in {"basketball", "ice_hockey"}:
+        raise ValueError("team strength fact requires an owning basketball/hockey original")
+    if original.fitted is None or original.identity is None or original.probability is None:
+        return None
+    return _strength_factor(original.sport, _strength_components(original.fitted, original.identity))
+
+
 @lru_cache(maxsize=16)
 def _evaluate(sport: str, matches: tuple[_Match, ...]) -> PrequentialEvaluation:
     points: list[tuple[_Match, tuple[_Match, ...]]] = []

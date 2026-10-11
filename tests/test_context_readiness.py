@@ -115,3 +115,52 @@ def test_inventory_range_is_bounded_before_opening(tmp_path, offset, count):
         audit_tennis_readiness(tmp_path/'absent.db', as_of=None, all_features=True,
                               event_offset=offset, event_count=count)
     assert not (tmp_path/'absent.db').exists()
+
+
+@pytest.mark.parametrize('own_deadline', [True, False])
+def test_sql_interrupt_is_a_timeout_only_when_this_diagnostic_cancelled_it(
+        tmp_path, monkeypatch, own_deadline):
+    """Real SQLite interruption, not a fabricated corrupt-database exception."""
+    from contextlib import contextmanager
+    import context_models.readiness as implementation
+    from context_models.contracts import ContextIntegrityError
+
+    db, _, _, _, at = packet(tmp_path)
+    before = db.read_bytes()
+    clock = [0.]
+    reader = implementation._reader
+
+    class StepReader:
+        def __init__(self, connection):
+            self.connection = connection
+
+        def set_progress_handler(self, callback, steps):
+            if callback is None:
+                assert steps == 0
+                return self.connection.set_progress_handler(None, 0)
+            assert steps == 10000
+            def interrupt():
+                clock[0] = 2.
+                # An unrelated interrupt must not become our timeout simply
+                # because the wall clock now exceeds our own time budget.
+                return callback() if own_deadline else 1
+            self.connection.set_progress_handler(interrupt, 1)
+
+        def execute(self, *args, **kwargs):
+            return self.connection.execute(*args, **kwargs)
+
+    @contextmanager
+    def stepped_reader(path):
+        with reader(path) as connection:
+            yield StepReader(connection)
+
+    monkeypatch.setattr(implementation, '_reader', stepped_reader)
+    monkeypatch.setattr(implementation, 'monotonic', lambda: clock[0])
+    expected = TimeoutError if own_deadline else ContextIntegrityError
+    with pytest.raises(expected) as failure:
+        audit_tennis_readiness(db, as_of=at, seconds=1, inventory_only=True)
+    assert db.read_bytes() == before
+    if own_deadline:
+        assert 'time budget exhausted' in str(failure.value)
+    else:
+        assert 'stored bytes are invalid' in str(failure.value)

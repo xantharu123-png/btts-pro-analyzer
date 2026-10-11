@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Mapping, Optional
 
 import streamlit as st
+from tip_display_order import display_order_control, ordered_event_rows
 from context_links import ContextReference
 from team_sport_forecasts import TeamSportForecast
 from betting_math import odds_below_publication_floor
@@ -548,60 +549,44 @@ def _render_detail(
                     st.write(detail)
 
 
-def _render_featured(
-    cards: tuple[RiskBetCard, ...],
-    candidate_by_id: Mapping[str, RiskCandidate],
-    snapshots: Mapping[str, EventModelSnapshot],
-) -> None:
-    if not cards:
-        return
-    st.markdown("## Szenarien nach Datenqualität")
-    with st.container(key="riskobet_featured_grid"):
-        # Build rows, not two persistent columns.  When CSS stacks the row at
-        # tablet/mobile widths, DOM and visual order therefore remain the
-        # quotenfreie model order (0, 1, 2) instead of becoming 0, 2, 1.
-        for row_start in range(0, len(cards), 2):
-            columns = st.columns(2)
-            for offset, base_card in enumerate(cards[row_start : row_start + 2]):
-                index = row_start + offset
-                candidate = candidate_by_id[base_card.candidate_id]
-                display_card = base_card
-                with columns[offset]:
-                    with st.container(key=f"riskobet_featured_card_{index}"):
-                        st.markdown(
-                            render_riskobet_card_html(display_card, show_price=False),
-                            unsafe_allow_html=True,
-                        )
-                        _render_detail(
-                            candidate,
-                            snapshots[candidate.snapshot_id],
-                        )
+def _ordered_riskobet_cards(catalog, candidate_by_id, sort_mode):
+    return ordered_event_rows(catalog.cards, mode=sort_mode,
+        event_key=lambda card: (card.sport_key, card.event_key),
+        starts_at=lambda card: candidate_by_id[card.candidate_id].starts_at,
+        probability=lambda card: card.model_probability)
 
 
-def _render_additional(
-    cards: tuple[RiskBetCard, ...],
-    candidate_by_id: Mapping[str, RiskCandidate],
-    snapshots: Mapping[str, EventModelSnapshot],
-) -> None:
+def _render_ordered_scenarios(catalog, candidate_by_id, snapshots, sort_mode):
+    cards = _ordered_riskobet_cards(catalog, candidate_by_id, sort_mode)
     if not cards:
         return
-    st.markdown("## Weitere Szenarien")
+    # Page whole events after selection/coherence, never separate scenarios
+    # across pages or let a later featured event jump the chosen time order.
+    events = tuple(dict.fromkeys((card.sport_key, card.event_key) for card in cards))
+    st.markdown("## Risiko-Szenarien")
     page_size = 20
-    pages = (len(cards) + page_size - 1) // page_size
-    page = st.selectbox("Weitere Szenarien – Seite", range(1, pages + 1), key=f"riskobet-page-{len(cards)}") if pages > 1 else 1
+    pages = (len(events) + page_size - 1) // page_size
+    page = st.selectbox("Spiele – Seite", range(1, pages + 1), key=f"riskobet-page-{len(events)}") if pages > 1 else 1
     offset = (page - 1) * page_size
-    visible_cards = cards[offset:offset + page_size]
-    st.caption(f"{offset + 1}–{offset + len(visible_cards)} von {len(cards)} weiteren Szenarien")
-    with st.container(key="riskobet_additional"):
-        for index, base_card in enumerate(visible_cards, start=offset):
-            candidate = candidate_by_id[base_card.candidate_id]
-            display_card = base_card
-            with st.container(key=f"riskobet_additional_row_{index}"):
-                st.markdown(
-                    render_riskobet_compact_row_html(display_card, show_price=False),
-                    unsafe_allow_html=True,
-                )
-                _render_detail(candidate, snapshots[candidate.snapshot_id])
+    visible_events = set(events[offset:offset + page_size])
+    visible = tuple(card for card in cards if (card.sport_key, card.event_key) in visible_events)
+    if pages > 1:
+        st.caption(f"{offset + 1}–{min(offset + page_size, len(events))} von {len(events)} Spielen")
+    featured = {card.candidate_id: i for i, card in enumerate(catalog.featured)}
+    additional = {card.candidate_id: i for i, card in enumerate(catalog.additional)}
+    with st.container(key="riskobet_featured_grid"):
+        # Row-oriented columns keep DOM and mobile order identical.
+        for row_start in range(0, len(visible), 2):
+            columns = st.columns(2)
+            for position, card in enumerate(visible[row_start:row_start+2]):
+                candidate = candidate_by_id[card.candidate_id]
+                is_featured = card.candidate_id in featured
+                key = (f"riskobet_featured_card_{featured[card.candidate_id]}" if is_featured
+                       else f"riskobet_additional_row_{additional[card.candidate_id]}")
+                with columns[position], st.container(key=key):
+                    renderer = render_riskobet_card_html if is_featured else render_riskobet_compact_row_html
+                    st.markdown(renderer(card, show_price=False), unsafe_allow_html=True)
+                    _render_detail(candidate, snapshots[candidate.snapshot_id])
 
 
 def render_riskobet(
@@ -643,6 +628,7 @@ def render_riskobet(
             )
         if sport_filter not in SPORT_FILTERS:
             sport_filter = "Alle"
+        sort_mode = display_order_control(st, key='riskobet_order')
         # Reuse only already stored, exactly bound prices. No provider call.
         overlays = load_shared_price_overlays(upcoming, view.snapshots.values(), now=current) if upcoming else {}
         cards = tuple(
@@ -677,8 +663,7 @@ def render_riskobet(
         candidate_by_id = {
             candidate.candidate_id: candidate for candidate in upcoming
         }
-        _render_featured(catalog.featured, candidate_by_id, view.snapshots)
-        _render_additional(catalog.additional, candidate_by_id, view.snapshots)
+        _render_ordered_scenarios(catalog, candidate_by_id, view.snapshots, sort_mode)
         from tip_publication import record_riskobet_catalog
         record_riskobet_catalog(catalog, candidate_by_id, view.snapshots,
             as_of=current, source_run_id=view.run_id)

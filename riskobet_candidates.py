@@ -1949,9 +1949,12 @@ def adapt_research_matchwinner(
     from sports_prematch import predict_prematch
     customer_results, customer_counters = [], {}
     customer_recent_results = None
+    customer_strength_factor = None
     def capture(original):
-        nonlocal customer_recent_results
+        nonlocal customer_recent_results, customer_strength_factor
         if sport in {'basketball', 'ice_hockey'}:
+            from sports_prematch import team_strength_factor
+            customer_strength_factor = team_strength_factor(original)
             from team_customer_facts import team_recent_facts, team_recent_counters, _recent_lines
             recent = team_recent_facts(original)
             if recent:
@@ -1977,7 +1980,9 @@ def adapt_research_matchwinner(
             training_games=prediction.training_games, home_games=prediction.home_games,
             away_games=prediction.away_games, evaluation=prediction.to_dict()['evaluation'],
             latest_result_observed_at=prediction.latest_result_observed_at,
-            missing=prediction.missing, factors=prediction.factors, limitations=prediction.limitations,
+            missing=prediction.missing,
+            factors=prediction.factors + ((customer_strength_factor,) if customer_strength_factor else ()),
+            limitations=prediction.limitations,
             p_home_regulation=prediction.p_home_regulation, p_draw_regulation=prediction.p_draw_regulation)
     home_games, away_games = prediction.home_games, prediction.away_games
     missing: list[str] = list(prediction.missing)

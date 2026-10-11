@@ -181,6 +181,37 @@ class TeamCustomerFactsTests(unittest.TestCase):
         signal.team_sport_snapshot['team_sport_forecast']['provider_event_id'] = 'wrong'
         self.assertEqual(api('team_customer_explanation')(signal)['reasons'], ())
 
+    def test_hockey_joint_components_show_both_support_and_opposing_defence(self):
+        signal = self.hockey_signal()
+        signal.team_sport_snapshot['team_sport_forecast']['factors'].append(
+            'Gemeinsamer Stärkenvergleich Heim–Gast (Log-Torverhältnis): '
+            'Angriff 0.500000; Defensive -0.600000; Spielort 0.272673.')
+        result = api('team_customer_explanation')(signal)
+        self.assertIn('Angriff spricht für Boston Bruins', result['reasons'][0])
+        self.assertIn('Abwehr spricht für Philadelphia Flyers', result['reasons'][0])
+        self.assertIn('Heimvorteil für Boston Bruins', result['reasons'][0])
+        self.assertNotIn('drei', result['reasons'][0])
+        self.assertIn('Abwehr spricht für Philadelphia Flyers', result['counterpoint'])
+        self.assertIn('3,09', result['reasons'][1])
+
+    def test_hockey_components_cannot_override_inconsistent_saved_rate_ratio(self):
+        signal = self.hockey_signal()
+        signal.team_sport_snapshot['team_sport_forecast']['factors'].append(
+            'Gemeinsamer Stärkenvergleich Heim–Gast (Log-Torverhältnis): '
+            'Angriff 0.500000; Defensive 0.600000; Spielort 0.200000.')
+        result = api('team_customer_explanation')(signal)
+        self.assertNotIn('Angriff', ' '.join(result['reasons']))
+
+    def test_hockey_away_selection_does_not_reverse_actual_home_advantage(self):
+        signal = self.hockey_signal(selected='PHI')
+        signal.team_sport_snapshot['team_sport_forecast']['factors'].append(
+            'Gemeinsamer Stärkenvergleich Heim–Gast (Log-Torverhältnis): '
+            'Angriff 0.500000; Defensive -0.600000; Spielort 0.272673.')
+        result = api('team_customer_explanation')(signal)
+        self.assertIn('Angriff spricht für Boston Bruins', result['counterpoint'])
+        self.assertIn('Abwehr spricht für Philadelphia Flyers', result['reasons'][0])
+        self.assertIn('Heimvorteil für Boston Bruins', result['reasons'][0])
+
     def test_team_sidecar_keeps_real_final_scores_and_not_normalized_hockey_ties(self):
         now = datetime(2026, 9, 28, 10, tzinfo=timezone.utc)
         start = now - timedelta(days=1)

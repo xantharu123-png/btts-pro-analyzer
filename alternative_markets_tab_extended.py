@@ -883,11 +883,16 @@ def create_alternative_markets_tab_extended(
         f"Modell-Auswahlen · {len(displayed_rows)} angezeigt"
     )
     primary_rows = displayed_rows
+    from tip_display_order import display_order_control, ordered_event_rows
+    sort_mode = display_order_control(st, key='manual_football_order')
     featured_rows, more_rows = partition_consumer_featured_forecasts(
         primary_rows,
         max_featured=FEATURED_CONSUMER_MARKET_SELECTIONS,
         allow_mixed_backfill=True,
     )
+    displayed_rows = ordered_event_rows((*featured_rows, *more_rows), mode=sort_mode,
+        event_key=lambda candidate: candidate.fixture_id, starts_at=lambda candidate: candidate.kickoff,
+        probability=lambda candidate: candidate.probability)
     if not displayed_rows:
         if stored_count and (search_filters.probability_active
                              or search_filters.quote_active
@@ -939,22 +944,13 @@ def create_alternative_markets_tab_extended(
                 if offset < len(candidates) - 1:
                     st.divider()
 
-        render_rows(featured_rows, start_index=1)
-        if more_rows:
-            next_index = len(featured_rows) + 1
-            for event_label, event_rows in group_consumer_markets_by_fixture(
-                more_rows
-            ):
-                with st.expander(
-                    f"Weitere Märkte zu {event_label}",
-                    expanded=False,
-                ):
-                    st.caption("Weitere miteinander vereinbare Modell-Auswahlen.")
-                    render_rows(
-                        event_rows,
-                        start_index=next_index,
-                    )
-                next_index += len(event_rows)
+        next_index = 1
+        featured_ids = {candidate.candidate_id for candidate in featured_rows}
+        for event_label, event_rows in group_consumer_markets_by_fixture(displayed_rows):
+            with st.expander(event_label,
+                expanded=any(candidate.candidate_id in featured_ids for candidate in event_rows)):
+                render_rows(event_rows, start_index=next_index)
+            next_index += len(event_rows)
 
 
 __all__ = [
