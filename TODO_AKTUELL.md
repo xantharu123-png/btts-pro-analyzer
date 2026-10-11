@@ -1,5 +1,135 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 11.10.2026 – Accountwechsel: Kontext-Datenpfade, NICHT veröffentlicht
+
+**Dieser Block hat Vorrang. Auf Nutzerwunsch wegen Tokenende pausiert.**
+Kanonischer Checkout: `C:/Projekt/BetBoy/betboy-app`.
+Ausgangscommit lokal/GitHub-main/VPS in dieser Sitzung geprüft:
+`e9eea811b85b124b797c0d995b6cdbbe8187c6b5`.
+Die folgenden Produktivänderungen sind **dirty/untracked, noch nicht committed,
+gepusht oder deployed**. Ein anschließender Dokumentationscommit veröffentlicht
+nur diese Übergabe, nicht die Reparaturen. Keine zusätzlichen Sport-/API-Scans,
+Backups, Bereinigungen, Migrationen oder alten Prognose-/Geldänderungen.
+
+### Implementiert, aber gemeinsame Releaseprüfung fehlt
+
+- [x] Fußball: begrenzte native Spieler-Detailanbindung im bestehenden,
+  bereits reservierten Lauf. Gemeinsames Budget höchstens vier 20-ID-GETs
+  (80 historische Spiele) für alle Batches zusammen; keine Einzel-Retries,
+  keine zusätzlichen Jobs. Auswahl nur aus tatsächlich verwendeter Torhistorie,
+  höchstens 730 Tage. Alte echte Belege behalten ihren Empfangszeitpunkt.
+  Neue tatsächliche GETs werden vom bestehenden Beobachter aufgenommen.
+- [x] Original-only Modellrefresh ohne aktiven Capture bleibt kompatibel;
+  fremde/nicht aktive Capture-Verbindungen werden weiterhin abgelehnt.
+- [x] Spätere Ausfall-/Wetterentscheidung als eigener kompakter nativer Beleg:
+  nur echte Prematch-Uhr, Quellhash/Zeilenzahl und Originalbindung.
+  Originalveröffentlichungen haben volle Speicherpriorität; erst nach ALLEN
+  Batches dürfen maximal 32 Entscheidungen/32 KiB aus dem vorhandenen
+  Restbudget gespeichert werden. Readback und tatsächliche Uhr vor Insert
+  sowie vor Commit geprüft; kein Rückdatieren, kein Abschneiden späterer Daten.
+  Früher echter Proof wird nicht von späterem unknown überschrieben.
+- [x] Training verlangt bei späterem Stichtag genau diesen physisch geprüften
+  Entscheidungsbeleg; beliebige Caller-Cutoffs und alte mutable Snapshotrefs
+  sind keine Nachweise. Alte vierteilige Originalfälle bleiben unverändert.
+- [x] Offline Fußball-Readiness/Case-/Fit-/Experiment-Vorbereitung ergänzt,
+  explizite Eingabeliste, keine Providerzugriffe oder Aktivierung.
+  Produktive Laufzeitdatenbank und bestehende/aliased Outputpfade abgelehnt.
+  **Ihr Kohorten-/Speichervertrag muss noch geprüft werden; siehe P1 unten.**
+- [x] Gemeinsame Kaderkoordinaten statt nur konkreter Spieler-IDs:
+  getrennte gewichtete `loss_exposure_v1`/`gain_exposure_v1`, Ersatzspielerwechsel
+  heben sich nicht auf, jede Quelle muss verfügbar und referenziert sein.
+  Eigener neuer Featurevertrag `football-native-context-exposure-v2`;
+  Standard-v1 bleibt exakt unverändert. Builder, Replay, Readiness, Config und
+  reine Effektanwendung unterscheiden beide Versionen. **Worker/Transport
+  sind für v2 noch nicht verbunden.** Das ist ein Expositionsproxy, kein
+  gemessener individueller Qualitätsverlust und keine automatische Freigabe.
+- [x] Tennis: separate tatsächliche POINT-Originalverteilung aus demselben
+  Modellaufruf, echte Hold-Parameter und sämtliche Märkte, immutable Tour-State
+  und Winneranker geprüft. Beide täglichen Predict-Aufrufer angeschlossen.
+  Bestehende Winner-v1-Belege unverändert. Echter Writerclock erst nach
+  aufwendiger Vorbereitung; bei überschrittenem Beginn nur POINT auslassen.
+- [x] Tennis: vorhandene native Final-Status-/bilaterale Satzdaten plus
+  Winnerbeleg nur lesend verbinden, ohne doppelte Ergebniszeilen. Keine
+  geratenen Matchzeiten, Aufschlag-Trials, Verletzungen oder natives Best-of.
+
+### Sofortige Fortsetzung / offene technische Fehler
+
+1. **P1: v2 im internen numerischen Football-Pfad verbinden.**
+   `football_joint_worker.py::_active_fits` akzeptiert noch ausschließlich v1;
+   beide `joint_features`-Aufrufe dort wählen noch Standard-v1.
+   `context_transport.py::_feature_binding` erkennt ebenfalls nur v1.
+   Beide geprüften Featureversionen mit EXAKTER jeweiliger Coverage zulassen;
+   nach Populationsprüfung nur bei eindeutigem Fit dessen Version wählen,
+   gespeicherten Pointer mit derselben Version replayen. Kein automatisches
+   Approval, keine Änderung der ausgewählten Wahrscheinlichkeit. Dieser Auftrag
+   an den Tennisagenten wurde vor seinen Änderungen unterbrochen; Quellen sind
+   laut aktuellem Gitstatus noch unverändert. Neuen owning Test ergänzen.
+2. **P1: Readiness-Kohorte tatsächlich durchführbar machen.**
+   `context_models/football_readiness.py` hat insgesamt nur 64 MiB Input und
+   zählt expandiertes Original PLUS Quellen erneut je Event. Gemessene große
+   Originale liegen bereits bei ca. 1,16 MiB, dazu native Historien. Damit kann
+   ein echtes 200-Testspiel-Set zusätzlich Training/Tuning unmöglich passen.
+   Viable begrenzten Offline-/Streamingvertrag und gemeinsame Quellenreuse
+   prüfen, nicht einfach Runtimebudget aufblasen. Auch 128-MiB-D2-Admit und
+   das Halten aller expandierten Cases gleichzeitig berücksichtigen.
+   Dieser Befund ist offen, nicht durch synthetische Sechs-Case-Tests gelöst.
+3. Sourcefreeze, vollständige betroffene Module gemeinsam offline testen;
+   keine Produktionsbytes während D2-/Hash-/Replaytests ändern. Launcher:
+   `C:/Projekt/BetBoy/output/context-audit-20261011/pytest_final.py` blockiert
+   externes Netz. Frisches Basetemp im Projekt; XML speichern.
+4. Unabhängiger Abschlussreview, nur explizite Taskdateien stagen,
+   commit/push und kontrollierter VPS-Fast-forward ohne Backup/zusätzlichen
+   Scan. Altes `output/context-followup-20261011/deploy.sh` NICHT unverändert
+   benutzen: dessen Whitelist/Imports sind für die vorige Reparatur.
+
+### Tatsächlich geprüfte QA – keine neue Vollsuite / kein Release-PASS
+
+Runden überschneiden sich, nicht addieren:
+
+- POINT abschließend 329/329, 39,11 s:
+  `C:/Projekt/BetBoy/output/context-followup-20261011/point-neighbors13.xml`.
+- Native Enrichment 106/106:
+  `C:/Projekt/BetBoy/output/hockey-seasons-20261011/enrichment-own05.xml`.
+- Letzter Deferred-Owner 16/16 inklusive tatsächlicher Uhren und Same-Key-Fix:
+  `C:/Projekt/BetBoy/output/context-readiness-20261011/deferred-04.xml`.
+  Unabhängiger finaler Review danach ohne weitere Befunde.
+- Readiness vorher 17/17, 216,41 s; vor letzter v2-Vertragsänderung:
+  `C:/Projekt/BetBoy/output/context-readiness-20261011/owning-05.xml`.
+- Alte Rootintegration/Original-only 60/60, vor v2-Isolation:
+  `C:/Projekt/BetBoy/output/context-effects-20261011/root-pool-01.xml`.
+- Aktuelle v2-Pool-Owner unabhängig 10/10, 31,82 s:
+  `C:/Projekt/BetBoy/output/context-followup-20261011/review-version15.xml`.
+- **Unified-Exec 87305 ist beim Sichern beendet: 34 bestanden, 1 fehlgeschlagen,
+  369,05 s, Exit 1**, keine Freigabe daraus:
+  Rootpool/jointtraining/decisionbinding, Ausgabe
+  `C:/Projekt/BetBoy/output/context-effects-20261011/root-pool-02.xml`.
+  Meldete einen Fixturefehler (Loopvariable `name` überschrieben). Bereits
+  im Test repariert und unabhängige aktuelle 10er-Runde grün; dieser Prozess
+  hatte jedoch alte Testbytes geladen. Vollständig gefroren neu ausführen.
+- Frühere 80/82 Nachbarrunde hatte zwei mittlerweile reparierte Fakebudget-
+  Fixtures. Frühere 102/105 hatte zusätzlich den reparierten capture=None-
+  Fallback. Diese Runden ausdrücklich NICHT als bestanden darstellen.
+
+### Reale Produktions- und fachliche Grenze
+
+Nur lesend in dieser Sitzung auf dem VPS bestätigt: 88 Fußball-Originalbindungen,
+8 vollständig / 80 teilweise; 4.983 alte Tennis-Winner-Originale. Keine
+`context-effect-v1`, `context-approval-v1`, `context-training-case-v1` oder neuen
+nativen Decision-/POINT-Artefakte vorhanden (neuer Code ist noch nicht live).
+Tennis zuletzt Exit 0; letzter Fußballtageslauf noch alter Exit 15 vom Morgen.
+
+**NICHT erledigt / nicht als bloße Datenwartezeit beschönigen:**
+öffentlich eingesetzte qualifizierte Fußballverteilung samt Neukalibrierung/
+Auswahlmetadaten; POINT-kompatibler Tennis-Fit/Ergebnis-/Abnahmepfad;
+echte native Tennis-Start-/Endzeiten und Verletzungsquelle; ausreichende
+unberührte Fußball-Testdaten (mindestens 200 zusätzlich zu Train/Tune);
+individuelle Spieler-/Ersatzqualität. Hockey-/Basketball-Ende-zu-Ende-
+Kontexteffektpfade bleiben gemäß vorigem Audit offen. Null Effekte aktiviert;
+keine bessere Wettqualität aus den Tests behaupten. Cricket bleibt ausgenommen.
+
+Dateiliste, Quellenbegründung und sichere Fortsetzungsdetails:
+`docs/audits/2026-10-11-kontext-datenpfade-uebergabe.md`.
+
 ## 11.10.2026 – Abendfortsetzung: tatsächlicher Kader und Tennis-Korrekturen
 
 Dieser Block hat Vorrang vor früheren Fertigmeldungen. Verifizierter Ausgang

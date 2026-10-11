@@ -1,5 +1,46 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Vorrang – 11.10.2026, Tokenende während Kontext-Datenanbindung
+
+Auf ausdrücklichen Nutzerwunsch nur Übergabe sichern; Umsetzung pausiert.
+Start direkt mit erstem Block `TODO_AKTUELL.md` und
+`docs/audits/2026-10-11-kontext-datenpfade-uebergabe.md`.
+Kanonischer Checkout `C:/Projekt/BetBoy/betboy-app`; letzte in dieser Sitzung
+geprüfte veröffentlichte Basis lokal/main/VPS
+`e9eea811b85b124b797c0d995b6cdbbe8187c6b5`.
+**Alle neuen Produktivänderungen sind dirty/untracked, nicht released.**
+Ein eventuell folgender Dokucommit ist KEIN Code-/VPS-Deployment.
+
+Neue Arbeiten: ≤4 gemeinsame native Fußball-Detail-GETs im bestehenden Lauf,
+physisch echte kompakte spätere Entscheidung erst nach ALLEN Originalbatches,
+zwingender späterer Trainingsproof, Offline-Readiness/Trainingvorbereitung,
+eigene v2-Kaderverlust-/Zuwachs-Exposition (alte v1 unverändert), separate
+same-call POINT-Tennisoriginale samt nativem Finalscore-Leser ohne neue
+Ergebniszeilen. Originaluhren, sourcecomplete und Restbudgets abgesichert.
+
+**Zuerst zwei offene Anschlussprobleme beheben:**
+
+1. `football_joint_worker.py` und `context_transport.py` erkennen noch kein
+   v2-Pooling; eindeutigem Fit seine eigene geprüfte Featureversion geben.
+2. Readiness-64-MiB-Gesamtlimit/mehrfache große Originale und 128-MiB-D2-
+   Quellenlimit können eine echte 200-Testspiel-Kohorte verhindern.
+   Offline-Streaming/Reuse mit tatsächlichem Speicherbedarf prüfen.
+
+Danach Sourcefreeze und gemeinsame volle betroffene Module. POINT 329/329,
+Enrichment 106/106, Deferred zuletzt 16/16, unabhängige v2-Poolrunde 10/10
+bestanden; überlappende Runden nicht addieren. Unified-Exec 87305 beendet:
+34 bestanden, 1 fehlgeschlagen, 369,05 s, Exit 1; alte Testbytes (bekannter
+inzwischen reparierter Fixturefehler), kein finales Grün. Nach Wechsel
+gefroren neu prüfen. Keine neue Vollsuite oder bessere Wettqualität bestätigt.
+
+Vor finaler Abnahme KEIN Release der Dirtyquellen. Nur explizit stagen,
+kein Reset/Clean, inherited output/untracked erhalten. Danach bestehend
+autorisierter Commit/Push/VPS-FF ohne Backup/zusätzlichen Sportscan;
+alter Deployhelper hat falsche Whitelist/Imports und muss angepasst werden.
+Wesentliche weitere Arbeit (numerisch qualifizierter öffentlicher Fußball-
+Pfad, POINT-Fit, echte Tenniszeiten/Verletzungen, 200 Testspiele, Rollen- und
+Ersatzqualität, Hockey/Basketball-Effektkette) bleibt ehrlich offen.
+
 ## Neuester Einstieg – 11.10.2026, Abendfortsetzung
 
 Der erste Block in `TODO_AKTUELL.md` und
