@@ -120,6 +120,13 @@ class TeamSportForecast:
             raise ValueError('regulation components must be jointly available')
         if self.p_home_regulation is not None and (self.sport != 'ice_hockey' or self.p_home_regulation + self.p_draw_regulation > 1 + 1e-12):
             raise ValueError('invalid regulation components')
+        if (self.p_home is not None and self.p_home_regulation is not None
+                and not self.p_home_regulation-1e-12 <= self.p_home
+                <= self.p_home_regulation+self.p_draw_regulation+1e-12):
+            # OT/SO can only allocate the regulation draw mass. Match the
+            # complement tolerance above for floating-point roundoff; do not
+            # clamp a malformed saved forecast into a different probability.
+            raise ValueError('full-match winner is inconsistent with regulation components')
         for name in ('training_games', 'home_games', 'away_games'):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:

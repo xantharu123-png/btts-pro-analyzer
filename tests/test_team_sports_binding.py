@@ -511,7 +511,8 @@ def test_missing_native_scope_is_explicit_not_inherited_from_original_defaults(t
 
 @pytest.mark.parametrize("season,game_type,expected", [
     (20252026, 2, "nhl_reg60_regular_ot_so"), (20252026, 3, "nhl_reg60_playoff_ot"),
-    (20252026, 1, None), (20262027, 2, None), (None, 2, None),
+    (20262027, 2, "nhl_reg60_regular_ot_so"), (20262027, 3, "nhl_reg60_playoff_ot"),
+    (20252026, 1, None), (20262027, 1, None), (20272028, 2, None), (None, 2, None),
     (20252026, None, None), (20252026, True, None), (20252026, 2.0, None),
 ])
 def test_hockey_routes_only_existing_actual_native_scope(tmp_path, season, game_type, expected):

@@ -1,5 +1,60 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 11.10.2026 – Fortsetzung ab 10:38 Uhr: Inventur, Vergleichsmodell, NHL
+
+Dieser Block hat Vorrang. Ausgang lokal/GitHub/VPS gemeinsam
+`d26c1346ad727f825bc6639aeef4d48e13d43937`. Neue Änderungen aktuell lokal,
+**noch nicht gepusht oder deployed**; Veröffentlichung folgt nach finaler QA.
+Kein Backup, zusätzlicher Sport-/API-Scan, Löschen alter Belege oder Geldänderung.
+
+- [x] Tages-Timeout näher belegt: 2.547.645 physische Receipts; direkter
+  kanonischer Decoder ohne doppelte Baumkopie/Serialisierung, gleiche Verträge,
+  Hashes und volle Inventur. Begrenzte VPS-Leseprobe rund 19 % schneller;
+  4.550 unabhängige Oraclefälle ohne Akzeptanz-/Ergebnisunterschied.
+- [x] Identische abgeschlossene Tennis-Draw-Wiederholungen innerhalb genau
+  eines Capture-Batches nicht erneut speichern. Erste tatsächliche Empfangszeit
+  bleibt; echte Revisionen, Live-Timing und neue Drains bleiben getrennt.
+  Fehlerhafte Siegerflags führen nicht mehr zum Hashabbruch, kein geratener Sieg.
+- [x] Eigene gegnerbereinigte Fußballrechnung im Original-Publisher angebunden:
+  alle 40 Tormärkte aus einer Verteilung, Quellen/Uhren/Revisionen gebunden,
+  eigener Modellhash, etwa 3 KB statt kopierter Historie, maximal 16 KiB,
+  vorhandenes atomares Bytebudget mit Originalvorrang. Spätes Original wird
+  nicht durch den optionalen Vergleich blockiert. **Vergleich, nicht aktiv**.
+- [x] NHL-Saisonvertrag 2026/27 belegt und strikt getrennt von 2025/26.
+  Keine alte Effektfreigabe übertragen; weitere Liga-IDs nicht geraten.
+- [x] Mathematischer Speicherfehler behoben: Hockey-Gesamtsieg muss zwischen
+  Regulationssieg und Regulationssieg plus Remis liegen. Native Chancen bleiben
+  unverändert. 227 Tests + vier Untertests; unabhängiger Review 126 Tests und
+  10.000 Grenzfälle, kein verbleibender Befund. Alle 12.706 gespeicherten
+  Snapshots hash-/ID-geprüft, kein Konflikt mit dem neuen Guard.
+- [x] Alte `football:event_snapshot_ambiguous`-Meldung konkret geprüft:
+  Fixture 1565480, dieselben Teams, verschobener Start. Bereits deployter
+  `5467b88` behandelt dies. Vier Kandidaten und 35 Run-Mitgliedschaften
+  unverändert valide; kein weiterer Quellcodefix oder geratene Abrechnung.
+- [x] Separater Portal-QA-Runner: 47 Tests grün, keine echten externen Aufrufe.
+- [ ] **Vollsuite läuft:** finaler eingefrorener Code, alle Sporttests über
+  `output/team-form-20261010/pytest_offline.py`, finaler JUnit
+  `C:/Projekt/BetBoy/output/context-audit-20261011/full-03.xml`, Session 7441.
+  Zwei gezielt beendete Vorversuche zählen nicht als PASS. Keine Fälle gefiltert.
+- [ ] Finalen Diff prüfen, ausdrücklich nur eigene Code-/Test-/Auditdateien
+  committen; main pushen und geprüften Fast-forward auf VPS ohne Backup/Scan.
+- [ ] Nach Veröffentlichung regulären Tennislauf **12.10.00:05 CEST** und
+  Wettfinder **12.10.03:35 CEST** prüfen. Kein erfolgreicher neuer Gesamtlauf
+  allein aus der 512-Receipt-Beschleunigungsprobe ableiten.
+- [ ] Aktiver Fußball-Modellwechsel/Qualitätsnachweis weiterhin offen:
+  **88 Originalbindungen, nur acht vollständig quellengebundene einzigartige
+  Ereignisse**; keine neue Kalibrierung/Freigabe, keine 200-Ereignis-Testkohorte.
+- [ ] Verletzungs-/Müdigkeits-/Wettereffekte nicht numerisch fertig: kein
+  Effekt-/Freigabeartefakt. Tennis hat 805 passende Endergebnisereignisse,
+  aber zwei echte Merkmalsproben ohne ausreichend abgegrenzte Satz-/Minutenlast;
+  dritte Probe lief ins 100-Sekunden-Budget. Keine Gesamtabdeckung behaupten,
+  Empfangszeitdifferenzen nicht als körperliche Erholung verwenden.
+- [ ] Schweizer/weitere Top-20-Hockeyligen und echte Shadow-Schlusspreise
+  weiterhin Daten-/Adapterabhängigkeit. Idle-Exit 0 ersetzt keinen Preisnachweis.
+
+[Genaue Belege und Abnahmegrenzen](docs/audits/2026-10-11-kontext-fortsetzung.md).
+Ungetrackte fremde Audit-, Browser-, Landing- und Stripe-Arbeit bleibt erhalten.
+
 ## 11.10.2026 – Abschluss 10 Uhr: Sortierung, Erklärung und Ergebnisidentität
 
 Dieser Block hat Vorrang. **Codecommit `5467b888b38fe0ed3b350471511d8bf2245351cc`

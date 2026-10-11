@@ -17,6 +17,10 @@ def test_full_prediction_survives_risk_selection_once(monkeypatch, sport, probab
     rows = history(sport)
     original = sports_prematch.predict_prematch(sport, target, rows, NOW)
     prediction = replace(original, p_home=probability, p_away=1-probability)
+    if sport == 'ice_hockey':
+        # This test injects arbitrary routing probabilities, not a native fit.
+        # Keep its synthetic regulation/OT law coherent with that injected p.
+        prediction = replace(prediction, p_home_regulation=probability, p_draw_regulation=0.)
     calls = []
     def predict(*args, **kwargs):
         calls.append((args, kwargs))
@@ -203,6 +207,40 @@ def test_hockey_missing_ot_support_never_publishes_a_full_winner():
     snapshot = adapt_research_matchwinner(sport, event(sport, source_observed_at=NOW.isoformat()), rows, modeled_at=NOW).snapshot
     assert snapshot.team_sport_forecast.p_home is None
     assert team_sport_forecast_rows(SimpleNamespace(snapshots=(snapshot,)), now=NOW, target_date=NOW.date()) == []
+
+
+@pytest.mark.parametrize('probability', [.15, .95, .2-2e-12, .3+2e-12])
+def test_hockey_full_winner_cannot_exceed_its_regulation_and_draw_law(probability):
+    """OT can only redistribute the regulation draw mass, never other mass."""
+    from team_sport_forecasts import TeamSportForecast
+    payload = _snapshot('ice_hockey').team_sport_forecast.to_dict()
+    payload.update(p_home=probability, p_away=1-probability,
+                   p_home_regulation=.2, p_draw_regulation=.1)
+    with pytest.raises(ValueError, match='full-match.*regulation'):
+        TeamSportForecast.from_dict(payload)
+
+
+@pytest.mark.parametrize('probability', [.2, .3, .2-.5e-12, .3+.5e-12])
+def test_hockey_full_winner_law_allows_endpoints_and_float_roundoff(probability):
+    from team_sport_forecasts import TeamSportForecast
+    payload = _snapshot('ice_hockey').team_sport_forecast.to_dict()
+    payload.update(p_home=probability, p_away=1-probability,
+                   p_home_regulation=.2, p_draw_regulation=.1)
+    assert TeamSportForecast.from_dict(payload).to_dict() == payload
+
+
+def test_hockey_law_preserves_native_and_legacy_no_components_serialization():
+    from team_sport_forecasts import TeamSportForecast
+    forecast = _snapshot('ice_hockey').team_sport_forecast
+    payload = forecast.to_dict()
+    assert TeamSportForecast.from_dict(payload).to_dict() == payload
+    legacy = replace(forecast, p_home_regulation=None, p_draw_regulation=None)
+    assert TeamSportForecast.from_dict(legacy.to_dict()).to_dict() == legacy.to_dict()
+    zero_draw = replace(forecast, p_home=.2, p_away=.8,
+                        p_home_regulation=.2, p_draw_regulation=0.)
+    assert TeamSportForecast.from_dict(zero_draw.to_dict()).to_dict() == zero_draw.to_dict()
+    with pytest.raises(ValueError, match='full-match.*regulation'):
+        replace(zero_draw, p_home=.21, p_away=.79)
 
 
 def test_actual_runner_reuses_original_snapshot_without_calls_and_survives_source_failure(tmp_path):

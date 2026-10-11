@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 import re
 
-from context_models.contracts import ContextContractError
+from context_models.contracts import ContextContractError, canonical_timestamp, digest
 from context_observations import append_observation_batch
 from context_sources.tennis_status import normalize_tennis_status
 
@@ -16,6 +16,45 @@ _CURRENT = ContextVar("tennis_existing_response_capture", default=None)
 
 def _receipt_now():
     return datetime.now(timezone.utc)
+
+
+def _terminal_revision(rows, competition):
+    """Same terminal facts in one feed, not a new result reception.
+
+    ESPN repeats a tournament's complete draw in replies for different dates.
+    Only the reception-derived fields are removed from this comparison. All
+    native identities, schedules, scores, missing fields and winner flags stay.
+    Scheduled/in-progress receipts must remain separate timing observations.
+    This fingerprint is neither stored evidence nor a freshness assertion.
+    """
+    status = rows[0]
+    if status['payload']['native_status']['state'] != 'post':
+        return None
+    facts = []
+    for row in rows:
+        content = dict(row)
+        content.pop('valid_from')
+        content.pop('source_revision')
+        payload = dict(content['payload'])
+        if content['kind'] == 'event_status':
+            payload.pop('competition_revision')
+            payload.pop('workload_receipts')
+        elif content['kind'] == 'workload':
+            payload.pop('result_observed_at')
+        else:
+            return None
+        content['payload'] = payload
+        facts.append(content)
+    players = competition.get('competitors')
+    winner_flags = ([player.get('winner') if type(player) is dict else None for player in players]
+                    if type(players) is list else None)
+    if winner_flags is not None and any(
+            flag is not None and type(flag) is not bool for flag in winner_flags):
+        # Malformed native flags remain ambiguous to the outcome normalizer.
+        # An optional echo optimisation must not reject their source receipt
+        # or turn an arbitrary/nonfinite provider value into a winner.
+        return None
+    return digest({'rows': facts, 'native_winner_flags': winner_flags})
 
 
 def _expected_exclusion(status, competition):
@@ -61,6 +100,8 @@ class _Capture:
         self.unresolved_outcome_events = set()
         self.identity_conflict_outcome_events = set()
         self._outcome_sources = {}
+        self._last_terminal = {}
+        self.unchanged_terminal_receptions = 0
 
     def report(self):
         return {"schema": 1, "scope": "existing-espn-tennis-responses",
@@ -72,6 +113,7 @@ class _Capture:
             "retired_outcome_events": sorted(self.retired_outcome_events),
             "native_unavailable_outcome_events": sorted(self.native_unavailable_outcome_events),
             "identity_conflict_outcome_events": sorted(self.identity_conflict_outcome_events),
+            "unchanged_terminal_receptions": self.unchanged_terminal_receptions,
             "unresolved_outcome_events": sorted(self.unresolved_outcome_events)}
 
     def record(self, tour, payload, *, observed_at):
@@ -101,6 +143,18 @@ class _Capture:
                         # preserved by the status normalizer as a withdrawal.
                         self.issues.add("native-competition-unavailable")
                         continue
+                    key = rows[0]['event_key']
+                    revision = _terminal_revision(rows, competition)
+                    clock = canonical_timestamp(observed_at)
+                    previous = self._last_terminal.get(key)
+                    if (revision is not None and previous is not None
+                            and previous[0] == revision and previous[1] <= clock):
+                        # Keep the first genuine receipt, never move its clock
+                        # forward or turn an old result into a fresh fact. A
+                        # correction/retraction between replies resets this.
+                        self.unchanged_terminal_receptions += 1
+                        continue
+                    self._last_terminal[key] = (revision, clock)
                     index = len(self.pending)
                     self.pending.append((observed_at, rows))
                     from context_sources.tennis_outcome_capture import source_for_normal_winner
@@ -148,6 +202,9 @@ class _Capture:
             chunk.extend((row, observed) for row in rows)
         if chunk:
             self.refs.update(append_observation_batch(path, tuple(chunk)))
+        # An explicit drain ends this reception batch. A later real reception
+        # in the same owner is new evidence; no cache crosses persistence.
+        self._last_terminal.clear()
 
 
 def observe_espn_response(tour, payload):

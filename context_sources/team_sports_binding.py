@@ -14,7 +14,7 @@ import math
 import re
 
 from context_models.contracts import ContextContractError, canonical_timestamp, digest, validate_event
-from context_models.ice_hockey import FORMATS as HOCKEY_FORMATS
+from context_models.ice_hockey import FORMATS as HOCKEY_FORMATS, SEASON_RULES as HOCKEY_SEASON_RULES
 from context_models.team_sports import FORMATS as BASKETBALL_FORMATS
 from context_models.team_sports_live import MAX_RAW_HISTORY, RECEIPT_KIND
 from context_sources.team_sports_status import _id, _selected
@@ -345,7 +345,7 @@ def _event(raw, row, binding, sport):
         season, _ = _season(row)
         game_type = projection["game_type"]
         format_code = next((name for name, kind in HOCKEY_FORMATS.items() if type(game_type) is int
-                            and kind == game_type and season == "20252026"), None)
+                            and kind == game_type and season in {str(year) for year in HOCKEY_SEASON_RULES}), None)
     if format_code is None:
         binding["reasons"] = sorted(set(binding["reasons"]) | {"native-format-unreviewed"})
         return None

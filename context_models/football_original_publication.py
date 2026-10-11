@@ -1,7 +1,8 @@
 """Opt-in same-call publication. Storage evidence is not model approval.
 
-Only an explicit worker supplies finite budgets. No provider calls, fitting,
-inventory searches, activation, source clock invention or ORIGINAL rewriting.
+Only an explicit worker supplies finite budgets. No provider calls, inventory
+searches, activation, source clock invention or ORIGINAL rewriting. A bounded
+opponent comparison may reuse the frozen native inputs without changing them.
 """
 from contextlib import closing
 from copy import deepcopy
@@ -55,6 +56,7 @@ def executed_code_identity():
             return value_identity(asdict(value))
         return {"type": type(value).__module__ + "." + type(value).__qualname__}
     for name in ("challenge_engine", "football_original", "football_joint_calibration",
+                 "football_opponent_strength", "football_opponent_publication",
                  "challenge_15k", "football_model_refresh", "wettfinder_automation",
                  "context_models.football_original_publication", "context_sources.football_capture",
                  "context_sources.football_native", "context_sources.outcomes", "context_observations"):
@@ -265,6 +267,16 @@ class FootballOriginalPublication:
             "unresolved": selected["unresolved"]})
         dependency_refs = {ref for refs in selected["inspected"].values() for ref in refs}
         dependencies = tuple(row for row in self._rows if row["digest"] in dependency_refs)
+        # A distinct experimental recipe reuses this same input revision. It
+        # stores only existing references and compact parameters/markets, never
+        # the history or score cells again. Old probabilities remain untouched.
+        from football_opponent_publication import prepare_opponent_comparison
+        from football_opponent_strength import ComparisonUnavailable
+        try:
+            opponent = prepare_opponent_comparison(original,
+                a1._decode_object(binding.payload_bytes, label="original binding"), dependencies)
+        except ComparisonUnavailable:
+            opponent = None
         with self._lock:
             created_at = datetime.now(timezone.utc)
             created = canonical_timestamp(created_at)
@@ -287,9 +299,15 @@ class FootballOriginalPublication:
                             inserted += len(obj.payload_bytes) if fresh else 0
                         if inserted > limit:
                             raise StorageBudgetExceeded("code/binding publication budget exhausted")
+                        additional = ()
+                        if opponent is not None and (len(opponent.payload_bytes) <= limit - inserted
+                                or connection.execute("SELECT 1 FROM artifacts WHERE digest=?", (opponent.digest,)).fetchone()):
+                            _, fresh = a1._insert_artifact(connection, opponent, created)
+                            inserted += len(opponent.payload_bytes) if fresh else 0
+                            additional = (opponent,)
                         # Verify final actual readback, including trigger effects.
                         final_original_rows = {}
-                        for obj in (*prepared.artifacts, self._code, binding):
+                        for obj in (*prepared.artifacts, self._code, binding, *additional):
                             row = connection.execute("SELECT kind,payload,created_at FROM artifacts WHERE digest=?", (obj.digest,)).fetchone()
                             actual = a1._decode_artifact_row(obj.digest, row)
                             if actual["kind"] != obj.kind or a1.canonical_bytes(actual["payload"]) != obj.payload_bytes:

@@ -182,9 +182,25 @@ def test_unavailable_model_stays_missing_not_fifty_percent(sport):
     assert value.context_unavailable_reason == "original-model-unavailable"
 
 
-def test_new_hockey_season_is_not_an_old_rule_approval():
+def test_current_hockey_season_keeps_its_own_explicit_native_scope_not_old_approval():
     target, rows = raw_inputs("ice_hockey")
-    target.update(season=20262027, context_rule_version="nhl-2026-27-rule84")
+    target.update(provider_event_id="2026020999", season=20262027,
+                  context_rule_version="nhl-2026-27-rule84")
+    actual_event = {**native_event("ice_hockey"), "event_key": "nhl:ice_hockey:2026020999"}
+    value = build("ice_hockey", capture("ice_hockey", target=target, rows=rows)[0], event=actual_event)
+    assert value.base is not None
+    assert value.original["native_scope"] == dict(season=20262027, game_type=2,
+        neutral_site=False, rule_version="nhl-2026-27-rule84")
+    assert value.original["source_resolution"] == "unresolved"
+    assert value.context_unavailable_reason == "native-receipts-unresolved"
+    assert value.base["history_refs"] == []
+
+
+@pytest.mark.parametrize("season,rule", [(20262027, "nhl-2025-26-rule84"),
+    (20272028, "nhl-2026-27-rule84"), (20262027, None)])
+def test_future_or_missing_or_relabelled_hockey_rules_remain_unqualified(season, rule):
+    target, rows = raw_inputs("ice_hockey")
+    target.update(season=season, context_rule_version=rule)
     value = build("ice_hockey", capture("ice_hockey", target=target, rows=rows)[0])
     assert value.base is not None
     assert value.original["native_scope"] is None

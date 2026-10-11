@@ -19,6 +19,7 @@ from model_artifacts import _connect as _artifact_connect, _decode_object, canon
 from context_models.contracts import (
     ContextContractError, ContextIntegrityError, OBSERVATION_FIELDS,
     canonical_timestamp, digest, normalize_observation, require_digest,
+    _validate_canonical_observation_content,
     require_native_key, require_number, require_object, require_text,
 )
 
@@ -84,14 +85,14 @@ def _decode_receipt(stored: tuple) -> dict:
     try:
         require_digest(receipt_hash)
         require_digest(content_hash)
-        if type(observed_at) is not str or canonical_timestamp(observed_at) != observed_at:
+        if type(observed_at) is not str:
             raise ContextIntegrityError("stored receipt clock is not canonical UTC")
         content = _decode_object(payload, label="context content")
-        normalized = normalize_observation(content, observed_at=datetime.fromisoformat(observed_at))
-        # _decode_object already proved that this BLOB is exactly the canonical
-        # encoding of content. Reuse it for comparison/hash, not two more dumps
-        # per receipt in a million-row inventory. No check or input is omitted.
-        if payload != canonical_bytes(normalized) or hashlib.sha256(payload).hexdigest() != content_hash:
+        # The fixed decoder owns both canonical JSON and normalized shape.
+        # Validate all source clocks/scalars/price-free trees in-place instead
+        # of copying then dumping the same million-row payload inventory again.
+        _validate_canonical_observation_content(content, receipt=observed_at)
+        if hashlib.sha256(payload).hexdigest() != content_hash:
             raise ContextIntegrityError("context content identity mismatch")
         if digest({"content_digest": content_hash, "observed_at": observed_at}) != receipt_hash:
             raise ContextIntegrityError("context receipt identity mismatch")

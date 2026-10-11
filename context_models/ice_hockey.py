@@ -13,6 +13,7 @@ import hashlib
 import json
 import math
 import re
+from types import MappingProxyType
 
 import numpy as np
 from scipy.stats import skellam
@@ -34,6 +35,14 @@ COMPARISON_VERSION = "hockey-context-comparison-v1"
 COMPARISON_KIND = "hockey-context-comparison-reference-v1"
 FORMATS = {"nhl_reg60_regular_ot_so": 2, "nhl_reg60_playoff_ot": 3}
 MARKETS = frozenset({"home_reg", "draw_reg", "away_reg", "home_inclusive", "away_inclusive"})
+# Explicitly reviewed rulebooks, not a calendar-derived blanket qualification.
+# The 2026/27 official NHL book retains the regulation/OT/SO market distinction
+# (Rules 77 and 84). Scope, player vocabulary and effect coverage still include
+# the actual native season, so a 2025/26 effect cannot acquire 2026/27 approval.
+# https://www.nhl.com/info/video-rulebook
+# https://media.nhl.com/site/asset/public/ext/2026-27/2026-27Rules.pdf
+SEASON_RULES = MappingProxyType({20252026: "nhl-2025-26-rule84",
+                               20262027: "nhl-2026-27-rule84"})
 
 
 def hockey_distribution(home_rate, away_rate, overtime_home_rate):
@@ -78,9 +87,9 @@ def hockey_event(value):
 def hockey_scope(value, event):
     """Explicit source metadata, never season/game type inferred from a name."""
     require_object(value, {"season", "game_type", "neutral_site", "rule_version"}, label="NHL scope")
-    if (type(value["season"]) is not int or value["season"] != 20252026
+    if (type(value["season"]) is not int or value["season"] not in SEASON_RULES
             or type(value["game_type"]) is not int or value["game_type"] != FORMATS[event["format"]]
-            or type(value["neutral_site"]) is not bool or value["rule_version"] != "nhl-2025-26-rule84"):
+            or type(value["neutral_site"]) is not bool or value["rule_version"] != SEASON_RULES[value["season"]]):
         raise ContextContractError("NHL actual season/phase/neutral/rule evidence unsupported")
     return dict(value)
 

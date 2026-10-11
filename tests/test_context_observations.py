@@ -41,9 +41,9 @@ def test_physical_receipt_reuses_already_verified_canonical_blob(tmp_path, monke
     for module in (model_artifacts, contracts, observations):
         monkeypatch.setattr(module, "canonical_bytes", counted)
     assert observations._decode_receipt(raw) == expected
-    # One canonical BLOB check and one normalized-shape comparison; hashing
-    # must reuse those exact verified bytes, not encode this content twice more.
-    assert len(calls) == 2
+    # Canonical BLOB encoding is checked once; canonical normalized shape is
+    # independently validated in-place, without copying/re-dumping that tree.
+    assert len(calls) == 1
 
 
 def selected(path, *, cutoff=NOW, schedule="s1", mode="prospective", proof_resolver=None):

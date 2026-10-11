@@ -1,5 +1,37 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Neuester Einstieg – 11.10.2026, Fortsetzung ab 10:38 Uhr
+
+Ausgang lokal/GitHub/VPS `d26c1346ad727f825bc6639aeef4d48e13d43937`.
+**Neue Reparaturen sind lokal; noch kein Push/Deploy dieses Abschnitts.**
+Produktionsbelege stehen im neuen ersten Block von `TODO_AKTUELL.md` und
+`docs/audits/2026-10-11-kontext-fortsetzung.md`. Keine alten Ergebnisse,
+Geldbuchungen, Backups oder ungetrackte fremde Dateien ändern.
+
+Fertige lokale Änderungen: gleicher kanonischer Receiptvertrag schneller,
+terminale Tennis-Draw-Echos nur innerhalb eines Batches dedupliziert; realer
+Fußball-Gegnerstärkevergleich im same-call-Publisher mit eigener Rezeptidentität
+und maximal 16 KiB; NHL 2026/27 strikt gebunden; unmögliche Hockey-Gesamtsieg-
+verteilungen am owning Datenvertrag abgelehnt. Bestehende Kundenschätzungen
+bleiben gleich. Alter Football-Abrechnungsbericht ist nicht der aktuelle Code.
+
+Finale **ungefilterte Offline-Sportsuite läuft**, Session 7441, JUnitziel
+`C:/Projekt/BetBoy/output/context-audit-20261011/full-03.xml`; zwei Vorversuche
+nach letzten Randfallkorrekturen absichtlich beendet, kein PASS. Source-/Test-
+dateien eingefroren. Alle 12.706 produktiven Snapshots sind hash-/ID-kompatibel;
+separater Portalrunner 47 Tests grün. Erst Resultat lesen, dann gezielten Commit,
+main-Push und VPS-Fast-forward ohne neue Sicherung/zusätzlichen Scan abschließen.
+Vorbereiteter begrenzter Helfer außerhalb Git:
+`C:/Projekt/BetBoy/output/context-audit-20261011/deploy.sh`.
+
+Nicht als fertig darstellen: aktive neue Fußballrechnung, numerisch geprüfte
+Verletzungs-/Wetter-/Müdigkeitseffekte, Top-20/Schweizer Hockeyabdeckung und
+erfolgreicher nächster Gesamtlauf. Nur acht native vollständige Football-
+Ereignisse; Tennis-Merkmalsprobe fehlen Zeit-/Dauergrenzen, Empfangszeit ist
+kein Belastungseffekt. Reguläre nächste Jobs 12.10.00:05/03:35 CEST, keine
+zusätzlichen API-Scans. Detaillierte Abnahmebedingungen sind genehmigt und
+werden nicht durch erfundene Koeffizienten oder Softwaretests ersetzt.
+
 ## Neuester Einstieg – 11.10.2026, Abschluss 10 Uhr
 
 **Code `5467b888b38fe0ed3b350471511d8bf2245351cc` ist gepusht und live.**

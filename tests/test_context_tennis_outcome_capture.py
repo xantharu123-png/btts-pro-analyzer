@@ -270,7 +270,11 @@ def test_outcome_stays_with_its_status_and_workload_in_bounded_batches(monkeypat
     monkeypatch.setattr(capture, "append_observation_batch", checked)
     with capture.capture_tennis_worker(path=db) as observer:
         for index in range(130):
-            record(observer, clock=RECEIVED + timedelta(seconds=index))
+            # Real score revisions exercise the atomic512-row boundary. An
+            # identical terminal echo now intentionally stays first-received.
+            changed = completed()
+            changed['competitors'][1]['linescores'][0]['value'] = index % 5
+            record(observer, changed, clock=RECEIVED + timedelta(seconds=index))
     assert calls == [512, 8] and len(outcomes(db)) == 130
 
 

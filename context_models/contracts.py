@@ -194,6 +194,71 @@ def normalize_observation(record: dict, *, observed_at: datetime) -> dict:
     return row
 
 
+def _validate_sport_json_content(value: object, *, label: str) -> None:
+    """The same finite/price-free JSON predicates, without a second tree copy.
+
+    Only the fixed physical receipt decoder uses this after canonical JSON
+    decoding. This returns neither evidence nor a reusable validation flag.
+    The ordinary normalizer continues returning a detached source tree.
+    """
+    if value is None or type(value) in (str, bool):
+        return
+    if type(value) in (int, float):
+        require_number(value, label)
+        return
+    if type(value) is list:
+        for item in value:
+            _validate_sport_json_content(item, label=label)
+        return
+    if type(value) is dict:
+        for key, item in value.items():
+            require_text(key, f"{label} key")
+            if _is_price_name(key):
+                raise ContextContractError(f"{label} cannot contain price or release fields")
+            _validate_sport_json_content(item, label=f"{label}.{key}")
+        return
+    raise ContextContractError(f"{label} contains a non-JSON value")
+
+
+def _validate_canonical_observation_content(record: dict, *, receipt: str) -> None:
+    """Validate that normalization would leave this physical content unchanged.
+
+    The receipt decoder has already proved canonical, duplicate-free JSON.
+    Checking canonical source clocks plus the same closed scalar/tree rules
+    replaces copying and re-encoding millions of complete source envelopes.
+    Content/receipt hashes and every physical SQL index remain checked by the
+    caller on every row; this is not a cache, approval or source selection.
+    """
+    require_object(record, OBSERVATION_FIELDS, label="observation")
+    if type(receipt) is not str or canonical_timestamp(receipt) != receipt:
+        raise ContextContractError("observed_at must be a canonical ingestion clock")
+    for key in OBSERVATION_FIELDS - {"published_at", "publication_proof", "valid_from", "valid_until", "complete", "payload"}:
+        require_text(record[key], key, code=True)
+    require_sport(record["sport"])
+    require_native_key(record["event_key"], sport=record["sport"])
+    if ":" not in record["subject_id"]:
+        raise ContextContractError("subject_id requires a native identity namespace")
+    for key in ("published_at", "valid_from", "valid_until"):
+        value = record[key]
+        if value is None and key != "valid_from":
+            continue
+        if type(value) is not str or canonical_timestamp(value) != value:
+            raise ContextContractError(f"{key} must be a canonical timezone-aware ISO string")
+    if record["published_at"] is not None and record["published_at"] > receipt:
+        raise ContextContractError("publication cannot follow the actual receipt")
+    if record["valid_until"] is not None and record["valid_until"] <= record["valid_from"]:
+        raise ContextContractError("valid_until must follow valid_from")
+    if type(record["complete"]) is not bool:
+        raise ContextContractError("complete must be boolean")
+    if type(record["payload"]) is not dict:
+        raise ContextContractError("payload must be a normalized source object")
+    _validate_sport_json_content(record["payload"], label="payload")
+    proof = record["publication_proof"]
+    if proof is not None and type(proof) is not dict:
+        raise ContextContractError("publication_proof must be an untrusted reference object or null")
+    _validate_sport_json_content(proof, label="publication_proof")
+
+
 def _enum(value: object, allowed: set | frozenset, label: str):
     if type(value) is not str or value not in allowed:
         raise ContextContractError(f"unsupported {label}")
