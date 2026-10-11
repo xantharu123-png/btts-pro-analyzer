@@ -27,6 +27,8 @@ from scipy.stats import skellam
 
 
 MODEL_VERSION = "sports-prematch-research-v1"
+API_HOCKEY_MODEL_VERSION = "api-hockey-prematch-research-v1"
+API_HOCKEY_CONTRACT = "api-hockey-games-v1"
 MIN_TRAINING_GAMES = 40
 MIN_TEAM_GAMES = 8
 MIN_OVERTIME_GAMES = 8
@@ -173,11 +175,31 @@ def _competition(row: Mapping) -> str:
     )
 
 
+def _api_hockey_native_ids(row: Mapping) -> bool:
+    keys = ("competition_id", "league_id", "home_team_id", "away_team_id", "provider_event_id")
+    for name in keys:
+        value = row.get(name)
+        if isinstance(value, bool) or not isinstance(value, (str, int)):
+            return False
+        text = str(value)
+        if (len(text) > 19 or not text.isascii() or not text.isdecimal()
+                or not 0 < int(text) < 2**63 or str(int(text)) != text):
+            return False
+    return str(row["competition_id"]) == str(row["league_id"])
+
+
 def _variant(sport: str, row: Mapping) -> str:
     if sport == "cricket":
         value = _text(row.get("format") or row.get("match_format"))
         return {"t20i": "t20", "twenty20": "t20", "one day": "odi"}.get(value, value)
     if sport == "ice_hockey":
+        if _text(row.get("provider") or row.get("source")) == "api-hockey":
+            season = _text(row.get("season"))
+            if (row.get("source_contract") != API_HOCKEY_CONTRACT
+                    or len(season) != 4 or not season.isascii() or not season.isdecimal()
+                    or not 1000 <= int(season) <= 9999):
+                return ""
+            return "api-hockey:60min-ot-so-v1:" + season
         return _text(row.get("game_type"))
     return "including_overtime"
 
@@ -208,8 +230,14 @@ def _identity(sport: str, event: Mapping, as_of: datetime) -> tuple[Optional[_Id
         missing.append("Das Event ist nicht als bevorstehend bestätigt.")
     if sport == "cricket" and variant not in {"t20", "odi"}:
         missing.append("Test- und unbekannte Cricket-Formate benötigen ein eigenes Remis-/Formatmodell.")
-    if sport == "ice_hockey" and variant not in {"1", "2", "3"}:
-        missing.append("NHL-Spieltyp (Vorbereitung, reguläre Saison oder Playoffs) fehlt.")
+    if sport == "ice_hockey":
+        if provider == "api-hockey":
+            from scanners.api_hockey import supported_competition
+            if (not variant or not supported_competition(event.get("competition"))
+                    or not _api_hockey_native_ids(event)):
+                missing.append("Eindeutiger API-Hockey-Liga-, Saison- und Spielvertrag erforderlich.")
+        elif variant not in {"1", "2", "3"}:
+            missing.append("NHL-Spieltyp (Vorbereitung, reguläre Saison oder Playoffs) fehlt.")
     if missing:
         return None, tuple(missing)
     return _Identity(provider, competition, variant, event_id, start, home, away,
@@ -275,7 +303,24 @@ def _normalise_history(sport: str, identity: _Identity, history: Iterable[Mappin
                 )
             if sport == "ice_hockey":
                 period = _text(row.get("last_period_type"))
-                if period not in {"reg", "ot", "so"}:
+                if identity.provider == "api-hockey":
+                    # These leagues have their own native period totals. The
+                    # NHL winning-goal deduction is not a portable rule.
+                    regulation_home = _score(row.get("regulation_home_score"))
+                    regulation_away = _score(row.get("regulation_away_score"))
+                    if (not _api_hockey_native_ids(row)
+                            or period not in {"reg", "ot", "so"}
+                            or regulation_home is None or regulation_away is None
+                            or home_score is None or away_score is None
+                            or regulation_home > home_score or regulation_away > away_score):
+                        invalid = True
+                    elif period == "reg":
+                        invalid = invalid or (regulation_home, regulation_away) != (home_score, away_score)
+                    else:
+                        extra_time = True
+                        invalid = invalid or regulation_home != regulation_away
+                    home_score, away_score = regulation_home, regulation_away
+                elif period not in {"reg", "ot", "so"}:
                     invalid = True
                 elif period != "reg" and home_score is not None and away_score is not None:
                     # NHL final OT/SO scores add exactly one winning goal to
@@ -553,7 +598,8 @@ def predict_prematch(
         missing.append("Das begrenzte sportspezifische Modell konnte nicht stabil angepasst werden.")
     prediction = _predict(fitted, identity.home, identity.away, identity.neutral) if fitted else None
     if fitted and prediction is None:
-        missing.append("Für den vollständigen NHL-Siegermarkt fehlen passende Verlängerungs-/Shootout-Beobachtungen.")
+        league_label = "Eishockey" if identity.provider == "api-hockey" else "NHL"
+        missing.append(f"Für den vollständigen {league_label}-Siegermarkt fehlen passende Verlängerungs-/Shootout-Beobachtungen.")
     probability, values = prediction if prediction else (None, {})
     if probability is not None and (not math.isfinite(probability) or not 0.0 < probability < 1.0):
         probability = None
@@ -576,8 +622,9 @@ def predict_prematch(
     ]
     if evaluation.count == 0:
         limitations.append("Keine aus rechtzeitig beobachteten Ergebnissen rekonstruierbare Vorab-Testfolge verfügbar.")
+    model_version = API_HOCKEY_MODEL_VERSION if sport == "ice_hockey" and _text(event.get("provider") or event.get("source")) == "api-hockey" else MODEL_VERSION
     canonical = {
-        "version": MODEL_VERSION, "sport": sport,
+        "version": model_version, "sport": sport,
         "identity": {**asdict(identity), "start": identity.start.isoformat()} if identity else None,
         "matches": [{**asdict(m), "start": m.start.isoformat(), "observed": m.observed.isoformat()} for m in matches],
     }
@@ -588,6 +635,7 @@ def predict_prematch(
         tuple(limitations), input_hash, max((m.observed for m in matches), default=None),
         _MARKETS[sport], p_home_regulation=values.get("p_home_regulation"),
         p_draw_regulation=values.get("p_draw_regulation"),
+        model_version=model_version,
     )
     if original_capture is not None:
         original_capture(OriginalPrematch(

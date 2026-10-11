@@ -3898,17 +3898,17 @@ def _fetch_multi_sport_snapshot(
 
     if sport == "Eishockey":
         try:
-            from scanners.basketball_scanner import BasketballScanner
+            from scanners.hockey_scanner import HockeyScanner
 
-            scanner = BasketballScanner()
-            snapshot["items"] = scanner.get_upcoming_nhl_games(
+            scanner = HockeyScanner()
+            snapshot["items"] = scanner.get_upcoming_games(
                 start_date,
                 end_date,
             )
             for provider, message in scanner.errors.items():
                 snapshot["errors"][provider] = message
         except Exception:
-            snapshot["errors"]["NHL"] = "Provider nicht verfügbar"
+            snapshot["errors"]["Eishockey"] = "Provider nicht verfügbar"
         return snapshot
 
     if sport == "Tennis":

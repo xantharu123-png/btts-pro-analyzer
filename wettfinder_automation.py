@@ -2620,6 +2620,46 @@ def _apply_reference_quotes(
     return status_counts, playable
 
 
+def _revalidate_publication_price_overlays(document: dict[str, Any], *, now: datetime) -> None:
+    """Recheck cached observations after slow research, without another request.
+
+    Only the real evaluation clock advances. Price receipt clocks, model
+    probabilities and catalog order are not renewed or recalculated here.
+    """
+    model_rows = document["model_candidates"]
+    for source in ("football_challenge", "tennis_shadow", "esports_shadow"):
+        group = [row for row in model_rows if row.get("source") == source]
+        prices = [dict(row) for row in group if row.get("reference_quote") is not None]
+        quotes = {
+            str(row.get("candidate_id") or ""): MarketConsensus.from_dict(row["reference_quote"])
+            for row in prices
+        }
+        _apply_reference_quotes(group, prices, quotes, now=now, price_evaluated_at=now)
+
+    by_key = {row["key"]: row for row in model_rows}
+    for field in ("candidates", "challenge_release_candidates"):
+        refreshed = []
+        for previous in document[field]:
+            model = by_key.get(previous.get("key"))
+            if model is None or model.get("reference_price_status") != "PLAYABLE":
+                continue
+            overlay = {name: previous[name] for name in ("status", "evidence_stage", "release_contract")
+                       if name in previous}
+            refreshed.append({**model, **overlay})
+        document[field] = refreshed
+
+    for source, name in (("football_challenge", "football"), ("tennis_shadow", "tennis"),
+                         ("esports_shadow", "esports")):
+        status = document["sources"].get(name)
+        if not isinstance(status, dict):
+            continue
+        status["published_recommendation_count"] = sum(
+            row.get("source") == source for row in document["candidates"])
+        status["published_model_selection_count"] = sum(row.get("source") == source for row in model_rows)
+        if name == "football":
+            status["challenge_release_candidate_count"] = len(document["challenge_release_candidates"])
+
+
 def _safe_quote_loader_error(exc: Exception) -> list[str]:
     """Return a persistable provider error without exception details."""
     return [f"Quotenabruf fehlgeschlagen ({type(exc).__name__})"]
@@ -2840,10 +2880,13 @@ def _riskobet_research_batch(
     history_loader: Optional[
         Callable[..., Iterable[Mapping[str, object]]]
     ] = None,
+    clock: Optional[Callable[[], datetime]] = None,
 ) -> RiskSourceBatch:
     """Adapt scheduled research events independently and without invented p."""
 
-    source_time = _utc(now)
+    # Provider requests have already happened. Preserve their real receipt
+    # clocks; never backdate a fresh schedule to the earlier daily-run start.
+    source_time = _utc(clock() if clock is not None else now)
     prepared_events: list[dict[str, object]] = []
     errors = [str(error).strip() for error in source_errors if str(error).strip()]
     for event in events:
@@ -2856,7 +2899,7 @@ def _riskobet_research_batch(
             or prepared.get("start_time")
             or prepared.get("scheduled_at")
         )
-        if start is None or start <= now:
+        if start is None or start <= source_time:
             continue
         if (
             prepared.get("source_observed_at") in (None, "")
@@ -2883,9 +2926,18 @@ def _riskobet_research_batch(
         if isinstance(coverage, Mapping) and coverage.get("pending_observations"):
             errors.append("Neu erfasste Ergebnisse stehen ab dem nächsten Lauf zur Verfügung")
     results = []
+    model_time = _utc(clock() if clock is not None else source_time)
+    if model_time < source_time:
+        raise ValueError("research clock moved backwards")
     for prepared in prepared_events:
+        # A long history request must not produce a new pre-match prediction
+        # for a game that has started in the meantime.
+        start = _parse_iso(prepared.get("starts_at") or prepared.get("start_time")
+                           or prepared.get("scheduled_at"))
+        if start is None or start <= model_time:
+            continue
         try:
-            results.append(adapter(prepared, history, modeled_at=source_time))
+            results.append(adapter(prepared, history, modeled_at=model_time))
         except Exception as exc:
             event_id = (
                 prepared.get("provider_event_id")
@@ -2943,16 +2995,13 @@ def _default_ice_hockey_risk_source(
     history_loader: Optional[
         Callable[..., Iterable[Mapping[str, object]]]
     ] = None,
+    *, clock: Optional[Callable[[], datetime]] = None,
 ) -> RiskSourceBatch:
-    from scanners.basketball_scanner import BasketballScanner
+    from scanners.hockey_scanner import HockeyScanner, completed_hockey_loader
 
-    scanner = BasketballScanner()
-    events = scanner.get_upcoming_nhl_games(target_date, target_date)
-    resolved_history_loader = history_loader or _scanner_completed_history_loader(
-        scanner,
-        "ice_hockey",
-        target_date=target_date,
-    )
+    scanner = HockeyScanner()
+    events = scanner.get_upcoming_games(target_date, target_date)
+    resolved_history_loader = history_loader or completed_hockey_loader(scanner, target_date)
     return _riskobet_research_batch(
         "ice_hockey",
         events,
@@ -2960,6 +3009,7 @@ def _default_ice_hockey_risk_source(
         now=now,
         source_errors=scanner.errors.values(),
         history_loader=resolved_history_loader,
+        clock=clock,
     )
 
 
@@ -3003,6 +3053,7 @@ def _riskobet_default_sources(
     history_loaders: Optional[
         Mapping[str, Callable[..., Iterable[Mapping[str, object]]]]
     ] = None,
+    clock: Optional[Callable[[], datetime]] = None,
 ) -> tuple[dict[str, object], dict[str, bool]]:
     research_history_loaders = dict(history_loaders or {})
     next_day = target_date + timedelta(days=1)
@@ -3048,6 +3099,7 @@ def _riskobet_default_sources(
                     target_date,
                     now,
                     research_history_loaders.get("ice_hockey"),
+                    clock=clock,
                 ),
                 "cricket": lambda: _default_cricket_risk_source(
                     target_date,
@@ -4126,6 +4178,8 @@ def run_wettfinder(
                 "target_date": target,
                 "research_due": research_discovery_due,
             }
+            if not fixed_now:
+                default_source_kwargs["clock"] = runtime_clock
             if riskobet_history_loaders is not None:
                 default_source_kwargs["history_loaders"] = (
                     riskobet_history_loaders
@@ -4197,6 +4251,10 @@ def run_wettfinder(
                         ],
                     }
             runner = riskobet_runner or run_riskobet
+            risk_runtime_kwargs = (
+                {"clock": runtime_clock}
+                if not fixed_now and riskobet_runner is None else {}
+            )
             risk_run = stage('riskobet_models', runner,
                 football_source=configured_risk_sources.get("football"),
                 tennis_source=configured_risk_sources.get("tennis"),
@@ -4209,7 +4267,14 @@ def run_wettfinder(
                 latest_path=resolved_riskobet_latest,
                 now=current,
                 preserve_latest_on_total_failure=True,
+                **risk_runtime_kwargs,
             )
+            if not fixed_now:
+                current = _utc(runtime_clock())
+                # Publication happens after research loaders, not at the old
+                # run-start time. Keep every source/model receipt unchanged.
+                # Otherwise readers reject the new snapshots as future data.
+                document["generated_at"] = current.isoformat()
             riskobet_summary = _riskobet_summary(risk_run)
             riskobet_summary["research_source_attempts"] = (
                 _research_attempt_summary(
@@ -4235,6 +4300,8 @@ def run_wettfinder(
                 [row for row in retained if row.get('source') != 'football_challenge'] + team_rows,
                 now=current, target_date=target)
             document['model_candidates'] = build_model_selection_ledger((), merged, now=current, target_date=target)
+            if not fixed_now:
+                _revalidate_publication_price_overlays(document, now=current)
             document['sources'].update(team_sport_source_coverage(bridge_run, team_rows, now=current, target_date=target))
             from team_sport_prices import refresh_team_sport_prices, snapshot_price_rows
             team_price_rows = snapshot_price_rows(bridge_run.snapshots)

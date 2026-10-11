@@ -1,5 +1,34 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Neuester Einstieg – 11.10.2026, Ausfälle und weitere Hockeyligen
+
+Dieser Block und der erste Block von `TODO_AKTUELL.md` haben Vorrang.
+Ausgang gemeinsam lokal/GitHub/VPS `4bd5da446c8e19ebc9151e9df7b2cf68fef7134a`.
+Neue lokale Anbindung: eigene API-Hockey-Quelle, National League/Swiss League
+zuerst, zwanzig Name/Land-Kandidaten inklusive vorhandener NHL; dynamische
+native IDs und echte Periodenscores, gemeinsame Tages-/Suchanbindung, native
+Quotenbindung und nur lesender Ergebnis-Cacheadapter. Noch kein Beleg realer
+Accountfreischaltung oder zusätzlicher Liga-Kalibrierung. Acht Historiencalls
+pro Lauf fair verteilt; kleiner begrenzter Cache, keine neue Zeitplanung.
+Fußball-Target-Kaderfehler behoben und in 490 ganzen Nachbarfällen geprüft;
+fremde historische Teams können belegte Zielspieler-Ausfälle nicht mehr
+verdecken. Kein aktiver Effektkoeffizient dadurch behauptet.
+Tennis: zwölf Produktionsbelege geprüft, echte Sätze/Games, keine gemessenen
+Matchzeiten/Minuten/Verletzungen; keine reine Parserreparatur kann diese
+fehlenden Quellen ersetzen. Acht vollständige Fußballbindungen reichen
+nicht für die unabhängige 200-Testspiel-Freigabe. Null Fit ist nicht gemessene
+Nullmerkmale. Letzter Code-QA-/Push-/Deploystatus steht ausschließlich im ersten
+TODO-Block. Keine neuen Scans, Backups oder Geld-/Ergebnisänderungen.
+Finale lokale Regression dieser Reparatur: **1.088 bestanden, ein vorhandener
+Skip** in 26 ganzen Modulen, 68,12 s, Exit 0 (`release-05.xml` im externen
+Outputordner `hockey-context-20261011`). Echter vollständiger Tagesartefakt-
+Gegentest schützt gegen alte Publikationsuhren, inzwischen gestartete Spiele
+und während langer Ladezeiten veraltete gespeicherte Quotes; kein neuer Abruf,
+keine rückdatierten Empfangszeiten. E-Sport-24h-Anzeigegrenze separat abgesichert,
+keine E-Sport-Tippfreigabe durch Preise. Unabhängige Reviews fertig; Git/VPS-
+Veröffentlichungsnachweis wird im ersten TODO-Block ergänzt.
+Details: `docs/audits/2026-10-11-ausfaelle-hockey-anbindung.md`.
+
 ## Neuester Einstieg – 11.10.2026, Fortsetzung ab 10:38 Uhr
 
 Ausgang lokal/GitHub/VPS `d26c1346ad727f825bc6639aeef4d48e13d43937`.

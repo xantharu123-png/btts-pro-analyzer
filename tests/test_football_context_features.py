@@ -6,7 +6,7 @@ import pytest
 from context_models.contracts import ContextContractError, digest
 from context_models.football import roster_delta, expected_roster, football_features
 from context_observations import append_observation, observations_as_of
-from context_sources.football import _record
+from context_sources.football import _detail_event, _record, normalize_football_context
 
 NOW = datetime(2026, 9, 9, 12, tzinfo=timezone.utc)
 START = NOW + timedelta(hours=5)
@@ -141,6 +141,71 @@ def test_features_use_component_sample_support_without_deducting_league_prior(tm
     assert features["states"][key] == "available"
     assert features["refs"][key]
     assert features["values"]["away.venue_attack.goals.api-football:player:8"] == 0.
+
+
+def unrelated_appearance(tmp_path, *, minutes=80):
+    """A native third-team detail from the shared league history, not target facts."""
+    observed = NOW - timedelta(hours=2)
+    detail = {
+        "fixture": {"id": 98, "date": (NOW - timedelta(days=3)).isoformat(),
+                    "status": {"short": "FT"}},
+        "league": {"id": 39},
+        "teams": {"home": {"id": 3}, "away": {"id": 4}},
+        "players": [{"team": {"id": 3}, "players": [{"player": {"id": 9},
+            "statistics": [{"games": {"minutes": minutes, "substitute": False, "position": "M"}}]}]}],
+    }
+    native_event = _detail_event(detail)
+    rows = normalize_football_context(native_event, injuries=[], lineups=[],
+                                     appearances=[detail], observed_at=observed)
+    path = tmp_path / "unrelated-appearance.db"
+    for row in rows:
+        append_observation(path, row, observed_at=observed)
+    return observations_as_of(path, native_event["event_key"], cutoff=NOW,
+                              schedule_revision=native_event["schedule_revision"])
+
+
+def test_unrelated_league_roster_cannot_withdraw_known_target_roster_features(tmp_path):
+    past = appearance(tmp_path, 75) + appearance(tmp_path, 90, player=8, team=2)
+    facts = availability(tmp_path, "out") + availability(
+        tmp_path, "available", player=8, team=2, kind="confirmed_lineup", started=True)
+    original = football_features(event(), past + facts, reference_base(), cutoff=NOW)
+    unrelated = unrelated_appearance(tmp_path)
+    frozen = deepcopy(past + unrelated + facts)
+    actual = football_features(event(), past + unrelated + facts, reference_base(), cutoff=NOW)
+    assert actual == original
+    assert actual["values"]["home.venue_attack.goals.api-football:player:7"] == -.078125
+    assert not any(row["digest"] in refs for row in unrelated for refs in actual["refs"].values())
+    assert past + unrelated + facts == frozen
+
+
+def test_changed_target_native_team_cannot_inherit_old_roster_reference(tmp_path):
+    past = appearance(tmp_path, 75) + appearance(tmp_path, 90, player=8, team=2)
+    facts = availability(tmp_path, "out") + availability(
+        tmp_path, "available", player=8, team=2, kind="confirmed_lineup", started=True)
+    with pytest.raises(ContextContractError):
+        football_features({**event(), "home_id": "api-football:team:3"},
+                          past + unrelated_appearance(tmp_path) + facts, reference_base(), cutoff=NOW)
+
+
+def test_irrelevant_appearance_still_validates_its_full_source_payload(tmp_path):
+    past = appearance(tmp_path, 75) + appearance(tmp_path, 90, player=8, team=2)
+    facts = availability(tmp_path, "out") + availability(
+        tmp_path, "available", player=8, team=2, kind="confirmed_lineup", started=True)
+    unrelated = deepcopy(unrelated_appearance(tmp_path))
+    row = next(row for row in unrelated if row["subject_id"] == "api-football:player:9")
+    # Re-bind the generic B1 content: the owning appearance contract must still
+    # reject contradictory regulation exposure in an unconsumed league team.
+    row["payload"]["regulation_minutes"] = 79
+    from context_models.contracts import OBSERVATION_FIELDS
+    # A forged collection must not turn this into a silently dropped source.
+    from context_sources.football import _collection_digest
+    row["payload"]["collection_hash"] = _collection_digest(
+        row["event_key"], row["schedule_revision"], row["kind"], row["payload"]["team_id"], [row["payload"]])
+    row["source_revision"] = digest(row["payload"])
+    row["content_digest"] = digest({key: row[key] for key in OBSERVATION_FIELDS})
+    row["digest"] = digest({"content_digest": row["content_digest"], "observed_at": row["observed_at"]})
+    with pytest.raises(ContextContractError, match="regulation exposure differs"):
+        football_features(event(), past + unrelated + facts, reference_base(), cutoff=NOW)
 
 
 def test_unresolved_reference_or_missing_regulation_exposure_keeps_features_unknown(tmp_path):

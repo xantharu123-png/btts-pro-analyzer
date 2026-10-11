@@ -1,5 +1,66 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 11.10.2026 – Fortsetzung: Ausfall-Kaderbindung und zusätzliche Hockeyligen
+
+Dieser neueste Block hat Vorrang. Ausgang lokal/GitHub/VPS gemeinsam
+`4bd5da446c8e19ebc9151e9df7b2cf68fef7134a`. Aktuelle Änderungen zunächst lokal;
+Commit/Push/VPS-Nachweis folgt erst nach abschließender QA.
+Keine neuen Backups, zusätzlichen Sport-/API-Scans, Datenbereinigungen,
+Prognose-/Ergebnis-Umschreibungen oder Geldänderungen. Cricket unverändert.
+
+- [x] Echter Fußballfehler behoben: historische Spieler fremder Ligateams
+  blockierten belegte Zielkader-Faktoren. Alle Quellen weiterhin validieren,
+  erwarteten Kader erst danach auf native Zielteam-IDs begrenzen. Fehlende
+  Status eigener Spieler bleiben unbekannt; kein Gesundstatus erfunden.
+  Eigene Regression 23 bestanden; 13 ganze Nachbarmodule 490 bestanden.
+- [x] Eigene API-Hockey-Datenquelle implementiert, Schweizer National League
+  und Swiss League zuerst; 20 Name/Land-Kandidaten insgesamt inklusive NHL.
+  Native Liga-/Saison-IDs erst aus echtem Katalog, keine geratenen IDs.
+  NHL bleibt beim vorhandenen freien Feed, keine doppelte Erfassung.
+- [x] Automatischer Tageslauf und manuelle Suche angeschlossen. Getrennte
+  Regulär-/OT-/Penaltyscores, eigener Modellvertrag und Saisonpartition,
+  native Preisbindung/Publikation, nur lesender Ergebnis-Cacheadapter.
+  Keine Übertragung von NHL-Kontexteffekten oder Liga-Kalibrierung.
+- [x] Historienbudget acht Saisonabfragen/Lauf, faire statt permanent
+  verhungernde Liga-Reihenfolge; kleiner gemeinsamer Katalog-/Tagescache.
+  Reale Empfangszeit bleibt, keine rückdatierte historische Genauigkeit.
+- [x] Letzte native Rücknahme-Regressionsrunde: 222 bestandene Fälle. Finale
+  gemeinsame Regression in 26 ganzen Modulen: **1.088 bestanden, ein vorhandener
+  Skip**, 68,12 s, Exit 0; `C:/Projekt/BetBoy/output/hockey-context-20261011/release-05.xml`.
+  Runden überschneiden sich; keine neue Vollsuite und keine bessere Wettqualität
+  daraus behauptet.
+- [x] Reale Daten-/Modell-/Publikationsuhren und Anbieterisolation abgesichert.
+  Ganzer Tageslauf mit echtem Kundenleser und Prognosenachweis akzeptiert vier
+  Hockeyzeilen. Lange Ladezeiten: bereits gestartete Fußballspiele entfernen,
+  gespeicherte Preise neu bewerten, abgelaufene Strict-Overlays entfernen,
+  Beobachtungszeiten unverändert lassen. E-Sport-Beobachtungsquote auch nach
+  Überschreiten ihrer 24h-Anzeigefrist korrekt neu bewertet, ohne Tippfreigabe.
+  Keine zweite Quotenabfrage; ursprüngliche Abrufzähler sind keine neuen Checks.
+- [x] Unabhängiger letzter Diff-Abschluss: drei Reviewpfade plus echte ganze
+  Owner-/Artefakt-Gegenfälle; gefundene Uhr-/Overlay-Grenzen alle korrigiert.
+- [ ] Code committen/pushen und ohne Backup/zusätzlichen Scan auf VPS deployen;
+  aktuellen Commit, Imports und Healthchecks separat bestätigen.
+- [ ] Beim regulären Lauf 12.10.03:35 CEST echte Liga-/Saisonauflösung,
+  Accountberechtigung und verwertbare Spiel-/Historienabdeckung prüfen.
+  Synthetische Schweizer Test-IDs sind keine echten IDs/Live-Abdeckung.
+- [ ] Belastbare numerische Verletzungs-/Wetter-/Müdigkeitseffekte bleiben
+  datenabhängig: nur acht vollständig gebundene Fußballereignisse, keine eigene
+  200-Spiel-Testkohorte und keine aktive Freigabe. Joint-Worker-Earlyreturn
+  bedeutet nicht gemessene Nullmerkmale. Keine Koeffizienten geraten.
+- [ ] Zwölf echte Tennisbelege geprüft: Sätze/Games vorhanden, echte
+  Dauer/Anfang/Ende fehlen; jüngste Matches nur scheduled/completed, keine
+  laufenden Zeitgrenzen. Echte Zeit-/Verletzungsquelle und point-kompatiblen
+  Fit samt unabhängiger Abnahme benötigen; keine Receiptzeit als Erholung.
+
+Details: `docs/audits/2026-10-11-ausfaelle-hockey-anbindung.md`.
+
+Aktueller separater Produktionsstatus vor diesem Deployment: Der alte
+Tageslauf steht noch auf Timeout; neues 60-Minuten-Limit erst beim nächsten
+regulären Lauf bewertbar. Fußball-Shadow 11.10.13:52/14:02 CEST ist `partial`/
+Exit 1: fehlende frische Bet365-Preise und zwei alte ungültige Provenienz-/
+Settlementzeilen. Nicht als erfolgreicher Gesamtlauf darstellen; alte Belege
+nicht ändern oder durch Löschen beschönigen. App-/Healthchecks separat `ok`.
+
 ## 11.10.2026 – Fortsetzung ab 10:38 Uhr: Inventur, Vergleichsmodell, NHL
 
 Dieser Block hat Vorrang. Ausgang lokal/GitHub/VPS gemeinsam

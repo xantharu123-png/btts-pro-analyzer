@@ -324,7 +324,20 @@ def football_features(event: dict, observations: tuple[dict, ...], base: dict, *
         _check_selected_row(row)
     relevant = tuple(r for r in observations if r["kind"] in {"appearance", "availability", "confirmed_lineup"})
     chosen = _selected(relevant, cutoff=cutoff)
-    past = tuple(r for r in chosen if r["kind"] == "appearance")
+    target_teams = {event["home_id"], event["away_id"]}
+    past = []
+    for row in chosen:
+        if row["kind"] != "appearance":
+            continue
+        # The frozen league pool also contains other teams' appearances. Their
+        # unknown current lineup is not a missing fact about this target roster.
+        # Validate every selected source before applying this native team scope;
+        # unrelated malformed rows must not disappear through the query filter.
+        if not _is_empty_collection(row):
+            _appearance_payload(row, cutoff=cutoff)
+        if row["payload"]["team_id"] in target_teams:
+            past.append(row)
+    past = tuple(past)
     facts = tuple(r for r in chosen if r["kind"] in {"availability", "confirmed_lineup"}
                   and r["event_key"] == event["event_key"] and r["schedule_revision"] == event["schedule_revision"])
     for row in facts:

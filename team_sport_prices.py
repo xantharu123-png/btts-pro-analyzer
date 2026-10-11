@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 from typing import Mapping
 
 import requests
@@ -39,6 +40,15 @@ def _sport(row):
     return SPORTS.get(str(row.get('sport') or '').casefold())
 
 
+def _api_hockey_ids(row):
+    """Closed native role IDs; names never substitute a missing participant."""
+    values = tuple(row.get(name) for name in ('competitor_a_id', 'competitor_b_id'))
+    if any(type(value) is not str or len(value) > 19 or re.fullmatch(r'[1-9][0-9]*', value) is None
+           or int(value) >= 2**63 for value in values) or values[0] == values[1]:
+        return None
+    return values
+
+
 def _binding(row):
     sport = _sport(row)
     start = _parse_utc(row.get('scheduled_start'))
@@ -46,9 +56,24 @@ def _binding(row):
     origin, event = str(row.get('fixture_source') or '').strip(), str(row.get('provider_event_id') or '').strip()
     if (sport is None or start is None or row.get('market_key') != 'H2H'
             or not origin or not event or not a or not b or _identity_name(a) == _identity_name(b)
-            or selected not in (a, b) or _identity_name(row.get('competition')) not in LEAGUES[sport]):
+            or selected not in (a, b)):
         return None
-    return sport, origin, event, start.isoformat(), a, b, selected
+    binding = sport, origin, event, start.isoformat(), a, b, selected
+    if origin.casefold() == 'api-hockey':
+        from scanners.api_hockey import supported_competition
+        ids = _api_hockey_ids(row)
+        if (sport != 'ice_hockey' or row.get('fixture_source') != 'API-Hockey' or ids is None
+                or type(row.get('provider_event_id')) is not str or row['provider_event_id'] != event
+                or len(event) > 19 or re.fullmatch(r'[1-9][0-9]*', event) is None or int(event) >= 2**63
+                or not supported_competition(row.get('competition'))):
+            return None
+        # Only new native API rows extend the cache identity. Old provider
+        # binding bytes/keys remain unchanged; replacement role IDs do not
+        # inherit an older quote even if the display names happen to match.
+        return (*binding, *ids)
+    if _identity_name(row.get('competition')) not in LEAGUES[sport]:
+        return None
+    return binding
 
 
 def _key(row):
@@ -69,7 +94,9 @@ def snapshot_price_rows(snapshots):
                 fixture_source=forecast.provider,provider_event_id=forecast.provider_event_id,
                 scheduled_start=snapshot.starts_at.isoformat(),competition=snapshot.competition,
                 competitor_a=forecast.home,competitor_b=forecast.away,selected_competitor=selected,
-                market_key='H2H',selection=selected))
+                market_key='H2H',selection=selected,
+                **({'competitor_a_id': forecast.home_id, 'competitor_b_id': forecast.away_id}
+                   if forecast.provider == 'API-Hockey' else {})))
     return result
 
 
@@ -172,17 +199,36 @@ def _nhl_names(row, payload):
 
 def match_game(row, games, names):
     sport = _sport(row)
+    binding = _binding(row)
+    if binding is None:
+        return None
+    native_hockey = row.get('fixture_source') == 'API-Hockey'
     found = []
     for game in games:
         if not isinstance(game, dict) or type(game.get('id')) is not int or game['id'] <= 0:
             continue
         if game.get('status', {}).get('short') != 'NS':
             continue
-        if _identity_name(game.get('league', {}).get('name')) != LEAGUES[sport].get(_identity_name(row.get('competition'))):
+        league = game.get('league')
+        if not isinstance(league, dict):
+            continue
+        if native_hockey:
+            if str(game['id']) != binding[2] or league.get('name') != row.get('competition'):
+                continue
+        elif _identity_name(league.get('name')) != LEAGUES[sport].get(_identity_name(row.get('competition'))):
             continue
         if _parse_utc(game.get('date')) != _parse_utc(row.get('scheduled_start')):
             continue
         teams = game.get('teams', {})
+        if native_hockey:
+            if (not isinstance(teams, dict)
+                    or any(not isinstance(teams.get(side), dict)
+                           or type(teams[side].get('id')) is not int
+                           or str(teams[side]['id']) != expected
+                           for side, expected in zip(('home', 'away'), binding[7:]))
+                    or tuple(names) != (row['competitor_a'], row['competitor_b'])
+                    or tuple(teams[side].get('name') for side in ('home', 'away')) != tuple(names)):
+                continue
         pair = tuple(_identity_name(teams.get(side, {}).get('name')) for side in ('home', 'away'))
         if pair == tuple(_identity_name(n) for n in names):
             found.append(game)
@@ -290,7 +336,7 @@ def refresh_team_sport_prices(rows, *, api_key, now=None, path=CACHE_PATH, gover
                         for r in group:
                             doc['quotes'].pop(_key(r), None)
                         raise ValueError('ambiguous_origin_events')
-                    if len({(_binding(r)[4], _binding(r)[5], r.get('competition')) for r in group}) != 1:
+                    if len({(*_binding(r)[4:6], *_binding(r)[7:], r.get('competition')) for r in group}) != 1:
                         raise ValueError('conflicting_origin_identity')
                     names = (group[0]['competitor_a'], group[0]['competitor_b'])
                     if sport == 'ice_hockey' and origin == 'NHL':

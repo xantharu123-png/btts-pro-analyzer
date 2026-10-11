@@ -72,7 +72,16 @@ def compact_signal_row(row, *, featured_role="catalogue"):
                   ("basketball", "euroleague"): "euroleague",
                   ("ice_hockey", "nhl"): "nhl"}
         scope = scopes.get((forecast["sport"], forecast["provider"].strip().casefold()))
-        if scope is None or snapshot["competition"].strip().casefold() != scope:
+        if forecast["sport"] == "ice_hockey" and forecast["provider"] == "API-Hockey":
+            from scanners.api_hockey import supported_competition
+            from sports_prematch import API_HOCKEY_MODEL_VERSION
+            valid_scope = (supported_competition(snapshot["competition"])
+                           and forecast["model_version"] == API_HOCKEY_MODEL_VERSION
+                           and all(str(forecast[name]).isdecimal() and int(str(forecast[name])) > 0
+                                   for name in ("provider_event_id", "home_id", "away_id")))
+        else:
+            valid_scope = scope is not None and snapshot["competition"].strip().casefold() == scope
+        if not valid_scope:
             raise ValueError("publication research provider has a different sport scope")
         for field, expected in (("event_key", snapshot["event_key"]),
                                 ("event_identity", snapshot["event_key"]),

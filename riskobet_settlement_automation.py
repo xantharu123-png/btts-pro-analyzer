@@ -28,6 +28,7 @@ from riskobet_settlement import (
     EsportsTermination,
     EventStatus,
     FootballResult,
+    IceHockeyResult,
     ParsedSettlementContract,
     Selection,
     SettlementInputError,
@@ -52,7 +53,7 @@ MAX_SHADOW_ROWS_PER_SOURCE = 500
 SETTLEMENT_ROTATION_SECONDS = 30 * 60
 TERMINAL_STORE_RESULTS = frozenset({"WON", "LOST", "VOID"})
 SETTLEABLE_STAGES = frozenset({"SHADOW", "VALIDATED"})
-SUPPORTED_DEFAULT_SPORTS = frozenset({"football", "tennis", "esports"})
+SUPPORTED_DEFAULT_SPORTS = frozenset({"football", "tennis", "esports", "ice_hockey"})
 _FIXTURE_FACTOR_RE = re.compile(r"^football_fixture_id:([1-9][0-9]*)$")
 _TENNIS_PREDICTION_FACTOR_RE = re.compile(
     r"^tennis_prediction_id:([1-9][0-9]*)$"
@@ -101,6 +102,9 @@ class SettlementRequest:
     # legacy row-ID fallback or a blind "latest fixture" lookup.
     requires_native_identity: bool = False
     frozen_starts: tuple[datetime, ...] = ()
+    # Native identity copied from the validated frozen forecast, not inferred
+    # from display labels or reverse-engineered from a hashed event key.
+    team_sport_identity: Mapping[str, object] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -384,6 +388,12 @@ def _requests_by_sport(
                     sport in {"football", "tennis"} and len({item.starts_at for item in items}) > 1
                 ),
                 frozen_starts=tuple(sorted({item.starts_at for item in items})),
+                team_sport_identity=(
+                    {name: snapshot["team_sport_forecast"].get(name) for name in
+                     ("provider", "provider_event_id", "home_id", "away_id", "home", "away")}
+                    if sport == "ice_hockey" and isinstance(snapshot.get("team_sport_forecast"), Mapping)
+                    else None
+                ),
             )
             requests.setdefault(sport, []).append(request)
             candidates_by_event[(sport, event_key)] = tuple(items)
@@ -1003,6 +1013,103 @@ def esports_result_loader(
     return load
 
 
+def ice_hockey_result_loader(history_path=None) -> ResultLoader:
+    """Read already observed results; settlement never starts an API scan.
+
+    Final and 60-minute scores remain separate. The canonical result is
+    available only after exact source/event/team/start checks and cache digest
+    verification. A new daily receipt, not this reader, owns a correction.
+    """
+    from scanners.completed_history import DEFAULT_HISTORY_PATH
+    import json
+    path = Path(history_path or DEFAULT_HISTORY_PATH)
+
+    def load(requests, now):
+        results, issues = [], []
+        if not path.is_file():
+            return ResultLoadBatch(issues=tuple(ResultIssue(r.event_key, "result_database_missing") for r in requests))
+        with sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=1) as connection:
+            connection.execute("PRAGMA query_only=ON")
+            connection.execute("BEGIN")
+            for request in requests:
+                identity = request.team_sport_identity
+                if (not isinstance(identity, Mapping)
+                        or identity.get("provider") not in {"NHL", "API-Hockey"}
+                        or not all(isinstance(identity.get(k), str) and identity[k] for k in
+                                   ("provider_event_id", "home_id", "away_id", "home", "away"))
+                        or stable_event_key("ice_hockey", identity["provider"], identity["provider_event_id"]) != request.event_key):
+                    issues.append(ResultIssue(request.event_key, "native_identity_unproven"))
+                    continue
+                found = connection.execute(
+                    "SELECT observed_at,digest,payload FROM history_result_revisions "
+                    "WHERE provider=? AND event_id=? AND observed_at<=? ORDER BY observed_at DESC LIMIT 1",
+                    (identity["provider"], identity["provider_event_id"], now.isoformat()),
+                ).fetchone()
+                if found is None:
+                    issues.append(ResultIssue(request.event_key, "matching_settled_result_missing"))
+                    continue
+                observed, digest, raw = found
+                if hashlib.sha256(raw.encode()).hexdigest() != digest:
+                    raise ValueError("hockey result cache digest differs")
+                row = json.loads(raw)
+                received, start = _parse_time(observed), _parse_time(row.get("start_time"))
+                if (received is None or not request.starts_at < received <= now
+                        or start != request.starts_at or row.get("status") != "completed"
+                        or any(str(row.get(field)) != identity[native] for field, native in
+                               (("provider", "provider"), ("provider_event_id", "provider_event_id"),
+                                ("home_team_id", "home_id"), ("away_team_id", "away_id"),
+                                ("home_team", "home"), ("away_team", "away")))):
+                    issues.append(ResultIssue(request.event_key, "native_identity_unproven"))
+                    continue
+                if identity["provider"] == "API-Hockey":
+                    # A rejected/pending newer season response must not expose
+                    # an old cached final as though its correction were valid.
+                    key = f"API-Hockey:league:{row.get('league_id')}:season:{row.get('season')}"
+                    attempt = connection.execute(
+                        "SELECT attempted_at,success_at,error FROM history_requests WHERE cache_key=? AND provider=?",
+                        (key, "API-Hockey"),
+                    ).fetchone()
+                    if attempt is not None:
+                        attempted, success = _parse_time(attempt[0]), _parse_time(attempt[1])
+                        if (attempted is not None and received <= attempted <= now
+                                and (attempt[2] is not None or success is None or success < attempted)):
+                            issues.append(ResultIssue(request.event_key, "native_result_unavailable"))
+                            continue
+                from sports_prematch import _score
+                home, away = _score(row.get("home_score")), _score(row.get("away_score"))
+                winner = row.get("winner_side")
+                period = str(row.get("last_period_type", "")).casefold()
+                if (home is None or away is None or home == away
+                        or winner not in {"home", "away"} or (home > away) != (winner == "home")
+                        or period not in {"reg", "ot", "so"}
+                        or row.get("result_scope") != "including_overtime_shootout"):
+                    issues.append(ResultIssue(request.event_key, "native_result_unavailable"))
+                    continue
+                if identity["provider"] == "API-Hockey":
+                    regulation_home = _score(row.get("regulation_home_score"))
+                    regulation_away = _score(row.get("regulation_away_score"))
+                    if (row.get("source_contract") != "api-hockey-games-v1"
+                            or regulation_home is None or regulation_away is None
+                            or regulation_home > home or regulation_away > away
+                            or (period == "reg" and (regulation_home, regulation_away) != (home, away))
+                            or (period != "reg" and regulation_home != regulation_away)):
+                        issues.append(ResultIssue(request.event_key, "regulation_score_unproven"))
+                        continue
+                elif period == "reg":
+                    regulation_home, regulation_away = home, away
+                elif abs(home-away) == 1:
+                    regulation_home = home - int(winner == "home")
+                    regulation_away = away - int(winner == "away")
+                else:
+                    issues.append(ResultIssue(request.event_key, "regulation_score_unproven"))
+                    continue
+                results.append(ObservedResult("ice_hockey", request.event_key, received,
+                    IceHockeyResult(EventStatus.FINAL, regulation_home, regulation_away, home, away, winner),
+                    identity["provider_event_id"]))
+        return ResultLoadBatch(tuple(results), tuple(issues))
+    return load
+
+
 def _default_loader(
     sport: str,
     *,
@@ -1026,6 +1133,8 @@ def _default_loader(
         return tennis_result_loader(tennis_db_path)
     if sport == "esports":
         return esports_result_loader(esports_db_path)
+    if sport == "ice_hockey":
+        return ice_hockey_result_loader()
     return None
 
 

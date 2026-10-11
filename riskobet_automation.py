@@ -459,6 +459,7 @@ def run_riskobet(
     db_path: str | Path = DEFAULT_DB_PATH,
     latest_path: str | Path = DEFAULT_LATEST_PATH,
     now: Optional[datetime] = None,
+    clock: Optional[Callable[[], datetime]] = None,
     reuse_same_day_research: bool = True,
     preserve_latest_on_total_failure: bool = True,
 ) -> RiskRunSnapshot:
@@ -576,9 +577,13 @@ def run_riskobet(
         status = RunStatus.PARTIAL if has_surviving_source else RunStatus.FAILED
     else:
         status = RunStatus.COMPLETE
+    completed_at = (_aware_utc(clock(), "completed_at")
+                    if clock is not None else started_at)
+    if clock is not None and any(snapshot.modeled_at > completed_at for snapshot in snapshots):
+        raise ValueError("completed_at must not precede a source model clock")
     run = RiskRunSnapshot(
         started_at=started_at,
-        completed_at=started_at,
+        completed_at=completed_at,
         status=status,
         snapshots=snapshots,
         candidates=candidates,
