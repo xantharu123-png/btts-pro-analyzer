@@ -3,8 +3,10 @@
 ## 11.10.2026 – Fortsetzung ab 10:38 Uhr: Inventur, Vergleichsmodell, NHL
 
 Dieser Block hat Vorrang. Ausgang lokal/GitHub/VPS gemeinsam
-`d26c1346ad727f825bc6639aeef4d48e13d43937`. Neue Änderungen aktuell lokal,
-**noch nicht gepusht oder deployed**; Veröffentlichung folgt nach finaler QA.
+`d26c1346ad727f825bc6639aeef4d48e13d43937`. **Reparaturen committed, auf main
+gepusht und am 11.10. gegen 13:12 CEST auf dem VPS live:**
+`6474a376bb1a1029f419c7d774ed6d463221169d`. Ein anschließender reiner
+Dokumentationscommit hält diesen Nachweis fest und ändert keinen Produktivcode.
 Kein Backup, zusätzlicher Sport-/API-Scan, Löschen alter Belege oder Geldänderung.
 
 - [x] Tages-Timeout näher belegt: 2.547.645 physische Receipts; direkter
@@ -37,8 +39,9 @@ Kein Backup, zusätzlicher Sport-/API-Scan, Löschen alter Belege oder Geldände
 - [x] Separater Portal-QA-Runner: 47 Tests grün, keine echten externen Aufrufe.
 - [x] Begrenzte Laufzeitreserve 60 statt 45 Minuten anhand echter Fortschritte
   und Vortage 27/36/44 Minuten. Start 03:35 einmal täglich, API-/Byte-/Spielgrenzen
-  gleich. 84 Serverjobtests bestanden, sieben vorhandene Skips; Unit noch nicht
-  auf VPS installiert. Kein Erfolg des nächsten Gesamtlaufs vorwegnehmen.
+  gleich. 84 Serverjobtests bestanden, sieben vorhandene Skips; Unit auf VPS
+  installiert, `TimeoutStartUSec=1h`, exakter geprüfter SHA256 bestätigt.
+  Kein Erfolg des nächsten Gesamtlaufs vorwegnehmen.
 - [x] **Vollsuite vollständig ausgeführt:** `full-04.xml`, ungefiltert und mit
   blockiertem externem Netzwerk: **13.191 bestanden, drei fehlgeschlagen,
   97 vorhandene Skips, 115 Untertests bestanden**, 54:25 Minuten. Kein einzelner
@@ -57,8 +60,18 @@ Kein Backup, zusätzlicher Sport-/API-Scan, Löschen alter Belege oder Geldände
 - [x] Abschließende kombinierte Nachbarregression auf dem endgültigen Teststand:
   **619 bestanden, sieben vorhandene Plattform-Skips**, 176,15 s, Exit 0,
   13 vollständige Module, `release-neighbors.xml`, externes Netz blockiert.
-- [ ] Finalen Diff prüfen, ausdrücklich nur eigene Code-/Test-/Auditdateien
-  committen; main pushen und geprüften Fast-forward auf VPS ohne Backup/Scan.
+- [x] Finalen Diff und Testkorrekturen unabhängig geprüft: 24 weitere Tests
+  bestanden, alte komplette Payloads unabhängig reproduziert. Ausschließlich
+  eigene Code-/Test-/Auditdateien committed und gepusht; VPS-Fast-forward,
+  Offline-Imports und App-Neustart Exit 0 ohne Backup, Migration oder Zusatzscan.
+  App/Caddy aktiv, beide Healthchecks `ok`, alle sieben regulären Timer aktiv;
+  tägliches Backup weiterhin deaktiviert. Wettfinder-/RisikoBet-JSON bytegleich.
+  Der alte Tageslauf bleibt korrekt `failed/timeout`, der Shadowlauf weiterhin
+  ohne aktuellen passenden Providerpreis. Kein `reset-failed`/Schönrechnen.
+- [x] Frischer interner Browser-Reload 13:13:38 CEST vollständig gerendert:
+  sieben Hauptbereiche, sechs Sportarten, Startzeit-Standard; null neue
+  Warnungen/Fehler seit Reload. Kurze Neustart-Verbindungsfehler separat
+  belassen. Noch keine neuen Tagesauswahlen, kein Kartenqualitäts-PASS behauptet.
 - [ ] Nach Veröffentlichung regulären Tennislauf **12.10.00:05 CEST** und
   Wettfinder **12.10.03:35 CEST** prüfen. Kein erfolgreicher neuer Gesamtlauf
   allein aus der 512-Receipt-Beschleunigungsprobe ableiten.

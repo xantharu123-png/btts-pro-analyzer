@@ -222,7 +222,9 @@ Produktionsquellen bleiben bytegleich. Keine Fälle ausgefiltert oder Guards
 gelockert. Abschließende kombinierte Regression in 13 vollständigen Modulen:
 **619 bestanden, sieben vorhandene Plattform-Skips**, 176,15 s, Exit 0,
 `release-neighbors.xml`. Keine neue 55-Minuten-Vollsuite mit identischem
-Produktionscode behauptet. Veröffentlichung folgt nach geprüftem Diff.
+Produktionscode behauptet. Unabhängige Schlussprüfung: 24 weitere Tests grün,
+beide vollständigen historischen Payloads unabhängig aus der alten Revision
+reproduziert, kein Releaseblocker im Testdiff oder Deploy-Helfer.
 
 Separater Portalrunner in bestehender `.portal-venv`, QA-In-Memory-Datenbank,
 lokaler Testmail und blockiertem externen Netz: **47 Tests bestanden**, 15,501 s,
@@ -230,11 +232,34 @@ keine Installation oder echte Stripe-/Mail-/Kundendatenaktion. Der erste Aufruf
 in der Sportvenv scheiterte am dort erwartungsgemäß fehlenden Django und wird
 nicht als Portaltest gerechnet.
 
-Geplanter Deploy: nur geprüfter Git-Fast-forward, kein Backup/Migration/Scan;
-kein Sportdienst wird unterbrochen. App/Health, Revisionen, Timer und die
-bytegleichen gespeicherten Wettfinder-/RisikoBet-Dateien werden getrennt geprüft.
-Ein neuer erfolgreicher Tageslauf bleibt der nächste reguläre Lauf, kein
-manuell gestarteter Scan. GitHub-Push allein ist kein Serverdeploy.
+**Echter Deploy am 11.10. gegen 13:12 CEST:**
+`6474a376bb1a1029f419c7d774ed6d463221169d` identisch lokal, GitHub-main und VPS.
+Geprüfter Git-Fast-forward, Offline-Imports und App-Neustart Exit 0; kein Backup,
+Migration, Datenbereinigung oder zusätzlicher API-/Sportscan. Acht-Minuten-
+Ruhefenster geprüft, kein Sportdienst unterbrochen. Dienstunit installiert als
+root:root/0644, `TimeoutStartUSec=1h`, SHA256
+`e0f268684dbe3c850afbf1ca9f55fc41a9a5e6815ba7d86b6c49b0988ba5e0d7`.
+App/Caddy aktiv und beide Healthchecks `ok`; sieben reguläre Timer aktiv,
+täglicher Backup-Timer deaktiviert. Gespeicherte Dateien vorher/nachher bytegleich:
+
+- Wettfinder: `a51c9d865ab14db2d7d17971e469cbb029045a7107dd7417f2ff9da17af4298e`.
+- RisikoBet: `acf24df6d14786a744b8fdf30a690bada1b34f84d54e32eb1e3915cdc3350ede`.
+
+Zwei anfängliche interne Healthverbindungen während des Starts wurden innerhalb
+des begrenzten Retryfensters gesund; kein Recovery-Trap erforderlich.
+Alter Tageslauf weiterhin `failed/timeout`, nicht gelöscht/neu gestartet.
+Regulärer Shadowlauf 13:12:04–13:12:14 meldet weiterhin fehlenden aktuellen
+Providerpreis. Ein neuer erfolgreicher Tageslauf bleibt dem **regulären
+12.10.03:35-Job** vorbehalten; Tennis folgt regulär **12.10.00:05 CEST**.
+Eine gesunde App oder GitHub-Push allein beweist keine neuen Tagesauswahlen.
+
+Frischer interner Browser-Reload 13:13:38 CEST: vollständig gerenderte BetBoy-
+Seite, sieben Hauptbereiche, sechs Sportfilter und Reihenfolge Startzeit.
+Null neue Console-Warnungen/-Fehler seit diesem Reload; die Verbindungs-/502-
+Meldungen des vorherigen geplanten App-Neustarts wurden getrennt gelassen.
+Die Oberfläche zeigt weiterhin kein neues automatisches Ergebnis und keine
+Daily3-/Tennis-Auswahl. Kein neuer Karten- oder Wettqualitätsnachweis behauptet.
+Beleg: `output/context-audit-20261011/browser-postdeploy.md` außerhalb Git.
 
 Belege außerhalb von Git: `C:/Projekt/BetBoy/output/context-audit-20261011/`,
 `day-timeout-20261011/`, `hockey-seasons-20261011/` sowie

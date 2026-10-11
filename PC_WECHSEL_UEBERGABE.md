@@ -3,7 +3,9 @@
 ## Neuester Einstieg – 11.10.2026, Fortsetzung ab 10:38 Uhr
 
 Ausgang lokal/GitHub/VPS `d26c1346ad727f825bc6639aeef4d48e13d43937`.
-**Neue Reparaturen sind lokal; noch kein Push/Deploy dieses Abschnitts.**
+**Reparaturen `6474a376bb1a1029f419c7d774ed6d463221169d` sind auf main gepusht
+und am 11.10. gegen 13:12 CEST auf dem VPS live.** Der folgende reine
+Dokumentationscommit enthält den Nachweis, keinen weiteren Produktivcode.
 Produktionsbelege stehen im neuen ersten Block von `TODO_AKTUELL.md` und
 `docs/audits/2026-10-11-kontext-fortsetzung.md`. Keine alten Ergebnisse,
 Geldbuchungen, Backups oder ungetrackte fremde Dateien ändern.
@@ -33,15 +35,25 @@ Drei beendete Vorversuche kein PASS. Frühere Testadapterkorrekturen und echte
 Der Vergleich
 nutzt erst nach allen Original-Batches übrige Bytes; der Zwei-Batch-Fehler ist
 unabhängig geschlossen. 60-Minuten-Reserve und geprüfte Unit-Allowlisten sind
-lokal, noch nicht installiert. Alle 12.706 Snapshots sind hash-/ID-kompatibel;
-separater Portalrunner 47 Tests grün. Erst Resultat lesen, dann gezielten Commit,
-main-Push und VPS-Fast-forward ohne neue Sicherung/zusätzlichen Scan abschließen.
+live installiert, Timeout `1h` und exakter Unit-Hash bestätigt. Alle 12.706
+Snapshots sind hash-/ID-kompatibel; separater Portalrunner 47 Tests grün.
+Unabhängige Schlussprüfung: 24 Tests bestanden, kein Releaseblocker.
+VPS-Fast-forward und Offline-Imports Exit 0, App/Caddy und beide Healthchecks
+grün; sieben reguläre Timer aktiv, tägliches Backup deaktiviert. Beide
+gespeicherten Prognose-JSONs bytegleich. Kein Backup, zusätzliche API-/Sport-
+Abfrage, Ergebnis-/Geldänderung oder `reset-failed`.
+Frischer interner Browser-Reload 13:13:38 CEST: gerenderte sieben Hauptbereiche,
+sechs Sportfilter, Startzeit-Standard, keine neue Console-Warnung/-Fehler.
+Neustartmeldungen separat; noch keine neuen Tageskarten bestätigt.
 Vorbereiteter begrenzter Helfer außerhalb Git:
 `C:/Projekt/BetBoy/output/context-audit-20261011/deploy.sh`.
 
 Nicht als fertig darstellen: aktive neue Fußballrechnung, numerisch geprüfte
 Verletzungs-/Wetter-/Müdigkeitseffekte, Top-20/Schweizer Hockeyabdeckung und
-erfolgreicher nächster Gesamtlauf. Nur acht native vollständige Football-
+erfolgreicher nächster Gesamtlauf. Alter Tageslauf bleibt `failed/timeout`,
+Shadow weiterhin ohne passenden aktuellen Providerpreis. Die frische Nutzerseite
+zeigt deshalb noch kein automatisches Ergebnis; Deploy ist keine neue Berechnung.
+Nur acht native vollständige Football-
 Ereignisse; Tennis-Merkmalsprobe fehlen Zeit-/Dauergrenzen, Empfangszeit ist
 kein Belastungseffekt. Reguläre nächste Jobs 12.10.00:05/03:35 CEST, keine
 zusätzlichen API-Scans. Detaillierte Abnahmebedingungen sind genehmigt und
