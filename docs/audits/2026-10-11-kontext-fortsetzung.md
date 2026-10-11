@@ -205,7 +205,24 @@ Der gleichartige alte Aufruf in der lokalen Produktvorschau ist korrigiert;
 beide tatsächlichen 15K-/RisikoBet-AppTest-Ansichten ohne Exceptions geladen.
 Netzwerk und SQLite-Verbindungen gesperrt, null Versuche. Inhalte und
 synthetische Zahlen unverändert; Lauf 4,68 s. Quellstand jetzt eingefroren.
-Finale Vollsuite: `full-04.xml`, Ergebnis und Deployment folgen.
+Vollsuite `full-04.xml` vollständig beendet: **13.191 bestanden, drei
+fehlgeschlagen, 97 vorhandene Skips, 115 Untertests bestanden**, 54:25 Minuten.
+Das ist kein einzelner fehlerfreier Vollsuite-PASS. Die drei Fehler wurden
+einzeln erklärt: zwei Legacy-Testfixtures mischten alte Input-Hashes mit dem
+neueren Stärke-Faktenanhang; die vollständigen echten Payloads aus Adapter
+`2ad2ba6b9a36fbe5e35db318e0e85b29e91a2b91` behalten exakt ihre alten IDs.
+Minimale Fixture-Rekonstruktion entfernt nur die beiden tatsächlichen neuen
+Anhänge, alte Pins bleiben; zusätzlich feste SHA256-Pins der Ganzpayloads.
+Der dritte UX-Test zählte den neuen Sortierfilter als zusätzliche Spielauswahl.
+Er prüft jetzt die konkrete Spielauswahl und den Sortierfilter separat; alle
+Sichtbarkeits-/Preisunabhängigkeitsassertions bleiben erhalten. Ganze owning
+Module danach **acht plus 16 Tests grün**. Nur diese zwei Testdateien wurden
+nach dem Lauf verändert; die übrigen 725 eingefrorenen Dateien und sämtliche
+Produktionsquellen bleiben bytegleich. Keine Fälle ausgefiltert oder Guards
+gelockert. Abschließende kombinierte Regression in 13 vollständigen Modulen:
+**619 bestanden, sieben vorhandene Plattform-Skips**, 176,15 s, Exit 0,
+`release-neighbors.xml`. Keine neue 55-Minuten-Vollsuite mit identischem
+Produktionscode behauptet. Veröffentlichung folgt nach geprüftem Diff.
 
 Separater Portalrunner in bestehender `.portal-venv`, QA-In-Memory-Datenbank,
 lokaler Testmail und blockiertem externen Netz: **47 Tests bestanden**, 15,501 s,

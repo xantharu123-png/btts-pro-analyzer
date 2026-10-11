@@ -39,17 +39,24 @@ Kein Backup, zusätzlicher Sport-/API-Scan, Löschen alter Belege oder Geldände
   und Vortage 27/36/44 Minuten. Start 03:35 einmal täglich, API-/Byte-/Spielgrenzen
   gleich. 84 Serverjobtests bestanden, sieben vorhandene Skips; Unit noch nicht
   auf VPS installiert. Kein Erfolg des nächsten Gesamtlaufs vorwegnehmen.
-- [ ] **Finale Vollsuite:** finaler eingefrorener Code, alle Sporttests über
-  `C:/Projekt/BetBoy/output/context-audit-20261011/pytest_final.py`, finaler JUnit
-  `C:/Projekt/BetBoy/output/context-audit-20261011/full-04.xml`.
-  Drei beendete Vorversuche zählen nicht als PASS. Vier Prüffehler aus dem
-  dritten Lauf vollständig erklärt und owning Module grün: Decoderzähler,
-  legitim geänderter Unit-Hash und zwei inkonsistente Anzeige-Mocks.
-  Weitere vier Fälle waren veraltete RisikoBet-Renderadapter; alle acht
-  owning Nachbarmodule mit 208 Tests bestanden. Derselbe veraltete Aufruf in
-  der lokalen Produktvorschau korrigiert; echte 15K-/RisikoBet-AppTest-Ansichten
-  ohne Exceptions oder Netzwerk-/DB-Versuch geladen. Quellstand eingefroren.
-  Keine Produktionsprüfung gelockert oder Fälle gefiltert.
+- [x] **Vollsuite vollständig ausgeführt:** `full-04.xml`, ungefiltert und mit
+  blockiertem externem Netzwerk: **13.191 bestanden, drei fehlgeschlagen,
+  97 vorhandene Skips, 115 Untertests bestanden**, 54:25 Minuten. Kein einzelner
+  fehlerfreier Vollsuite-PASS. Die drei verbleibenden Fehler waren veraltete
+  Testfixtures: zwei mischten alte Kartenhashes mit dem neuen Faktenanhang;
+  vollständige historische Payloads und alte IDs sind nachweislich unverändert.
+  Der dritte zählte den neuen Sortierfilter als zusätzliche Spielauswahl.
+  Nur diese zwei Testdateien korrigiert, alte Pins/Assertions erhalten und
+  vollständige historische Payload-SHA-Pins ergänzt. Owning Module danach
+  **acht plus 16 Tests grün**. Alle 725 übrigen eingefrorenen Quell-/Testdateien
+  sind bytegleich, insbesondere sämtliche Produktionsquellen.
+  Drei beendete Vorversuche zählen nicht als PASS. Frühere veraltete
+  Decoderzähler, Unit-Hash-Pins, Anzeige-Mocks und RisikoBet-Renderadapter sind
+  bereits erklärt und vollständig geprüft; keine Fälle ausgefiltert,
+  keine Produktionsprüfung gelockert.
+- [x] Abschließende kombinierte Nachbarregression auf dem endgültigen Teststand:
+  **619 bestanden, sieben vorhandene Plattform-Skips**, 176,15 s, Exit 0,
+  13 vollständige Module, `release-neighbors.xml`, externes Netz blockiert.
 - [ ] Finalen Diff prüfen, ausdrücklich nur eigene Code-/Test-/Auditdateien
   committen; main pushen und geprüften Fast-forward auf VPS ohne Backup/Scan.
 - [ ] Nach Veröffentlichung regulären Tennislauf **12.10.00:05 CEST** und

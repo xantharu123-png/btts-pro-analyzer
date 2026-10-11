@@ -15,13 +15,22 @@ und maximal 16 KiB; NHL 2026/27 strikt gebunden; unmögliche Hockey-Gesamtsieg-
 verteilungen am owning Datenvertrag abgelehnt. Bestehende Kundenschätzungen
 bleiben gleich. Alter Football-Abrechnungsbericht ist nicht der aktuelle Code.
 
-Finale **ungefilterte Offline-Sportsuite steht an**, JUnitziel
-`C:/Projekt/BetBoy/output/context-audit-20261011/full-04.xml`; drei Vorversuche
-nach letzten Korrekturen absichtlich beendet, kein PASS. Vier veraltete
-Prüfannahmen wurden korrigiert und ihre kompletten Module bestanden; vier
-weitere Fälle waren veraltete RisikoBet-Renderadapter (208 Nachbartests grün).
-Der identische lokale Vorschauaufruf ist korrigiert; beide AppTest-Ansichten
-ohne Exceptions oder Netzwerk-/DB-Versuch geladen. Quellstand eingefroren. Der Vergleich
+Die **ungefilterte Offline-Sportsuite ist vollständig beendet**:
+`C:/Projekt/BetBoy/output/context-audit-20261011/full-04.xml`, 13.191 bestanden,
+drei fehlgeschlagen, 97 vorhandene Skips und 115 Untertests bestanden,
+54:25 Minuten. Kein einzelner fehlerfreier Vollsuite-PASS. Alle drei Fehler
+waren veraltete Testfixtures, keine Produktionsfehler: zwei gemischte alte
+Identitäten/neue Faktenanhänge und eine Gesamtzahl aller Selectboxes statt
+konkreter Spielauswahl. Nur die beiden Testdateien korrigiert; authentische alte
+IDs/Ganzpayload-SHA-Pins und alle Sichtbarkeitsassertions erhalten.
+Ganze owning Module danach acht plus 16 Tests bestanden. Alle übrigen 725
+eingefrorenen Dateien einschließlich sämtlicher Produktionsquellen bytegleich.
+Finale kombinierte Regression in 13 kompletten Modulen: **619 bestanden,
+sieben vorhandene Plattform-Skips**, 176,15 s, Exit 0,
+`C:/Projekt/BetBoy/output/context-audit-20261011/release-neighbors.xml`.
+Drei beendete Vorversuche kein PASS. Frühere Testadapterkorrekturen und echte
+15K-/RisikoBet-AppTest-Vorschau ohne Exceptions oder Netzwerk-/DB-Versuch geprüft.
+Der Vergleich
 nutzt erst nach allen Original-Batches übrige Bytes; der Zwei-Batch-Fehler ist
 unabhängig geschlossen. 60-Minuten-Reserve und geprüfte Unit-Allowlisten sind
 lokal, noch nicht installiert. Alle 12.706 Snapshots sind hash-/ID-kompatibel;

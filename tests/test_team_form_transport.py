@@ -1,6 +1,7 @@
 """Real producer/persistence regressions, not manually injected form payloads."""
 from dataclasses import replace
 from datetime import timedelta
+import hashlib
 import json
 from types import SimpleNamespace
 
@@ -45,17 +46,30 @@ def test_actual_adapter_store_json_and_card_preserve_ten_recent_games(tmp_path, 
     assert signal.team_sport_snapshot['team_sport_forecast']['model_input_hash'] == snapshot.team_sport_forecast.model_input_hash
 
 
-@pytest.mark.parametrize('sport,legacy_hash,legacy_id', [
+@pytest.mark.parametrize('sport,legacy_hash,legacy_id,legacy_payload_digest', [
     ('basketball', 'bfc3221f31c212c2217f367b7438e1668abb30c3697adaab6f3a309ae3c5cf25',
-     'snapshot_2d63be4e5bedd846e6d854f5e471ba6d6048204dfbd6adce96e05d8583544b26'),
+     'snapshot_2d63be4e5bedd846e6d854f5e471ba6d6048204dfbd6adce96e05d8583544b26',
+     '7dc042cf9b1ca42bd58c4a177c6047e3703d92bfe2a2dd172fbfdfd6c3bc6fe9'),
     ('ice_hockey', 'd18ad3566a9b039e50c551a1af2ecc7cb5a9d9721224b177e46777ffe76e364c',
-     'snapshot_818846c4327799de9b1e07dc3febaadc134a2812675a62f6c06e7c6d72dddc30'),
+     'snapshot_818846c4327799de9b1e07dc3febaadc134a2812675a62f6c06e7c6d72dddc30',
+     '806bc6ee32bb2ce6eb4007ce8db44b02b687225c414bc0257bf07cc37fe785d8'),
 ])
-def test_legacy_revision_is_unchanged_and_new_form_revision_can_coexist(tmp_path, sport, legacy_hash, legacy_id):
+def test_legacy_revision_is_unchanged_and_new_form_revision_can_coexist(
+        tmp_path, sport, legacy_hash, legacy_id, legacy_payload_digest):
     current = adapt_research_matchwinner(sport,
         event(sport, source_observed_at=NOW.isoformat()), history(sport), modeled_at=NOW).snapshot
-    legacy = replace(current, input_hash=legacy_hash, customer_recent_results=None)
+    # Exact legacy projection checked against adapter 2ad2ba6b9a36fbe5e35db318e0e85b29e91a2b91,
+    # source SHA256 325601d7b86a9cc1a6eb2bbdce7ee1f8e583890a627c2c6b337ecdb0b3a361cf.
+    # Its complete payload differs only by the new bound strength fact and form sidecar.
+    forecast = current.team_sport_forecast
+    assert len(forecast.factors) == 3
+    assert forecast.factors[-1].startswith('Gemeinsamer Stärkenvergleich Heim–Gast (')
+    legacy = replace(current, input_hash=legacy_hash, customer_recent_results=None,
+        team_sport_forecast=replace(forecast, factors=forecast.factors[:-1]))
     assert legacy.snapshot_id == legacy_id
+    canonical_legacy = json.dumps(legacy.to_dict(), ensure_ascii=False, sort_keys=True,
+                                 separators=(',', ':')).encode('utf-8')
+    assert hashlib.sha256(canonical_legacy).hexdigest() == legacy_payload_digest
     old_bytes = json.dumps(legacy.to_dict(), sort_keys=True)
     assert 'customer_recent_results' not in legacy.to_dict()
     store = RiskBetStore(tmp_path / 'risk.db')

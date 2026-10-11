@@ -415,7 +415,16 @@ def test_zero_ready_keeps_best_price_independent_forecast_visible():
     assert len(at.warning) >= 1
     assert any("Keines der" in warning.value for warning in at.warning)
     # Die Quote darf eine gesperrte Modellprognose nicht unsichtbar machen.
-    assert len(at.selectbox) == 1
+    candidate_selectors = [
+        widget for widget in at.selectbox if widget.label == "Spiel auswählen"
+    ]
+    assert len(candidate_selectors) == 1
+    assert candidate_selectors[0].options == [
+        "Alpha vs Beta | Beide Teams treffen: Ja"
+    ]
+    order = at.selectbox(key="prematch_display_order")
+    assert order.options == ["Startzeit", "Wahrscheinlichkeit"]
+    assert order.value == "Startzeit"
     assert any(
         "Prognosen bleiben sichtbar" in warning.value for warning in at.warning
     )
