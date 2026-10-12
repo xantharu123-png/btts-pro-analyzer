@@ -11,7 +11,16 @@ Unabhängiges Diffreview ohne kritischen/wichtigen Funktionsbefund. Exakter
 isolierter Release-/Nachbarlauf273/273 bestanden,0 Skips,229,94s. Erste Runde
 scheiterte nur an Windows-Sandbox-Hardlinkrechten für die HMAC-Testdatei;
 komplette unveränderte Runde mit normalen Rechten bestanden. Netzwerk gesperrt.
-Keine Gesamtapp-/Qualitätsfreigabe daraus ableiten; Veröffentlichung im Abschluss.
+Keine Gesamtapp-/Qualitätsfreigabe daraus ableiten.
+
+Codecommit **99e771baee4f2bc115cf12a1d2426f4ea9812e26** ist auf main und VPS.
+Linux-Import, App/Caddy, sieben vorhandene Timer und beide Healthchecks geprüft.
+Gespeicherte Wettfinder-/RisikoBet-JSONs unverändert. Veröffentlichung nach dem
+regulären15:02-Lauf, keine neue Sicherung/API-/Sportabfrage. Ein PowerShell-CR
+am Deployskriptende löste einmal einen code-only Rückfall aus; Übertragung danach
+korrigiert und vollständig erfolgreich. Kein Daten-Rollback.
+Reale Workerprobe15:06CEST: `effect-unavailable`, `not_applied`, kein Snapshot.
+Anschließender Dokucommit ändert ausschließlich diesen Nachweis, keinen Code.
 
 **Nicht als volle Müdigkeitswirkung verkaufen:** reine Serverprobe12:40UTC
 hat0 Effekte/0 Freigaben und0 tatsächliche Fußball-Spielendzeiten gezeigt.

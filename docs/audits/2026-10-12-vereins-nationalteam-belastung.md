@@ -54,8 +54,15 @@ Erste Runde272/273: Sandbox blockierte atomare HMAC-Testdateiverknüpfung, kein
 Modellfehler. Kompletter unveränderter Lauf mit normalen Dateirechten danach
 bestanden; keine Tests entfernt, externes Netzwerk blockiert. XML:
 `C:/Projekt/BetBoy/output/player-load-20261012/release-final.xml`.
-Deploymentbeleg folgt im aktuellen TODO. Keine Testzahl bedeutet nachgewiesene
-bessere Wettqualität; dies ist kein erneuter Vollsuite-PASS.
+Codecommit99e771baee4f2bc115cf12a1d2426f4ea9812e26 auf main und VPS, Linux-
+Importprobe bestanden, Branch main, App/Caddy aktiv, sieben Timer aktiviert,
+beide Healthchecks `ok`. Wettfinder-/RisikoBet-JSONs SHA256-identisch vor/nach.
+Erster Übertragungsabschluss hatte einen PowerShell-CR-Fehler und löste einen
+code-only Rückfall aus; Übertragung danach korrigiert und vollständig erfolgreich.
+Keine Datenrücksetzung. Reale rein lesende Workerprobe15:06CEST:
+`effect-unavailable`/`not_applied`, kein Snapshot und kein erfundener Aktiveffekt.
+Anschließender Nachweiscommit ist rein dokumentarisch.
+Keine Testzahl bedeutet nachgewiesene bessere Wettqualität; kein Vollsuite-PASS.
 
 Nicht erledigt: ausreichende echte Personal-/Belastungsdeckung, zeitgetrennter
 qualifizierter Fit und owning Freigabe. Zusätzlich große Readiness-/Transport-

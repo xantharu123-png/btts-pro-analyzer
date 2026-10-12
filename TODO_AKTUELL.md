@@ -28,7 +28,18 @@ Müdigkeitsabschläge, neuen Datenbanken, Zusatzscans oder Backups.
   außerhalb Git. Netzwerk während QA gesperrt. Erste Runde272/273, einziger
   Fehler Sandbox-Verbot für atomare HMAC-Testdateiverknüpfung; kompletter
   unveränderter Lauf mit normalen Dateirechten danach273/273. Keine Tests entfernt.
-- [ ] Commit/Push/VPS veröffentlichen und beide Healthchecks nachweisen.
+- [x] Codecommit **99e771baee4f2bc115cf12a1d2426f4ea9812e26** committed,
+  auf main gepusht und auf dem VPS veröffentlicht; Branch main, App/Caddy aktiv,
+  sieben bestehende Timer aktiviert, interner/öffentlicher Healthcheck `ok`.
+  Offline-Import auf Linux bestanden. Gespeicherte Wettfinder-/RisikoBet-JSONs
+  vor/nach Deployment SHA256-identisch; keine historischen Prognosen/Buchungen
+  geändert. Nach regulärem15:02-Lauf veröffentlicht, kein Extra-Lauf/Backup.
+  Erster Deploy wurde wegen PowerShell-CR am Skriptende nach erfolgreichem
+  Healthcheck code-only zurückgestellt; Übertragung korrigiert, Wiederholung
+  vollständig erfolgreich. Keine DB-Rücksetzung oder verlorenen Daten.
+- [x] Echte rein lesende Workerprobe15:06CEST bestätigt `effect-unavailable`,
+  `not_applied`, kein neuer Snapshot;95 echte `football-original-b1-binding-v1`.
+  Die Datenverbindung ist live, numerische Müdigkeitswirkung weiterhin NICHT aktiv.
 - [ ] Reale zeitgetrennte Wirkung prüfen und erst dann aktivieren. Lesende VPS-
   Prüfung12.10.,12:40UTC: **0 Effekte /0 Freigaben**. Probe11 Ereignisse:
   381/470 Spielerlisten mit bekannten Minuten,89 unbekannt,0 echte Spielendzeiten.
@@ -45,6 +56,8 @@ und performant begrenzter Spielerzugriff (Produktionsindex bisher nur ereignis-
 führend). Keine synthetischen Koeffizienten auf dem Server veröffentlichen.
 V2-Pool-, spätere Entscheidungs-, Tennis-POINT- und weitere alte WIP-Dateien
 bleiben separat uncommitted/unveröffentlicht. Daily3-Release unten bleibt separat.
+Ein anschließender Dokucommit enthält ausschließlich diesen Veröffentlichungs-
+nachweis; funktionaler/testverifizierter Code bleibt99e771b.
 
 ## 12.10.2026 – Spielblöcke und Daily3: begrenzte Reparatur
 
