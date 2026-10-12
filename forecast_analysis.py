@@ -546,7 +546,7 @@ def _sport_analysis(signal, sport, now):
     return None
 
 
-def football_context_highlight_reason(context, *, now):
+def football_context_highlight_reason(context, *, now, max_age=_CONTEXT_MAX_AGE):
     """Qualify typed original football checks, not lineup completeness or prose."""
     if _mapping(_mapping(context).get('lineups')).get('status') == 'blocked':
         return 'Spielinformationen sprechen gegen die Auswahl'
@@ -561,7 +561,7 @@ def football_context_highlight_reason(context, *, now):
         check = _mapping(context.get(axis))
         checked = _clock(check.get('checked_at'))
         if (check.get('status') not in statuses or check.get('availability') != 'available'
-                or checked is None or not timedelta(0) <= now-checked <= _CONTEXT_MAX_AGE
+                or checked is None or not timedelta(0) <= now-checked <= max_age
                 or check.get('veto_applied') is True):
             return 'Spielinformationen nicht aktuell belegt'
     return ''

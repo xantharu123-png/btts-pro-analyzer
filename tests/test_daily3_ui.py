@@ -34,7 +34,7 @@ def test_shared_pool_actual_count_and_unfilled_slots(tmp_path, count):
     assert any(p.proto.popover.label == 'Auswahl & Regeln' for p in app.get('popover'))
     assert any('keine unabhängige Zweitbestätigung' in m.value for m in app.markdown)
     if count == 0:
-        assert [i.value for i in app.info] == ['Heute keine zeitlich passende Tagesfolge. Weitere Spiele findest du im Wettfinder.']
+        assert [i.value for i in app.info] == ['Heute keine passende Daily3-Auswahl. Weitere Spiele findest du im Wettfinder.']
         assert not app.subheader
         assert len(captions.split()) < 32
     else:

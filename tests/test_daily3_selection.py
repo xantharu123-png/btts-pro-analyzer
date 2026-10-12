@@ -146,7 +146,7 @@ def test_defensive_threshold_is_price_free_and_does_not_erase_normal_forecasts(p
     assert MIN_MODEL_PROBABILITY == .7
 
 
-def test_high_raw_probability_cannot_displace_better_supported_match_comparisons():
+def test_same_kickoff_uses_defensive_variants_without_requiring_a_form_bonus():
     broad = [football(1, 'AWAY_UNDER_2_5', .953, baseline=.50, variants=(.953,.95,.96)),
              football(2, 'AWAY_UNDER_2_5', .91, baseline=.50, variants=(.91,.905,.925)),
              football(3, 'HOME_OVER_0_5', .908, baseline=.50, variants=(.908,.905,.917))]
@@ -157,7 +157,10 @@ def test_high_raw_probability_cannot_displace_better_supported_match_comparisons
     before = tuple(pool)
     for ordering in (pool, list(reversed(pool))):
         choices = daily3_choices(ordering, now=NOW)
-        assert {c.signal.key for c in choices} == {s.key for s in alternatives}
+        # All variants qualify; the old 2pp-only expectation was not a
+        # defensiveness test. At the first kickoff the strongest conservative
+        # model comparison wins, followed by the actual later day slots.
+        assert [c.signal.key for c in choices] == [broad[0].key, alternatives[0].key, alternatives[1].key]
         assert all(c.snapshot()['policy_version'] == POLICY_VERSION for c in choices)
     assert tuple(pool) == before
 
@@ -201,3 +204,62 @@ def test_distinct_source_ids_with_exact_same_event_alias_use_only_one_slot(monke
     later = replace(second, scheduled_start=(NOW+timedelta(hours=6)).isoformat())
     assert len(daily3_choices([base, later], now=NOW)) == 2
     assert event_guard(base)['identity'] != event_guard(second)['identity']
+
+
+@pytest.mark.parametrize('variants', [(.8, .8, .8), (.8, .805, .81), (.8, .79, .81)])
+def test_validated_defensive_model_does_not_need_an_arbitrary_positive_form_bonus(variants):
+    signal = football(probability=.8, variants=variants)
+    choices = daily3_choices([signal], now=NOW)
+    assert [choice.signal.key for choice in choices] == [signal.key]
+    assert choices[0].signal.probability == .8
+    assert choices[0].comparison.lowest_model_probability == min(variants)
+    assert '+-' not in choices[0].comparison.summary
+    from daily3_comparison import football_form_comparison
+    # The shared ordinary TOP policy is not broadened by the Daily3 repair.
+    assert football_form_comparison(signal, now=NOW) is None
+
+
+def test_daily_context_keeps_its_original_clock_without_expiring_after_75_minutes():
+    signal = football(now=NOW-timedelta(hours=4), start_hours=8)
+    signal = replace(signal, source='automated_wettfinder_forecast')
+    before = signal.analysis_evidence['context']['injuries']['checked_at']
+    assert [choice.signal.key for choice in daily3_choices([signal], now=NOW)] == [signal.key]
+    assert signal.analysis_evidence['context']['injuries']['checked_at'] == before
+
+
+@pytest.mark.parametrize('age,eligible', [
+    (timedelta(hours=24), True),
+    (timedelta(hours=24, seconds=1), False),
+])
+def test_daily_context_and_model_expire_at_the_daily_lifetime(age, eligible):
+    signal = football(now=NOW-age, start_hours=age.total_seconds()/3600+3)
+    signal = replace(signal, source='automated_wettfinder_forecast', price_checked_at=NOW.isoformat())
+    assert bool(daily3_choices([signal], now=NOW)) is eligible
+
+
+@pytest.mark.parametrize('clock', [None, 'invalid', (NOW+timedelta(seconds=1)).isoformat()])
+def test_daily_lifetime_does_not_admit_missing_invalid_or_future_context_clocks(clock):
+    from copy import deepcopy
+    signal = football(now=NOW-timedelta(hours=4), start_hours=8)
+    evidence = deepcopy(signal.analysis_evidence)
+    evidence['context']['injuries']['checked_at'] = clock
+    signal = replace(signal, source='automated_wettfinder_forecast', analysis_evidence=evidence)
+    assert daily3_choices([signal], now=NOW) == ()
+
+
+@pytest.mark.parametrize('axis', ['injuries', 'weather', 'h2h', 'lineups'])
+def test_original_adverse_context_is_not_ignored_by_daily_lifetime(axis):
+    from copy import deepcopy
+    signal = football(now=NOW-timedelta(hours=4), start_hours=8)
+    evidence = deepcopy(signal.analysis_evidence)
+    evidence['context'][axis]['status'] = 'blocked'
+    signal = replace(signal, source='automated_wettfinder_forecast', analysis_evidence=evidence)
+    assert daily3_choices([signal], now=NOW) == ()
+
+
+def test_defensive_daily_sequence_begins_with_earliest_qualified_match():
+    first = football(401, probability=.75, start_hours=3)
+    second = football(402, probability=.80, start_hours=6)
+    third = football(403, probability=.90, start_hours=9)
+    assert [choice.signal.key for choice in daily3_choices([third, second, first], now=NOW)] == [
+        '401:RESULT_HOME', '402:RESULT_HOME', '403:RESULT_HOME']

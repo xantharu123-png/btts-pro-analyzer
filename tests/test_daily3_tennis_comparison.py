@@ -151,6 +151,26 @@ def test_incomplete_context_binding_cannot_claim_qualified_surface_comparison():
     assert daily3_choices([s], now=NOW) == ()
 
 
+@pytest.mark.parametrize('values', [[.811, .797, .82], [.733, .749, .767]])
+def test_daily3_preserves_qualified_tennis_without_a_two_point_surface_bonus(values):
+    s = signal()
+    raw = s.context_evidence['daily3_comparison']
+    raw['probabilities_a'] = values
+    s = replace(s, probability=values[0])
+    choices = daily3_choices([s], now=NOW)
+    assert len(choices) == 1
+    assert choices[0].signal is s
+    assert choices[0].comparison.lowest_model_probability == min(values)
+    assert '+-' not in choices[0].comparison.summary
+
+
+def test_daily3_does_not_hide_disagreement_when_surface_bonus_is_not_required():
+    s = signal()
+    s.context_evidence['daily3_comparison']['probabilities_a'] = [.811, .697, .82]
+    s = replace(s, probability=.811)
+    assert daily3_choices([s], now=NOW) == ()
+
+
 def test_real_worker_persists_comparison_with_its_actual_native_original(monkeypatch, tmp_path):
     import json
     from test_tennis_live_worker import NOW as clock, configure, competition, run_batch

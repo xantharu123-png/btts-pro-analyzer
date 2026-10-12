@@ -9,7 +9,12 @@ def test_favourite_baseline_not_confused_with_a_match_specific_form_signal():
     obvious = football(1, 'HOME_OVER_0_5', .97, baseline=.5, variants=(.97, .969, .973))
     supported = football(2, 'AWAY_OVER_0_5', .77, baseline=.7, variants=(.77, .72, .86))
     choices = daily3_choices([obvious, supported], now=NOW)
-    assert [c.signal.key for c in choices] == [supported.key]
+    assert [c.signal.key for c in choices] == [obvious.key]
+    # A near-zero change is not relabeled a meaningful form advantage. It is
+    # eligible because all exactly bound variants satisfy the defensive floor.
+    assert choices[0].comparison.margin < .02
+    from daily3_comparison import football_form_comparison
+    assert football_form_comparison(obvious, now=NOW) is None
     assert obvious in select_consumer_forecasts([obvious, supported], now=NOW)
     assert obvious.probability == .97
 
@@ -20,19 +25,23 @@ def test_same_market_allowed_on_either_side_only_with_actual_match_signal():
         assert daily3_choices([item], now=NOW)[0].signal is item
 
 
-def test_no_reverse_form_no_noise_and_no_riskier_fillers():
+def test_defensive_floor_handles_reverse_zero_and_small_form_changes_honestly():
     for variants in ((.96, .97, .93), (.96, .96, .96), (.96, .955, .975), (.72, .65, .93)):
         item = football(probability=variants[0], variants=variants)
-        assert daily3_choices([item], now=NOW) == ()
+        choices = daily3_choices([item], now=NOW)
+        assert bool(choices) is (min(variants) >= .70)
+        if choices:
+            assert choices[0].signal.probability == variants[0]
+            assert choices[0].comparison.lowest_model_probability == min(variants)
+            assert '+-' not in choices[0].comparison.summary
 
 
 def test_qualified_match_signals_rank_defensively_independent_of_price():
     favourite = football(1, 'HOME_OVER_0_5', .94, variants=(.94, .915, .985))
     alternative = football(2, 'AWAY_OVER_0_5', .80, variants=(.8, .72, .94))
     before = daily3_choices([favourite, alternative], now=NOW)
-    # Both have a genuine saved same-match form signal. Relevance admits both;
-    # the approved defensive priority then prefers lower modeled loss risk.
-    # A favourite WITHOUT such a signal remains excluded by the test above.
+    # Both have a genuinely bound comparison. At the same kickoff the
+    # approved defensive priority prefers lower modeled loss risk.
     assert before[0].signal is favourite
     changed = [replace(s, minimum_odds=999, probability_haircut=.001) for s in (alternative, favourite)]
     assert [c.signal.key for c in daily3_choices(changed, now=NOW)] == [c.signal.key for c in before]

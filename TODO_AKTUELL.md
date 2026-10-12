@@ -1,8 +1,37 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 12.10.2026 – Spielblöcke und Daily3: begrenzte Reparatur
+
+Dieser aktuelle Block hat für die Nutzeranfrage zu geöffneten Spielen und leerer
+Daily3 Vorrang. Kanonischer Checkout `C:/Projekt/BetBoy/betboy-app`.
+
+- [x] Initial die ersten drei sichtbaren Spiele der geordneten Seite öffnen;
+  Nutzerwahl pro Partie durch Sortierung/Filter/Pagination erhalten.
+- [x] Daily3: reale qualifizierte Varianten weiterhin alle >=70 %, aber kein
+  pauschaler +2pp-Form-/Belagbonus. Normale TOP-Regel unverändert.
+- [x] Daily3: Originalkontext des automatischen Tageslaufs bis24h nutzen;
+  keine neuen Uhren, Daten oder Effekte, echte Vetos/Missing/Conflicts erhalten.
+- [x] Früheste qualifizierte Partie zuerst, nur echte Spiele mit Zeitpuffer
+  bis Tagesende einplanen; keine Pflichtzeit für unbekannte Restwetten.
+- [x] Neutrale Leermeldung, ehrliches Vorzeichen bei Modellvergleich.
+- [x] Root 325 Integrationsprüfungen, unabhängig407, Preisnachbarn89,
+  isolierte Kontextgrenzen51, Portal47 bestanden; überlappende Runden.
+- [ ] Commit/Push und VPS-Fast-forward dieses Pakets, ohne Backup/Zusatzscan.
+- [ ] Frische reine Produktions-Poolauswertung und Browser-Abnahme dokumentieren.
+- [ ] Breiten Offline-Kernlauf auswerten; bisher kein vollständiges Grün.
+
+Details und QA-Abgrenzung:
+`docs/audits/2026-10-12-daily3-und-spielbloecke.md`.
+
+WICHTIG: Die nachfolgenden dirty/untracked Kontextmodell-Arbeiten vom11.10.
+sind erhalten, aber NICHT Bestandteil dieses Releases. Sie benötigen weiterhin
+die dort beschriebene Implementierung und gemeinsame Releaseprüfung. Insbesondere
+werden Verletzungs-/Wetter-/Müdigkeitseffekte nicht als erledigt oder besser
+validiert bezeichnet. Keine neue Sicherung, Bereinigung oder API-/Modellrunde.
+
 ## 11.10.2026 – Accountwechsel: Kontext-Datenpfade, NICHT veröffentlicht
 
-**Dieser Block hat Vorrang. Auf Nutzerwunsch wegen Tokenende pausiert.**
+**Dieser Block ist die offene, separat pausierte Kontextmodell-Arbeit.**
 Kanonischer Checkout: `C:/Projekt/BetBoy/betboy-app`.
 Ausgangscommit lokal/GitHub-main/VPS in dieser Sitzung geprüft:
 `e9eea811b85b124b797c0d995b6cdbbe8187c6b5`.

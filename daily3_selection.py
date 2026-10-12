@@ -1,12 +1,12 @@
 """Defensive comparison shortlist, with the user's known-offer price floor.
 
-v11 retains exact-bound model variants and at least 70% in all three. Compare
-form (football) or surface (ATP) against the same match's general strength; a minimum
-two-percentage-point change is a presentation rule, not an empirical guarantee.
+Retain exact-bound model variants and at least 70% in all three. Compare form
+(football) or surface (ATP) against the same match's general strength; a positive
+two-percentage-point change is not necessary for a defensive day selection.
 Haircut, odds, RELEASED flags, target profit and account money are not ranking
 inputs. After coherent model selection, known offers below 1.20 are hidden.
 Unknown prices stay eligible after an actual check; offers above the floor do not change ranking.
-Time admission leaves room for the remaining daily legs. Published choices are
+Time admission checks each actual leg, not imaginary future bets. Published choices are
 chronological planning, not guaranteed match durations or future cash credits.
 """
 from collections import Counter
@@ -18,13 +18,14 @@ from challenge_engine import MARKET_BY_KEY
 from daily3_identity import event_guard, events_overlap
 from daily3_comparison import Comparison, daily3_comparison
 from daily3_schedule import fits_daily3_window, planned_ready_at
-from forecast_analysis import build_forecast_analysis, forecast_highlight_reason
+from forecast_analysis import (DAILY_MODEL_HIGHLIGHT_MAX_AGE, build_forecast_analysis,
+    football_context_highlight_reason, forecast_highlight_reason, read_football_analysis)
 from forecast_selection import select_consumer_forecasts
 from forecast_price_checks import has_current_price_check
 from market_consensus import quote_below_publication_floor
 from selection_coherence import consumer_event_identity
 
-POLICY_VERSION = 'daily3-defensive-day-sequence-checked-prices-v12'
+POLICY_VERSION = 'daily3-defensive-day-sequence-checked-prices-v13'
 # Deliberate shortlist threshold, not a learned/calibrated safety boundary.
 MIN_MODEL_PROBABILITY = 0.70
 _TZ = ZoneInfo('Europe/Zurich')
@@ -64,8 +65,18 @@ def _clock(value):
 
 def _explanation(signal, sport, now):
     analysis = build_forecast_analysis(signal, now=now)
-    if forecast_highlight_reason(signal, now=now, analysis=analysis):
+    if forecast_highlight_reason(signal, now=now, analysis=analysis, check_context=False):
         return None
+    if sport == 'football':
+        evidence = read_football_analysis(vars(signal), now=now)
+        context = evidence.get('context', {}) if evidence else {}
+        # The daily automatic model uses the original daily observations, not
+        # the 75-minute TOP-review window. Do not renew or invent their clocks;
+        # actual vetoes, conflicts and missing observations remain exclusions.
+        kwargs = ({'max_age': DAILY_MODEL_HIGHLIGHT_MAX_AGE}
+                  if signal.source == 'automated_wettfinder_forecast' else {})
+        if football_context_highlight_reason(context, now=now, **kwargs):
+            return None
     basis = ' '.join(part for part in (analysis.basis, analysis.samples, analysis.data_age) if part)
     return basis, analysis.caution
 
@@ -100,7 +111,8 @@ def daily3_choices(signals, *, now, occupied_events=(), occupied_guards=(), used
         explanation = _explanation(s, sport, now)
         if explanation is None or not MIN_MODEL_PROBABILITY <= s.probability < 1:
             continue
-        comparison = daily3_comparison(s, now=now, minimum_probability=MIN_MODEL_PROBABILITY)
+        comparison = daily3_comparison(s, now=now, minimum_probability=MIN_MODEL_PROBABILITY,
+                                       require_positive_change=False)
         if comparison is None:
             continue
         spec = MARKET_BY_KEY.get(s.market_key) if sport == 'football' else None
@@ -113,9 +125,10 @@ def daily3_choices(signals, *, now, occupied_events=(), occupied_guards=(), used
                     fits_daily3_window(c.start, c.sport, used_slots+len(selected))]
         if not eligible:
             break
-        # Relevance is an admission condition, not a reason to prefer higher
-        # modeled loss risk. Diversity/form only break equal-risk ties.
-        eligible.sort(key=lambda c: (-c.comparison.lowest_model_probability,
+        # Plan the earliest qualified game first rather than replacing the
+        # entire day's sequence with a higher probability late-night game.
+        # At the same kickoff, defensive strength precedes diversity/form.
+        eligible.sort(key=lambda c: (c.start, -c.comparison.lowest_model_probability,
                                    sport_count[c.sport], family_count[(c.sport, c.family)],
                                    -c.comparison.margin,
                                    -c.sampled_at.timestamp(), c.start, c.event_id, c.signal.key))

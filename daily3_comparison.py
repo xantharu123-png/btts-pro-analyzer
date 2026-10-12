@@ -198,14 +198,14 @@ class Comparison:
     def summary(self):
         if self.match_reference_probability is not None:
             baseline = f'{self.match_reference_probability:.1%}'.replace('.', ',')
-            change = f'{100 * (self.active_probability - self.match_reference_probability):.1f}'.replace('.', ',')
-            return f'{self.signal_label}: +{change} Prozentpunkte zum Grundmodell ({baseline}).'
+            change = f'{100 * (self.active_probability - self.match_reference_probability):+.1f}'.replace('.', ',')
+            return f'{self.signal_label}: {change} Prozentpunkte zum Grundmodell ({baseline}).'
         model = f'{self.lowest_model_probability:.1%}'.replace('.', ',')
         baseline = f'{self.baseline_probability:.1%}'.replace('.', ',')
         return f'Saison/Form mindestens {model}; Ligavergleich {baseline} aus {self.samples} Spielen.'
 
 
-def football_form_comparison(signal, *, now, minimum_probability=0.0):
+def football_form_comparison(signal, *, now, minimum_probability=0.0, require_positive_change=True):
     """Shared prominence evidence; Daily3 alone adds its probability floor."""
     # This adapter only consumes an actual saved comparison. Missing sport-
     # specific baselines must not be replaced with an invented 50% prior.
@@ -230,7 +230,7 @@ def football_form_comparison(signal, *, now, minimum_probability=0.0):
     margin = round(min(active, form) - season, 12)
     # Explicit presentation relevance threshold, not a learned effect size or
     # a confidence bound. Never fill slots with round-off/tiny positive deltas.
-    if floor < minimum_probability or margin < MIN_FORM_CHANGE - 1e-12:
+    if floor < minimum_probability or (require_positive_change and margin < MIN_FORM_CHANGE - 1e-12):
         return None
     return Comparison(
         margin, floor, raw['successes']/raw['samples'], raw['samples'], season, active,
@@ -238,8 +238,10 @@ def football_form_comparison(signal, *, now, minimum_probability=0.0):
     )
 
 
-def daily3_comparison(signal, *, now, minimum_probability):
+def daily3_comparison(signal, *, now, minimum_probability, require_positive_change=True):
     if str(signal.sport or '').casefold() == 'tennis':
         from daily3_tennis_comparison import tennis_surface_comparison
-        return tennis_surface_comparison(signal, now=now, minimum_probability=minimum_probability)
-    return football_form_comparison(signal, now=now, minimum_probability=minimum_probability)
+        return tennis_surface_comparison(signal, now=now, minimum_probability=minimum_probability,
+                                         require_positive_change=require_positive_change)
+    return football_form_comparison(signal, now=now, minimum_probability=minimum_probability,
+                                    require_positive_change=require_positive_change)

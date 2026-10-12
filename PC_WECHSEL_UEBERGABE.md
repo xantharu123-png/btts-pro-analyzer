@@ -1,5 +1,25 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Neuester Einstieg – 12.10.2026: Spielblöcke und Daily3
+
+Aktuell wird nur die vom Nutzer beanstandete Öffnungslogik und leere Daily3-
+Teilmenge repariert. Einstieg erster Block `TODO_AKTUELL.md` und
+`docs/audits/2026-10-12-daily3-und-spielbloecke.md`.
+Modellwahrscheinlichkeiten, CHF50-Regeln, echte Vetos und bekannte Quote<1,20
+bleiben unverändert. Erste drei sichtbare Spielblöcke öffnen initial, Nutzerwahl
+bleibt spielgebunden. Daily3 behält reale >=70%-Vergleichsvarianten ohne2pp-
+Pflichtbonus, Original-Tageskontext24h, chronologische echte Spielabstände.
+
+325 Root-/407 unabhängige Fokusprüfungen grün, zusätzliche Preis-/Kontextgrenzen
+89/51 und Portal47 grün (überlappend, nicht addieren). Breite QA/Push/VPS/Browser
+noch separat abschließen; kein Gesamtapp-PASS aus diesen Runden. Bisheriger
+AST-Freeze-Altbefund betrifft bereits veröffentlichten Hockey-Season-Zweig,
+nicht die numerisch bitgleichen Cricket-Fälle und nicht diesen Produktivpatch.
+
+ALLE nachfolgend beschriebenen Kontextmodell-WIP-Dateien bleiben erhalten und
+unveröffentlicht. Nicht breit stagen oder mit dieser UI-/Daily3-Reparatur deployen.
+Keine neuen Backups, Bereinigungen oder Sport-/API-Scans.
+
 ## Vorrang – 11.10.2026, Tokenende während Kontext-Datenanbindung
 
 Auf ausdrücklichen Nutzerwunsch nur Übergabe sichern; Umsetzung pausiert.

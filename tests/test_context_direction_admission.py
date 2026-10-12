@@ -12,7 +12,7 @@ from wettfinder_surface import build_wettfinder_card, compose_wettfinder_catalog
 
 
 @pytest.mark.parametrize("axis", ["h2h", "weather", "injuries"])
-@pytest.mark.parametrize("problem", ["missing", "stale"])
+@pytest.mark.parametrize("problem", ["missing", "stale", "daily_boundary", "expired_daily"])
 @pytest.mark.parametrize("reverse", [False, True])
 @pytest.mark.parametrize("representation", ["signals", "cards"])
 def test_context_admission_cannot_replace_home_model_direction_in_signals_or_cards(axis, problem, reverse, representation):
@@ -22,8 +22,11 @@ def test_context_admission_cannot_replace_home_model_direction_in_signals_or_car
     evidence = deepcopy(home.analysis_evidence)
     if problem == "missing":
         evidence["context"].pop(axis)
+    elif problem in ("stale", "daily_boundary"):
+        age = timedelta(minutes=76) if problem == "stale" else timedelta(hours=24)
+        evidence["context"][axis]["checked_at"] = (NOW-age).isoformat()
     else:
-        evidence["context"][axis]["checked_at"] = (NOW-timedelta(minutes=76)).isoformat()
+        evidence["context"][axis]["checked_at"] = (NOW-timedelta(hours=24, seconds=1)).isoformat()
     home = replace(home, analysis_evidence=evidence)
     signals = [away, home] if reverse else [home, away]
     if representation == "signals":
@@ -38,7 +41,13 @@ def test_context_admission_cannot_replace_home_model_direction_in_signals_or_car
         assert catalog.additional[0].model_probability == .75
         assert not catalog.additional[0].highlight_eligible
         assert all(card.observed_odds is None and card.price_code == "UNAVAILABLE" for card in cards)
-    assert daily3_choices(signals, now=NOW) == ()
+    if problem in ("stale", "daily_boundary"):
+        # The 75-minute TOP rule is unchanged, but the automatic Daily3 day
+        # view keeps its original observations for 24h. It cannot re-anchor
+        # the opposing side merely because one observation is 76 minutes old.
+        assert [choice.signal.key for choice in daily3_choices(signals, now=NOW)] == [home.key]
+    else:
+        assert daily3_choices(signals, now=NOW) == ()
 
 
 @pytest.mark.parametrize("problem", ["missing_model_facts", "future_model_clock", "old_model_clock"])

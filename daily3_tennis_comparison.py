@@ -50,7 +50,7 @@ def build_tennis_comparison(state, origin, prediction):
     }
 
 
-def tennis_surface_comparison(signal, *, now, minimum_probability):
+def tennis_surface_comparison(signal, *, now, minimum_probability, require_positive_change=True):
     from daily3_comparison import Comparison, MIN_FORM_CHANGE, _clock, _number
     from forecast_analysis import _tennis_inputs, _tennis_data_age
     if str(signal.sport or "").casefold() != "tennis" or signal.market_key != "H2H":
@@ -111,6 +111,6 @@ def tennis_surface_comparison(signal, *, now, minimum_probability):
     if not _number(signal.probability) or not math.isclose(active, signal.probability, rel_tol=0, abs_tol=1e-12):
         return None
     floor, margin = min(active, overall, surface), round(min(active, surface)-overall, 12)
-    if floor < minimum_probability or margin < MIN_FORM_CHANGE-1e-12:
+    if floor < minimum_probability or (require_positive_change and margin < MIN_FORM_CHANGE-1e-12):
         return None
     return Comparison(margin, floor, overall, min(raw["surface_matches"]), overall, active, "Belagsignal")

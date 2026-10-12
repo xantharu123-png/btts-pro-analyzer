@@ -2,6 +2,7 @@ from copy import deepcopy
 from dataclasses import replace
 
 import pytest
+from streamlit.testing.v1 import AppTest
 
 import app
 from wettfinder_surface import (
@@ -114,7 +115,7 @@ def test_grouped_market_does_not_repeat_game_heading_but_keeps_exact_price_bindi
     assert c.event_label in markup  # aria-label still identifies the complete bet
 
 
-def test_each_market_action_stays_inside_its_game_once_and_highlight_games_open(monkeypatch):
+def test_each_market_action_stays_inside_its_game_once_and_first_three_games_open(monkeypatch):
     cards = [card(1, 'AWAY_OVER_2_5'), card(1), card(2, 'BTTS_YES'), card(3, 'HOME_OVER_1_5')]
     catalog = WettfinderCatalog((cards[0],), tuple(cards[1:]), ())
     rows = {c.key: (None, c) for c in cards}
@@ -128,7 +129,7 @@ def test_each_market_action_stays_inside_its_game_once_and_highlight_games_open(
     monkeypatch.setattr(app, 'render_editorial_card_html', record_render)
     app._render_wettfinder_games(catalog, rows, sport_filter='Alle')
     assert len(recording.expanders) == 3
-    assert [opened for _label, opened in recording.expanders] == [True, False, False]
+    assert [opened for _label, opened in recording.expanders] == [True, True, True]
     assert len(actions) == len(cards)
     assert actions[0][1] == actions[1][1]
     assert len({label for _key, label in actions}) == 3
@@ -165,3 +166,106 @@ def test_game_open_preferences_do_not_cross_event_keys(monkeypatch):
     recording.session_state[left_key] = False
     app._remember_wettfinder_game_state(left_key)
     assert right_key not in recording.session_state['_wettfinder_game_open']
+
+
+def _render_game_blocks_for_test(count, featured_ids):
+    """Exercise the production renderer with actual Streamlit widget state."""
+    import streamlit as st
+    import app
+    from test_daily3_selection import NOW, football
+    from wettfinder_surface import WettfinderCatalog, build_wettfinder_card
+
+    mode = app.display_order_control(st, key='game_test_order')
+    sport = st.selectbox('Sportart', ('Alle', 'Tennis'), key='game_test_sport')
+    shifted = st.checkbox('Andere Highlights', key='game_test_highlights')
+    if shifted:
+        featured_ids = (count - 2, count - 1, count)
+    signals = [football(game, 'DC_X2', .5 + game * .01, start_hours=game)
+               for game in range(1, count + 1)]
+    cards = [build_wettfinder_card(signal, now=NOW) for signal in signals]
+    catalog = WettfinderCatalog(
+        tuple(card for card in cards if card.fixture_id in featured_ids),
+        tuple(card for card in cards if card.fixture_id not in featured_ids), (),
+    ) if sport == 'Alle' else WettfinderCatalog((), (), ())
+    app._render_wettfinder_games(catalog,
+        {card.key: (signal, card) for signal, card in zip(signals, cards)},
+        sport_filter=sport, sort_mode=mode)
+
+
+@pytest.mark.parametrize('mode,page,count,expected_games', [
+    ('Startzeit', 1, 5, [1, 2, 3, 4, 5]),
+    ('Wahrscheinlichkeit', 1, 5, [5, 4, 3, 2, 1]),
+    ('Startzeit', 2, 25, [21, 22, 23, 24, 25]),
+    ('Wahrscheinlichkeit', 2, 25, [5, 4, 3, 2, 1]),
+])
+def test_real_renderer_opens_first_three_visible_games_not_featured_membership(
+    mode, page, count, expected_games,
+):
+    ui = AppTest.from_function(_render_game_blocks_for_test, args=(count, (4,)))
+    ui.session_state['game_test_order'] = mode
+    if page == 2:
+        ui.session_state['wettfinder_games_page_Alle_2'] = 2
+    ui.run(timeout=30)
+    assert not ui.exception
+    assert len(ui.expander) == 5
+    assert [block.label.split(' vs ')[0] for block in ui.expander] == [
+        f'Heimteam {game}' for game in expected_games]
+    assert [block.proto.expanded for block in ui.expander] == [True, True, True, False, False]
+
+
+def test_real_renderer_updates_untouched_opening_defaults_when_order_changes():
+    ui = AppTest.from_function(_render_game_blocks_for_test, args=(5, (4,))).run(timeout=30)
+    assert not ui.exception
+    for mode, games in [('Wahrscheinlichkeit', [5, 4, 3, 2, 1]), ('Startzeit', [1, 2, 3, 4, 5])]:
+        ui.selectbox(key='game_test_order').set_value(mode).run(timeout=30)
+        assert not ui.exception
+        assert [block.label.split(' vs ')[0] for block in ui.expander] == [
+            f'Heimteam {game}' for game in games]
+        assert [block.proto.expanded for block in ui.expander] == [True, True, True, False, False]
+
+
+def _game_block(ui, fixture_id):
+    return next(block for block in ui.expander
+                if block.label.startswith(f'Heimteam {fixture_id} vs '))
+
+
+def _toggle_game_block(ui, fixture_id, opened):
+    # AppTest exposes expander output but has no expander interaction method.
+    # Send the real browser bool protocol so the production callback runs.
+    states = ui._tree.get_widget_states()
+    for block in ui.expander:
+        states.widgets.add(id=block.proto.id,
+            bool_value=opened if block is _game_block(ui, fixture_id) else block.proto.expanded)
+    ui._run(states, timeout=30)
+    assert not ui.exception
+
+
+@pytest.mark.parametrize('count', [5, 25])
+def test_real_renderer_remembers_user_choices_after_order_page_filter_and_highlight_changes(count):
+    ui = AppTest.from_function(_render_game_blocks_for_test, args=(count, (1, 2, 3))).run(timeout=30)
+    assert not ui.exception
+    _toggle_game_block(ui, 1, False)
+    _toggle_game_block(ui, 5, True)
+
+    def assert_choices():
+        assert not ui.exception
+        assert _game_block(ui, 1).proto.expanded is False
+        assert _game_block(ui, 5).proto.expanded is True
+
+    # Changing the default by visible position must not erase a clicked value.
+    ui.selectbox(key='game_test_order').set_value('Wahrscheinlichkeit').run(timeout=30)
+    ui.selectbox(key='game_test_order').set_value('Startzeit').run(timeout=30)
+    assert_choices()
+    # Complete-game pagination removes the widget, not its remembered choice.
+    if count == 25:
+        ui.selectbox(key='wettfinder_games_page_Alle_2').set_value(2).run(timeout=30)
+        ui.selectbox(key='wettfinder_games_page_Alle_2').set_value(1).run(timeout=30)
+        assert_choices()
+    ui.selectbox(key='game_test_sport').set_value('Tennis').run(timeout=30)
+    assert not ui.exception and len(ui.expander) == 0
+    ui.selectbox(key='game_test_sport').set_value('Alle').run(timeout=30)
+    assert_choices()
+    # Editorial highlight changes must neither reopen nor close a user's game.
+    ui.checkbox(key='game_test_highlights').check().run(timeout=30)
+    ui.checkbox(key='game_test_highlights').uncheck().run(timeout=30)
+    assert_choices()

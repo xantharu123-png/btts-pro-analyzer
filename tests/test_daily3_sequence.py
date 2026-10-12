@@ -28,35 +28,39 @@ def test_planning_allowances_are_explicit_policy_not_bookmaker_finality(sport, h
     assert planning_allowance(sport) == timedelta(hours=hours)
 
 
-@pytest.mark.parametrize('sport,slots,hour', [
-    ('football', 0, 15), ('football', 1, 18), ('football', 2, 21),
-    ('tennis', 0, 14), ('tennis', 1, 17), ('tennis', 2, 20),
+@pytest.mark.parametrize('sport,hour', [
+    ('football', 21), ('basketball', 21), ('hockey', 21),
+    ('tennis', 20), ('esports', 20),
 ])
-def test_each_leg_reserves_day_capacity_for_remaining_slots(sport, slots, hour):
+@pytest.mark.parametrize('slots', [0, 1, 2])
+def test_each_actual_leg_must_fit_its_own_allowance_before_midnight(sport, slots, hour):
     boundary = datetime(2026, 10, 3, hour, tzinfo=ZURICH)
     assert fits_daily3_window(boundary, sport, slots)
     assert not fits_daily3_window(boundary + timedelta(seconds=1), sport, slots)
 
 
-def test_football_at_twenty_one_can_only_be_the_third_leg():
+@pytest.mark.parametrize('slots', [0, 1, 2])
+def test_football_at_twenty_one_does_not_reserve_nonexistent_later_games(slots):
     start = datetime(2026, 10, 3, 21, tzinfo=ZURICH)
-    assert not fits_daily3_window(start, 'football', 0)
-    assert not fits_daily3_window(start, 'football', 1)
-    assert fits_daily3_window(start, 'football', 2)
+    assert fits_daily3_window(start, 'football', slots)
 
 
 @pytest.mark.parametrize('day', [(2026, 3, 29), (2026, 10, 25), (2026, 10, 3)])
 def test_day_deadline_is_zurich_midnight_including_dst_and_utc_input(day):
-    boundary = datetime(*day, 15, tzinfo=ZURICH)
+    boundary = datetime(*day, 21, tzinfo=ZURICH)
     as_utc = boundary.astimezone(timezone.utc)
     assert fits_daily3_window(boundary, 'football', 0)
     assert fits_daily3_window(as_utc, 'football', 0)
     assert not fits_daily3_window(as_utc + timedelta(seconds=1), 'football', 0)
 
 
-@pytest.mark.parametrize('slots', [-1, 3, True, 1.5])
+@pytest.mark.parametrize('slots', [-1, 3, True, False, 1.5, None, '0'])
 def test_invalid_or_full_slot_counts_do_not_create_daytime_capacity(slots):
     assert not fits_daily3_window(PLAN_NOW + timedelta(hours=5), 'football', slots)
+
+
+def test_unknown_sport_cannot_gain_a_daytime_window_without_a_planning_allowance():
+    assert not fits_daily3_window(PLAN_NOW + timedelta(hours=5), 'cricket', 0)
 
 
 def test_naive_kickoff_is_not_silently_interpreted_as_local_time():
@@ -81,16 +85,17 @@ def test_same_start_is_not_presented_as_a_reinvestment_sequence():
     assert len(daily3_choices(pool, now=PLAN_NOW)) == 1
 
 
-def test_high_probability_late_single_is_not_a_daily3_first_leg():
+def test_supported_late_single_can_be_daily3_first_leg_when_its_allowance_fits():
     late = football(121, probability=.95, now=PLAN_NOW, start_hours=12)
     assert datetime.fromisoformat(late.scheduled_start).astimezone(ZURICH).hour == 21
-    assert daily3_choices([late], now=PLAN_NOW) == ()
+    assert [choice.signal.key for choice in daily3_choices([late], now=PLAN_NOW)] == [late.key]
 
 
 def test_time_window_does_not_relax_quality_or_force_three_cards():
     unsupported = football(122, probability=.69, now=PLAN_NOW, start_hours=3)
     late = football(123, probability=.95, now=PLAN_NOW, start_hours=12)
-    assert daily3_choices([unsupported, late], now=PLAN_NOW) == ()
+    assert daily3_choices([unsupported], now=PLAN_NOW) == ()
+    assert [choice.signal.key for choice in daily3_choices([unsupported, late], now=PLAN_NOW)] == [late.key]
     early = football(124, probability=.75, now=PLAN_NOW, start_hours=5)
     assert [choice.signal.key for choice in daily3_choices([early], now=PLAN_NOW)] == [early.key]
 
@@ -219,11 +224,19 @@ def test_only_real_confirmed_return_funds_next_leg_without_changing_net_loss_lim
     assert state.used_slots == 2 and state.available_cents == 0 and state.worst_net_cents == -5000
 
 
-def test_late_first_reservation_is_rejected_before_ledger_write(store):
+def test_late_first_reservation_is_allowed_when_actual_leg_fits_midnight(store):
+    _command(store, 'start')
+    first = _reserve(store, start_hour=12)
+    state = day_balance(store.history(SCOPE)[DAY])
+    assert state.used_slots == 1 and state.available_cents == 4000
+    assert store.history(SCOPE)[DAY]['bets'][first]['status'] == 'reserved'
+
+
+def test_actual_leg_that_cannot_finish_by_midnight_is_rejected_before_ledger_write(store):
     _command(store, 'start')
     before = store.history(SCOPE)
     with pytest.raises(Daily3Error):
-        _reserve(store, start_hour=12)
+        _reserve(store, start_hour=13)
     assert store.history(SCOPE) == before
 
 

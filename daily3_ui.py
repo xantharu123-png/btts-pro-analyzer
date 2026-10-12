@@ -167,11 +167,10 @@ def render_daily3(st, *, snapshot_loader=None, store_factory=None, now=None):
         st.error(notice[1])
     st.caption('CHF 50 Tagesbudget · bis zu 3 Einzelwetten · Ziel +CHF 150, nicht garantiert')
     with st.popover('Auswahl & Regeln'):
-        st.write(f'Mindestens {MIN_MODEL_PROBABILITY:.0%} in allen drei Varianten desselben Modells. Form im Fußball beziehungsweise Belag im ATP-Tennis müssen gegenüber der allgemeinen Spielstärke mindestens 2 Prozentpunkte beitragen. Eine Auswahl pro Spiel; keine pauschalen Wettartenverbote.')
-        st.write('Die 2-Prozentpunkte-Regel dient der Auswahl, sie beweist weder Sicherheit noch einen Wettvorteil. Favoritenstärke allein genügt nicht. Weitere Auswahlen stehen unter Automatisch.')
-        st.write('Die Tagesfolge lässt Zeit für Spiel und Abrechnung. Innerhalb der zeitlich passenden Spiele hat das geringere modellierte Verlustrisiko Vorrang; bei Gleichstand folgen Vielfalt und Formsignal.')
+        st.write(f'Mindestens {MIN_MODEL_PROBABILITY:.0%} in allen drei belegten Modellvarianten. Eine Auswahl pro Spiel; keine pauschalen Wettartenverbote. Ein positiver Form- oder Belagbonus ist keine Voraussetzung.')
+        st.write('Die früheste passende Auswahl beginnt die Tagesfolge. Bei gleichem Spielbeginn hat das geringere modellierte Verlustrisiko Vorrang; danach folgen Vielfalt und Formsignal.')
         st.write('Planungsabstand: 3 Stunden für Fußball, Basketball und Eishockey; 4 Stunden für Tennis und E-Sport. Das sind Zeitpuffer, keine garantierten Spiel- oder Abrechnungszeiten. Die nächste Wette wird erst nach tatsächlicher Abrechnung verfügbar.')
-        st.write('Fußball: Formvergleich. ATP-Tennis: belegter Belagvorteil gegenüber der allgemeinen Spielstärke, mit ausreichender Spielerhistorie. Keine unabhängigen Zweitmodelle. Für weitere Sportarten fehlen noch qualifizierte Vergleiche; ihre normalen Prognosen bleiben sichtbar.')
+        st.write('Fußball: Formvergleich. ATP-Tennis: Vergleich mit und ohne Belaggewichtung, mit ausreichender Spielerhistorie. Keine unabhängigen Zweitmodelle. Für weitere Sportarten fehlen noch qualifizierte Vergleiche; ihre normalen Prognosen bleiben sichtbar.')
         st.write('Diese Auswahl nutzt den Prognosepool des Wettfinders, aber eine eigene Auswahlregel. Sie ist keine unabhängige Zweitbestätigung und keine nachgewiesene Sicherheitsrangliste. Fehlende Kontextdaten bleiben am Spiel sichtbar.')
         st.write('Die Auswahlen entstehen ohne Buchmacherquote. Für tatsächlich erfasste Wetten gilt deine Mindestquote 1,20. Das CHF-150-Ziel verändert die Auswahl nicht; drei passende Auswahlen sind nicht täglich verfügbar.')
         st.write('Maximal CHF 50 eigene Mittel pro Tag, kein Nachschuss. Nur endgültig abgerechnete Rückzahlungen werden wieder verfügbar. Verfügbar ist eine Obergrenze, keine Einsatzempfehlung. Auch Gewinne können wieder verloren gehen.')
@@ -231,7 +230,7 @@ def render_daily3(st, *, snapshot_loader=None, store_factory=None, now=None):
         noun = 'Auswahl' if len(choices) == 1 else 'Auswahlen'
         st.subheader(f'{len(choices)} defensive Modell-{noun}')
     elif used < 3:
-        st.info('Heute keine zeitlich passende Tagesfolge. Weitere Spiele findest du im Wettfinder.')
+        st.info('Heute keine passende Daily3-Auswahl. Weitere Spiele findest du im Wettfinder.')
     if pending:
         st.caption('Nächste Wette erst nach Abrechnung der aktuellen Wette.')
     can_reserve = (storage_ready and day is not None and not day['closed'] and not prior_pending

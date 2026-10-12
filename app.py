@@ -4639,14 +4639,14 @@ def _remember_wettfinder_game_state(widget_key: str) -> None:
         st.session_state['_wettfinder_game_open'] = remembered
 
 
-def _render_wettfinder_game(group, row_by_key, featured_keys) -> None:
+def _render_wettfinder_game(group, row_by_key, featured_keys, initially_open: bool = False) -> None:
     key = _wettfinder_game_key(group)
     remembered = st.session_state.get('_wettfinder_game_open', {})
-    # Restore after a page/filter temporarily removed this widget. The private
-    # preference dictionary is not subject to Streamlit widget cleanup.
-    if key not in st.session_state and isinstance(remembered.get(key), bool):
+    # Streamlit also includes the opening default in the expander identity.
+    # Restore explicit choices before registration even when a sort change
+    # remounts a still-visible game; this dictionary survives widget cleanup.
+    if isinstance(remembered.get(key), bool):
         st.session_state[key] = remembered[key]
-    initially_open = any(card.key in featured_keys for card in group.cards)
     with st.expander(
         wettfinder_game_label(group), expanded=initially_open, key=key,
         on_change=_remember_wettfinder_game_state, args=(key,),
@@ -4678,7 +4678,8 @@ def _render_wettfinder_games(catalog, row_by_key, *, sport_filter: str, sort_mod
         event_key=lambda card: group.fixture_identity, starts_at=lambda card: card.scheduled_start,
         probability=lambda card: card.model_probability)) for group in groups)
     # A highlighted later game must not jump ahead of the user's chronological
-    # order. Highlight/expansion state remains attached to the selected cards.
+    # order. Highlights stay attached to cards; opening defaults follow the
+    # visible page, while clicked preferences stay attached to fixture keys.
     if groups:
         with st.container(key='wettfinder_v2_additional'):
             st.markdown('<div class="wf-additional-heading"><h2>Spiele</h2></div>',
@@ -4691,8 +4692,8 @@ def _render_wettfinder_games(catalog, row_by_key, *, sport_filter: str, sort_mod
             first = (page - 1) * page_size
             if pages > 1:
                 st.caption(f'{first + 1}–{min(first + page_size, len(groups))} von {len(groups)} Spielen')
-            for group in groups[first:first + page_size]:
-                _render_wettfinder_game(group, row_by_key, featured_keys)
+            for index, group in enumerate(groups[first:first + page_size]):
+                _render_wettfinder_game(group, row_by_key, featured_keys, index < 3)
 
 
 def _render_automated_daily_selection() -> None:
