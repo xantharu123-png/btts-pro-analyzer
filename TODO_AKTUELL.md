@@ -16,9 +16,22 @@ Daily3 Vorrang. Kanonischer Checkout `C:/Projekt/BetBoy/betboy-app`.
 - [x] Neutrale Leermeldung, ehrliches Vorzeichen bei Modellvergleich.
 - [x] Root 325 Integrationsprüfungen, unabhängig407, Preisnachbarn89,
   isolierte Kontextgrenzen51, Portal47 bestanden; überlappende Runden.
-- [ ] Commit/Push und VPS-Fast-forward dieses Pakets, ohne Backup/Zusatzscan.
-- [ ] Frische reine Produktions-Poolauswertung und Browser-Abnahme dokumentieren.
-- [ ] Breiten Offline-Kernlauf auswerten; bisher kein vollständiges Grün.
+- [x] Produktivpatch `3dea2d327cc47bf0418a607fede229e38221d82c` committed,
+  auf GitHub-main gepusht und auf dem VPS veröffentlicht. Beide Healthchecks ok.
+- [x] Genau den committeden Quellstand ohne fremde WIP-Dateien geprüft:
+  **500 Release-/Nachbartests bestanden**, 21,18s, `release-clean.xml`.
+- [x] Frische reine Produktions-Poolauswertung und Browser-Abnahme:
+  derselbe unveränderte Tagespool liefert jetzt **eine** Daily3-Auswahl,
+  IF Elfsborg–Halmstad um19:00, 78,3%, letzte exakt passende Quote1,64.
+  Im internen Browser sichtbar, Aufklappung und Sortierwechsel bestanden;
+  seit Abschluss des Neustarts keine neuen Browserfehler.
+- [x] Breiten Offline-Kernversuch begrenzt ausgewertet und bei rund23%
+  beendet, **kein Vollsuite-PASS**. Vorbestehender Cricket-AST-Freeze-Befund
+  separat reproduziert. Zwölf vor der Vertragsaktualisierung geladene alte
+  Daily3-Erwartungen durch frische51 Kontextgrenztests und sauberen500er-Lauf
+  nachgeprüft. Abgebrochener Breitenlauf ersetzt keinen finalen Volllauf.
+- [ ] Separat: vorbestehenden Hockey-/Cricket-AST-Vertragskonflikt fachlich
+  auflösen und danach finalen Volllauf am gemeinsamen nächsten Release ausführen.
 
 Details und QA-Abgrenzung:
 `docs/audits/2026-10-12-daily3-und-spielbloecke.md`.

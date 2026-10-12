@@ -2,19 +2,29 @@
 
 ## Neuester Einstieg – 12.10.2026: Spielblöcke und Daily3
 
-Aktuell wird nur die vom Nutzer beanstandete Öffnungslogik und leere Daily3-
-Teilmenge repariert. Einstieg erster Block `TODO_AKTUELL.md` und
+Die vom Nutzer beanstandete Öffnungslogik und leere Daily3-Teilmenge sind
+live repariert. Einstieg erster Block `TODO_AKTUELL.md` und
 `docs/audits/2026-10-12-daily3-und-spielbloecke.md`.
 Modellwahrscheinlichkeiten, CHF50-Regeln, echte Vetos und bekannte Quote<1,20
 bleiben unverändert. Erste drei sichtbare Spielblöcke öffnen initial, Nutzerwahl
 bleibt spielgebunden. Daily3 behält reale >=70%-Vergleichsvarianten ohne2pp-
 Pflichtbonus, Original-Tageskontext24h, chronologische echte Spielabstände.
 
-325 Root-/407 unabhängige Fokusprüfungen grün, zusätzliche Preis-/Kontextgrenzen
-89/51 und Portal47 grün (überlappend, nicht addieren). Breite QA/Push/VPS/Browser
-noch separat abschließen; kein Gesamtapp-PASS aus diesen Runden. Bisheriger
-AST-Freeze-Altbefund betrifft bereits veröffentlichten Hockey-Season-Zweig,
-nicht die numerisch bitgleichen Cricket-Fälle und nicht diesen Produktivpatch.
+Produktivpatch `3dea2d327cc47bf0418a607fede229e38221d82c` auf main und VPS,
+beide Healthchecks ok. Ein anschließender Dokucommit enthält nur diesen Nachweis.
+Genau dieser saubere Commit ohne fremde WIP:500 Release-/Nachbartests grün.
+Weitere überlappende Runden:325/407 sowie89/51 und Portal47; nicht addieren.
+Browser: initial erste drei Partien geöffnet, explizit geschlossene Partie
+bleibt nach Wahrscheinlichkeit/Startzeit-Wechsel und Navigation geschlossen.
+Daily3: gleicher gespeicherter Pool jetzt eine Auswahl IF Elfsborg–Halmstad
+um19:00, 78,3%, letzte passende Quote1,64; keine Neuberechnung/Zusatzabfrage.
+Keine neuen Browserfehler nach dem notwendigen App-Neustart. Die kurzzeitigen
+502/Disconnects während dieses Neustarts sind als Deployereignis dokumentiert.
+Breitenlauf bei rund23% beendet, kein Gesamtapp-PASS. AST-Freeze-Altbefund
+betrifft veröffentlichten Hockey-Season-Zweig, nicht die bitgleichen Cricket-
+Replays. Alte im Lauf geladene Daily3-Erwartungen separat frisch nachgeprüft.
+Nächster gemeinsamer Release benötigt nach Behandlung dieses Altbefunds einen
+frischen Volllauf; nicht die abgebrochene Runde als vollständig grün ausgeben.
 
 ALLE nachfolgend beschriebenen Kontextmodell-WIP-Dateien bleiben erhalten und
 unveröffentlicht. Nicht breit stagen oder mit dieser UI-/Daily3-Reparatur deployen.

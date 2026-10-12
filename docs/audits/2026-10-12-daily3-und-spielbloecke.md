@@ -67,7 +67,8 @@ Die folgenden Runden überschneiden sich; nicht als Gesamtzahl addieren.
   Django nicht sammeln; Portal wurde deshalb über seinen eigenen Harness geprüft.
 - Sandbox-Kernversuch durch Windows-TEMP-Schreibrechte gestört und abgebrochen.
   Die Wiederholung mit kanonischer QA-Umgebung und externem Netzwerkblocker
-  läuft separat. Keine Behauptung einer vollständig grünen Projekt-Vollsuite.
+  wurde bei rund23% begrenzt beendet (Exit1 nach Abbruch, kein fertiger
+  Gesamtbericht). Keine Behauptung einer vollständig grünen Projekt-Vollsuite.
   Im bis hier ausgewerteten breiten Lauf: vorbestehender AST-Freeze-Test
   `test_basketball_context.py::test_frozen_default_cricket_matches_before_change_on_same_cpu`
   scheitert an bereits committedem Hockey-Season-Zweig `_variant`; alle fünf
@@ -75,11 +76,54 @@ Die folgenden Runden überschneiden sich; nicht als Gesamtzahl addieren.
   unverändert, keine Cricket-Reparatur Bestandteil dieses Auftrags.
   Zwölf alte Daily3-75min-Erwartungen wurden anschließend unter Erhaltung
   normaler TOP-Regeln aktualisiert und mit zusätzlicher 24h-Grenze geprüft.
+- Releaseproof aus Git-Archiv **genau des committeden Produktivpatches**, ohne
+  fremde dirty/untracked Kontextmodell-Dateien: **500 bestanden**, 21,18s,
+  Python3.12.14/SQLite3.53.1 aus `.codex_test_venv`, 15 Release-/Nachbardateien,
+  externe Netzwerkzugriffe gesperrt. JUnit:
+  `C:/Projekt/BetBoy/output/daily3-accordion-20261012/release-clean.xml`.
+  Dies ist ein begrenzter Releaseproof, kein Ersatz für die gesamte App-Vollsuite.
 
 ## Release und Grenzen
 
-Commit/Push, kontrollierter VPS-Fast-forward, frische Healthchecks und Browser-
-Interaktion werden nach Abschluss dieses begrenzten Pakets separat dokumentiert.
+Produktivpatch `3dea2d327cc47bf0418a607fede229e38221d82c` committed und nach
+GitHub-main gepusht. VPS kontrolliert von `e9eea811...` per Fast-forward auf
+diesen Commit aktualisiert, zwischen zwei regulären Timern ohne aktiven Worker.
+App neu gestartet; lokale und öffentliche Healthchecks **ok**, App/Caddy aktiv.
+Alle sieben regulären Timer weiterhin geplant; keine Timeränderung vorgenommen.
+
+Der erste SSH-Wrapper endete nach bereits abgeschlossener Release- und
+Hashprüfung mit Exit1 durch eine zusätzliche CR-Zeile aus der lokalen Pipe
+(`DEPLOY_FAILURE_STAGE=completed`). Die begrenzte Wiederanlaufprüfung meldete
+eine gesunde App. Die eigene Hilfsdatei/Pipe wurde korrigiert. Ein anschließender
+unabhängiger, rein lesender SSH-Aufruf endete mit Exit0 und bestätigte Commit,
+beide Healthchecks und Dienststatus. Keine Wiederholung des App-Deploys nötig.
+
+Produktionsbeleg am12.10. um13:06 Zürich: dieselbe gespeicherte Laufdatei
+ergibt statt null jetzt **eine** Daily3-Auswahl, IF Elfsborg–Halmstad,
+19:00 Zürich, `HOME_UNDER_2_5`, Modell0,782623, niedrigste reale Variante0,772995,
+Formänderung+0,009628. Der Originalkontext bleibt
+`2026-10-12T01:41:38.701616+00:00`, der Preisprüfzeitpunkt
+`2026-10-12T02:04:28.636198+00:00`; keine Uhr wurde angehoben.
+Unveränderte SHA-256 vor/nach Deployment und Poolauswertung:
+
+- Wettfinder: `fe6650e61c3ff2da718ec1c75264d93ff5356c0df9c6a93e7c408586008140ec`
+- RisikoBet: `afab383e3988d1a4a8ad2d0d83bd08911677c452a63c6b7f5921b6291483f4b1`
+
+Interner Browser, eigener Hintergrundtab, echte Live-Seite nach Reload:
+initial Vacherot/Paul, Arges/Cluj und VPS/Gnistan offen, folgende Spiele
+geschlossen. Vacherot/Paul explizit geschlossen; nach Sortierung auf
+Wahrscheinlichkeit und zurück auf Startzeit sowie Navigation zu Daily3 und
+zurück weiterhin geschlossen, andere Partien korrekt gemerkt.
+Daily3 zeigt eine defensive Auswahl, Modell78,3%, letzte passende Pinnacle-
+Quote1,64 mit originalem Preisstand. Kein Tagesbudget bestätigt, keine Wette
+erfasst, keine Buchung verändert. Seit Abschluss des Neustarts keine neuen
+Consolefehler; vorherige Disconnect/502-Einträge gehören zum App-Neustart.
+Desktop-Abnahmen unter normalem1280x720-Viewport; keine neue mobile visuelle
+Abnahme dieser Runde behauptet. Screenshots:
+
+- `C:/Projekt/BetBoy/output/daily3-accordion-20261012/live-daily3.jpg`
+- `C:/Projekt/BetBoy/output/daily3-accordion-20261012/live-wettfinder.jpg`
+
 Kein neues Backup, keine Bereinigung, kein zusätzlicher Sport-/API-Scan und keine
 Neuberechnung oder Umschreibung bestehender Prognosen/Geldbuchungen.
 
