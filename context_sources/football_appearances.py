@@ -133,6 +133,24 @@ def _choose(pending, attempts, *, now, limit):
     if type(limit) is not int or not 1 <= limit <= MAX_FIXTURES:
         raise ValueError('appearance batch limit must be an integer from 1 to 20')
     pending = [item for item in pending if _attempt_key(item) not in attempts]
+    lower = canonical_timestamp(now - timedelta(days=14))
+    recent = [item for item in pending if item[1] >= lower]
+    if recent and len(pending) > limit:
+        # Reserve at most half of the SAME detail batch for recent exposure;
+        # historical role/reference capture continues in the remaining slots.
+        def rotate(items, count):
+            if len(items) <= count:
+                return items
+            offset = (int(now.timestamp()) // ROTATION_SECONDS * count) % len(items)
+            return [items[(offset + i) % len(items)] for i in range(count)]
+        chosen = rotate(recent, max(1, limit // 2))
+        selected = {_attempt_key(item) for item in chosen}
+        older = [item for item in pending if item[1] < lower]
+        chosen += rotate(older, limit - len(chosen))
+        selected.update(_attempt_key(item) for item in chosen)
+        if len(chosen) < limit:
+            chosen += rotate([item for item in recent if _attempt_key(item) not in selected], limit - len(chosen))
+        return chosen
     if len(pending) > limit:
         offset = (int(now.timestamp()) // ROTATION_SECONDS * limit) % len(pending)
         pending = [pending[(offset + index) % len(pending)] for index in range(limit)]

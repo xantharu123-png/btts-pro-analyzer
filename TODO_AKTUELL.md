@@ -1,5 +1,51 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 12.10.2026 – Spielerbelastung Verein + Nationalteam: Datenverbindung
+
+Fortsetzung auf ausdrückliches „machen“ nach der Dortmund-/Länderspiel-Frage.
+Der freigegebene Kontextmodellvertrag bleibt maßgeblich; keine erfundenen
+Müdigkeitsabschläge, neuen Datenbanken, Zusatzscans oder Backups.
+
+- [x] Ursache geprüft: native Spieler-ID ist vorhanden, Vereinspfad begrenzt
+  Belastung bisher aber auf Vereins-/Grundmodell-Historie.
+- [x] Gemeldete Minuten derselben nativen Spieler-ID aus Verein und Nationalteam
+  verbinden. Vereinsrolle ausschließlich aus Vereinsauftritten; unbekannte
+  Minuten bleiben unbekannt, wiederholte Abrufe zählen kein zusätzliches Spiel.
+- [x] Ganze zusätzliche Ereignis-/Revisionspools begrenzt lesen, Grundmodell-
+  Historie unverändert lassen; Training und Worker lesen identische Quellen.
+- [x] Eigene Merkmalsversion `football-native-player-load-v3` angeschlossen;
+  alte v1-Modelle und veröffentlichte Prognosen bleiben unverändert.
+- [x] Erholungsgrenze aus erstem tatsächlichem Ergebnisempfang, nicht Anpfiff
+  plus erfundener Spielzeit. Später beendete ältere Termine berücksichtigt.
+- [x] Detailabruf priorisiert jüngste 14 Tage innerhalb derselben bestehenden
+  Grenze: maximal20 native IDs / ein gemeinsamer GET; kein Zusatzscan.
+- [x] Unabhängiges Quell-/Diffreview ohne kritischen/wichtigen Funktionsbefund.
+  Früherer77/78-Lauf ist KEIN PASS: ein synthetischer26-Fixture-Fall überschritt
+  die512KiB-Transportgrenze. Neuer vollständiger24-Fixture-/22-Spieler-Fall
+  (reale Liga-Mindeststichprobe) bestand5/5. Grenze/Validator nicht gelockert.
+- [x] Exakter isolierter Stand ohne fremdes WIP: **273 Release-/Nachbartests
+  bestanden**,229,94s,0 Skips, `output/player-load-20261012/release-final.xml`
+  außerhalb Git. Netzwerk während QA gesperrt. Erste Runde272/273, einziger
+  Fehler Sandbox-Verbot für atomare HMAC-Testdateiverknüpfung; kompletter
+  unveränderter Lauf mit normalen Dateirechten danach273/273. Keine Tests entfernt.
+- [ ] Commit/Push/VPS veröffentlichen und beide Healthchecks nachweisen.
+- [ ] Reale zeitgetrennte Wirkung prüfen und erst dann aktivieren. Lesende VPS-
+  Prüfung12.10.,12:40UTC: **0 Effekte /0 Freigaben**. Probe11 Ereignisse:
+  381/470 Spielerlisten mit bekannten Minuten,89 unbekannt,0 echte Spielendzeiten.
+  Nur Vereinswettbewerbe in dieser Probe; Nationalteam-Abdeckung nicht belegt.
+  Das ist keine Vollinventur und keine nachgewiesene numerische Müdigkeitswirkung.
+  Ergänzende begrenzte Binding-Prüfung12:50UTC:95 Bindings insgesamt,81 gelesen
+  (5,61MiB;14 größere ausgelassen),33 native Ereignisse,7 `captured`,26 `partial`.
+  Alle gelesenen Bindings `not-evaluated`. Selbst95 unabhängige Bindings wären
+  weniger als200 unberührte Testspiele zusätzlich zu Training/Abstimmung.
+
+Offen vor Aktivierung: vollständige echte Spieler-/Personalfakten, qualifizierter
+zeitgetrennter Fit, owning Freigabe, große Capture-/Readiness-Transportgrenzen
+und performant begrenzter Spielerzugriff (Produktionsindex bisher nur ereignis-
+führend). Keine synthetischen Koeffizienten auf dem Server veröffentlichen.
+V2-Pool-, spätere Entscheidungs-, Tennis-POINT- und weitere alte WIP-Dateien
+bleiben separat uncommitted/unveröffentlicht. Daily3-Release unten bleibt separat.
+
 ## 12.10.2026 – Spielblöcke und Daily3: begrenzte Reparatur
 
 Dieser aktuelle Block hat für die Nutzeranfrage zu geöffneten Spielen und leerer

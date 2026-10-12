@@ -17,7 +17,9 @@ from context_models.contracts import (
 )
 from context_models.dataset import _reader
 from context_models.experiments import _artifact_created_at
-from context_models.football_joint_context import COVERAGE, FEATURE_VERSION, VERSION, joint_features
+from context_models.football_joint_context import (
+    FEATURE_VERSION, PLAYER_LOAD_FEATURE_VERSION, VERSION, feature_coverage, joint_features,
+)
 from context_models.football_original_storage import StorageBudgetExceeded
 from context_models.football_training import _load_publication, joint_base
 from context_models.replay import ReplayUnavailable
@@ -36,7 +38,7 @@ MAX_SOURCE_RECEIPTS = 4096
 MAX_SOURCE_BYTES = 4 * 1024 * 1024
 
 
-def _bounded_receipts(connection, packet, *, cutoff):
+def _bounded_receipts(connection, packet, *, cutoff, include_player_load=False):
     """Read the owning complete revision pool or decline it; never truncate.
 
     Count and physical content byte sizes are inspected before retrieving or
@@ -47,13 +49,15 @@ def _bounded_receipts(connection, packet, *, cutoff):
     ids = {engine.football_base_history_record(raw)["fixture_id"] for raw in
            [packet["fixture"], *packet["league_history"], *(packet["team_history"] or [])]}
     result, content_bytes = [], 0
-    for native_id in sorted(ids):
+    keys = ["api-football:football:" + str(native_id) for native_id in sorted(ids)]
+    initial_count = len(keys)
+    for index, key in enumerate(keys):
         headers = connection.execute(
             "SELECT r.digest,typeof(c.payload),length(CAST(c.payload AS BLOB)) "
             "FROM context_observations r LEFT JOIN context_contents c ON c.content_digest=r.content_digest "
             "WHERE r.event_key=? AND r.observed_at<=? AND r.kind!='match_outcome' "
             "ORDER BY r.observed_at,r.digest LIMIT ?",
-            ("api-football:football:" + str(native_id), cutoff, MAX_SOURCE_RECEIPTS-len(result)+1),
+            (key, cutoff, MAX_SOURCE_RECEIPTS-len(result)+1),
         ).fetchall()
         if len(headers) > MAX_SOURCE_RECEIPTS-len(result):
             raise ReplayUnavailable("joint_source_receipt_bound_exceeded")
@@ -69,6 +73,11 @@ def _bounded_receipts(connection, packet, *, cutoff):
             row.update(evidence_class="prospective", effective_at=row["observed_at"], publication_resolution=None)
             result.append(row)
             content_bytes += size
+        if include_player_load and index + 1 == initial_count:
+            from context_sources.football import _detail_event
+            from context_sources.football_player_history import player_event_keys
+            keys.extend(player_event_keys(connection, tuple(result), event=_detail_event(packet["fixture"]),
+                cutoff=cutoff, max_events=MAX_SOURCE_RECEIPTS-len(result)))
     return tuple(sorted(result, key=lambda row: (row["observed_at"], row["digest"])))
 
 
@@ -103,7 +112,8 @@ def _active_fits(connection, *, decision):
         if effect["training_end"] > created:
             raise ContextIntegrityError("joint effect was published before its stated training end")
         if (effect["sport"] == "football" and effect["family"] == "football:goals:90min"
-                and effect["feature_version"] == FEATURE_VERSION and effect["coverage"] == COVERAGE
+                and effect["feature_version"] in {FEATURE_VERSION, PLAYER_LOAD_FEATURE_VERSION}
+                and effect["coverage"] == feature_coverage(effect["feature_version"])
                 and effect["model_variant"] == VERSION and effect["training_end"] <= decision
                 and created <= decision):
             matches.append((ref, envelope))
@@ -184,13 +194,15 @@ def publish_joint_comparison(path, binding_ref, *, decision_at, max_payload_byte
             if binding["native_event"]["scheduled_start"] <= decision:
                 raise ReplayUnavailable("context_decision_not_prematch")
             base = joint_base(original, binding, decision_at=decision_at)
-            rows = _bounded_receipts(connection, original.to_dict(), cutoff=decision)
-            _native_binding(binding, original, rows)
-            features = joint_features(binding["native_event"], rows, base, cutoff=decision_at)
             fits = tuple((ref, envelope) for ref, envelope in fits
                          if event_in_population(binding["native_event"], envelope["payload"]["population"]))
             effect_hash, effect = fits[0] if len(fits) == 1 else (None, None)
             reason = "effect-unavailable" if not fits else "effect-ambiguous" if len(fits) != 1 else reason
+            version = effect["payload"]["feature_version"] if effect is not None else FEATURE_VERSION
+            rows = _bounded_receipts(connection, original.to_dict(), cutoff=decision,
+                include_player_load=version == PLAYER_LOAD_FEATURE_VERSION)
+            _native_binding(binding, original, rows)
+            features = joint_features(binding["native_event"], rows, base, cutoff=decision_at, version=version)
     except ReplayUnavailable as exc:
         return {"status": "source-unavailable", "binding_ref": binding_ref, "reason": str(exc),
                 "role": "not_applied", "reference": None}
@@ -242,7 +254,7 @@ def publish_joint_comparison(path, binding_ref, *, decision_at, max_payload_byte
                                         (manifest,)).fetchone()[0]) > frozen["decision_at"]):
             raise ContextIntegrityError("joint revision precedes its physical model publication")
     base = joint_base(original, binding, decision_at=actual_decision)
-    features = joint_features(binding["native_event"], rows, base, cutoff=actual_decision)
+    features = joint_features(binding["native_event"], rows, base, cutoff=actual_decision, version=version)
     inputs = {"event": binding["native_event"], "base": base, "features": features,
               "observation_refs": refs, "preprocessing_refs": [],
               "effect_artifact": effect, "effect_hash": effect_hash, "approval": None}

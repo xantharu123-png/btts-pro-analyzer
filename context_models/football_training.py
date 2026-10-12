@@ -113,12 +113,15 @@ def _load_publication(connection, binding_ref, *, latest):
     return envelope, original, code
 
 
-def relevant_receipts(connection, packet, *, cutoff):
+def relevant_receipts(connection, packet, *, cutoff, include_player_load=False):
     """Complete predecision revision pool for the original's native events.
 
     Never read outcome labels here. Broader events are not silently added to
     the old model; this is the exact declared native input/context pool.
     """
+    if include_player_load:
+        from football_joint_worker import _bounded_receipts
+        return _bounded_receipts(connection, packet, cutoff=cutoff, include_player_load=True)
     ids = {engine.football_base_history_record(raw)['fixture_id'] for raw in
            [packet['fixture'], *packet['league_history'], *(packet['team_history'] or [])]}
     result = []
@@ -155,6 +158,9 @@ def validate_joint_training_case(resolved, *, config, payload):
     binding = validate_artifact_envelope(artifacts.get(payload['replay_ref']), kind=BINDING_KIND)['payload']
     original_artifact = validate_artifact_envelope(artifacts.get(base['model_hash']), kind=ORIGINAL_KIND)
     original = FootballOriginal(canonical_bytes(original_artifact['payload']))
+    from context_models.football_joint_context import PLAYER_LOAD_FEATURE_VERSION
+    if config['feature_version'] == PLAYER_LOAD_FEATURE_VERSION and decision != binding['decision_at']:
+        raise ReplayUnavailable('player_load_requires_original_decision')
     if set(artifacts) != {payload['replay_ref'], base['model_hash'], payload['event_identity_hash'], binding['code_digest']}:
         raise ContextIntegrityError('joint case lacks exact original, binding, code or identity bytes')
     for ref, value in artifacts.items():
@@ -272,7 +278,8 @@ def validate_joint_training_case(resolved, *, config, payload):
             observed_at=datetime.fromisoformat(row['observed_at']))
         if any(digest(part) not in content for part in projections if part['kind'] in {'appearance', 'confirmed_lineup'}):
             raise ReplayUnavailable('native_context_projection_missing_or_superseded')
-    _same(joint_features(event, tuple(source), base, cutoff=datetime.fromisoformat(decision)), features,
+    _same(joint_features(event, tuple(source), base, cutoff=datetime.fromisoformat(decision),
+                        version=config['feature_version']), features,
           'joint context features differ from original source receipts')
     if features['coverage'] != config['coverage']:
         raise ReplayUnavailable('feature_coverage_outside_frozen_cohort')
@@ -295,8 +302,13 @@ def build_joint_training_case(path, *, binding_ref, outcome_ref, identity_ref, c
         base, event = joint_base(original, binding['payload'], decision_at=decision_at), binding['payload']['native_event']
         if base['cutoff'] > clock:
             raise ContextIntegrityError('context decision is after reconstruction time')
-        history = relevant_receipts(connection, original.to_dict(), cutoff=base['cutoff'])
-        features = joint_features(event, history, base, cutoff=datetime.fromisoformat(base['cutoff']))
+        from context_models.football_joint_context import PLAYER_LOAD_FEATURE_VERSION
+        if config['feature_version'] == PLAYER_LOAD_FEATURE_VERSION and base['cutoff'] != binding['payload']['decision_at']:
+            raise ReplayUnavailable('player_load_requires_original_decision')
+        history = relevant_receipts(connection, original.to_dict(), cutoff=base['cutoff'],
+            include_player_load=config['feature_version'] == PLAYER_LOAD_FEATURE_VERSION)
+        features = joint_features(event, history, base, cutoff=datetime.fromisoformat(base['cutoff']),
+                                  version=config['feature_version'])
         payload = dict(schema=1, event=event, base=base, features=features, replay_ref=binding_ref,
             outcome_ref=outcome_ref, event_identity_hash=identity_ref, family_config_hash=digest(config), preprocessing_refs=[])
         artifacts = joint_case_artifacts(connection, payload, latest=clock)

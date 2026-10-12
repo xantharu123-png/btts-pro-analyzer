@@ -1,5 +1,29 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Neuester Einstieg – 12.10.2026: Vereins-/Nationalteam-Spielerbelastung
+
+Nutzerauftrag „machen“ nach Dortmund-/Nationalteam-Erholung. Einstieg erster
+Block `TODO_AKTUELL.md`. Native Spieler-ID verbindet gemeldete Minuten beider
+Teamarten; Rollenminuten bleiben vereinsspezifisch. v3-Lade-/Trainings-/Worker-
+Verbindung und zeitlich korrekte Erholungsgrenzen umgesetzt, keine erfundenen
+Abschläge. Detailpriorität bleibt im vorhandenen20-ID-/Ein-GET-Budget.
+Unabhängiges Diffreview ohne kritischen/wichtigen Funktionsbefund. Exakter
+isolierter Release-/Nachbarlauf273/273 bestanden,0 Skips,229,94s. Erste Runde
+scheiterte nur an Windows-Sandbox-Hardlinkrechten für die HMAC-Testdatei;
+komplette unveränderte Runde mit normalen Rechten bestanden. Netzwerk gesperrt.
+Keine Gesamtapp-/Qualitätsfreigabe daraus ableiten; Veröffentlichung im Abschluss.
+
+**Nicht als volle Müdigkeitswirkung verkaufen:** reine Serverprobe12:40UTC
+hat0 Effekte/0 Freigaben und0 tatsächliche Fußball-Spielendzeiten gezeigt.
+381/470 bekannte Minuten in11 Ereignisproben; nationale Gesamtdeckung daraus
+nicht ableitbar. Große Quellen können weiterhin512KiB-Transportlimit erreichen.
+95 Fußball-Bindings insgesamt;81 kleine gelesen,33 native Ereignisse davon7
+`captured`. Damit sind200 unberührte Testspiele zusätzlich zu Training und
+Abstimmung derzeit nicht möglich. Nicht durch Mehrfachversionen auffüllen.
+Qualifizierter Fit/owning Freigabe und reale Abdeckung bleiben offene Abnahme.
+Altes v2-/Entscheidungs-/Tennis-WIP ist erhalten und nicht Teil dieses Releases.
+Keine neuen Backups, DB-Kopien, zusätzlichen Sport-/API-Scans oder neuen APIs.
+
 ## Neuester Einstieg – 12.10.2026: Spielblöcke und Daily3
 
 Die vom Nutzer beanstandete Öffnungslogik und leere Daily3-Teilmenge sind

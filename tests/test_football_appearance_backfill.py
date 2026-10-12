@@ -57,6 +57,29 @@ def test_known_result_gets_one_budgeted_full_detail_and_real_player_minutes(tmp_
     assert owner._context_capture is None
 
 
+def test_recent_international_exposure_cannot_wait_behind_old_club_history():
+    module = implementation()
+    # Complete native identities; ten recent international games and forty
+    # older club games share the SAME twenty-ID detail request, not a new job.
+    old = [(i, canonical_timestamp(NOW - timedelta(days=40 + i)), 39, 2026,
+            1, 2, 'FT', 2, 1) for i in range(1, 41)]
+    recent = [(100+i, canonical_timestamp(NOW - timedelta(days=1+i)), 5, 2026,
+               100, 200, 'FT', 1, 0) for i in range(10)]
+    chosen = module._choose(old + recent, {}, now=NOW, limit=20)
+    assert len(chosen) == len({row[0] for row in chosen}) == 20
+    assert {row[0] for row in recent} <= {row[0] for row in chosen}
+    assert sum(row[2] == 39 for row in chosen) == 10
+
+
+def test_recent_detail_priority_never_retries_a_reserved_game():
+    module = implementation()
+    old = [(i, canonical_timestamp(NOW - timedelta(days=40)), 39, 2026,
+            1, 2, 'FT', 2, 1) for i in range(1, 21)]
+    recent = (101, canonical_timestamp(NOW - timedelta(days=1)), 5, 2026, 100, 200, 'FT', 1, 0)
+    chosen = module._choose(old + [recent], {module._attempt_key(recent): canonical_timestamp(NOW)}, now=NOW, limit=20)
+    assert len(chosen) == 20 and {row[0] for row in chosen} == set(range(1, 21))
+
+
 def test_unsent_budget_rejection_does_not_suppress_history_after_quota_reset(tmp_path, monkeypatch):
     from api_budget import APIBudgetExceeded
     import challenge_15k
