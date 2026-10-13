@@ -11,7 +11,7 @@ import sqlite3
 
 import challenge_engine as engine
 from context_models.contracts import ContextContractError, ContextIntegrityError, canonical_timestamp, digest, require_object, validate_base_distribution
-from context_models.football_joint_context import BASE_VERSION, joint_params, joint_features
+from context_models.football_joint_context import joint_versions_for_law, joint_params, joint_features
 from context_models.football_original_publication import BINDING_KIND, CODE_KIND
 from context_models.football_original_storage import ORIGINAL_KIND, MAX_MANIFEST_BYTES, MAX_ORIGINAL_BYTES, _ALL_PATHS, _raw, _hint, _expand
 from context_models.replay import ReplayUnavailable
@@ -61,13 +61,23 @@ def _check_goal_source(record, detail):
 
 def joint_base(original, binding, *, decision_at=None):
     packet = original.to_dict()
+    # Validate the known prediction/law/recipe combination before assigning a
+    # baseline identity. Captured candidate v2 must never masquerade as v1.
+    from context_models.football_original_storage import _packet
+    try:
+        _packet(packet)
+    except ValueError as exc:
+        raise ContextIntegrityError('unknown or inconsistent captured joint law/recipe') from exc
+    if packet['schema'] != 2:
+        raise ReplayUnavailable('original_has_no_captured_joint_distribution')
+    base_version = joint_versions_for_law(packet['distribution_capture']['law_version'])[0]
     event = binding['native_event']
     if event is None:
         raise ReplayUnavailable('original_native_event_unresolved')
     decision = binding['decision_at'] if decision_at is None else canonical_timestamp(decision_at)
     if decision < binding['decision_at'] or decision >= event['scheduled_start']:
         raise ContextContractError('context decision must follow its original and precede kickoff')
-    return validate_base_distribution(dict(version=BASE_VERSION, model_hash=_original_envelope(original)['digest'],
+    return validate_base_distribution(dict(version=base_version, model_hash=_original_envelope(original)['digest'],
         event_key=event['event_key'], cutoff=decision, family='football:goals:90min',
         params=joint_params(packet['distribution_capture']['families']['goals']['active']['effective_cells']),
         markets={spec.key: packet['probabilities'][spec.key][0] for spec in engine.GOAL_MARKET_SPECS},
@@ -284,7 +294,8 @@ def validate_joint_training_case(resolved, *, config, payload):
     from context_models.football_joint_effect import _curve
     engine.fixture_market_probabilities(packet['fixture'], packet['league_history'],
         {key: _curve(value) for key, value in packet['calibration_recipes'].items()},
-        team_history=packet['team_history'], native_resolver=resolve, original_capture=captures.append)
+        team_history=packet['team_history'], native_resolver=resolve, original_capture=captures.append,
+        _joint_law_version=packet['distribution_capture']['law_version'])
     if len(captures) != 1:
         raise ContextIntegrityError('native joint reconstruction produced no original')
     _same(sorted({digest(engine.football_base_history_record(raw)) for raw in selected}), sorted(expected), 'selected original input union differs')

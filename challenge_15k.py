@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal, ROUND_HALF_UP
 import hashlib
 import json
 import math
@@ -3650,6 +3651,31 @@ def _manual_settlement_reason(value: Any) -> str:
     return normalized or DEFAULT_MANUAL_SETTLEMENT_REASON
 
 
+def _bookmaker_adjustment_inputs(ticket, odds, payout, key_prefix):
+    """Show a second, amount-bound approval only for an unusual real credit."""
+    if odds is None or payout is None:
+        return {}, True
+    stake_cents = int((Decimal(str(ticket['stake']))*100).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
+    payout_cents = int((Decimal(str(payout))*100).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
+    recorded = dict(stake_cents=stake_cents, played_odds=ticket.get('played_odds'), total_odds=ticket['total_odds'])
+    if not ChallengeLedger.payout_needs_confirmation(recorded, odds, payout_cents):
+        return {}, True
+    binding = hashlib.sha256(json.dumps([
+        ticket['id'], ticket.get('ticket_definition_hash'), ticket.get('settled_at'),
+        ticket.get('status'), ticket.get('payout'), odds, payout_cents,
+    ], separators=(',', ':')).encode()).hexdigest()[:24]
+    st.warning('Die Auszahlungsquote oder Gutschrift liegt über der gespeicherten Wette. '
+               'Bitte zuerst einen Tippfehler ausschließen; eine echte Buchmacher-Sondergutschrift braucht eine zusätzliche Bestätigung und einen konkreten Grund.')
+    confirmed = st.checkbox(
+        'Ich bestätige zusätzlich: Genau diese höhere Quote und Gutschrift sind vom Buchmacher geprüft.',
+        key=f'{key_prefix}_adjustment_confirmed:{binding}',
+    )
+    reason = st.text_input('Konkreter Grund der höheren Buchmacher-Gutschrift', max_chars=500,
+        key=f'{key_prefix}_adjustment_reason:{binding}')
+    ready = confirmed is True and 5 <= len(reason.strip()) <= 500
+    return dict(adjustment_confirmed=confirmed, adjustment_reason=reason), ready
+
+
 def _manual_history_result(
     result: Any,
     actual_payout: Any,
@@ -3766,12 +3792,15 @@ def _render_pending_ticket_actions(
             "Ich habe Ergebnis und gegebenenfalls Gutschrift beim Buchmacher geprüft.",
             key=f"{key_prefix}_settlement_confirmed",
         )
+        adjustment_args, adjustment_ready = _bookmaker_adjustment_inputs(
+            ticket, settlement_odds, actual_payout, key_prefix
+        )
         if st.button(
             "Ergebnis verbuchen",
             type="primary",
             width="stretch",
             key=f"{key_prefix}_settle_button",
-            disabled=result is None or not confirmed,
+            disabled=result is None or not confirmed or not adjustment_ready,
         ):
             status = {
                 "Gewonnen": "WON",
@@ -3786,6 +3815,7 @@ def _render_pending_ticket_actions(
                     actual_payout=actual_payout,
                     source="MANUAL_CONFIRMED",
                     reason=_manual_settlement_reason(settlement_reason_input),
+                    **adjustment_args,
                 )
                 balance = ledger.settings()["current_balance"]
                 st.session_state["challenge_ledger_notice"] = (
@@ -4244,8 +4274,12 @@ def _render_history(ledger: ChallengeLedger) -> None:
                 "Ich habe die ursprüngliche Buchung beim Buchmacher erneut geprüft.",
                 key="challenge_correction_confirmed",
             )
+            adjustment_args, adjustment_ready = _bookmaker_adjustment_inputs(
+                selected_ticket, correction_odds, correction_payout, 'challenge_correction'
+            )
             action_ready = bool(
                 correction_confirmed
+                and adjustment_ready
                 and len(correction_reason.strip()) >= 5
                 and correction_action is not None
                 and (
@@ -4273,6 +4307,7 @@ def _render_history(ledger: ChallengeLedger) -> None:
                             settlement_odds=correction_odds,
                             actual_payout=correction_payout,
                             reason=correction_reason,
+                            **adjustment_args,
                         )
                     else:
                         ledger.reverse_settlement(

@@ -34,9 +34,9 @@ def command(store, kind, day=DAY, scope=SCOPE, action_id=None, **args):
     return store.command(scope, action_id=action_id or ident(), kind=kind, day=day, **args)
 
 
-def reserve(store, amount=2000, event='football:fixture:1', **kwargs):
+def reserve(store, amount=2000, event='football:fixture:1', *, odds='1.2', **kwargs):
     bet_id = ident()
-    command(store, 'reserve', bet_id=bet_id, stake_cents=amount, odds='1.2', snapshot=snapshot(event), **kwargs)
+    command(store, 'reserve', bet_id=bet_id, stake_cents=amount, odds=odds, snapshot=snapshot(event), **kwargs)
     return bet_id
 
 
@@ -56,15 +56,15 @@ def test_caution_can_be_empty_but_not_malformed(store, caution):
         assert store.history(SCOPE) == before
 
 
-def placed(store, amount=2000, event='football:fixture:1'):
-    bet_id = reserve(store, amount, event)
+def placed(store, amount=2000, event='football:fixture:1', *, odds='1.2'):
+    bet_id = reserve(store, amount, event, odds=odds)
     command(store, 'place', bet_id=bet_id, revision=1, reference='Buchmacher / Beleg 123')
     return bet_id
 
 
 def test_complete_real_stake_fifty_one_twenty_zero_flow(store):
     command(store, 'start')
-    first = placed(store, 5000)
+    first = placed(store, 5000, odds='2.4')
     assert day_balance(store.history(SCOPE)[DAY]).available_cents == 0
     command(store, 'settle', bet_id=first, revision=2, returned_cents=12000, reference='Tatsächlich gutgeschrieben 120 CHF')
     second = placed(store, 12000, 'football:fixture:2')
@@ -95,7 +95,7 @@ def test_duplicate_actions_do_not_reissue_daily_budget_or_returns(store):
     command(store, 'start', action_id=action)
     with pytest.raises(Daily3Error):
         command(store, 'start')
-    bet = placed(store)
+    bet = placed(store, odds='2.5')
     action = ident()
     args = dict(bet_id=bet, revision=2, returned_cents=5000, reference='Beleg')
     command(store, 'settle', action_id=action, **args)
@@ -143,7 +143,7 @@ def test_no_fourth_bet_even_after_void_and_no_event_opposites(store):
 
 def test_correction_retains_negative_balance_and_old_evidence(store):
     command(store, 'start')
-    first = placed(store, 5000)
+    first = placed(store, 5000, odds='2.4')
     command(store, 'settle', bet_id=first, revision=2, returned_cents=12000, reference='Erste Abrechnung')
     placed(store, 12000, 'football:fixture:2')
     command(store, 'review', bet_id=first, revision=3, reason='Buchmacher prüft erneut')

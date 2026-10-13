@@ -26,6 +26,7 @@ import sys
 import unicodedata
 import re
 import time
+from collections.abc import Mapping
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -426,12 +427,24 @@ def fetch_results_sofascore(date: str) -> list:
         }:
             continue
         if is_retirement or is_walkover:
+            winner_code = event.get("winnerCode")
+            winner_is_a = winner_code == 1 and not isinstance(winner_code, bool)
+            winner_known = not isinstance(winner_code, bool) and winner_code in (1, 2)
+            home_sets = (event.get("homeScore") or {}).get("current")
+            away_sets = (event.get("awayScore") or {}).get("current")
+            sets_known = all(isinstance(value, int) and not isinstance(value, bool)
+                             and value >= 0 for value in (home_sets, away_sets))
+            if is_walkover:
+                winner_known = sets_known = False
             results.append(
                 {
                     **common,
-                    "winner": None,
-                    "winner_sets": None,
-                    "loser_sets": None,
+                    "winner": (player_a if winner_is_a else player_b) if winner_known else None,
+                    "winner_sets": (home_sets if winner_is_a else away_sets) if sets_known and winner_known else None,
+                    "loser_sets": (away_sets if winner_is_a else home_sets) if sets_known and winner_known else None,
+                    "player_a_sets": home_sets if sets_known else None,
+                    "player_b_sets": away_sets if sets_known else None,
+                    "completed_sets": home_sets + away_sets if sets_known else None,
                     "termination": "retirement" if is_retirement else "walkover",
                 }
             )
@@ -463,6 +476,28 @@ def fetch_results_sofascore(date: str) -> list:
             }
         )
     return results
+
+
+def _espn_completed_sets(competitors: list) -> tuple[int | None, int | None]:
+    """Count only explicit native set-winner pairs, never partial game scores.
+
+    At least one completed set must be evidenced. Empty/missing/all-unmarked
+    lines cannot prove zero completed sets. Unknown remains unknown.
+    """
+    lines = [item.get("linescores") for item in competitors]
+    if any(not isinstance(value, list) for value in lines) or len(lines[0]) != len(lines[1]):
+        return None, None
+    sets = [0, 0]
+    for a, b in zip(*lines):
+        if not isinstance(a, Mapping) or not isinstance(b, Mapping):
+            return None, None
+        flags = a.get("winner"), b.get("winner")
+        if ((flags[0] is True and flags[1] is False)
+                or (flags[0] is False and flags[1] is True)):
+            sets[0 if flags[0] else 1] += 1
+        elif flags[0] is True and flags[1] is True:
+            return None, None
+    return tuple(sets) if sum(sets) else (None, None)
 
 
 def fetch_results_espn(date: str, tour: str) -> list:
@@ -522,6 +557,15 @@ def fetch_results_espn(date: str, tour: str) -> list:
                 if match_date != date:
                     continue
                 if is_retirement or is_walkover:
+                    winners = [index for index, item in enumerate(competitors) if item.get("winner") is True]
+                    winner_index = winners[0] if len(winners) == 1 else None
+                    a_sets, b_sets = _espn_completed_sets(competitors)
+                    if is_walkover:
+                        winner_index = None
+                        a_sets = b_sets = None
+                    winner_sets = loser_sets = None
+                    if winner_index is not None and a_sets is not None:
+                        winner_sets, loser_sets = (a_sets, b_sets) if winner_index == 0 else (b_sets, a_sets)
                     results.append(
                         {
                             "provider_event_id": str(comp.get("id") or ""),
@@ -529,9 +573,12 @@ def fetch_results_espn(date: str, tour: str) -> list:
                             "scheduled_start_utc": start_utc,
                             "player_a": names[0],
                             "player_b": names[1],
-                            "winner": None,
-                            "winner_sets": None,
-                            "loser_sets": None,
+                            "winner": names[winner_index] if winner_index is not None else None,
+                            "winner_sets": winner_sets,
+                            "loser_sets": loser_sets,
+                            "player_a_sets": a_sets,
+                            "player_b_sets": b_sets,
+                            "completed_sets": a_sets + b_sets if a_sets is not None else None,
                             "termination": (
                                 "retirement" if is_retirement else "walkover"
                             ),
@@ -676,16 +723,52 @@ def auto_settle_completed(today: str | None = None) -> int:
         if not isinstance(result_observed_at, (datetime, str)):
             continue
         if termination in {"retirement", "walkover"}:
+            winner = None
+            player_a_sets = player_b_sets = None
+            if termination == "retirement":
+                native_winner = match.get("winner")
+                if native_winner is not None:
+                    winner_key = normalize_player_name(native_winner)
+                    winner = next((name for name in (row["player_a"], row["player_b"])
+                                   if normalize_player_name(name) == winner_key), None)
+                    if winner is None:
+                        continue  # contradictory winner evidence, never manufacture void
+                if match.get("player_a_sets") is not None and match.get("player_b_sets") is not None:
+                    pair = (match["player_a_sets"], match["player_b_sets"])
+                    if normalize_player_name(match["player_a"]) != normalize_player_name(row["player_a"]):
+                        pair = pair[::-1]
+                    player_a_sets, player_b_sets = pair
+                elif winner is not None:
+                    pair = (match.get("winner_sets"), match.get("loser_sets"))
+                    if winner == row["player_b"]:
+                        pair = pair[::-1]
+                    player_a_sets, player_b_sets = pair
             try:
                 shadow.settle(
                     row["id"],
-                    None,
+                    winner,
+                    ret_set=match.get("completed_sets") if termination == "retirement" else None,
+                    player_a_sets=player_a_sets,
+                    player_b_sets=player_b_sets,
                     termination=termination,
                     result_observed_at=result_observed_at,
                 )
             except (TypeError, ValueError) as exc:
                 errors.append({"prediction_id": row["id"], "reason": "settlement_rejected", "error_type": type(exc).__name__})
                 continue
+            if termination == "retirement":
+                from tennis.settlement_policy import match_winner_status
+                completed_sets = match.get("completed_sets")
+                if player_a_sets is not None and player_b_sets is not None:
+                    completed_sets = player_a_sets + player_b_sets
+                if match_winner_status(termination, winner, completed_sets,
+                        rule=shadow.RETIREMENT_RULE) == "non_evaluable":
+                    print("Abrechnungsabdeckung: " + json.dumps({
+                        "reason": "non_evaluable_retirement", "prediction_id": row["id"],
+                        "winner_observed": winner is not None,
+                        "completed_sets_observed": completed_sets is not None,
+                        "payout_evaluated": False,
+                    }, sort_keys=True))
             for bet in shadow.side_bets_for([row["id"]]):
                 if not bet["settled"]:
                     shadow.settle_side_bet(bet["id"], "ret")
@@ -1166,7 +1249,7 @@ def _run_daily(args) -> int:
     except SettlementBatchError as exc:
         settled = exc.settled
         operational_errors.extend(exc.issues)
-    print(f"Automatisch abgerechnet (normale ESPN-Finals): {settled}")
+    print(f"Automatisch erfasste Terminalergebnisse (nicht auswertbare Fälle separat): {settled}")
 
     surfaces = tournament_surface_map(int(date[:4]))
     try:

@@ -86,6 +86,160 @@ def test_missing_season_rules_keeps_valid_original_base_without_roster_claim():
     assert original["markets"] == base()["markets"]
 
 
+class _CricketPath(ast.NodeTransformer):
+    """Project known sport branches, retaining every shared helper and formula."""
+    def __init__(self, function_name):
+        self.function_name = function_name
+
+    def visit_Name(self, node):
+        if isinstance(node.ctx, ast.Load) and node.id == "sport":
+            return ast.Constant(value="cricket")
+        if (self.function_name == "predict_prematch" and isinstance(node.ctx, ast.Load)
+                and node.id == "model_version"):
+            return ast.Name(id="MODEL_VERSION", ctx=ast.Load())
+        return node
+
+    def visit_Attribute(self, node):
+        if node.attr == "sport" and isinstance(node.value, ast.Name) and node.value.id == "fitted":
+            return ast.Constant(value="cricket")
+        return self.generic_visit(node)
+
+    def visit_Compare(self, node):
+        node = self.generic_visit(node)
+        try:
+            values = [ast.literal_eval(value) for value in [node.left, *node.comparators]]
+        except (ValueError, TypeError):
+            return node
+        operators = {ast.Eq: lambda a, b: a == b, ast.NotEq: lambda a, b: a != b,
+                     ast.In: lambda a, b: a in b, ast.NotIn: lambda a, b: a not in b}
+        if not all(type(op) in operators for op in node.ops):
+            return node
+        return ast.Constant(value=all(operators[type(op)](a, b)
+            for op, a, b in zip(node.ops, values, values[1:])))
+
+    def visit_BoolOp(self, node):
+        node = self.generic_visit(node)
+        is_and = isinstance(node.op, ast.And)
+        retained = []
+        for value in node.values:
+            if isinstance(value, ast.Constant) and type(value.value) is bool:
+                if value.value == is_and:
+                    continue
+                # Unknown earlier expressions are still executed. Do not hide
+                # a shared side effect placed before a false Hockey guard.
+                if not retained:
+                    return value
+                retained.append(value)
+                break
+            retained.append(value)
+        node.values = retained
+        return (node.values[0] if len(node.values) == 1 else node) if node.values else ast.Constant(value=is_and)
+
+    def visit_If(self, node):
+        # A fitted cricket model contains both admitted teams (the shared
+        # counts, fit and _predict remain frozen below) and returns a tuple.
+        # The missing OT/SO message is therefore a hockey-only path, although
+        # the historical source did not spell out its sport guard.
+        if (self.function_name == "predict_prematch"
+                and ast.dump(node.test) == ast.dump(ast.parse("fitted and prediction is None", mode="eval").body)):
+            admitted = (
+                'missing.append("Für den vollständigen NHL-Siegermarkt fehlen passende Verlängerungs-/Shootout-Beobachtungen.")',
+                'league_label = "Eishockey" if identity.provider == "api-hockey" else "NHL"\n'
+                'missing.append(f"Für den vollständigen {league_label}-Siegermarkt fehlen passende Verlängerungs-/Shootout-Beobachtungen.")',
+            )
+            body = ast.dump(ast.Module(body=node.body, type_ignores=[]))
+            assert (not node.orelse and body in {ast.dump(ast.parse(source)) for source in admitted}), (
+                "predict_prematch hockey-only missing-OT body changed")
+            return []
+        node = self.generic_visit(node)
+        if isinstance(node.test, ast.Constant) and type(node.test.value) is bool:
+            return node.body if node.test.value else node.orelse
+        return node
+
+    def visit_IfExp(self, node):
+        node = self.generic_visit(node)
+        if isinstance(node.test, ast.Constant) and type(node.test.value) is bool:
+            return node.body if node.test.value else node.orelse
+        return node
+
+    def visit_Assign(self, node):
+        node = self.generic_visit(node)
+        if (self.function_name == "predict_prematch" and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name) and node.targets[0].id == "model_version"):
+            assert ast.dump(node.value) == "Name(id='MODEL_VERSION', ctx=Load())"
+            return []
+        return node
+
+    def visit_Call(self, node):
+        node = self.generic_visit(node)
+        if isinstance(node.func, ast.Name) and node.func.id == "PrematchPrediction":
+            # Explicit default and the unchanged dataclass default are equal;
+            # a different version expression is not normalized away.
+            node.keywords = [keyword for keyword in node.keywords
+                if not (keyword.arg == "model_version"
+                        and ast.dump(keyword.value) == "Name(id='MODEL_VERSION', ctx=Load())")]
+        return node
+
+    def visit_FunctionDef(self, node):
+        node = self.generic_visit(node)
+        for index, statement in enumerate(node.body):
+            if isinstance(statement, ast.Return):
+                node.body = node.body[:index + 1]
+                break
+        return node
+
+
+def _assert_cricket_ast_frozen(original_source, current_source):
+    old_functions = {n.name: n for n in ast.parse(original_source).body if isinstance(n, ast.FunctionDef)}
+    new_functions = {n.name: n for n in ast.parse(current_source).body if isinstance(n, ast.FunctionDef)}
+    for name, before in old_functions.items():
+        after = deepcopy(new_functions[name])
+        if name == "predict_prematch" and after.args.kwonlyargs:
+            assert len(after.args.kwonlyargs) == 1
+            assert after.args.kwonlyargs[0].arg == "original_capture"
+            assert ast.dump(after.args.kw_defaults[0]) == "Constant(value=None)"
+            after.args.kwonlyargs = []
+            after.args.kw_defaults = []
+            conditional = ast.dump(ast.parse("original_capture is not None", mode="eval").body)
+            guards = [n for n in after.body if isinstance(n, ast.If) and ast.dump(n.test) == conditional]
+            assert len(guards) == 2 and all(not n.orelse for n in guards)
+            after.body = [n for n in after.body if n not in guards]
+            assignment, returned = after.body[-2:]
+            assert isinstance(assignment, ast.Assign) and len(assignment.targets) == 1
+            assert isinstance(assignment.targets[0], ast.Name) and assignment.targets[0].id == "result"
+            assert isinstance(returned, ast.Return) and isinstance(returned.value, ast.Name)
+            assert returned.value.id == "result"
+            after.body[-2:] = [ast.Return(value=assignment.value)]
+        projected_before = _CricketPath(name).visit(deepcopy(before))
+        projected_after = _CricketPath(name).visit(after)
+        assert ast.dump(projected_before) == ast.dump(projected_after), name
+
+
+def test_cricket_freeze_allows_a_hockey_only_variant_change():
+    original = (Path(__file__).parent / "fixtures/context/basketball/sports_prematch_legacy_0d000f6.py").read_bytes()
+    changed = original.replace(b'return _text(row.get("game_type"))',
+                               b'return _text(row.get("hockey_game_type"))')
+    assert changed != original
+    _assert_cricket_ast_frozen(original, changed)
+
+
+@pytest.mark.parametrize("before,after,name", [
+    (b'.casefold()', b'.upper()', "_text"),
+    (b'"t20i": "t20"', b'"t20i": "odi"', "_variant"),
+    (b'loss += 0.5 * RIDGE_PSEUDO_GAMES', b'loss += 0.6 * RIDGE_PSEUDO_GAMES', "_fit"),
+    (b'if sport == "ice_hockey" and variant not in {"1", "2", "3"}:',
+     b'if event.clear() is None and sport == "ice_hockey" and variant not in {"1", "2", "3"}:', "_identity"),
+    (b'if fitted and prediction is None:',
+     b'if fitted and prediction is None:\n        probability = 0.25', "predict_prematch"),
+])
+def test_cricket_freeze_rejects_shared_helper_or_cricket_math_change(before, after, name):
+    original = (Path(__file__).parent / "fixtures/context/basketball/sports_prematch_legacy_0d000f6.py").read_bytes()
+    changed = original.replace(before, after)
+    assert changed != original
+    with pytest.raises(AssertionError, match=name):
+        _assert_cricket_ast_frozen(original, changed)
+
+
 def test_frozen_default_cricket_matches_before_change_on_same_cpu():
     import sports_prematch
     path = Path(__file__).parent / "fixtures/context/basketball/sports_prematch_legacy_0d000f6.py"
@@ -107,30 +261,10 @@ def test_frozen_default_cricket_matches_before_change_on_same_cpu():
         b = sports_prematch.predict_prematch("cricket", target, rows, NOW).to_dict()
         assert canonical_bytes(a) == canonical_bytes(b)
         assert (target, rows) == frozen
-    # The additive same-call collector intentionally changes this source file.
-    # Keep the old functions/math frozen, not an obsolete whole-file prefix.
-    old_functions = {n.name: n for n in ast.parse(raw).body if isinstance(n, ast.FunctionDef)}
-    new_functions = {n.name: n for n in ast.parse(Path(sports_prematch.__file__).read_bytes()).body
-                     if isinstance(n, ast.FunctionDef)}
-    for name, before in old_functions.items():
-        after = deepcopy(new_functions[name])
-        if name == "predict_prematch":
-            assert len(after.args.kwonlyargs) == 1
-            assert after.args.kwonlyargs[0].arg == "original_capture"
-            assert ast.dump(after.args.kw_defaults[0]) == "Constant(value=None)"
-            after.args.kwonlyargs = []
-            after.args.kw_defaults = []
-            conditional = ast.dump(ast.parse("original_capture is not None", mode="eval").body)
-            guards = [n for n in after.body if isinstance(n, ast.If) and ast.dump(n.test) == conditional]
-            assert len(guards) == 2 and all(not n.orelse for n in guards)
-            after.body = [n for n in after.body if n not in guards]
-            assignment, returned = after.body[-2:]
-            assert isinstance(assignment, ast.Assign) and len(assignment.targets) == 1
-            assert isinstance(assignment.targets[0], ast.Name) and assignment.targets[0].id == "result"
-            assert isinstance(returned, ast.Return) and isinstance(returned.value, ast.Name)
-            assert returned.value.id == "result"
-            after.body[-2:] = [ast.Return(value=assignment.value)]
-        assert ast.dump(before) == ast.dump(after), name
+    # Hockey-only source evolution cannot alter this Cricket contract. Every
+    # original function is still compared on its shared + Cricket execution
+    # path; mutation probes above protect helpers, routing and fitted math.
+    _assert_cricket_ast_frozen(raw, Path(sports_prematch.__file__).read_bytes())
 
 
 def rotation_team(team_id, *, load=False):

@@ -7,6 +7,7 @@ edge that would treat favourites and longshots differently.
 """
 
 from dataclasses import dataclass
+from decimal import Decimal, localcontext
 import math
 from typing import Iterable, Optional
 
@@ -75,6 +76,26 @@ def validate_decimal_odds(odds: float) -> float:
     if not math.isfinite(value) or value <= 1.0:
         raise BettingMathError("Decimal odds must be greater than 1.0")
     return value
+
+
+def exact_odds_product(odds: Iterable[float]) -> Decimal:
+    """Multiply quoted decimal literals exactly for corridor admission.
+
+    Only probabilities use binary floating point. In particular 1.50*1.60*
+    1.25 is exactly 3.00, while a genuinely larger offer remains larger.
+    """
+    prices = []
+    for price in odds:
+        validate_decimal_odds(price)
+        prices.append(Decimal(str(price)))
+    if not prices:
+        raise BettingMathError("An odds product needs at least one price")
+    with localcontext() as context:
+        context.prec = max(28, sum(len(p.as_tuple().digits) for p in prices) + 2)
+        result = Decimal(1)
+        for price in prices:
+            result *= price
+    return result
 
 
 def _validate_nonnegative_percent(value: float, field: str) -> float:

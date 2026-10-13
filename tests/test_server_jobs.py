@@ -10,6 +10,7 @@ import shutil
 import sqlite3
 import stat
 import subprocess
+from tests.bash_test_helpers import run_bash_lf
 import sys
 import zipfile
 from datetime import datetime, timedelta, timezone
@@ -48,12 +49,14 @@ def _shell_python_heredoc(source: str, function_name: str) -> str:
 
 
 def _bash_executable() -> str | None:
+    program_files = os.environ.get("ProgramFiles", "C:/Program Files")
+    candidate = Path(program_files) / "Git" / "bin" / "bash.exe"
+    if os.name == "nt" and candidate.is_file():
+        return str(candidate)
     discovered = shutil.which("bash")
     if discovered:
         return discovered
-    program_files = os.environ.get("ProgramFiles")
     if program_files:
-        candidate = Path(program_files) / "Git" / "bin" / "bash.exe"
         if candidate.is_file():
             return str(candidate)
     return None
@@ -217,7 +220,7 @@ def test_update_preflights_before_downtime_and_has_recovery_path(monkeypatch):
         completion_harness += "/usr/bin/python3() { while IFS= read -r line; do :; done; printf 'publication-boundary\\n'; }\n"
         completion_harness += "complete_producer() {\n" + completion
         completion_harness += "\ncomplete_producer\nprintf 'continued\\n'\n"
-        result = subprocess.run([_bash_executable()], input=completion_harness,
+        result = run_bash_lf([_bash_executable()], input=completion_harness,
                                 text=True, capture_output=True, timeout=20)
         assert result.stderr == ""
         lines = result.stdout.splitlines()
@@ -238,7 +241,7 @@ def test_update_preflights_before_downtime_and_has_recovery_path(monkeypatch):
     harness += "produce_update_backup() { printf '%s|%s|%s|%s\\n' \"$@\"; }\n"
     for name in ("create_online_preflight_backup", "create_fresh_backup"):
         harness += _shell_function(update, name) + "\n}\n"
-    result = subprocess.run([_bash_executable()], input=harness + "create_online_preflight_backup\ncreate_fresh_backup\n",
+    result = run_bash_lf([_bash_executable()], input=harness + "create_online_preflight_backup\ncreate_fresh_backup\n",
                             text=True, capture_output=True, timeout=20)
     assert result.returncode == 0, result.stderr
     online, quiesced = [line.split("|") for line in result.stdout.splitlines()]
@@ -520,7 +523,7 @@ log() {{ printf 'log:%s\n' "$*" >&3; }}
 }}
 persist_runtime_autostart_disabled
 """
-        completed = subprocess.run(
+        completed = run_bash_lf(
             [bash],
             input=harness,
             check=False,
@@ -537,7 +540,7 @@ persist_runtime_autostart_disabled
             f"check:{unit}" for unit in expected_units
         ]
 
-        blocked = subprocess.run(
+        blocked = run_bash_lf(
             [bash],
             input=harness,
             check=False,
@@ -548,7 +551,7 @@ persist_runtime_autostart_disabled
         assert blocked.returncode != 0
         assert f"check:{expected_units[-1]}" in blocked.stdout
 
-        errored = subprocess.run(
+        errored = run_bash_lf(
             [bash],
             input=harness,
             check=False,
@@ -2421,7 +2424,7 @@ def test_deployers_verify_backup_unit_dac_with_its_supplementary_group(tmp_path)
     harness += "runuser() { printf '%s|' \"$@\"; printf '\\n'; [[ \"${@: -1}\" != \"${FAIL_DAC:-}\" ]]; }\n"
     harness += _shell_function(update, "enumerate_backup_sources").replace("/usr/bin/python3", shlex.quote(sys.executable)) + "\n}\n"
     harness += _shell_function(update, "verify_backup_source_dac") + "\n}\nverify_backup_source_dac\nprintf 'accepted\\n'\n"
-    result = subprocess.run([_bash_executable()], input=harness, text=True, encoding="utf-8", capture_output=True, timeout=20)
+    result = run_bash_lf([_bash_executable()], input=harness, text=True, encoding="utf-8", capture_output=True, timeout=20)
     assert result.returncode == 0, result.stderr
     calls = [line[:-1].split("|") for line in result.stdout.splitlines() if line != "accepted"]
     principal = ["-u", "betboy-backup", "-g", "betboy-backup", "-G", "betboy", "--", "/usr/bin/test"]
@@ -2433,7 +2436,7 @@ def test_deployers_verify_backup_unit_dac_with_its_supplementary_group(tmp_path)
     # A writable companion must reject, not merely appear in a printed list.
     inventory = tmp_path / "backup-source-dac.paths"
     inventory.unlink()
-    result = subprocess.run([_bash_executable()], input="FAIL_DAC=" + shlex.quote((runtime / names[2]).as_posix()) + "\n" + harness,
+    result = run_bash_lf([_bash_executable()], input="FAIL_DAC=" + shlex.quote((runtime / names[2]).as_posix()) + "\n" + harness,
                             text=True, encoding="utf-8", capture_output=True, timeout=20)
     assert result.returncode != 0 and "accepted" not in result.stdout
     assert "can write live SQLite state" in result.stderr

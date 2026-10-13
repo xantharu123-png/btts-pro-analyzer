@@ -50,7 +50,7 @@ def render_saved_tips() -> None:
     active = store.list_tips(active=True)
     st.subheader("Aktive Tipps")
     if not active:
-        st.info("Noch keine preisgeprüften Tipps gespeichert.")
+        st.info("Noch keine Tipps gemerkt.")
     for tip in active:
         with st.container(border=True):
             st.markdown(f"**{tip.event_label}**")
@@ -58,21 +58,28 @@ def render_saved_tips() -> None:
                 f"{tip.sport} · {tip.market}: {tip.selection} · "
                 f"{tip.source} · {_format_time(tip.updated_at)}"
             )
-            metrics = st.columns(4)
-            metrics[0].metric("Modell", f"{tip.model_probability:.1f} %")
-            metrics[1].metric("Konservativ", f"{tip.risk_adjusted_probability:.1f} %")
-            metrics[2].metric("Mindestquote", f"{tip.minimum_odds:.2f}")
-            metrics[3].metric("Quote", f"{tip.quoted_odds:.2f}")
+            bookmark = tip.decision_status == "BOOKMARK"
+            if bookmark:
+                st.caption("Modellauswahl · keine Wette erfasst.")
+                metrics = st.columns(2)
+                metrics[0].metric("Modell", f"{tip.model_probability:.1f} %")
+                metrics[1].metric("Quote", "Nicht geprüft")
+            else:
+                metrics = st.columns(4)
+                metrics[0].metric("Modell", f"{tip.model_probability:.1f} %")
+                metrics[1].metric("Konservativ", f"{tip.risk_adjusted_probability:.1f} %")
+                metrics[2].metric("Mindestquote", f"{tip.minimum_odds:.2f}")
+                metrics[3].metric("Quote", f"{tip.quoted_odds:.2f}")
             actions = st.columns(4)
             if actions[0].button(
-                "Gewonnen",
+                "Richtig" if bookmark else "Gewonnen",
                 icon=":material/check_circle:",
                 key=f"tip_won_{tip.id}",
                 use_container_width=True,
             ):
                 _settle(store, tip, "WON")
             if actions[1].button(
-                "Verloren",
+                "Falsch" if bookmark else "Verloren",
                 icon=":material/cancel:",
                 key=f"tip_lost_{tip.id}",
                 use_container_width=True,
@@ -105,8 +112,10 @@ def render_saved_tips() -> None:
                 "Sport": tip.sport,
                 "Spiel": tip.event_label,
                 "Tipp": f"{tip.market}: {tip.selection}",
+                "Art": "Modellauswahl" if tip.decision_status == "BOOKMARK" else "Preisgeprüfter Tipp",
                 "Quote": tip.quoted_odds,
-                "Ergebnis": RESULT_LABELS.get(tip.result, tip.result),
+                "Ergebnis": ({"WON": "Richtig", "LOST": "Falsch", "VOID": "Ungültig"}
+                             if tip.decision_status == "BOOKMARK" else RESULT_LABELS).get(tip.result, tip.result),
             }
             for tip in history
         ]

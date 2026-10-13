@@ -618,7 +618,8 @@ def validate_base_distribution(value: dict) -> dict:
     row["history_refs"] = validate_history_refs(row["history_refs"])
     row["reference_weights"] = validate_reference_weights(row["reference_weights"], row["history_refs"], family=family)
     if family == 'football:goals:90min' and ('joint_cells' in row['params'] or row['version'] in {
-            'football-goals-captured-joint-v1', 'football-goals-context-joint-v1'}):
+            'football-goals-captured-joint-v1', 'football-goals-context-joint-v1',
+            'football-goals-captured-joint-v2', 'football-goals-context-joint-v2'}):
         from context_models.football_joint_context import validate_joint_base
         if 'joint_cells' not in row['params']:
             raise ContextContractError('joint baseline is missing its actual distribution')
@@ -695,7 +696,8 @@ def validate_effect_artifact(value: dict) -> dict:
         require_text(row[name], name, code=True)
     row["feature_names"] = _names(row["feature_names"], "effect feature names")
     expected_heads, link = _HEADS[family]
-    joint = family == 'football:goals:90min' and row['model_variant'] == 'football-joint-log-tilt-v1'
+    joint = family == 'football:goals:90min' and row['model_variant'] in {
+        'football-joint-log-tilt-v1', 'football-joint-log-tilt-v2'}
     if joint:
         link = 'log_joint_tilt'
     require_object(row["heads"], expected_heads, label="effect named heads")

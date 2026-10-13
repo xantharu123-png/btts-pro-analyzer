@@ -66,6 +66,7 @@ red_card_candidate = _football_recommendations.red_card_candidate
 from bet_finder_ui import (
     evaluate_reference_price,
     render_model_selection,
+    render_tip_bookmark,
     render_price_decision,
 )
 from betting_math import BETTING_POLICY_VERSION
@@ -2636,7 +2637,7 @@ def _render_prematch_results(
             key="prematch_bet_candidate",
         )
         candidate, selected_row = selectable_rows[selected_position]
-        render_model_selection(candidate)
+        render_model_selection(candidate, save_source="Fußball Prematch")
 
     with st.expander(f"Alle {len(candidate_rows)} geprüften Spiele mit Einzelgründen"):
         display_rows = ordered_event_rows(candidate_rows, mode=sort_mode,
@@ -3097,7 +3098,7 @@ def _render_live_football(analyzer, market: str) -> None:
             key=live_detail_key,
         )
         candidate, _item = candidate_items[selected]
-        render_model_selection(candidate)
+        render_model_selection(candidate, save_source="Live")
 
     # Live-Überblick: IMMER alle unterstützten Live-Spiele mit Modellwerten
     # zeigen — auch wenn kein Kandidat das Gate passiert. Volle Transparenz
@@ -3508,7 +3509,7 @@ def _render_red_cards(analyzer) -> None:
         key=detail_key,
     )
     candidate, _entry = candidate_entries[selected]
-    render_model_selection(candidate)
+    render_model_selection(candidate, save_source="Live nach Platzverweis")
 
 def render_live(analyzer) -> None:
     if analyzer is None:
@@ -4665,6 +4666,12 @@ def _render_wettfinder_game(group, row_by_key, featured_keys, initially_open: bo
                     card, grouped=True, featured=card.key in featured_keys,
                     show_form=show_form, include_match=index == 0,
                 ), unsafe_allow_html=True)
+                if signal is not None:
+                    render_tip_bookmark(
+                        _automated_signal_candidate(signal),
+                        key=f"wettfinder_v2_{card.manual_quote_key}",
+                        source="Wettfinder",
+                    )
 
 
 def _render_wettfinder_games(catalog, row_by_key, *, sport_filter: str, sort_mode=START_TIME) -> None:

@@ -11,8 +11,8 @@ import numbers
 import numpy as np
 from scipy.optimize import minimize
 
-LAW_VERSION = "football-joint-settlement-projection-v1"
-RECIPE = {
+LEGACY_LAW_VERSION = "football-joint-settlement-projection-v1"
+LEGACY_RECIPE = {
     "objective": "0.5*mean((A@q-t)**2)+0.5*sum((q-r)**2)",
     "prior_anchor": 1.0, "solver": "scipy-SLSQP", "ftol": 1e-12,
     "maxiter": 200, "constraints": "q>=0;sum(q)=1",
@@ -23,6 +23,33 @@ RECIPE = {
     "gradient": "A.T@(A@q-t)/len(t)+(q-r)", "identity": "exact-target-equality",
     "missing_target": "raw-marginal", "failure": "raw-distribution-no-release",
 }
+LAW_VERSION = "football-joint-settlement-projection-v2"
+# The corrected weight is a candidate, not empirically accepted merely because
+# its optimizer succeeds. The 304-game chronological comparison regressed in
+# both sampled leagues; keep existing production probabilities unchanged.
+ACTIVE_LAW_VERSION = LEGACY_LAW_VERSION
+RECIPE = {
+    **LEGACY_RECIPE,
+    "objective": "0.5*sum((A@q-t)**2)+0.5*sum((q-r)**2)",
+    "gradient": "A.T@(A@q-t)+(q-r)",
+}
+_RECIPES = {LEGACY_LAW_VERSION: LEGACY_RECIPE, LAW_VERSION: RECIPE}
+_PREDICTION_VERSIONS = {
+    LEGACY_LAW_VERSION: "challenge-engine:coherent-joint-calibration-v14",
+    LAW_VERSION: "challenge-engine:coherent-joint-calibration-v15",
+}
+
+
+def recipe_for_law(law_version):
+    """Read a known immutable recipe; previous captures are never relabelled."""
+    if type(law_version) is not str or law_version not in _RECIPES:
+        raise ValueError("unsupported joint calibration law")
+    return dict(_RECIPES[law_version])
+
+
+def prediction_version_for_law(law_version):
+    recipe_for_law(law_version)
+    return _PREDICTION_VERSIONS[law_version]
 
 
 @lru_cache(maxsize=32)
@@ -36,8 +63,10 @@ def _atoms(cells, specs):
     return np.asarray(vectors, dtype=float).T, tuple(tuple(groups[v]) for v in vectors)
 
 
-def calibrate_joint_distribution(raw_matrix, specs, calibration):
+def calibrate_joint_distribution(raw_matrix, specs, calibration, *, law_version=None):
     """Return a joint matrix and reproducible solver/target diagnostics."""
+    law_version = ACTIVE_LAW_VERSION if law_version is None else law_version
+    recipe = recipe_for_law(law_version)
     ordered = tuple(sorted(specs, key=lambda s: s.key))
     cells = tuple(sorted(raw_matrix))
     if not cells or any(isinstance(raw_matrix[c], bool) or not isinstance(raw_matrix[c], numbers.Real)
@@ -58,21 +87,28 @@ def calibrate_joint_distribution(raw_matrix, specs, calibration):
         if isinstance(target, bool) or not isinstance(target, numbers.Real) or not math.isfinite(target) or not 0 <= target <= 1:
             raise ValueError("joint calibration target must be finite and in [0,1]: " + spec.key)
         targets.append(float(target))
-    diagnostics = {"law_version": LAW_VERSION, "success": True, "status": "identity",
+    diagnostics = {"law_version": law_version, "success": True, "status": "identity",
                    "iterations": 0, "atoms": len(groups), "cells": len(positive),
                    "targets": dict(zip((s.key for s in ordered), targets)), "message": "identity"}
     if not ordered or np.array_equal(np.asarray(targets), raw_targets):
         return dict(raw_matrix), diagnostics
     target = np.asarray(targets)
-    hessian = incidence.T @ incidence / len(ordered) + np.eye(len(prior))
-    linear = incidence.T @ target / len(ordered) + prior
+    # A target keeps unit strength regardless of how many other catalog
+    # markets exist. The previous /n version is retained only for replay.
+    if law_version == LEGACY_LAW_VERSION:
+        # Keep the previous operation order bit-for-bit for frozen originals.
+        hessian = incidence.T @ incidence / len(ordered) + np.eye(len(prior))
+        linear = incidence.T @ target / len(ordered) + prior
+    else:
+        hessian = incidence.T @ incidence + np.eye(len(prior))
+        linear = incidence.T @ target + prior
     try:
         result = minimize(lambda q: .5 * q @ hessian @ q - linear @ q,
             prior, jac=lambda q: hessian @ q - linear,
             bounds=[(0, None)] * len(prior),
             constraints={"type": "eq", "fun": lambda q: q.sum() - 1,
                          "jac": lambda q: np.ones(len(q))},
-            method="SLSQP", options={"ftol": RECIPE["ftol"], "maxiter": RECIPE["maxiter"]})
+            method="SLSQP", options={"ftol": recipe["ftol"], "maxiter": recipe["maxiter"]})
         diagnostics.update(iterations=int(result.nit), message=str(result.message))
         if not result.success or not np.all(np.isfinite(result.x)) or np.any(result.x < 0) or abs(float(result.x.sum())-1) > RECIPE["mass_tolerance"]:
             raise ArithmeticError("solver did not return a finite nonnegative unit law: " + str(result.message))

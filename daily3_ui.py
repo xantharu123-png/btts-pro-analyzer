@@ -11,7 +11,7 @@ from daily3_math import Daily3Error, decimal_odds, format_chf, parse_chf
 from daily3_identity import event_guard
 from daily3_selection import MIN_MODEL_PROBABILITY, daily3_choices
 from daily3_schedule import pending_ready_at, planning_allowance
-from daily3_store import Daily3Store, day_balance
+from daily3_store import Daily3Store, day_balance, expected_return_cents, payout_needs_confirmation
 from forecast_compact import render_compact_analysis_html
 from runtime_paths import RUNTIME_STATE_DIR
 from wettfinder_surface import build_wettfinder_card, format_probability
@@ -54,6 +54,35 @@ def _money_input(st, label, key):
     return st.text_input(label, value='', placeholder='z. B. 10,00', key=key)
 
 
+def _adjustment_key(key, returned):
+    # A second approval covers this exact credit, bet and revision only.
+    return key+':'+str(returned)
+
+
+def _adjustment_fields(st, bet, value_key, key):
+    try:
+        returned = parse_chf(st.session_state.get(value_key, ''))
+    except Daily3Error:
+        return
+    if not payout_needs_confirmation(bet, returned):
+        return
+    bound = _adjustment_key(key, returned)
+    st.warning(f'Die Gutschrift liegt über dem normalen Rückfluss von {format_chf(expected_return_cents(bet))}. '
+               'Bitte Betrag und Quote auf einen Tippfehler prüfen. Eine echte Sondergutschrift braucht eine zweite Bestätigung mit konkretem Grund.')
+    st.checkbox('Ich bestätige zusätzlich: Genau dieser höhere Betrag wurde tatsächlich vom Buchmacher gutgeschrieben.', key='adjusted-confirm:'+bound)
+    st.text_input('Konkreter Grund der höheren Buchmacher-Gutschrift', max_chars=500, key='adjusted-reason:'+bound)
+
+
+def _payout_args(st, bet, value_key, key):
+    returned = parse_chf(st.session_state[value_key])
+    result = dict(returned_cents=returned)
+    if payout_needs_confirmation(bet, returned):
+        bound = _adjustment_key(key, returned)
+        _confirmed(st, 'adjusted-confirm:'+bound, 'Für diese höhere Gutschrift ist eine ausdrückliche Zweitbestätigung erforderlich.')
+        result.update(adjustment_confirmed=True, adjustment_reason=st.session_state.get('adjusted-reason:'+bound, ''))
+    return result
+
+
 def _saved_bet(st, store, scope, day, bet):
     snap, revision = bet['snapshot'], bet['revision']
     key = f'{day}:{bet["id"]}:{revision}'
@@ -88,10 +117,11 @@ def _saved_bet(st, store, scope, day, bet):
                 st.caption('Inklusive zurückgezahltem Einsatz, nach Gebühren. Bei Verlust 0; bei vollständiger Stornierung den erstatteten Einsatz. Keine erwartete Auszahlung eintragen.')
                 st.text_input('Abrechnungsbeleg / Buchmacher', key='settled-ref:'+key)
                 st.checkbox('Der Buchmacher hat endgültig abgerechnet und diesen Betrag gutgeschrieben.', key='settled-confirm:'+key)
+                _adjustment_fields(st, bet, 'returned:'+key, 'settle:'+key)
                 def settle_args():
                     _confirmed(st, 'settled-confirm:'+key, 'Bitte die tatsächliche Abrechnung bestätigen.')
-                    return dict(bet_id=bet['id'], revision=revision, returned_cents=parse_chf(st.session_state['returned:'+key]),
-                                reference=st.session_state['settled-ref:'+key])
+                    return dict(bet_id=bet['id'], revision=revision, reference=st.session_state['settled-ref:'+key],
+                                **_payout_args(st, bet, 'returned:'+key, 'settle:'+key))
                 st.form_submit_button('Abrechnung bestätigen', **_callback(st, store, scope, 'settle:'+key, 'settle', day, settle_args))
         elif bet['status'] == 'settled':
             st.write(f'Rückzahlung: {format_chf(bet["returned_cents"])} · Netto: {format_chf(bet["returned_cents"]-bet["stake_cents"])}')
@@ -102,10 +132,12 @@ def _saved_bet(st, store, scope, day, bet):
                     st.text_input('Neuer Abrechnungsbeleg', key='corrected-ref:'+key)
                     st.text_input('Grund der Korrektur', key='corrected-reason:'+key)
                     st.checkbox('Die korrigierte Buchmacherabrechnung ist abgeschlossen.', key='corrected-confirm:'+key)
+                    _adjustment_fields(st, bet, 'correction:'+key, 'correct:'+key)
                     def correct_args():
                         _confirmed(st, 'corrected-confirm:'+key, 'Bitte die tatsächliche korrigierte Abrechnung bestätigen.')
-                        return dict(bet_id=bet['id'], revision=revision, returned_cents=parse_chf(st.session_state['correction:'+key]),
-                                    reference=st.session_state['corrected-ref:'+key], reason=st.session_state['corrected-reason:'+key])
+                        return dict(bet_id=bet['id'], revision=revision, reference=st.session_state['corrected-ref:'+key],
+                                    reason=st.session_state['corrected-reason:'+key],
+                                    **_payout_args(st, bet, 'correction:'+key, 'correct:'+key))
                     st.form_submit_button('Korrektur nachvollziehbar speichern', **_callback(st, store, scope, 'correct:'+key, 'correct', day, correct_args))
         if bet['status'] in ('open', 'settled') and not bet['under_review']:
             with st.expander('Abrechnung noch ungeklärt?'):

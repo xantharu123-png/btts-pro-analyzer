@@ -79,6 +79,15 @@ _REVIEWED_POINT_JOINT_MANIFEST = {
     "tennis/model_state.py": frozenset({"2e39c823a43cffb1c651edc605d26628bc25b37c8684424cff2f2e1dc90a3ef3", "38178d47c9ef7176f71ec8387bbe53fb7f431d37a35d0ca72ea18e7a1fa68c8f"}),
     "tennis/simulator.py": frozenset({"b4a327f328fd11f3d9327aff3a747ca95d5a48db528bc6d9d29272b9f117471b", "da1a971e934fd0ee47fb4174cad9c06826c300df69b0da9da4c34c33675cfbca"}),
 }
+_REVIEWED_CAUSAL_AVAILABILITY_MANIFEST = {
+    # Exact 2026-10-13 finish/availability-loader transition. The five POINT
+    # prediction owners, name resolution and imported experience/serve gates
+    # are unchanged. A saved predecision state replays without fitting or
+    # consuming the newly bounded training inputs; old originals stay sealed.
+    **{name: hashes for name, hashes in _REVIEWED_POINT_JOINT_MANIFEST.items()
+       if name != "tennis/data_loader.py"},
+    "tennis/data_loader.py": frozenset({"305174f1967b177bd32affbaee24829d2f91d09f15a559675dd5714fd1da6e15", "9cc33eba3bb60254cb5c5949eca37b3f1b221b0bf1853a357be6e745f20edd16"}),
+}
 
 
 def _same(actual, expected, label):
@@ -122,6 +131,10 @@ def _code_manifest_supported(recorded, running):
         (_REVIEWED_POINT_JOINT_MANIFEST,
          (*duration_predecessors, _REVIEWED_RECONCILED_DURATION_MANIFEST,
           _REVIEWED_RESULTS_PLACEHOLDER_MANIFEST, _REVIEWED_RECENT_TRAINING_MANIFEST)),
+        (_REVIEWED_CAUSAL_AVAILABILITY_MANIFEST,
+         (*duration_predecessors, _REVIEWED_RECONCILED_DURATION_MANIFEST,
+          _REVIEWED_RESULTS_PLACEHOLDER_MANIFEST, _REVIEWED_RECENT_TRAINING_MANIFEST,
+          _REVIEWED_POINT_JOINT_MANIFEST)),
     )
     return any(
         all(executor[name] <= running[name] for name in CODE_PATHS)
@@ -142,8 +155,9 @@ def _state_code_manifest_supported(recorded, state):
     if version == LEGACY_MODEL_VERSION:
         return True
     return (version == POINT_MODEL_VERSION and set(recorded) == set(CODE_PATHS)
-            and all(recorded[name] in _REVIEWED_POINT_JOINT_MANIFEST[name]
-                    for name in CODE_PATHS))
+            and any(all(recorded[name] in manifest[name] for name in CODE_PATHS)
+                    for manifest in (_REVIEWED_POINT_JOINT_MANIFEST,
+                                     _REVIEWED_CAUSAL_AVAILABILITY_MANIFEST)))
 
 
 def _native_event(row):

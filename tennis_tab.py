@@ -33,6 +33,8 @@ from zoneinfo import ZoneInfo
 import streamlit as st
 
 import scan_jobs
+from bet_finder_candidates import build_probability_candidate
+from bet_finder_ui import render_tip_bookmark
 from config_loader import load_app_config
 from manual_search_filters import SearchFilters
 from riskobet_domain import stable_event_key
@@ -844,6 +846,25 @@ def _render_match_card(row: dict, *, price=None) -> None:
             if observed is not None:
                 st.caption(f"{price.bookmaker or 'Buchmacher'} · {observed.astimezone(ZURICH_TZ):%d.%m. %H:%M}")
         st.caption("Deine Mindestquote für eine tatsächliche Wette: 1,20")
+        try:
+            event_key = stable_event_key(
+                "tennis", row.get("fixture_source"), row.get("provider_event_id")
+            )
+        except ValueError:
+            return  # A displayed legacy model is not a bound personal event.
+        candidate = build_probability_candidate(
+            event_key=event_key, sport="Tennis", event_label=header,
+            market="Match Winner", selection=f"Sieg {likely_player}",
+            model_probability=likely_probability * 100.0,
+            probability_haircut=WINNER_PROBABILITY_HAIRCUT * 100.0,
+            model_name=f"Tennis · {row.get('model_version') or shadow.TENNIS_MODEL_VERSION}",
+            evidence=tuple(f"{name}: {info.get('detail') or 'bestanden'}"
+                           for name, info in model_gates.items()),
+            evidence_stage="SHADOW",
+        )
+        render_tip_bookmark(
+            candidate, key=f"manual_tennis_{row['id']}", source="Manuelle Suche"
+        )
         return
 
 def _render_settlement(open_rows: list[dict]) -> None:
@@ -882,18 +903,38 @@ def _render_settlement(open_rows: list[dict]) -> None:
             cols = st.columns([2, 2, 1])
             winner_choice = cols[0].radio(
                 "Wer hat gewonnen?",
-                (row["player_a"], row["player_b"]),
+                ("Nicht beobachtet", row["player_a"], row["player_b"]),
                 key=f"settle_winner_{row['id']}",
             )
             mode = cols[1].radio(
                 "Wie endete das Match?",
                 (
                     "Normal beendet",
-                    "Aufgabe nach Satz 1 (Wette steht)",
-                    "Aufgabe in Satz 1 (Wette void)",
+                    "Aufgabe (Retirement)",
+                    "Walkover (nicht gespielt)",
                 ),
                 key=f"settle_mode_{row['id']}",
             )
+            winner = None if winner_choice == "Nicht beobachtet" else winner_choice
+            completed_sets = None
+            termination = ("retirement" if mode == "Aufgabe (Retirement)" else
+                           "walkover" if mode == "Walkover (nicht gespielt)" else "normal")
+            if termination == "retirement":
+                sets_choice = cols[1].radio(
+                    "Beobachtete vollständig beendete Sätze",
+                    ("Nicht beobachtet", *[str(n) for n in range(int(row.get("best_of") or 3))]),
+                    key=f"settle_completed_{row['id']}",
+                )
+                completed_sets = None if sets_choice == "Nicht beobachtet" else int(sets_choice)
+                from tennis.settlement_policy import match_winner_status
+                status = match_winner_status(termination, winner, completed_sets,
+                                             rule=shadow.RETIREMENT_RULE)
+                st.caption(
+                    "Deklarierte Shadow-Regel: mindestens ein vollständig beendeter Satz. "
+                    "Keine Garantie für die Regeln jedes Buchmachers; einen Teilsatz nicht mitzählen."
+                )
+                if status == "non_evaluable":
+                    st.warning("Nicht auswertbar: Sieger oder vollständig beendete Sätze nicht beobachtet. Keine Gewinn-/Verlustbilanz.")
             if row.get("recommended_side"):
                 if row.get("closing_checked_utc"):
                     st.caption(
@@ -906,26 +947,17 @@ def _render_settlement(open_rows: list[dict]) -> None:
                         "dieses Match zählt nicht zur CLV-Stichprobe."
                     )
             if cols[2].button("Abrechnen", key=f"settle_btn_{row['id']}"):
-                if mode == "Normal beendet":
+                try:
                     shadow.settle(
                         row["id"],
-                        winner_choice,
+                        None if termination == "walkover" else winner,
+                        termination=termination,
+                        ret_set=completed_sets,
                     )
-                elif mode.startswith("Aufgabe nach"):
-                    shadow.settle(
-                        row["id"],
-                        winner_choice,
-                        ret=True,
-                        ret_set=2,
-                    )
+                except (TypeError, ValueError) as exc:
+                    st.error(str(exc))
                 else:
-                    shadow.settle(
-                        row["id"],
-                        winner_choice,
-                        ret=True,
-                        ret_set=0,
-                    )
-                st.rerun()
+                    st.rerun()
 
     # ---- side bets: settled from the SET SCORE (any retirement = void) ----
     open_sides = [
@@ -1139,6 +1171,8 @@ def render_tennis_history() -> None:
                     "Tipp": selection,
                     "Quote": odds,
                     "Sieger": row.get("actual_winner"),
+                    "Abrechnung": {"standing": "Wette steht", "void": "Void",
+                        "non_evaluable": "Nicht auswertbar"}.get(row.get("settlement_status"), "Historisch / Regelstatus nicht gespeichert"),
                     "Bilanz": row.get("pnl"),
                 }
             )

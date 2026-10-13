@@ -39,7 +39,7 @@ from challenge_engine import (
     ticket_stake_passes_log_growth_gate,
     ticket_dependency_factor,
 )
-from betting_math import BettingMathError, evaluate_market_price, validate_decimal_odds
+from betting_math import BettingMathError, evaluate_market_price, validate_decimal_odds, exact_odds_product
 from price_ledger import (
     BOOKMAKER,
     PRICE_LEDGER_SCHEMA_STATEMENTS,
@@ -107,7 +107,10 @@ SETTLEMENT_ALLOWED_SOURCES = {
     "MANUAL_HISTORY",
     "MANUAL_CORRECTION",
     "MANUAL_REVERSAL",
+    "MANUAL_CONFIRMED_ADJUSTMENT",
+    "MANUAL_CORRECTION_ADJUSTMENT",
 }
+SETTLEMENT_ADJUSTMENT_SOURCES = {"MANUAL_CONFIRMED_ADJUSTMENT", "MANUAL_CORRECTION_ADJUSTMENT"}
 MIN_STAKE_FRACTION_BPS = int(MIN_CHALLENGE_STAKE_FRACTION * 10_000)
 MAX_STAKE_FRACTION_BPS = int(MAX_CHALLENGE_STAKE_FRACTION * 10_000)
 
@@ -1638,6 +1641,16 @@ class ChallengeLedger:
                     return False, transaction_id
 
                 settlement_odds = event["settlement_odds"]
+                adjusted = event["source"] in SETTLEMENT_ADJUSTMENT_SOURCES
+                if adjusted and (
+                    new_status != "WON"
+                    or len(str(event["reason"]).strip()) < 5
+                    or event["source"] != {
+                        "SETTLE": "MANUAL_CONFIRMED_ADJUSTMENT",
+                        "CORRECT": "MANUAL_CORRECTION_ADJUSTMENT",
+                    }.get(action)
+                ):
+                    return False, transaction_id
                 if new_status == "WON":
                     try:
                         effective_odds = validate_decimal_odds(settlement_odds)
@@ -1649,7 +1662,11 @@ class ChallengeLedger:
                             * Decimal(str(effective_odds))
                         ).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
                     )
-                    if abs(new_payout - calculated_payout) > 1:
+                    if not adjusted and abs(new_payout - calculated_payout) > 1:
+                        return False, transaction_id
+                    if adjusted and not ChallengeLedger.payout_needs_confirmation(
+                        ticket, effective_odds, new_payout
+                    ):
                         return False, transaction_id
                 elif new_status == "LOST":
                     if new_payout != 0 or settlement_odds is not None:
@@ -3875,7 +3892,10 @@ class ChallengeLedger:
             leg_odds = [validate_decimal_odds(leg.odds) for leg in ticket.legs]
         except BettingMathError as exc:
             raise ValueError("Ticket contains invalid decimal odds") from exc
-        derived_total_odds = math.prod(leg_odds)
+        derived_total_decimal = exact_odds_product(leg_odds)
+        if not Decimal(str(TARGET_ODDS_MIN)) <= derived_total_decimal <= Decimal(str(TARGET_ODDS_MAX)):
+            raise ValueError("Ticket odds are outside the challenge corridor")
+        derived_total_odds = float(derived_total_decimal)
         dependency_factor = ticket_dependency_factor(
             leg.candidate for leg in ticket.legs
         )
@@ -3963,8 +3983,6 @@ class ChallengeLedger:
             consistency_checks = (False,)
         if not all(consistency_checks):
             raise ValueError("Ticket fields do not match the underlying legs")
-        if not TARGET_ODDS_MIN <= derived_total_odds <= TARGET_ODDS_MAX:
-            raise ValueError("Ticket odds are outside the challenge corridor")
         if derived_expected_roi < MIN_LEG_EXPECTED_ROI:
             raise ValueError("Ticket expected ROI is below the challenge gate")
         if derived_stress_roi < MIN_LEG_EXPECTED_ROI:
@@ -3984,7 +4002,10 @@ class ChallengeLedger:
                 ]
             except BettingMathError as exc:
                 raise ValueError("A played leg contains invalid decimal odds") from exc
-        actual_total_odds = math.prod(actual_leg_odds)
+        actual_total_decimal = exact_odds_product(actual_leg_odds)
+        if not Decimal(str(TARGET_ODDS_MIN)) <= actual_total_decimal <= Decimal(str(TARGET_ODDS_MAX)):
+            raise ValueError("The played ticket odds are outside the challenge corridor")
+        actual_total_odds = float(actual_total_decimal)
         if played_odds is not None:
             try:
                 submitted_total_odds = validate_decimal_odds(played_odds)
@@ -4011,8 +4032,6 @@ class ChallengeLedger:
         actual_stress_roi = (
             derived_stress_probability * actual_total_odds - 1.0
         )
-        if not TARGET_ODDS_MIN <= actual_total_odds <= TARGET_ODDS_MAX:
-            raise ValueError("The played ticket odds are outside the challenge corridor")
         if actual_expected_roi < MIN_LEG_EXPECTED_ROI:
             raise ValueError("The played ticket odds do not clear the value gate")
         if actual_stress_roi < MIN_LEG_EXPECTED_ROI:
@@ -4493,12 +4512,32 @@ class ChallengeLedger:
                 raise
 
     @staticmethod
+    def payout_needs_confirmation(row, settlement_odds, payout_cents) -> bool:
+        """Compare NEW money commands to the immutable actually played ticket."""
+        played = Decimal(str(row["played_odds"] or row["total_odds"]))
+        ordinary_return = int((Decimal(int(row["stake_cents"])) * played).quantize(
+            Decimal("1"), rounding=ROUND_HALF_UP
+        ))
+        return Decimal(str(settlement_odds)) > played or payout_cents > ordinary_return + 1
+
+    @staticmethod
+    def _adjustment_reason(confirmed: Any, reason: Any) -> str:
+        if confirmed is not True:
+            raise ValueError("Higher bookmaker credit or odds require an explicit second confirmation")
+        if (type(reason) is not str or not 5 <= len(reason.strip()) <= 500
+                or any(ord(char) < 32 for char in reason)):
+            raise ValueError("A concrete bookmaker adjustment reason of 5 to 500 characters is required")
+        return reason.strip()
+
+    @staticmethod
     def _settlement_values(
         row: sqlite3.Row,
         status: str,
         *,
         settlement_odds: Any | None,
         actual_payout: Any | None,
+        adjustment_confirmed: bool = False,
+        adjustment_reason: str | None = None,
     ) -> tuple[int, float | None]:
         stake_cents = int(row["stake_cents"])
         if status == "WON":
@@ -4520,7 +4559,12 @@ class ChallengeLedger:
                 if actual_payout is None
                 else _money_to_cents(actual_payout, allow_zero=False)
             )
-            if abs(payout_cents - calculated) > 1:
+            adjusted = ChallengeLedger.payout_needs_confirmation(row, effective_odds, payout_cents)
+            if adjusted:
+                ChallengeLedger._adjustment_reason(adjustment_confirmed, adjustment_reason)
+            elif adjustment_confirmed is not False or adjustment_reason is not None:
+                raise ValueError("This settlement does not require a bookmaker adjustment confirmation")
+            if not adjusted and abs(payout_cents - calculated) > 1:
                 raise ValueError(
                     "Actual payout and reduced settlement odds do not reconcile"
                 )
@@ -4547,11 +4591,16 @@ class ChallengeLedger:
         actual_payout: Any | None = None,
         source: str = "MANUAL_CONFIRMED",
         reason: str = "User-confirmed settlement",
+        adjustment_confirmed: bool = False,
+        adjustment_reason: str | None = None,
     ) -> dict[str, Any]:
         ticket_id = _positive_integer(ticket_id, "ticket_id")
         normalized = str(status).upper()
         if normalized not in {"WON", "LOST", "VOID"}:
             raise ValueError("Settlement status must be WON, LOST, or VOID")
+        source = str(source or "").strip()
+        if source in SETTLEMENT_ADJUSTMENT_SOURCES:
+            raise ValueError("Adjustment provenance requires the explicit second confirmation")
         now = datetime.now(timezone.utc).isoformat()
         with closing(self._connect()) as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -4576,7 +4625,14 @@ class ChallengeLedger:
                 normalized,
                 settlement_odds=settlement_odds,
                 actual_payout=actual_payout,
+                adjustment_confirmed=adjustment_confirmed,
+                adjustment_reason=adjustment_reason,
             )
+            if normalized == "WON" and self.payout_needs_confirmation(row, effective_odds, payout_cents):
+                if source != "MANUAL_CONFIRMED":
+                    raise ValueError("Only a manually confirmed bookmaker adjustment may exceed the played ticket")
+                source = "MANUAL_CONFIRMED_ADJUSTMENT"
+                reason = self._adjustment_reason(adjustment_confirmed, adjustment_reason)
             settings_row = connection.execute(
                 """
                 SELECT current_balance_cents
@@ -4654,6 +4710,8 @@ class ChallengeLedger:
         settlement_odds: Any | None = None,
         actual_payout: Any | None = None,
         reason: str,
+        adjustment_confirmed: bool = False,
+        adjustment_reason: str | None = None,
     ) -> dict[str, Any]:
         """Append a balancing correction while preserving prior settlement history."""
         ticket_id = _positive_integer(ticket_id, "ticket_id")
@@ -4685,7 +4743,12 @@ class ChallengeLedger:
                     normalized,
                     settlement_odds=settlement_odds,
                     actual_payout=actual_payout,
+                    adjustment_confirmed=adjustment_confirmed,
+                    adjustment_reason=adjustment_reason,
                 )
+                adjusted = normalized == "WON" and self.payout_needs_confirmation(row, effective_odds, new_payout_cents)
+                if adjusted:
+                    normalized_reason = self._adjustment_reason(adjustment_confirmed, adjustment_reason)
                 old_payout_cents = int(row["payout_cents"])
                 delta = new_payout_cents - old_payout_cents
                 settings_row = connection.execute(
@@ -4742,7 +4805,7 @@ class ChallengeLedger:
                     previous_payout_cents=old_payout_cents,
                     new_payout_cents=new_payout_cents,
                     settlement_odds=effective_odds,
-                    source="MANUAL_CORRECTION",
+                    source="MANUAL_CORRECTION_ADJUSTMENT" if adjusted else "MANUAL_CORRECTION",
                     reason=normalized_reason,
                 )
                 self._refresh_integrity_checkpoint(connection)

@@ -87,6 +87,102 @@ def test_schema2_point_original_cannot_borrow_legacy_source_identity(monkeypatch
     assert db.read_bytes() == before
 
 
+def _causal_availability_source_manifest():
+    # Independently pinned source transition: only the reviewed loader changes.
+    from context_runtime_tennis import _REVIEWED_POINT_JOINT_MANIFEST
+    return {
+        **{name: hashes for name, hashes in _REVIEWED_POINT_JOINT_MANIFEST.items()
+           if name != "tennis/data_loader.py"},
+        "tennis/data_loader.py": frozenset({
+            "305174f1967b177bd32affbaee24829d2f91d09f15a559675dd5714fd1da6e15",
+            "9cc33eba3bb60254cb5c5949eca37b3f1b221b0bf1853a357be6e745f20edd16",
+        }),
+    }
+
+
+def test_causal_availability_transition_is_pinned_directional_and_point_state_bound():
+    from types import SimpleNamespace
+    from context_runtime_tennis import (
+        _code_manifest_supported, _code_variants, _state_code_manifest_supported,
+        _REVIEWED_POINT_JOINT_MANIFEST,
+    )
+    from tennis.simulator import POINT_MODEL_VERSION
+    running = _code_variants()
+    newer = _causal_availability_source_manifest()
+    assert all(hashes <= running[name] for name, hashes in newer.items())
+    previous = {name: sorted(hashes)[0] for name, hashes in _REVIEWED_POINT_JOINT_MANIFEST.items()}
+    current = {name: sorted(hashes)[0] for name, hashes in newer.items()}
+    assert _code_manifest_supported(previous, running)
+    assert not _code_manifest_supported(current, _REVIEWED_POINT_JOINT_MANIFEST)
+    state = SimpleNamespace(market_model_version=POINT_MODEL_VERSION)
+    assert _state_code_manifest_supported(current, state)
+    assert _state_code_manifest_supported(previous, state)
+
+
+@pytest.mark.parametrize("source", ["causal_availability", "prior_point"])
+def test_point_state_accepts_only_complete_reviewed_point_generations(source):
+    from types import SimpleNamespace
+    from context_runtime_tennis import _state_code_manifest_supported, _REVIEWED_POINT_JOINT_MANIFEST
+    from tennis.simulator import POINT_MODEL_VERSION
+    manifest = (_causal_availability_source_manifest() if source == "causal_availability"
+                else _REVIEWED_POINT_JOINT_MANIFEST)
+    recorded = {name: sorted(hashes)[0] for name, hashes in manifest.items()}
+    assert _state_code_manifest_supported(recorded, SimpleNamespace(market_model_version=POINT_MODEL_VERSION))
+
+
+@pytest.mark.parametrize("owner", ["tennis/predict.py", "tennis/model_state.py", "tennis/simulator.py"])
+@pytest.mark.parametrize("replacement", ["unknown", "legacy"])
+def test_causal_availability_point_state_rejects_unknown_or_mixed_inference_owner(owner, replacement):
+    from types import SimpleNamespace
+    from context_runtime_tennis import (
+        _code_manifest_supported, _code_variants, _state_code_manifest_supported,
+        _REVIEWED_RECENT_TRAINING_MANIFEST,
+    )
+    from tennis.simulator import POINT_MODEL_VERSION
+    recorded = {name: sorted(hashes)[0] for name, hashes in _causal_availability_source_manifest().items()}
+    recorded[owner] = ("0" * 64 if replacement == "unknown" else
+                       sorted(_REVIEWED_RECENT_TRAINING_MANIFEST[owner])[0])
+    assert not _code_manifest_supported(recorded, _code_variants())
+    assert not _state_code_manifest_supported(recorded, SimpleNamespace(market_model_version=POINT_MODEL_VERSION))
+
+
+@pytest.mark.parametrize("tour", ["ATP", "WTA"])
+@pytest.mark.parametrize("newline", ["LF", "CRLF"])
+def test_prior_point_joint_original_replays_with_causal_loader_read_only(monkeypatch, tmp_path, tour, newline):
+    from context_runtime_tennis import _REVIEWED_POINT_JOINT_MANIFEST
+    db, _ = _point_stored(monkeypatch, tmp_path, tour=tour)
+    root = Path(__file__).resolve().parents[1]
+    def prior(origin):
+        origin["code_hashes"] = {}
+        for name, hashes in _REVIEWED_POINT_JOINT_MANIFEST.items():
+            if name == "tennis/data_loader.py":
+                origin["code_hashes"][name] = (
+                    "88fb701b7462d08391a2f4bcd4e8e32525f9fa4afa6aa94af0e949eeeb986c93"
+                    if newline == "LF" else
+                    "bf2abc8cdade308363f477b37fb15a6d16554fcf12d4b218bd0f033116ca32c4")
+            else:
+                raw = (root / name).read_bytes().replace(b"\r\n", b"\n")
+                origin["code_hashes"][name] = hashlib.sha256(
+                    raw if newline == "LF" else raw.replace(b"\n", b"\r\n")).hexdigest()
+                assert origin["code_hashes"][name] in hashes
+    _replace_origin(db, prior)
+    before = db.read_bytes()
+    def forbidden(*args, **kwargs):
+        pytest.fail("prior Schema2 replay downloaded, trained or repaired a database")
+    monkeypatch.setattr("requests.sessions.Session.request", forbidden)
+    monkeypatch.setattr("requests.get", forbidden)
+    monkeypatch.setattr("tennis.data_loader.load_atp_stats", forbidden)
+    monkeypatch.setattr("tennis.data_loader.load_market_odds", forbidden)
+    monkeypatch.setattr("tennis.data_loader.load_wta_ta_stats", forbidden)
+    monkeypatch.setattr("tennis.tour_state.build_tour_state", forbidden)
+    monkeypatch.setattr("tennis.model_state.build_state", forbidden)
+    report = verify_context_database(db)
+    assert report["verification_level"] == "transport_only"
+    assert report["empirical_approval_verified"] is False
+    assert report["counts"]["snapshots"] == 1
+    assert db.read_bytes() == before
+
+
 _REVIEWED_OLD_SOURCE_MANIFEST = {
     "tennis/predict.py": {
         "LF": "bd1c2c8f7666e3de5f32d754eac09967edde566c1d7b48c298635f2b3d989ecc",
@@ -458,14 +554,13 @@ def test_results_loader_transition_is_exact_and_not_reverse_compatible():
 
 def test_recent_training_window_transition_replays_old_state_but_not_reverse():
     from context_runtime_tennis import (
-        _code_manifest_supported, _code_variants,
+        _code_manifest_supported,
         _REVIEWED_RECENT_TRAINING_MANIFEST,
         _REVIEWED_RESULTS_PLACEHOLDER_MANIFEST,
         _REVIEWED_POINT_JOINT_MANIFEST,
     )
-    running = _code_variants()
-    assert all(hashes <= running[name]
-               for name, hashes in _REVIEWED_POINT_JOINT_MANIFEST.items())
+    # Own this exact historical transition, not every later loader generation.
+    running = _REVIEWED_POINT_JOINT_MANIFEST
     previous = {name: sorted(hashes)[0]
                 for name, hashes in _REVIEWED_RESULTS_PLACEHOLDER_MANIFEST.items()}
     current = {name: sorted(hashes)[0]
@@ -477,11 +572,11 @@ def test_recent_training_window_transition_replays_old_state_but_not_reverse():
 
 def test_point_joint_transition_is_exact_directional_and_rejects_mixed_owners():
     from context_runtime_tennis import (
-        _code_manifest_supported, _code_variants,
+        _code_manifest_supported,
         _REVIEWED_POINT_JOINT_MANIFEST, _REVIEWED_RECENT_TRAINING_MANIFEST,
     )
-    running = _code_variants()
-    assert all(hashes <= running[name] for name, hashes in _REVIEWED_POINT_JOINT_MANIFEST.items())
+    # Current-executor pinning is covered by the causal availability transition.
+    running = _REVIEWED_POINT_JOINT_MANIFEST
     previous = {name: sorted(hashes)[0] for name, hashes in _REVIEWED_RECENT_TRAINING_MANIFEST.items()}
     current = {name: sorted(hashes)[0] for name, hashes in _REVIEWED_POINT_JOINT_MANIFEST.items()}
     assert _code_manifest_supported(previous, running)

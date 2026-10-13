@@ -101,10 +101,11 @@ def validate_family_config(config: dict) -> dict:
     if family == "football:goals:90min":
         from challenge_engine import MARKET_SPECS
         from context_models.football_effect import GOAL_KINDS
-        joint = row['model_variant'] == 'football-joint-log-tilt-v1'
+        joint = row['model_variant'] in {'football-joint-log-tilt-v1', 'football-joint-log-tilt-v2'}
         if joint:
-            from context_models.football_joint_context import BASE_VERSION, FEATURE_VERSION, POOLED_FEATURE_VERSION, PLAYER_LOAD_FEATURE_VERSION, LINK, feature_group, feature_coverage
-            if (row['feature_version'] not in {FEATURE_VERSION, POOLED_FEATURE_VERSION, PLAYER_LOAD_FEATURE_VERSION} or row['base_versions'] != [BASE_VERSION]
+            from context_models.football_joint_context import FEATURE_VERSION, POOLED_FEATURE_VERSION, PLAYER_LOAD_FEATURE_VERSION, LINK, feature_group, feature_coverage, joint_versions_for_variant
+            base_version = joint_versions_for_variant(row['model_variant'])[0]
+            if (row['feature_version'] not in {FEATURE_VERSION, POOLED_FEATURE_VERSION, PLAYER_LOAD_FEATURE_VERSION} or row['base_versions'] != [base_version]
                     or row['reference_version'] != 'football-context-reference-v2' or row['coverage'] != feature_coverage(row['feature_version'])
                     or row['head_links'] != {'home': LINK, 'away': LINK} or row['preprocessing_artifacts']
                     or row['outcome_contract'] != 'football-regulation-ft-v1' or row['population']['formats'] != ['90min']):

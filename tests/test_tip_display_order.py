@@ -146,14 +146,17 @@ def test_prematch_real_renderer_sorts_percent_candidates_and_table_after_selecti
     from test_workflow_integrity import _RecordingStreamlit
     ui = _RecordingStreamlit(widget_values={'prematch_display_order': mode})
     ui.success = lambda _message: None
-    tables, rendered = [], []
+    tables, rendered, rendered_sources = [], [], []
     ui.dataframe = lambda frame, **_kwargs: tables.append(frame)
     monkeypatch.setattr(app, 'st', ui)
     monkeypatch.setattr(app, '_freemode_enabled', lambda: False)
     monkeypatch.setattr(app, 'prematch_btts_candidate', lambda row, **_kwargs: SimpleNamespace(
         model_ready=True, event_key=row['event'], event_label=row['event'], selection='Ja', market='BTTS',
         risk_adjusted_probability=row['BTTS_num'], model_probability=row['BTTS_num']))
-    monkeypatch.setattr(app, 'render_model_selection', lambda candidate: rendered.append(candidate.event_key))
+    def record_selection(candidate, *, save_source):
+        rendered.append(candidate.event_key)
+        rendered_sources.append(save_source)
+    monkeypatch.setattr(app, 'render_model_selection', record_selection)
     rows = pd.DataFrame([dict(event=event, BTTS_num=p, Quality_num=90,
         _fixture_date=f'2026-10-11T{hour:02d}:00:00Z') for event, p, hour in
         [('late', 90., 20), ('early', 70., 12), ('middle', 80., 15), ('excluded', 60., 10)]])
@@ -162,6 +165,7 @@ def test_prematch_real_renderer_sorts_percent_candidates_and_table_after_selecti
     # The earliest low-ranked game is visible in the all-games table, but the
     # presentation control does not promote it into the original three picks.
     assert rendered == [first]
+    assert rendered_sources == ['Fußball Prematch']
     assert tables[0]['Spiel'].tolist() == table_order
     pd.testing.assert_frame_equal(rows, before)
 

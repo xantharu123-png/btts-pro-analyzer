@@ -8,7 +8,7 @@ head is not detectable without an external checkpoint.
 from contextlib import contextmanager
 from copy import deepcopy
 from datetime import date, datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 import hashlib
 import hmac
 import json
@@ -72,6 +72,24 @@ def day_balance(day):
     return balance(_rows(day), closed=day['closed'])
 
 
+def expected_return_cents(bet):
+    """Whole-cent ordinary win, using the immutable recorded stake and odds."""
+    return int((Decimal(bet['stake_cents']) * Decimal(bet['odds'])).quantize(
+        Decimal('1'), rounding=ROUND_HALF_UP))
+
+
+def payout_needs_confirmation(bet, returned_cents):
+    return cents(returned_cents) > expected_return_cents(bet) + 1
+
+
+def _confirmed_adjustment(args):
+    _require(args.get('adjustment_confirmed') is True,
+             'Für diese höhere Gutschrift ist eine ausdrückliche Zweitbestätigung erforderlich.')
+    reason = _text(args.get('adjustment_reason'))
+    _require(len(reason.strip()) >= 5, 'Bitte einen konkreten Grund für die höhere Buchmacher-Gutschrift angeben.')
+    return reason
+
+
 def _snapshot(value, *, external=False):
     fields = {'event_id', 'event_guard', 'sport', 'event_label', 'market_key', 'market', 'selection',
               'scheduled_start', 'signal_key', 'model_probability', 'modeled_at',
@@ -96,9 +114,9 @@ def _snapshot(value, *, external=False):
     return deepcopy(value)
 
 
-def _apply(days, payload):
+def _apply(days, payload, *, new_command=False):
     _require(type(payload) is dict and set(payload) == {'version', 'kind', 'at', 'day', 'args'}
-             and type(payload['version']) is int and payload['version'] == 1, 'Der Buchungsvertrag ist ungültig.')
+             and type(payload['version']) is int and payload['version'] in (1, 2), 'Der Buchungsvertrag ist ungültig.')
     at = _timestamp(datetime.fromisoformat(payload['at']))
     current_date = at.astimezone(_TZ).date().isoformat()
     day_id, kind, args = _day(payload['day']), payload['kind'], payload['args']
@@ -111,6 +129,10 @@ def _apply(days, payload):
               'settle': {'bet_id', 'revision', 'returned_cents', 'reference'},
               'review': {'bet_id', 'revision', 'reason'},
               'correct': {'bet_id', 'revision', 'returned_cents', 'reference', 'reason'}}
+    adjusted = payload['version'] == 2
+    if adjusted:
+        _require(kind in ('settle', 'correct'), 'Der Sondergutschrift-Vertrag ist ungültig.')
+        shapes[kind] |= {'adjustment_confirmed', 'adjustment_reason'}
     _require(kind in shapes and set(args) == shapes[kind], 'Die Buchungsfelder sind ungültig.')
     if kind == 'start':
         _require(day_id == current_date and day_id not in days, 'Dieser Tag wurde bereits begonnen oder ist nicht heute.')
@@ -177,6 +199,13 @@ def _apply(days, payload):
         expected = 'open' if kind == 'settle' else 'settled'
         _require(bet['status'] == expected, 'Der aktuelle Wettstatus erlaubt diese Abrechnung nicht.')
         cents(args['returned_cents']); _text(args['reference'])
+        # Replay of historical v1 events remains byte-faithful, including older
+        # unusual credits. Only a NEW command needs the additional approval.
+        if new_command and payout_needs_confirmation(bet, args['returned_cents']):
+            _confirmed_adjustment(args)
+        if adjusted:
+            _require(payout_needs_confirmation(bet, args['returned_cents']), 'Diese Abrechnung benötigt keinen Sondergutschrift-Vertrag.')
+            bet['last_reason'] = _confirmed_adjustment(args)
         if kind == 'correct':
             bet['last_reason'] = _text(args['reason'])
         bet.update(status='settled', returned_cents=args['returned_cents'], under_review=False,
@@ -266,7 +295,8 @@ class Daily3Store:
         # No client clock, session balance, quote calculation, or model output
         # can credit this ledger. Caller supplies the actual recorded facts.
         now = _timestamp(self.clock())
-        payload = dict(version=1, kind=kind, at=now.isoformat(), day=day, args=deepcopy(args))
+        adjusted = bool({'adjustment_confirmed', 'adjustment_reason'} & set(args))
+        payload = dict(version=2 if adjusted else 1, kind=kind, at=now.isoformat(), day=day, args=deepcopy(args))
         with self._connection() as con:
             con.execute('BEGIN IMMEDIATE')
             try:
@@ -294,7 +324,7 @@ class Daily3Store:
                         if used < 3:
                             _require(fits_daily3_window(start, snap['sport'], used),
                                      'Für diesen Einstieg bleibt heute nicht genug Zeit für die Tagesfolge.')
-                _apply(days, payload)
+                _apply(days, payload, new_command=True)
                 raw = _canonical(payload)
                 _require(len(raw) <= 16384, 'Die Buchung ist zu groß.')
                 sequence = len(actions)+1

@@ -15,16 +15,37 @@ from context_models.contracts import (
     validate_base_distribution, validate_effect_artifact,
     validate_event, validate_feature_vector,
 )
-from context_models.football_joint_effect import VERSION, _matrix, fit_joint_offset, joint_offset_delta, tilt_joint
+from context_models.football_joint_effect import VERSION, CANDIDATE_VERSION, VERSIONS, _matrix, fit_joint_offset, joint_offset_delta, tilt_joint
 
 BASE_VERSION = 'football-goals-captured-joint-v1'
 COMPARISON_VERSION = 'football-goals-context-joint-v1'
+CANDIDATE_BASE_VERSION = 'football-goals-captured-joint-v2'
+CANDIDATE_COMPARISON_VERSION = 'football-goals-context-joint-v2'
+BASE_VERSIONS = frozenset({BASE_VERSION, CANDIDATE_BASE_VERSION})
+COMPARISON_VERSIONS = frozenset({COMPARISON_VERSION, CANDIDATE_COMPARISON_VERSION})
+_JOINT_LAWS = {
+    'football-joint-settlement-projection-v1': (BASE_VERSION, VERSION, COMPARISON_VERSION),
+    'football-joint-settlement-projection-v2': (CANDIDATE_BASE_VERSION, CANDIDATE_VERSION, CANDIDATE_COMPARISON_VERSION),
+}
 FEATURE_VERSION = 'football-native-context-v1'
 COVERAGE = {'version': FEATURE_VERSION + '.coverage', 'case': 'source-bound'}
 POOLED_FEATURE_VERSION = 'football-native-context-exposure-v2'
 PLAYER_LOAD_FEATURE_VERSION = 'football-native-player-load-v3'
 LINK = 'log_joint_tilt'
 TAIL_POLICY = 'calibrated-joint-goal-buckets-25plus-log-v1'
+
+
+def joint_versions_for_law(law):
+    if type(law) is not str or law not in _JOINT_LAWS:
+        raise ContextContractError('unknown captured joint law version')
+    return _JOINT_LAWS[law]
+
+
+def joint_versions_for_variant(variant):
+    for versions in _JOINT_LAWS.values():
+        if variant == versions[1]:
+            return versions
+    raise ContextContractError('unknown joint effect variant')
 
 
 def feature_coverage(version):
@@ -52,7 +73,7 @@ def joint_params(cells):
 
 
 def validate_joint_base(base):
-    if base['version'] not in {BASE_VERSION, COMPARISON_VERSION}:
+    if base['version'] not in BASE_VERSIONS | COMPARISON_VERSIONS:
         raise ContextContractError('a joint cannot masquerade as a raw Poisson baseline')
     if base['params'] != joint_params(base['params']['joint_cells']):
         raise ContextIntegrityError('joint parameters differ from their effective means')
@@ -149,13 +170,17 @@ def joint_features(event, observations, base, *, cutoff, version=FEATURE_VERSION
 
 def effect_heads(fit):
     # Validate the coupled format before transporting two heads through A1.
-    joint_offset_delta(fit, np.zeros((1, len(fit['scale']))))
+    joint_offset_delta(fit, np.zeros((1, len(fit['scale']))), variant=fit['version'])
     return {side: dict(link=LINK, scale=list(fit['scale']), coef=[pair[i] for pair in fit['coef']],
                       alpha=fit['alpha'], n_rows=fit['n_rows']) for i, side in enumerate(('home', 'away'))}
 
 
 def fit_heads(cases, config, alpha):
     from context_models.training import _array
+    base_version = joint_versions_for_variant(config['model_variant'])[0]
+    if config['base_versions'] != [base_version] or any(
+            case['case']['payload']['base']['version'] != base_version for case in cases):
+        raise ContextContractError('joint fitter base versions differ from its single declared variant')
     matrices, x, outcomes = [], [], []
     for case in cases:
         payload = case['case']['payload']
@@ -164,14 +189,16 @@ def fit_heads(cases, config, alpha):
         outcome = next(row for row in case['observations'] if row['digest'] == payload['outcome_ref'])['payload']['result']
         # The live score matrix declares a pooled 25+ category, not exact 25.
         outcomes.append([min(outcome['goals_'+side], 25) for side in ('home', 'away')])
-    return effect_heads(fit_joint_offset(tuple(matrices), _array(x), _array(outcomes), alpha=alpha))
+    return effect_heads(fit_joint_offset(tuple(matrices), _array(x), _array(outcomes), alpha=alpha,
+                                       variant=config['model_variant']))
 
 
 def checked_joint_inputs(base, features, artifact, event):
     base, features = validate_base_distribution(base), validate_feature_vector(features)
     effect, event = validate_effect_artifact(artifact), validate_event(event)
-    if (base['version'] != BASE_VERSION or base['family'] != 'football:goals:90min'
-            or effect['model_variant'] != VERSION or features['version'] != effect['feature_version']
+    base_version = joint_versions_for_variant(effect['model_variant'])[0]
+    if (base['version'] != base_version or base['family'] != 'football:goals:90min'
+            or features['version'] != effect['feature_version']
             or features['coverage'] != feature_coverage(features['version'])
             or effect['coverage'] != features['coverage'] or effect['preprocessing_artifacts']):
         raise ContextContractError('football joint effect law or feature coverage differs')
@@ -197,14 +224,14 @@ def apply_joint_effect(base, features, artifact, *, event):
     from context_models.football_effect import _numeric_array
     base, features, effect, event = checked_joint_inputs(base, features, artifact, event)
     heads = effect['heads']
-    fit = dict(version=VERSION, scale=heads['home']['scale'],
+    fit = dict(version=effect['model_variant'], scale=heads['home']['scale'],
         coef=[list(pair) for pair in zip(heads['home']['coef'], heads['away']['coef'])],
         alpha=heads['home']['alpha'], n_rows=heads['home']['n_rows'])
     x = _numeric_array([features['values'][name] for name in effect['feature_names']]).reshape(1, -1)
-    delta = joint_offset_delta(fit, x)[0]
+    delta = joint_offset_delta(fit, x, variant=effect['model_variant'])[0]
     matrix = tilt_joint(cell_matrix(base['params']['joint_cells']), *delta.tolist())
     cells = [[h, a, p] for (h, a), p in matrix.items()]
-    return validate_base_distribution({**deepcopy(base), 'version': COMPARISON_VERSION,
+    return validate_base_distribution({**deepcopy(base), 'version': joint_versions_for_variant(effect['model_variant'])[2],
         'model_hash': digest(dict(base=digest(base), features=digest(features), effect=digest(effect))),
         'params': joint_params(cells),
         'markets': {spec.key: engine.market_probability(matrix, spec) for spec in engine.GOAL_MARKET_SPECS}})

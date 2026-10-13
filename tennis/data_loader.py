@@ -129,6 +129,7 @@ _STATS_TOURNAMENT_COLUMNS = (
     "surface",
     "series_category_id",
     "start_dtm",
+    "finish_dtm",
 )
 
 # Any column matching this pattern must never survive the stats allowlist.
@@ -141,6 +142,57 @@ def _assert_odds_blind(columns: Iterable[str]) -> None:
     leaked = [c for c in columns if _BOOKMAKER_PATTERN.search(c)]
     if leaked:
         raise AssertionError(f"Bookmaker columns crossed the stats plane: {leaked}")
+
+
+def date_only_available_at(value: object) -> pd.Timestamp:
+    """Latest possible UTC end of an unzoned observed calendar day.
+
+    Source YYYYMMDD dates have no venue timezone. UTC-12 is the latest civil
+    day boundary: the entire stated day has ended at next-day 12:00 UTC.
+    This is a conservative availability boundary, NOT a guessed match time.
+    """
+    if value is None or pd.isna(value):
+        return pd.NaT
+    text = str(value).strip()
+    if re.fullmatch(r"\d{8}(?:\.0)?", text):
+        day = pd.to_datetime(text[:8], format="%Y%m%d", errors="coerce", utc=True)
+    elif re.fullmatch(r"\d{4}-\d{2}-\d{2}(?: 00:00:00)?", text):
+        day = pd.to_datetime(text[:10], errors="coerce", utc=True)
+    else:
+        return pd.NaT
+    return day + pd.Timedelta(hours=36) if pd.notna(day) else pd.NaT
+
+
+def stats_available_at(row: dict, *, individual_match_date: bool = False) -> pd.Timestamp:
+    """Resolve verified explicit availability or the actual end-date boundary.
+
+    No tournament-start duration proxy is allowed. Explicit timestamps must
+    be aware; invalid/naive evidence fails closed, never falls back silently.
+    """
+    if "stats_available_at" in row:
+        value = row["stats_available_at"]
+        try:
+            stamp = pd.Timestamp(value)
+            if pd.isna(stamp) or stamp.tzinfo is None:
+                return pd.NaT
+            return stamp.tz_convert("UTC")
+        except (ValueError, TypeError):
+            return pd.NaT
+    start = row.get("tourney_date")
+    if individual_match_date:
+        return date_only_available_at(start)
+    finish = date_only_available_at(row.get("finish_dtm"))
+    try:
+        start_day = pd.Timestamp(start)
+        if pd.isna(start_day) or pd.isna(finish):
+            return pd.NaT
+        if start_day.tzinfo is not None:
+            start_day = start_day.tz_convert("UTC").tz_localize(None)
+        if finish.tz_localize(None).normalize() - pd.Timedelta(days=1) < start_day.normalize():
+            return pd.NaT
+        return finish
+    except (ValueError, TypeError):
+        return pd.NaT
 
 
 # ---------------------------------------------------------------------------
@@ -203,7 +255,9 @@ def _require_values(frame: pd.DataFrame, columns: tuple[str, ...]) -> None:
 
 
 def _validate_tournaments(payload: bytes) -> pd.DataFrame:
-    frame = _training_table(payload, _STATS_TOURNAMENT_COLUMNS)
+    # Older caches legitimately omit finish evidence. Preserve those sources;
+    # the causal consumer excludes their unknown availability, not the loader.
+    frame = _training_table(payload, tuple(c for c in _STATS_TOURNAMENT_COLUMNS if c != "finish_dtm"))
     _require_values(frame, ("id", "start_dtm"))
     if pd.to_datetime(frame["start_dtm"].astype(str), format="%Y%m%d", errors="coerce").isna().any():
         raise ValueError("training source has invalid tournament start dates")
@@ -363,8 +417,9 @@ def load_atp_stats(
 
     Returns one row per match with the allowlisted stats columns plus
     ``surface``, ``indoor_outdoor``, ``series_category_id`` and
-    ``tourney_date`` (tournament start date, used as the conservative
-    walk-forward cutoff key).  Guaranteed odds-blind.
+    ``tourney_date`` (tournament start, retained for rating decay), actual
+    ``finish_dtm`` and aware ``stats_available_at``. Missing finish evidence
+    remains unknown; backtests must not admit those rows. Guaranteed odds-blind.
     """
     if years is None:
         years = available_man_tennis_years()
@@ -422,7 +477,9 @@ def load_atp_stats(
         refresh=refresh_current,
         validate=tournament_validator,
     )
-    tournaments = pd.read_csv(tournaments_path, usecols=list(_STATS_TOURNAMENT_COLUMNS))
+    tournaments = pd.read_csv(tournaments_path, usecols=lambda c: c in _STATS_TOURNAMENT_COLUMNS)
+    if "finish_dtm" not in tournaments:
+        tournaments["finish_dtm"] = None
     tournaments = tournaments.rename(columns={"id": "tournament_id"})
     tournaments["tourney_date"] = pd.to_datetime(
         tournaments["start_dtm"].astype(str), format="%Y%m%d", errors="coerce"
@@ -492,12 +549,16 @@ def load_atp_stats(
                 "indoor_outdoor",
                 "series_category_id",
                 "tourney_date",
+                "finish_dtm",
             ]
         ],
         on="tournament_id",
         how="left",
     )
     merged["tour"] = "ATP"
+    merged["stats_available_at"] = pd.to_datetime(
+        [stats_available_at(row) for row in merged.to_dict("records")], utc=True,
+    )
     _assert_odds_blind(merged.columns)
     return merged
 

@@ -230,9 +230,11 @@ def test_sofascore_results_accept_only_explicit_terminal_statuses(monkeypatch):
     assert by_id["2001"]["loser_sets"] == 1
     for event_id, termination in (("2002", "retirement"), ("2003", "walkover")):
         assert by_id[event_id]["termination"] == termination
-        assert by_id[event_id]["winner"] is None
-        assert by_id[event_id]["winner_sets"] is None
-        assert by_id[event_id]["loser_sets"] is None
+    assert (by_id["2002"]["winner"], by_id["2002"]["winner_sets"], by_id["2002"]["loser_sets"],
+            by_id["2002"]["completed_sets"]) == ("Alpha", 1, 0, 1)
+    assert by_id["2003"]["winner"] is None
+    assert by_id["2003"]["winner_sets"] is None
+    assert by_id["2003"]["loser_sets"] is None
 
 
 @pytest.mark.parametrize(
@@ -427,9 +429,11 @@ def test_espn_results_accept_only_explicit_terminal_statuses(monkeypatch):
         ("walkover-1", "walkover"),
     ):
         assert by_id[event_id]["termination"] == termination
-        assert by_id[event_id]["winner"] is None
-        assert by_id[event_id]["winner_sets"] is None
-        assert by_id[event_id]["loser_sets"] is None
+    assert (by_id["retired-1"]["winner"], by_id["retired-1"]["winner_sets"],
+            by_id["retired-1"]["loser_sets"], by_id["retired-1"]["completed_sets"]) == ("Alpha", 2, 1, 3)
+    assert by_id["walkover-1"]["winner"] is None
+    assert by_id["walkover-1"]["winner_sets"] is None
+    assert by_id["walkover-1"]["loser_sets"] is None
     observed_at = datetime.fromisoformat(by_id["normal-1"]["result_observed_at"])
     assert observed_at.tzinfo is not None
     assert observed_at.utcoffset() == timedelta(0)
@@ -961,7 +965,7 @@ def test_sofascore_preferred_scan_writer_and_loader_normal_final(
         ),
     ),
 )
-def test_sofascore_preferred_scan_abnormal_terminal_is_void_end_to_end(
+def test_sofascore_abnormal_retains_evidence_and_applies_each_declared_contract(
     tmp_path,
     monkeypatch,
     event_id,
@@ -1022,11 +1026,15 @@ def test_sofascore_preferred_scan_abnormal_terminal_is_void_end_to_end(
             "player_a_sets, player_b_sets, pnl FROM predictions WHERE id=?",
             (row_id,),
         ).fetchone()
-    assert row[0] is None
+    assert row[0] == ("Alpha" if termination == "retirement" else None)
     assert row[1] == expected_ret_flag
     assert row[2] == termination
     assert datetime.fromisoformat(row[3]).utcoffset() == timedelta(0)
-    assert row[4:] == (None, None, 0.0)
+    if termination == "retirement":
+        assert row[4:6] == (1, 0)
+        assert row[6] == pytest.approx(1.2)
+    else:
+        assert row[4:] == (None, None, 0.0)
     side_bet = shadow.side_bets_for([row_id])[0]
     assert side_bet["id"] == side_id
     assert side_bet["result"] == "ret"
@@ -1051,9 +1059,11 @@ def test_sofascore_preferred_scan_abnormal_terminal_is_void_end_to_end(
     assert len(loaded.results) == 1
     observation = loaded.results[0]
     assert observation.result.termination is expected_termination
+    # Riskobet has a separate, already-frozen blanket-void contract. Its bridge
+    # intentionally does not expose a retirement winner; shadow preserves it.
     assert observation.result.winner is None
-    assert observation.result.home_sets is None
-    assert observation.result.away_sets is None
+    assert observation.result.home_sets == (1 if termination == "retirement" else None)
+    assert observation.result.away_sets == (0 if termination == "retirement" else None)
     decision = settle_market(
         sport="tennis",
         market="match_winner",
@@ -1157,7 +1167,7 @@ def test_auto_settlement_matches_event_and_settles_side_market(
         ("walkover", 0, TennisTermination.WALKOVER),
     ),
 )
-def test_auto_abnormal_terminal_writer_loader_and_market_are_void(
+def test_missing_retirement_evidence_is_not_shadow_payout_but_riskobet_declares_void(
     tmp_path,
     monkeypatch,
     termination,
@@ -1215,7 +1225,7 @@ def test_auto_abnormal_terminal_writer_loader_and_market_are_void(
         "2030-01-01T13:05:00+00:00",
         None,
         None,
-        0.0,
+        None if termination == "retirement" else 0.0,
     )
     side_bet = shadow.side_bets_for([row_id])[0]
     assert side_bet["id"] == side_id

@@ -157,9 +157,15 @@ def _packet(packet):
     _object(packet, _original_fields(packet), "ORIGINAL packet")
     if packet["schema"] == 2:
         distribution = _object(packet["distribution_capture"], {"law_version", "recipe", "families"}, "distribution capture")
-        from football_joint_calibration import LAW_VERSION, RECIPE
-        if (distribution["law_version"] != LAW_VERSION
-                or a1.canonical_bytes(distribution["recipe"]) != a1.canonical_bytes(RECIPE)):
+        from football_joint_calibration import recipe_for_law, prediction_version_for_law
+        law_version = distribution["law_version"]
+        try:
+            recipe = recipe_for_law(law_version)
+            prediction_version = prediction_version_for_law(law_version)
+        except ValueError as exc:
+            raise a1.ArtifactIntegrityError("unsupported joint distribution law/recipe") from exc
+        if (packet["prediction_version"] != prediction_version
+                or a1.canonical_bytes(distribution["recipe"]) != a1.canonical_bytes(recipe)):
             raise a1.ArtifactIntegrityError("unsupported joint distribution law/recipe")
         families = distribution["families"]
         if (type(packet["count_models"]) is not dict or type(families) is not dict or "goals" not in families
@@ -171,7 +177,7 @@ def _packet(packet):
             for record in variants.values():
                 _object(record, {"raw_means", "raw_cells", "effective_cells", "diagnostics"}, "distribution record")
                 diagnostics = _object(record["diagnostics"], {"law_version", "success", "status", "iterations", "atoms", "cells", "targets", "message"}, "projection diagnostics")
-                if (diagnostics["law_version"] != LAW_VERSION or type(diagnostics["success"]) is not bool
+                if (diagnostics["law_version"] != law_version or type(diagnostics["success"]) is not bool
                         or type(diagnostics["status"]) is not str
                         or diagnostics["status"] not in {"identity", "projected", "raw-fallback"}
                         or diagnostics["success"] != (diagnostics["status"] != "raw-fallback")

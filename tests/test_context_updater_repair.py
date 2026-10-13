@@ -17,6 +17,7 @@ import shlex
 import shutil
 import stat
 import subprocess
+from tests.bash_test_helpers import run_bash_lf
 from types import SimpleNamespace
 
 import pytest
@@ -92,7 +93,7 @@ def run_ordering(tmp_path, *, fail=None):
     script += 'prepare_challenge_migration_boundary() { printf "FORBIDDEN marker\\n" >>"$EVENTS"; return 99; }\n'
     script += functions
     script += f"\nrepair_main {TARGET} {NEW_SHA}\n"
-    result = subprocess.run([bash()], input=script, text=True, capture_output=True, timeout=15)
+    result = run_bash_lf([bash()], input=script, text=True, capture_output=True, timeout=15)
     events = log.read_text().splitlines() if log.exists() else []
     assert "command not found" not in result.stderr, result.stderr
     return result, events
@@ -347,7 +348,7 @@ def test_actual_preparation_requires_complete_inventory_before_capacity_or_fetch
     script += ('printf "partial\\n"; return 42; ' if inventory_fails else 'printf "123\\n"; ') + '}\n'
     script += 'fetch_repair_source() { printf "fetch-called\\n"; exit 0; }\n'
     script += source_function("prepare_repair_source") + '\nprepare_repair_source\n'
-    result = subprocess.run([bash()], input=script, text=True, capture_output=True, timeout=15)
+    result = run_bash_lf([bash()], input=script, text=True, capture_output=True, timeout=15)
     assert "command not found" not in result.stderr
     assert (result.returncode == 0) is (not inventory_fails), result.stderr
     assert ("capacity-called" in result.stderr) is (not inventory_fails)
@@ -464,7 +465,7 @@ def test_actual_production_verifier_distinguishes_migration_target_from_app_head
     script += 'repair_guard() { [[ "$*" == "continuity $EXPECTED_PRODUCTION_HEAD $STAGE_DIR/production-identity.json" ]] || return 99; printf "continuity-called\\n"; }\n'
     script += source_function("parse_marker_state") + source_function("verify_repair_production")
     script += '\nverify_repair_production\nprintf "production-accepted\\n"\n'
-    result = subprocess.run([bash()], input=script, text=True, capture_output=True, timeout=15)
+    result = run_bash_lf([bash()], input=script, text=True, capture_output=True, timeout=15)
     assert "command not found" not in result.stderr, result.stderr
     assert (result.returncode == 0) is (defect is None), result.stderr
     assert ("production-accepted" in result.stdout) is (defect is None)
@@ -860,7 +861,7 @@ def test_real_fetch_gate_requires_exact_remote_tip_and_blob(tmp_path, failure):
     harness += '"cat-file blob $REQUESTED_HEAD:deploy/update_server.sh") command cat "$BLOB";; *) return 92;; esac\n}\n'
     harness += source_function("fetch_repair_source")
     harness += '\nfetch_repair_source\nprintf "accepted-fetch\\n"\n'
-    result = subprocess.run([bash()], input=harness, text=True, capture_output=True, timeout=15)
+    result = run_bash_lf([bash()], input=harness, text=True, capture_output=True, timeout=15)
     assert "command not found" not in result.stderr, result.stderr
     assert (result.returncode == 0) is (failure is None), result.stderr
     assert ("accepted-fetch" in result.stdout) is (failure is None)
@@ -878,11 +879,11 @@ def test_real_deploy_flock_rejects_contention_then_releases(tmp_path):
     script += source_function("acquire_deploy_lock") + '\nacquire_deploy_lock\nprintf "lock-acquired\\n"\n'
     with lock.open("rb") as holder:
         fcntl.flock(holder, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        result = subprocess.run([bash()], input=script, text=True, capture_output=True, timeout=15)
+        result = run_bash_lf([bash()], input=script, text=True, capture_output=True, timeout=15)
         assert result.returncode != 0
         assert "already holds the deploy lock" in result.stderr
         assert "lock-acquired" not in result.stdout
-    result = subprocess.run([bash()], input=script, text=True, capture_output=True, timeout=15)
+    result = run_bash_lf([bash()], input=script, text=True, capture_output=True, timeout=15)
     assert result.returncode == 0, result.stderr
     assert "lock-acquired" in result.stdout
 
@@ -952,7 +953,7 @@ def test_repair_backup_wrapper_uses_fresh_online_full_restore_route(tmp_path):
         harness += f"{name}={shlex.quote(value)}\n"
     harness += 'produce_update_backup() { printf "%s\\n" "$@" >"$EVENTS"; }\n'
     harness += source_function("verify_repair_backup") + "\nverify_repair_backup\n"
-    result = subprocess.run([bash()], input=harness, text=True, capture_output=True, timeout=15)
+    result = run_bash_lf([bash()], input=harness, text=True, capture_output=True, timeout=15)
     assert result.returncode == 0, result.stderr
     assert events.read_text().splitlines() == ["online",
         "/var/lib/betboy-context-update.fixture1/backup-online-work",
@@ -972,7 +973,7 @@ def test_measured_d4_and_closed_report_both_precede_final_production_recheck(tmp
     harness += ('return 42; ' if failure == "measure" else 'printf "0\\n"; ') + '}\n'
     harness += 'verify_repair_production() { printf "production\\n" >>"$EVENTS"; }\n'
     harness += source_function("verify_repair_context") + "\nverify_repair_context\n"
-    result = subprocess.run([bash()], input=harness, text=True, capture_output=True, timeout=15)
+    result = run_bash_lf([bash()], input=harness, text=True, capture_output=True, timeout=15)
     observed = events.read_text().splitlines()
     assert (result.returncode == 0) is (failure is None), result.stderr
     if failure is None:

@@ -254,7 +254,7 @@ def _fit_cohort(rows, cases, config, *, exclusions):
         return report
     for alpha in config["alpha_grid"]:
         try:
-            if config['model_variant'] == 'football-joint-log-tilt-v1':
+            if config['model_variant'] in {'football-joint-log-tilt-v1', 'football-joint-log-tilt-v2'}:
                 from context_models.football_joint_context import fit_heads
                 heads = fit_heads(train_cases, config, alpha)
             else:

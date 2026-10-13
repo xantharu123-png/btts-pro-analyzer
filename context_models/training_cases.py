@@ -59,7 +59,7 @@ def _validate_case(resolved: dict, *, config: dict) -> dict:
     payload = case_header(resolved, config=config)
     event, base, features = (payload[key] for key in ("event", "base", "features"))
     decision = base["cutoff"]
-    if base['version'] == 'football-goals-captured-joint-v1':
+    if base['version'] in {'football-goals-captured-joint-v1', 'football-goals-captured-joint-v2'}:
         from context_models.football_training import validate_joint_training_case
         return validate_joint_training_case(resolved, config=config, payload=payload)
     # No freely supplied source/state mapping may open this real replay path.

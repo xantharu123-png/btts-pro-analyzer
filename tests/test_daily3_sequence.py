@@ -154,10 +154,10 @@ def store(tmp_path):
     return Daily3Store(tmp_path / 'sequence.db', key=b's' * 32, clock=lambda: PLAN_NOW)
 
 
-def _reserve(store, event='football:fixture:151', *, amount=1000, start_hour=5, action_id=None):
+def _reserve(store, event='football:fixture:151', *, amount=1000, start_hour=5, action_id=None, odds='1.2'):
     bet_id = _ident()
     _command(store, 'reserve', action_id=action_id, bet_id=bet_id,
-             snapshot=_snapshot(event, start_hour), stake_cents=amount, odds='1.2')
+             snapshot=_snapshot(event, start_hour), stake_cents=amount, odds=odds)
     return bet_id
 
 
@@ -213,7 +213,7 @@ def test_cancelled_reservation_releases_the_current_leg_without_fake_money(store
 
 def test_only_real_confirmed_return_funds_next_leg_without_changing_net_loss_limit(store):
     _command(store, 'start')
-    first = _reserve(store, amount=5000)
+    first = _reserve(store, amount=5000, odds='2.4')
     _command(store, 'place', bet_id=first, revision=1, reference='Buchmacherbeleg')
     with pytest.raises(Daily3Error):
         _reserve(store, 'football:fixture:182', amount=12000, start_hour=8)

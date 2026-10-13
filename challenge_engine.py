@@ -25,6 +25,7 @@ from betting_math import (
     MINIMUM_RISK_ADJUSTED_ROI_PERCENT,
     BettingMathError,
     evaluate_market_price,
+    exact_odds_product,
     minimum_acceptable_odds,
     minimum_recommendation_odds,
     validate_decimal_odds,
@@ -1835,6 +1836,7 @@ def fixture_market_probabilities(
     _validation_only: bool = False,
     native_provenance=None,
     native_resolver=None,
+    _joint_law_version=None,
 ) -> Optional[dict[str, Any]]:
     # Internal walk-forward mode consumes only active predictions. The same
     # projection path returns explicitly labeled singleton values, never fake
@@ -1858,13 +1860,17 @@ def fixture_market_probabilities(
         return None
     if original_capture is not None:
         original_provenance = {key: model.pop(key) for key in ("history_refs", "reference_weights")}
-    from football_joint_calibration import LAW_VERSION, RECIPE, calibrate_joint_distribution
+    from football_joint_calibration import (
+        ACTIVE_LAW_VERSION, recipe_for_law, prediction_version_for_law, calibrate_joint_distribution,
+    )
+    law_version = ACTIVE_LAW_VERSION if _joint_law_version is None else _joint_law_version
+    recipe = recipe_for_law(law_version)
     model["probabilities"] = {}
     model["raw_probabilities"] = {}
     model["projection_success"] = True
     model["market_projection_success"] = {}
     model["probability_variants"] = ("active",) if _validation_only else ("active", "season", "form")
-    model["distribution_capture"] = {"law_version": LAW_VERSION, "recipe": dict(RECIPE), "families": {}}
+    model["distribution_capture"] = {"law_version": law_version, "recipe": recipe, "families": {}}
 
     def project_family(family, specs, family_model, means_suffix):
         records = {}
@@ -1875,7 +1881,9 @@ def fixture_market_probabilities(
             raw_means = family_model[mean_key]
             raw_matrix = (score_matrix(*raw_means) if family == "goals"
                           else family_model[variant + "_matrix"])
-            effective, diagnostics = calibrate_joint_distribution(raw_matrix, specs, calibration)
+            effective, diagnostics = calibrate_joint_distribution(
+                raw_matrix, specs, calibration, law_version=law_version,
+            )
             family_model["raw_" + mean_key] = raw_means
             family_model[mean_key] = tuple(
                 sum(cell[side] * mass for cell, mass in effective.items()) for side in (0, 1))
@@ -1935,7 +1943,7 @@ def fixture_market_probabilities(
             inputs=original_inputs, model=model,
             raw_probabilities=original_raw_probabilities, calibration_recipes=original_calibration_recipes,
             provenance=original_provenance, market_specs=MARKET_SPECS,
-            prediction_version=CHALLENGE_PREDICTION_VERSION,
+            prediction_version=prediction_version_for_law(law_version),
             model_contract_signature=CHALLENGE_MODEL_CONTRACT_SIGNATURE,
         ))
     return model
@@ -4225,9 +4233,10 @@ def select_quoted_ticket(
             candidates_in_ticket = tuple(entry[0] for entry in entries)
             if not _independent_fixture_set(candidates_in_ticket):
                 continue
-            total_odds = math.prod(entry[1] for entry in entries)
-            if not odds_min <= total_odds <= odds_max:
+            total_odds_decimal = exact_odds_product(entry[1] for entry in entries)
+            if not Decimal(str(odds_min)) <= total_odds_decimal <= Decimal(str(odds_max)):
                 continue
+            total_odds = float(total_odds_decimal)
             dependency_factor = ticket_dependency_factor(candidates_in_ticket)
             joint_probability = (
                 math.prod(

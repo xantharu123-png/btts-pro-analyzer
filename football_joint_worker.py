@@ -19,6 +19,7 @@ from context_models.dataset import _reader
 from context_models.experiments import _artifact_created_at
 from context_models.football_joint_context import (
     FEATURE_VERSION, POOLED_FEATURE_VERSION, PLAYER_LOAD_FEATURE_VERSION, VERSION, feature_coverage, joint_features,
+    joint_versions_for_variant,
 )
 from context_models.football_original_storage import StorageBudgetExceeded
 from context_models.football_training import _load_publication, joint_base
@@ -195,7 +196,10 @@ def publish_joint_comparison(path, binding_ref, *, decision_at, max_payload_byte
                 raise ReplayUnavailable("context_decision_not_prematch")
             base = joint_base(original, binding, decision_at=decision_at)
             fits = tuple((ref, envelope) for ref, envelope in fits
-                         if event_in_population(binding["native_event"], envelope["payload"]["population"]))
+                         if event_in_population(binding["native_event"], envelope["payload"]["population"])
+                         and joint_versions_for_variant(envelope['payload']['model_variant'])[0] == base['version'])
+            if not fits:
+                return {**summary, "status": "effect-unavailable", "decision_at": decision}
             effect_hash, effect = fits[0] if len(fits) == 1 else (None, None)
             reason = "effect-unavailable" if not fits else "effect-ambiguous" if len(fits) != 1 else reason
             version = effect["payload"]["feature_version"] if effect is not None else FEATURE_VERSION

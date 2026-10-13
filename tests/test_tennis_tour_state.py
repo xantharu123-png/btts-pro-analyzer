@@ -528,6 +528,7 @@ def test_fresh_skip_rejects_state_with_nonfinite_prediction(tmp_path):
 def test_atp_calibration_bounds_stats_and_results_without_other_tour(monkeypatch):
     frame = market_frame("atp").iloc[1:].copy()
     stats = pd.DataFrame([atp_boxscore(day="2024-01-01"), atp_boxscore("Future F", day="2024-06-02")])
+    stats["stats_available_at"] = ["2024-01-03T12:00:00Z", "2024-06-04T12:00:00Z"]
     monkeypatch.setattr(backtest, "load_atp_stats", lambda *a, **k: stats)
     monkeypatch.setattr(backtest, "load_market_odds", lambda *a, **k: frame)
     monkeypatch.setattr(backtest, "load_wta_ta_stats", lambda: pytest.fail("other tour"))
@@ -542,6 +543,7 @@ def test_calibration_only_uses_bilateral_admission_and_reports_bad_source(monkey
     stats = pd.DataFrame([{
         **atp_boxscore(winner="Alexey Vatutin", day="2018-08-27", category="gs"),
         "id": "2018-560-v717-f974-Q1", "tournament_id": "2018-560",
+        "stats_available_at": "2018-09-11T12:00:00Z",
         "loser_name": "Tom Fawcett",
         "win_service_games_played": 0.0, "win_return_games_played": 0.0,
         "win_break_points_converted": 6.0, "los_break_points_converted": 4.0,

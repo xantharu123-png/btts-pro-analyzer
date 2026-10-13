@@ -1002,7 +1002,8 @@ def test_automatic_all_surface_has_one_game_block_and_exact_price_actions(
     assert run_now.tzinfo is not None
     assert all(call[1]["now"] is run_now for call in card_calls)
     assert len(recording_st.expanders) == 4
-    assert all(not expanded for _label, expanded in recording_st.expanders)
+    # The approved game-block UX opens the first three chronological games.
+    assert [expanded for _label, expanded in recording_st.expanders] == [True, True, True, False]
     assert len(set(recording_st.expander_keys)) == 4
     assert html.count('class="wf-analysis-short"') == len(forecasts)
     assert html.count("Modellgrundlagen unvollständig") == len(forecasts)

@@ -40,8 +40,9 @@ def test_count_market_uses_its_own_required_history_age():
 def test_projection_failure_is_confined_to_its_own_family(monkeypatch):
     import football_joint_calibration as joint
     original = joint.calibrate_joint_distribution
-    def fail_corners(matrix, specs, calibration):
-        effective, diagnostics = original(matrix, specs, calibration)
+    def fail_corners(matrix, specs, calibration, *, law_version=joint.ACTIVE_LAW_VERSION):
+        assert law_version == "football-joint-settlement-projection-v1"
+        effective, diagnostics = original(matrix, specs, calibration, law_version=law_version)
         if specs[0].kind in {'corner_total', 'team_corners'}:
             return matrix, {**diagnostics, 'success': False, 'status': 'raw-fallback'}
         return effective, diagnostics

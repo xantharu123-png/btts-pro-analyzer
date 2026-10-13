@@ -1,5 +1,99 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Neuester Einstieg – 13.10.2026: Claude-Auditpaket qualifiziert
+
+Oberster TODO-Block hat Vorrang vor historischen Zwischenständen. Autoritative
+Arbeitskopie: `C:/Projekt/BetBoy/betboy-app/.worktrees/audit-repairs-20261013`,
+Branch `codex/audit-repairs-20261013`, Basis `c5a6264`. Hauptcheckout enthält
+frühere unveröffentlichte WIP: nicht resetten, breit stagen oder überschreiben.
+
+Sechs freigegebene Reparaturen qualifiziert. Vollsuite auf eingefrorenem Index
+`b879d8d75ececc72848a3a2917bfab79959c8e95`: 13781 PASS,97 Plattform-Skips,
+147 Untertests,0 Fehler; exakt13878 Hauptitems einmal abgedeckt. Letzter manueller
+Tennis-Merken-Anschluss separat RED→GREEN: neun neue Fälle, alle acht betroffenen
+Module255/255 PASS. Finale Code-/Testtree0ca151db8eb99cbb058fd0891bfc09a492f13581.
+Überlappende Zahlen nicht addieren; die UI-Ergänzung ist eine eigene Abschluss-
+qualifikation, keine nachträgliche Behauptung zur alten Vollsuite.
+
+Nächster Schritt: expliziter Commit/Push und begrenzter VPS-FF mit idle-Dienst-
+Guard, ohne Backup oder zusätzlichen Sportscan. GitHub/VPS noch c5a6264.
+Nach tatsächlicher Veröffentlichung SHAs/Health/JSON-Gleichheit/Browserbutton
+hier und im TODO dokumentieren. Kalibrierungv2 nicht aktiv:304 reale Vergleiche
+schlechter. Kein Rendite-/Verletzungs-/Wetter-/Müdigkeitsnachweis aus QA ableiten.
+Separate reale Quellenpool-/Shadow-Preisprovenienzprobleme bleiben offen.
+
+## Aktiver Einstieg – 13.10.2026: freigegebene Claude-Auditreparaturen
+
+Zuerst obersten Block TODO_AKTUELL.md und
+docs/audits/2026-10-13-claude-audit-reparaturen.md lesen. Autoritativer
+Reparaturarbeitsstand: C:/Projekt/BetBoy/betboy-app/.worktrees/audit-repairs-20261013,
+Branch codex/audit-repairs-20261013, Ausgang c5a6264. Hauptcheckout hält frühere
+unveröffentlichte WIP; NICHT resetten, breit stagen oder mit dieser Releasekopie
+überschreiben. GitHub/VPS aktuell noch c5a6264; diese neue Reparatur nicht live.
+
+Sechs freigegebene Bereiche lokal umgesetzt und unabhängig scoped geprüft:
+Payout-Zweitbestätigung, immutable settled Tipps/quotenfreie BOOKMARK-Merkliste,
+Decimal-Korridor, Tennis-Finish-Kausalität und gemeinsame one_set-Abrechnung,
+getrennte versionsgenaue Kalibrierungs-/Effektverträge. 304 echte chronologische
+Cachevergleiche waren für stärkere Kalibrierung v2 SCHLECHTER; v1/v14 bleibt aktiv.
+Keine numerische Verbesserung oder aktive Verletzungswirkung daraus behaupten.
+
+Gesamtprojekt-QA läuft noch mit Django siteconfig.qa_settings, in-memory DB und
+externen Netzverbindungen gesperrt. Erstes unkonfiguriertes Collection-Ergebnis
+ist kein PASS. Zweiter Vorlauf bei ca.10%gezielt beendet, KEIN PASS. Cricket-QA-
+Vertrag mit unverändertem Fixturehash/LF und Cricket-Pfadprojektion korrigiert;
+gemeinsame Mathematik/Cricket-Routing/Guard-Mutationen abgewiesen,7/7 PASS.
+Finaler Gesamtaufruf full-project-final.log/xml endete korrekt bei echtem Fehler:
+3386pass/25skip/117Untertests/1Fehler,1665,38s. Point-Schema2-Livereplay nun über
+exakte statische neue Loaderkennung/gerichtete kompatible Owner repariert,
+162/162Modul+unabhängig9/9ManifestePASS. Originale bleiben read-only.
+Weitere reineWindows-QA-Ursache beseitigt: BashstdintextmodeCRLF und2hartgepinnte
+SkriptdateienCRLFstattkanonischesLF. Testadapter3Aufrufer/LF-Attribute geändert,
+Produkt-/Backup-/Stageinhalte/erwarteteHashes/Nicht-Bash-Calls unverändert.
+354HookPASS,112Updater/ServerPASS+1vorhandenerLinuxflockSkip,3AdapterfällePASS.
+B1endete2891pass/8skip/85Untertests/1Fehler603,59s;A1bei22%gestoppt,keinPASS.
+Auch A2/B2 fehlgeschlagen, keinPASS: A2 2771pass/19skip/32Untertests/1Fehler,
+1913,86s; B2 4835pass/8skip/111Untertests/1Fehler,1479,91s. AltesDaily3fixture
+behaupteteCHF120RückzahlungbeiCHF50/Quote1,20; nurTesterstquote2,40korrigiert,
+Wächter/Verlustlimitunverändert.87betroffene+alle251Daily3TestsPASS. Native-
+QA-QuellenmitbestehendenLinuxPinsnurexaktLFkanonisiert, keinePin-/Gitblobänderung;
+vollesChainModul65PASS; ganze7Modul-Protokollrunde271PASS/54bestehendeLinux-root-
+Skips/0Fehler,148,56s. Alle13LFQuellenroh==HEAD==Index,Pinsunverändert.
+AuchB3vollständigFehlbericht:7124PASS/39Skips/111Untertests/9Fehler1201,19s.
+Genau2weitereLF-Pinpfade (nativePreparationWorker+LegacyTennisFixture) korrigiert,
+Hashes/Gitblobsunverändert;226/226ganzeModulePASS3,41s.
+A3vollständig4Fehler/6644PASS/58Skips/36Untertests2894,95s;JSON-ProbeCRLFund
+alteMocksohneexpliziteslaw_version/save_source. NurexakteJSON-LFFormatierung
+und2Mock-Signaturenmitv1/Herkunftsassertskorrigiert,Produktcode/Pinsunverändert.
+188+13ganzeModulprüfungenPASS;B4vollständig7133PASS/39Skips/111Untertests/
+0Fehler946,85s. A4komplettfrisch,keinGesamtPASSvorseinemAbschluss.
+FinalerCode/Testindexb879d8d75ececc72848a3a2917bfab79959c8e95;gegenb841nur
+2QA-Testdouble-Dateien/LF-Metadaten,alleProdukt-/B4-Test-Gitblobsunverändert.
+ErneuerteVollcollection13878Haupttests/367Module;
+A4/B4mit184/183disjunktenModulen,ohneAuslassung/Failfast/neueDependency.
+check_complete_qa.pyprüftjedesHaupttestitemgenaueinmalund0Fehler.
+Abschluss zählt nur diese Vollqualifikation, nicht überlappende Vorläufe. Danach
+Abschlussstatus/Commit/Push/VPS-Nachweis ergänzen. Output separat unter
+C:/Projekt/BetBoy/output/audit-repairs-20261013. Neue Storeverträge erlauben nach
+Appstart keinen ungeprüften Old-Code-Rollback. Kein neues Backup, DB-Kopie oder
+zusätzlicher Sportscan. Reale Kontext-Quellenpoolprobleme bleiben separate Arbeit.
+
+Letzter statischer UI-Check fand noch den fehlenden Merken-Anschluss der manuellen
+Tennissuche. Patch außerhalb Git unter output/audit-repairs-20261013/
+manual-tennis-bookmark.patch, unabhängig statisch PASS. Eingefrorene A4/B4-Dateien
+NICHT während des Laufs ändern. Nach A4: zuerst neue 9 Tests RED, Produktteil
+anschließen, betroffene UI-/Tennis-/Merkliste-Module vollständig GREEN.
+Diese letzte UI-Ergänzung separat qualifizieren, nicht rückwirkend der Vollsuite
+von Index b879 zuschreiben. Native Ereignis-ID und echtes storage_scope; keine
+Preis-/EV-Freigabe, Neuberechnung, Quote oder Einsatzerfindung.
+
+RO-Vorprüfung: bestehender Fußball-Shadow partial/exit1 mangels akzeptierter
+aktueller Bet365-Quote mit Providerzeit für1497716. Zwei alte abgerechnete Zeilen
+haben invalid_quote_provenance/malformed_settlement; kein gültiger CLV/ROI.
+Unabhängig gegen unveränderten c5a6264-Code bestätigt; keine Regression dieses
+Pakets. Regulären Lauf beobachten, alte Originalbelege getrennt prüfen, weder
+Evidenz löschen noch fehlende Quoten/Herkunft/Erfolgsstatus erfinden.
+
 ## Aktiver Einstieg – 13.10.2026: Kontextanschlüsse und exakte Release-QA
 
 Vorrang: oberster Block `TODO_AKTUELL.md` und

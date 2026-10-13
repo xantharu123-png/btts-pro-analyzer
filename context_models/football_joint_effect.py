@@ -19,6 +19,8 @@ from context_models.offset import ContextModelError, _array
 from model_artifacts import canonical_bytes
 
 VERSION = "football-joint-log-tilt-v1"
+CANDIDATE_VERSION = "football-joint-log-tilt-v2"
+VERSIONS = frozenset({VERSION, CANDIDATE_VERSION})
 
 
 def _curve(recipe, depth=0):
@@ -64,7 +66,8 @@ def replay_joint_calculation(original):
     curves = {key: _curve(recipe) for key, recipe in packet["calibration_recipes"].items()}
     captures = []
     engine.fixture_market_probabilities(packet["fixture"], packet["league_history"], curves,
-        team_history=packet["team_history"], original_capture=captures.append)
+        team_history=packet["team_history"], original_capture=captures.append,
+        _joint_law_version=packet["distribution_capture"]["law_version"])
     if len(captures) != 1:
         raise ContextIntegrityError("captured football calculation cannot be reproduced")
     recalculated = captures[0].to_dict()
@@ -120,7 +123,9 @@ def compare_joint_effect(original, *, home_delta, away_delta):
     comparison = replay_joint_calculation(original)
     packet = original.to_dict()
     result = deepcopy(comparison)
-    result.update(version=VERSION, scope="numerical-comparison-not-empirical-approval")
+    from context_models.football_joint_context import joint_versions_for_law
+    variant = joint_versions_for_law(packet['distribution_capture']['law_version'])[1]
+    result.update(version=variant, scope="numerical-comparison-not-empirical-approval")
     for index, variant in enumerate(("active", "season", "form")):
         cells = packet["distribution_capture"]["families"]["goals"][variant]["effective_cells"]
         adjusted = tilt_joint({(h, a): p for h, a, p in cells}, home_delta, away_delta)
@@ -133,10 +138,12 @@ def compare_joint_effect(original, *, home_delta, away_delta):
     return result
 
 
-def joint_offset_delta(fit, x):
+def joint_offset_delta(fit, x, *, variant=None):
     """Apply a fitted joint law using only its stored training scale."""
     require_object(fit, {"version", "scale", "coef", "alpha", "n_rows"}, label="joint fit")
-    if fit["version"] != VERSION or type(fit["n_rows"]) is not int or fit["n_rows"] < 2:
+    variant = fit['version'] if variant is None else variant
+    if (type(variant) is not str or variant not in VERSIONS or fit['version'] != variant
+            or type(fit["n_rows"]) is not int or fit["n_rows"] < 2):
         raise ContextModelError("unreviewed joint fit version or row count")
     require_number(fit["alpha"], "regularization", minimum=0)
     if type(fit["scale"]) is not list or type(fit["coef"]) is not list or not fit["scale"]:
@@ -164,13 +171,15 @@ def joint_offset_delta(fit, x):
         raise ContextModelError("joint prediction is numerically unrepresentable") from exc
 
 
-def fit_joint_offset(matrices, x, outcomes, *, alpha):
+def fit_joint_offset(matrices, x, outcomes, *, alpha, variant=VERSION):
     """Coupled regularized likelihood, only on supplied training rows.
 
     Pure fitting primitive, like fit_offset: chronological membership, native
     results and untouched evaluation belong to the owning dataset runner.
     Outcomes must already be owning score buckets; none are silently censored.
     """
+    if type(variant) is not str or variant not in VERSIONS:
+        raise ContextModelError('unreviewed joint fit variant')
     x, outcomes = _array(x, "joint features", 2), _array(outcomes, "joint targets", 2)
     n, width = x.shape
     alpha = require_number(alpha, "regularization", minimum=0)
@@ -227,7 +236,7 @@ def fit_joint_offset(matrices, x, outcomes, *, alpha):
         coef = coef.reshape(width, 2)
         if np.any(coef[np.all(x == 0, axis=0)] != 0):
             raise ContextModelError("unidentifiable zero feature changed")
-        return {"version": VERSION, "scale": scale.tolist(), "coef": coef.tolist(), "alpha": alpha, "n_rows": n}
+        return {"version": variant, "scale": scale.tolist(), "coef": coef.tolist(), "alpha": alpha, "n_rows": n}
     except ContextModelError:
         raise
     except (ValueError, ArithmeticError) as exc:

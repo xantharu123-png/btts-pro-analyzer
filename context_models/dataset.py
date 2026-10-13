@@ -366,7 +366,7 @@ def resolve_case(connection, item, *, config, plan, latest):
     decision = payload["base"]["cutoff"]
     from context_models.tennis_live import BASE_VERSION as LIVE_BASE
     live = payload["base"]["version"] == LIVE_BASE
-    joint = payload['base']['version'] == 'football-goals-captured-joint-v1'
+    joint = payload['base']['version'] in {'football-goals-captured-joint-v1', 'football-goals-captured-joint-v2'}
     if joint:
         from context_models.football_training import joint_case_artifacts, relevant_receipts
         artifacts = joint_case_artifacts(connection, payload, latest=_artifact_created_at(connection, case['digest']))

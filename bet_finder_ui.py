@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 import math
 import re
+import sqlite3
 import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -868,6 +870,7 @@ def render_model_selection(
     candidate: RecommendationCandidate,
     *,
     presentation: str = "full",
+    save_source: str = "Manuelle Suche",
 ) -> None:
     """Show a statistical selection without fetching or evaluating an offer."""
     if presentation not in {"full", "compact", "fixture_first"}:
@@ -883,6 +886,24 @@ def render_model_selection(
         st.caption("Daten- oder Modellprüfung noch offen.")
     minimum = f"{MINIMUM_RECOMMENDED_DECIMAL_ODDS:.2f}".replace(".", ",")
     st.caption(f"Deine Mindestquote für eine tatsächliche Wette: {minimum}")
+    identity = hashlib.sha256(json.dumps((candidate.sport, candidate.event_key,
+        candidate.market, candidate.selection), ensure_ascii=False).encode("utf-8")).hexdigest()
+    render_tip_bookmark(candidate, key=f"model_selection_{identity}", source=save_source)
+
+
+def render_tip_bookmark(candidate: RecommendationCandidate, *, key: str, source: str) -> None:
+    """Short personal save action; deliberately no quote/EV/stake evaluation."""
+    if not candidate.forecast_available:
+        return
+    if st.button("Tipp merken", key=f"bookmark_{key}", use_container_width=True):
+        try:
+            store = TipStore(scope_id=storage_scope(st.session_state))
+            store.save_bookmark(candidate, source=source)
+        except (OSError, sqlite3.Error, ValueError):
+            LOGGER.exception("Model selection could not be bookmarked")
+            st.toast("Tipp konnte nicht gemerkt werden. Bitte später erneut versuchen.")
+        else:
+            st.toast("Unter Meine Tipps gemerkt.")
 
 
 def render_price_decision(
@@ -1036,5 +1057,6 @@ __all__ = [
     "ReferencePriceEvaluation",
     "evaluate_reference_price",
     "render_model_selection",
+    "render_tip_bookmark",
     "render_price_decision",
 ]

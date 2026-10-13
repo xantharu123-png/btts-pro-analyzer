@@ -26,6 +26,7 @@ from typing import Dict, List, Optional
 from .prediction_revisions import (
     REVISION_SCHEMA, append_revision, freeze_legacy_baseline, read_latest_predictions, utc_epoch,
 )
+from .settlement_policy import RETIREMENT_RULE, match_winner_status, unit_return
 
 from price_ledger import (
     PriceLedger,
@@ -38,7 +39,6 @@ DB_PATH = Path(__file__).resolve().parent / "data" / "tennis_shadow.db"
 
 # ASSUMPTION — verify against N1Bet T&Cs before real-money bets.
 # Options: 'ball_served' | 'one_set' | 'match_completed'
-RETIREMENT_RULE = "one_set"
 CLOSING_WINDOW_SECONDS = 60 * 60
 TENNIS_MODEL_VERSION = "elo-serve-platt-v3"
 TENNIS_POLICY_VERSION = "risk-ev-haircut-min-odds-v4"
@@ -174,6 +174,7 @@ _PREDICTION_MIGRATIONS = {
     "model_version": "TEXT",
     "policy_version": "TEXT",
     "match_duration_minutes": "INTEGER",
+    "settlement_status": "TEXT",
 }
 _SIDE_BET_MIGRATIONS = {
     "closing_odds": "REAL",
@@ -1296,6 +1297,9 @@ def settle(prediction_id: int, actual_winner: Optional[str], ret: bool = False,
     Existing callers remain valid: when no observation time is supplied, the
     current UTC instant is recorded.  Set scores are optional, but must be a
     complete, winner-consistent A/B pair when supplied for a normal final.
+    Newly supplied ``ret_set`` is the OBSERVED number of completed sets, not
+    the number of the partial set being played. Unknown retirement evidence
+    is recorded non_evaluable with no payout. Old settled rows are untouched.
     """
     if closing_a is not None or closing_b is not None:
         raise ValueError(
@@ -1360,30 +1364,30 @@ def settle(prediction_id: int, actual_winner: Optional[str], ret: bool = False,
             actual_winner=actual_winner,
             retired=retired,
         )
+        if retired and player_a_sets is not None:
+            completed_sets = player_a_sets + player_b_sets
+            if ret_set is not None and ret_set != completed_sets:
+                raise ValueError("ret_set disagrees with observed completed sets")
+            ret_set = completed_sets
+        if retired and ret_set is not None and (best_of not in (3, 5) or ret_set >= best_of):
+            raise ValueError("retirement completed sets exceed the stored match format")
+        status = match_winner_status(clean_termination, actual_winner, ret_set,
+                                     rule=RETIREMENT_RULE)
         pnl: Optional[float] = None
         if side:
-            if clean_termination == "walkover" or actual_winner is None:
-                pnl = 0.0
-            else:
-                odds = odds_a if side == "A" else odds_b
-                won = (side == "A" and actual_winner == player_a) or (
-                    side == "B" and actual_winner == player_b
-                )
-                if odds is None or odds <= 1.0:
-                    pnl = None
-                elif retired and RETIREMENT_RULE == "match_completed":
-                    pnl = 0.0  # void
-                elif retired and RETIREMENT_RULE == "one_set" and (ret_set or 0) < 1:
-                    pnl = 0.0  # void before set 1 completed
-                else:
-                    pnl = (odds - 1.0) if won else -1.0
+            odds = odds_a if side == "A" else odds_b
+            won = (side == "A" and actual_winner == player_a) or (
+                side == "B" and actual_winner == player_b
+            )
+            pnl = unit_return(status, won, odds)
 
         cursor = conn.execute(
             """
             UPDATE predictions
             SET settled=1, actual_winner=?, ret_flag=?, ret_set=?,
                 termination=?, result_observed_at=?,
-                player_a_sets=?, player_b_sets=?, pnl=?, match_duration_minutes=?
+                player_a_sets=?, player_b_sets=?, pnl=?, match_duration_minutes=?,
+                settlement_status=?
             WHERE id=? AND settled=0
             """,
             (
@@ -1396,6 +1400,7 @@ def settle(prediction_id: int, actual_winner: Optional[str], ret: bool = False,
                 player_b_sets,
                 pnl,
                 match_duration_minutes,
+                status,
                 prediction_id,
             ),
         )
@@ -1457,6 +1462,8 @@ def summary() -> Dict:
             )
             FROM predictions
             WHERE settled=1 AND actual_winner IN (player_a, player_b)
+              AND COALESCE(ret_flag,0)=0
+              AND (termination IS NULL OR termination='normal')
               AND model_version=?
             """,
             (TENNIS_MODEL_VERSION,),
@@ -1481,6 +1488,8 @@ def summary() -> Dict:
             FROM predictions
             WHERE settled=1
               AND actual_winner IN (player_a, player_b)
+              AND COALESCE(ret_flag,0)=0
+              AND (termination IS NULL OR termination='normal')
               AND closing_odds_a>1.0
               AND closing_odds_b>1.0
               AND closing_checked_utc IS NOT NULL

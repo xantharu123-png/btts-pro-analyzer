@@ -8,7 +8,7 @@ from context_models.contracts import ContextContractError, digest
 from context_training_helpers import NOW, envelope, football_inventory
 
 
-def source_case(tmp_path, monkeypatch, *, event_id=9000, shift=0):
+def source_case(tmp_path, monkeypatch, *, event_id=9000, shift=0, law_version=None):
     from context_models.football_training import build_joint_training_case
     from context_models.football_original_publication import FootballOriginalPublication
     from context_sources.football_capture import _Capture
@@ -45,7 +45,8 @@ def source_case(tmp_path, monkeypatch, *, event_id=9000, shift=0):
     publication = FootballOriginalPublication(path, observer, max_publication_payload_bytes=2_000_000,
         max_worker_payload_bytes=2_000_000, max_source_payload_bytes=2_000_000)
     publication.freeze(tuple(originals))
-    engine.fixture_market_probabilities(target, past, **publication.model_kwargs(decision_at=decision))
+    options = {} if law_version is None else {'_joint_law_version': law_version}
+    engine.fixture_market_probabilities(target, past, **publication.model_kwargs(decision_at=decision), **options)
     assert publication.report()['events'][0]['source_state'] == 'captured'
     binding_ref = publication.report()['events'][0]['binding_ref']
     identity_ref = put_artifact(path, kind=identity['kind'], payload=identity['payload'], created_at=decision+timedelta(hours=5))
@@ -55,7 +56,8 @@ def source_case(tmp_path, monkeypatch, *, event_id=9000, shift=0):
         feature_version='football-native-context-v1', feature_names=['roster.home.venue_attack.goals.api-football:player:1'],
         population=dict(sport='football', competitions=['39'], formats=['90min'], tours=[None], surfaces=[None], indoor=[None]),
         coverage=dict(version='football-native-context-v1.coverage', case='source-bound'),
-        model_variant='football-joint-log-tilt-v1', base_versions=['football-goals-captured-joint-v1'],
+        model_variant='football-joint-log-tilt-v2' if law_version == 'football-joint-settlement-projection-v2' else 'football-joint-log-tilt-v1',
+        base_versions=['football-goals-captured-joint-v2' if law_version == 'football-joint-settlement-projection-v2' else 'football-goals-captured-joint-v1'],
         head_links={'home': 'log_joint_tilt', 'away': 'log_joint_tilt'}, reference_version='football-context-reference-v2',
         preprocessing_artifacts={}, groups={'roster': ['roster.home.venue_attack.goals.api-football:player:1']},
         joint_calibration={'kind': 'identity'}, target_markets=['RESULT_AWAY', 'RESULT_DRAW', 'RESULT_HOME'],

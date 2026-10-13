@@ -17,6 +17,7 @@ from types import SimpleNamespace
 import zipfile
 
 import pytest
+from tests.bash_test_helpers import run_bash_lf
 
 ROOT = Path(__file__).resolve().parents[1]
 UPDATER = ROOT / "deploy/update_server.sh"
@@ -28,6 +29,33 @@ LIMITS = {
     "d2-approval-evidence-resolution-unavailable", "d3-owning-family-replay-unavailable",
     "d3-owning-source-feature-replay-unavailable", "d3-snapshot-input-binding-unavailable",
 }
+
+
+def test_bash_lf_helper_sends_exact_utf8_lf_input_to_real_child():
+    result = run_bash_lf([sys.executable, "-c",
+        "import sys; print(sys.stdin.buffer.read().hex())"],
+        input="Grüezi\n", text=True, encoding="utf-8", capture_output=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "4772c3bc657a690a\n"
+
+
+def test_bash_lf_helper_preserves_explicit_binary_input_without_normalization():
+    payload = b"line\r\n\xff\rend\n"
+    result = run_bash_lf([sys.executable, "-c",
+        "import sys; sys.stdout.buffer.write(sys.stdin.buffer.read())"],
+        input=payload, capture_output=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == payload
+
+
+def test_bash_lf_helper_restores_text_universal_newlines_for_both_outputs():
+    result = run_bash_lf([sys.executable, "-c",
+        "import sys; sys.stdout.buffer.write(b'Z\\xc3\\xbcrich\\r\\nnext\\rlast\\n'); "
+        "sys.stderr.buffer.write(b'error\\r\\nend\\r'); sys.exit(17)"],
+        text=True, encoding="utf-8", capture_output=True, timeout=10)
+    assert result.returncode == 17
+    assert result.stdout == "Zürich\nnext\nlast\n"
+    assert result.stderr == "error\nend\n"
 
 
 def shell_function(name, *, optional=False):
@@ -162,9 +190,11 @@ def test_real_ascii_boundaries_and_ordinary_unicode_values_remain_exact(data, en
 
 
 def bash():
-    result = shutil.which("bash")
+    candidate = Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "Git/bin/bash.exe"
+    # Local Windows fixtures and sys.executable belong to Git Bash, not a WSL
+    # shim that cannot address the same files or invoke the same interpreter.
+    result = str(candidate) if os.name == "nt" and candidate.is_file() else shutil.which("bash")
     if not result:
-        candidate = Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "Git/bin/bash.exe"
         result = str(candidate) if candidate.is_file() else None
     assert result, "A real Bash is required; do not turn the orchestration proof into a skip"
     return result
@@ -183,7 +213,9 @@ create_fresh_backup() { printf 'backup\n'; }
 verify_context_runtime_before_update() { printf 'context\n'; }
 apply_trusted_payload() { printf 'apply\n'; }
 """ + fragment
-    result = subprocess.run([bash()], input=harness, text=True, capture_output=True, timeout=20)
+    # Text-mode subprocess stdin expands LF to CRLF on Windows. Bash must
+    # receive the exact UTF-8/LF command bytes, as it does on the Linux VPS.
+    result = run_bash_lf([bash()], input=harness, text=True, capture_output=True, timeout=20)
     assert result.returncode == 0, result.stderr
     assert result.stdout.splitlines() == ["backup", "context", "apply"]
 
@@ -199,7 +231,7 @@ create_fresh_backup() { printf 'backup\n'; }
 verify_context_runtime_before_update() { printf 'context-failed\n'; return 1; }
 apply_trusted_payload() { printf 'apply\n'; }
 """ + source[start:end]
-    result = subprocess.run([bash()], input=harness, text=True, capture_output=True, timeout=20)
+    result = run_bash_lf([bash()], input=harness, text=True, capture_output=True, timeout=20)
     assert result.returncode != 0
     assert result.stdout.splitlines() == ["backup", "context-failed"]
 
@@ -318,7 +350,7 @@ id() { printf '1000\n'; }
 context_hook_data() { printf '%s\n' "$*"; }
 context_hook_command() { cat >/dev/null; CONTEXT_COMMAND_STATUS=0; }
 """ + f"MIGRATION_RESUME_TARGET={int(resuming)}\n" + shell_function("configure_context_phase") + "\nconfigure_context_phase private/online\n"
-    result = subprocess.run([bash()], input=harness, text=True, capture_output=True, timeout=20)
+    result = run_bash_lf([bash()], input=harness, text=True, capture_output=True, timeout=20)
     assert result.returncode == 0, result.stderr
     args = result.stdout.splitlines()[0].split()
     expected_code = ("a" if resuming else "b") * 40
@@ -518,7 +550,7 @@ die() { printf '%s\n' "$*" >&2; exit 1; }
 as_betboy() { printf '%s|' "$@" >&3; shift 13; "$@"; }
 exec 3>&2
 """ + shell_function("context_hook_command") + f"\ncontext_hook_command {shlex.quote(output.as_posix())} {command}\nprintf '%s\\n' \"$CONTEXT_COMMAND_STATUS\"\n"
-    result = subprocess.run([bash()], input=harness, text=True, capture_output=True, timeout=20)
+    result = run_bash_lf([bash()], input=harness, text=True, capture_output=True, timeout=20)
     if exit_code in {124, 137}:
         assert result.returncode != 0 and "VerificationResourceError" in result.stderr
         return
@@ -939,7 +971,7 @@ verification_launcher_source() { :; }
     stage = "return 1" if presence == "failed-stage" else "printf '%s\\n' " + shlex.quote(presence)
     harness += "context_hook_data() { if [[ $1 == stage ]]; then " + stage + "; else printf 'finish:%s\\n' \"$*\"; fi; }\n"
     harness += shell_function("verify_context_runtime_before_update") + shell_function("verify_context_runtime_from_archive") + "\nverify_context_runtime_before_update\nprintf 'after-hook\\n'\n"
-    result = subprocess.run([bash()], input=harness, text=True, capture_output=True, timeout=20)
+    result = run_bash_lf([bash()], input=harness, text=True, capture_output=True, timeout=20)
     lines = result.stdout.splitlines()
     assert lines[0] == "process-check"
     if presence in {"unknown", "failed-stage"}:
@@ -964,11 +996,11 @@ die() { exit 1; }
 as_betboy() { shift 13; "$@"; }
 """ + shell_function("context_hook_command")
     call = f"\ncontext_hook_command {shlex.quote(output.as_posix())} {command}\n"
-    first = subprocess.run([bash()], input=prefix + call, text=True, capture_output=True, timeout=20)
+    first = run_bash_lf([bash()], input=prefix + call, text=True, capture_output=True, timeout=20)
     assert first.returncode != 0
     assert output.stat().st_size == 1024 * 1024 + 1
     before = output.read_bytes()
-    second = subprocess.run([bash()], input=prefix + call, text=True, capture_output=True, timeout=20)
+    second = run_bash_lf([bash()], input=prefix + call, text=True, capture_output=True, timeout=20)
     assert second.returncode != 0
     assert output.read_bytes() == before
 
@@ -1105,7 +1137,7 @@ as_betboy() { shift 13; "$@"; }
 /usr/bin/timeout() { printf 'collector:%s\n' "$*" >&3; command /usr/bin/timeout "$@"; }
 exec 3>&2
 """ + shell_function("context_hook_command") + f"\ncontext_hook_command {shlex.quote(output.as_posix())} {command}\n"
-    result = subprocess.run([bash()], input=harness, text=True, capture_output=True, timeout=20)
+    result = run_bash_lf([bash()], input=harness, text=True, capture_output=True, timeout=20)
     assert result.returncode == 0, result.stderr
     assert result.stderr == "collector:--signal=TERM --kill-after=10s 610s /usr/bin/head -c 1048577\n"
 
@@ -1264,7 +1296,7 @@ apply_trusted_payload() { printf 'payload-write\n'; }
 
 
 def test_capacity_failure_from_fresh_online_backup_precedes_every_stop_and_write():
-    result = subprocess.run([bash()], input=capacity_order_harness(online_failure=True),
+    result = run_bash_lf([bash()], input=capacity_order_harness(online_failure=True),
         text=True, capture_output=True, timeout=20)
     assert "command not found" not in result.stderr, result.stderr
     lines = result.stdout.splitlines()
@@ -1275,7 +1307,7 @@ def test_capacity_failure_from_fresh_online_backup_precedes_every_stop_and_write
 
 
 def test_capacity_success_uses_two_distinct_archives_and_private_phase_hooks():
-    result = subprocess.run([bash()], input=capacity_order_harness(online_failure=False),
+    result = run_bash_lf([bash()], input=capacity_order_harness(online_failure=False),
         text=True, capture_output=True, timeout=20)
     assert result.returncode == 0, result.stderr
     lines = result.stdout.splitlines()
@@ -1305,7 +1337,7 @@ PATH=/usr/bin:/bin
 die() { printf 'rejected:%s\n' "$*" >&2; exit 1; }
 as_betboy() { shift 13; "$@"; }
 """ + shell_function("context_hook_command")
-    result = subprocess.run([bash()], input=harness + f"\ncontext_hook_command {shlex.quote(output.as_posix())} {command}\nprintf 'capture-accepted\\n'\n",
+    result = run_bash_lf([bash()], input=harness + f"\ncontext_hook_command {shlex.quote(output.as_posix())} {command}\nprintf 'capture-accepted\\n'\n",
         text=True, capture_output=True, timeout=20)
     assert output.stat().st_size <= 1024 * 1024 + 1
     assert result.returncode != 0, "oversized aggregate child output was accepted by the process boundary"
@@ -1322,7 +1354,7 @@ PATH=/usr/bin:/bin
 die() { printf 'rejected:%s\n' "$*" >&2; exit 1; }
 as_betboy() { "$@"; }
 """ + shell_function("context_hook_command")
-    result = subprocess.run([bash()], input=harness + f"\ncontext_hook_command {shlex.quote(output.as_posix())} {command}\n",
+    result = run_bash_lf([bash()], input=harness + f"\ncontext_hook_command {shlex.quote(output.as_posix())} {command}\n",
         text=True, capture_output=True, timeout=20)
     assert result.returncode == 0, result.stderr
     assert json.loads(output.read_text()) == {
@@ -1574,7 +1606,7 @@ stat() { case "$2" in '%U:%G') printf 'betboy-backup:betboy-backup\n';; '%a') pr
     harness += 'runuser() { if [[ "$*" == *"/usr/bin/test"* ]]; then return 0; fi; ' + noisy + '; }\n'
     harness += shell_function("verification_launcher_source") + shell_function("capture_backup_service_verifier") + shell_function("verify_backup_service_migration")
     harness += "\nverify_backup_service_migration\nprintf 'migration-backup-accepted\\n'\n"
-    result = subprocess.run([bash()], input=harness, text=True, capture_output=True, timeout=20)
+    result = run_bash_lf([bash()], input=harness, text=True, capture_output=True, timeout=20)
     assert "command not found" not in result.stderr, result.stderr
     assert result.returncode != 0, "post-migration full verifier accepted unbounded child output"
     assert "migration-backup-accepted" not in result.stdout
@@ -1829,7 +1861,7 @@ die() { printf 'rejected:%s\n' "$*" >&2; exit 1; }
 as_betboy() { "$@"; }
 """ + shell_function(function)
     harness += f"\n{function} {shlex.quote((tmp_path / 'output').as_posix())} {command}\nprintf 'accepted\\n'\n"
-    result = subprocess.run([bash()], input=harness, text=True, capture_output=True, timeout=20)
+    result = run_bash_lf([bash()], input=harness, text=True, capture_output=True, timeout=20)
     assert result.returncode != 0 and "VerificationResourceError" in result.stderr
     assert "accepted" not in result.stdout
 
@@ -1883,7 +1915,7 @@ def test_followup_second_phase_failure_never_applies_payload(failure):
     else:
         harness = harness.replace("context_hook_command() { CONTEXT_COMMAND_STATUS=0; }",
             'context_hook_command() { [[ "$1" != */quiesced/* ]] || return 1; CONTEXT_COMMAND_STATUS=0; }')
-    result = subprocess.run([bash()], input=harness, text=True, capture_output=True, timeout=20)
+    result = run_bash_lf([bash()], input=harness, text=True, capture_output=True, timeout=20)
     assert result.returncode != 0 and "quiesced-backup" in result.stdout
     assert "payload-write" not in result.stdout
 
@@ -1908,7 +1940,7 @@ restore_unit_state() { printf 'restore-unit-state\n'; }
     harness += f"ROLLBACK_ROOT={shlex.quote(tmp_path.as_posix())}\n"
     harness += f"durable_migration_requires_fail_closed() {{ return {0 if durable else 1}; }}\n"
     harness += shell_function("recover_update") + "\nrecover_update 1\n"
-    result = subprocess.run([bash()], input=harness, text=True, capture_output=True, timeout=20)
+    result = run_bash_lf([bash()], input=harness, text=True, capture_output=True, timeout=20)
     assert result.returncode == 1 and "online-archive" not in result.stdout
     if durable:
         assert "quiesced-archive" in result.stdout and "preserved-stage" in result.stdout
@@ -1926,7 +1958,7 @@ verification_launcher_source() { printf 'print("partial valid Python")\n'; retur
 context_hook_data() { printf 'must-not-seal\n'; }
 """ + f"CONTEXT_STAGE_DIR={shlex.quote(tmp_path.as_posix())}\n"
     harness += shell_function("prepare_verification_launcher") + "\nprepare_verification_launcher\nprintf 'accepted\\n'\n"
-    result = subprocess.run([bash()], input=harness, text=True, capture_output=True, timeout=20)
+    result = run_bash_lf([bash()], input=harness, text=True, capture_output=True, timeout=20)
     assert result.returncode != 0 and "could not be written completely" in result.stderr
     assert "must-not-seal" not in result.stdout and "accepted" not in result.stdout
 
@@ -1939,7 +1971,7 @@ die() { printf 'rejected:%s\n' "$*" >&2; exit 1; }
 /usr/bin/timeout() { if [[ "$*" == *'610s'* ]]; then return 9; fi; command /usr/bin/timeout "$@"; }
 """ + shell_function("capture_root_verifier")
     harness += f"\ncapture_root_verifier {shlex.quote((tmp_path / 'output').as_posix())} {command}\nprintf 'accepted\\n'\n"
-    result = subprocess.run([bash()], input=harness, text=True, capture_output=True, timeout=20)
+    result = run_bash_lf([bash()], input=harness, text=True, capture_output=True, timeout=20)
     assert result.returncode != 0 and "output capture failed" in result.stderr
     assert "accepted" not in result.stdout
 
@@ -1955,7 +1987,7 @@ die() { printf 'rejected:%s\n' "$*" >&2; exit 1; }
     harness += f"verification_launcher_source() {{ printf 'fixed launcher\\n'; return {9 if generator_failure else 0}; }}\n"
     harness += "runuser() { " + child + "; }\n" + shell_function("capture_backup_service_verifier")
     harness += f"\ncapture_backup_service_verifier {shlex.quote((tmp_path / 'output').as_posix())} archive\nprintf 'accepted\\n'\n"
-    result = subprocess.run([bash()], input=harness, text=True, capture_output=True, timeout=20)
+    result = run_bash_lf([bash()], input=harness, text=True, capture_output=True, timeout=20)
     assert (result.returncode != 0) == generator_failure, result.stderr
     assert ("accepted" in result.stdout) != generator_failure
 
@@ -2084,7 +2116,7 @@ def test_review_capacity_counts_mixedcase_databases_and_companions(tmp_path):
     harness = "set -euo pipefail\nPATH=/usr/bin:/bin\n" + f"APP_DIR={shlex.quote(app.as_posix())}\n"
     harness += enumeration_shell_bridge()
     harness += body[start:end] + '\nprintf "%s\\n" "$database_apparent_kib"\n'
-    result = subprocess.run([bash()], input=harness, text=True, capture_output=True, timeout=20)
+    result = run_bash_lf([bash()], input=harness, text=True, capture_output=True, timeout=20)
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "7"  # 6,145 bytes round up to 7 KiB, excluding ignore.txt
 
@@ -2114,7 +2146,7 @@ runuser() { printf 'dac:%s\n' "${@: -1}"; }
 @pytest.mark.parametrize("function", ["prepare_backup_storage_and_sources", "verify_backup_source_dac"])
 def test_review_source_metadata_and_dac_cover_casefold_paths(tmp_path, function):
     harness, app = source_dac_harness(tmp_path, function)
-    result = subprocess.run([bash()], input=harness, text=True, capture_output=True, timeout=20)
+    result = run_bash_lf([bash()], input=harness, text=True, capture_output=True, timeout=20)
     assert result.returncode == 0, result.stderr
     for name in ("normal.db", "Historical.DB", "Live.sQLite", "Third.SQLITE3", "Historical.DB-wal", "Live.sQLite-SHM", "Third.SQLITE3-journal"):
         assert (app / name).as_posix() in result.stdout
@@ -2124,7 +2156,7 @@ def test_review_source_metadata_and_dac_cover_casefold_paths(tmp_path, function)
 @pytest.mark.parametrize("function", ["prepare_backup_storage_and_sources", "verify_backup_source_dac"])
 def test_review_source_metadata_and_dac_reject_incomplete_enumeration(tmp_path, function):
     harness, _ = source_dac_harness(tmp_path, function, failing_find=True)
-    result = subprocess.run([bash()], input=harness, text=True, capture_output=True, timeout=20)
+    result = run_bash_lf([bash()], input=harness, text=True, capture_output=True, timeout=20)
     assert result.returncode != 0 and "accepted" not in result.stdout
 
 
@@ -2160,7 +2192,7 @@ find() {
     else command find "${arguments[@]}"; fi
 }
 """ + action
-    result = subprocess.run([bash()], input=harness, text=True, capture_output=True, timeout=20)
+    result = run_bash_lf([bash()], input=harness, text=True, capture_output=True, timeout=20)
     assert result.returncode == 0, result.stderr
     if function == "preflight": assert "bytes:8" in result.stdout
     else: assert (mounted / "cross-device.db").as_posix() in result.stdout
@@ -2182,7 +2214,7 @@ def test_unicode_casefold_discovery_matches_stage_helper(tmp_path, function):
     (app / name).write_bytes(b"x" * 2048)
     for companion in ("-wal", "-SHM", "-journal"):
         (app / (name + companion)).write_bytes(b"x" * 1024)
-    result = subprocess.run([bash()], input="export LC_ALL=C\n" + harness,
+    result = run_bash_lf([bash()], input="export LC_ALL=C\n" + harness,
         encoding="utf-8", capture_output=True, timeout=20)
     assert result.returncode == 0, result.stderr
     if function == "preflight": assert "bytes:12" in result.stdout

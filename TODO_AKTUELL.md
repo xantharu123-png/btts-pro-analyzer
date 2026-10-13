@@ -1,5 +1,164 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 13.10.2026 – Claude-Auditpaket: Prüfung abgeschlossen, Veröffentlichung folgt
+
+Dieser Abschlussblock ersetzt die darunterstehenden historischen Zwischenstände.
+Autoritative Arbeitskopie: `C:/Projekt/BetBoy/betboy-app/.worktrees/audit-repairs-20261013`.
+Der Hauptcheckout hält unveröffentlichte frühere WIP; nicht resetten oder breit stagen.
+
+- [x] Die sechs freigegebenen Reparaturen sind umgesetzt: Auszahlungsbestätigung,
+  unveränderliche abgerechnete Tippdaten, Decimal-Korridor, kausale Tennisdaten,
+  gemeinsame one_set-Abrechnung und quotenfreie persönliche Merkliste.
+- [x] Kalibrierungskandidat v2 geprüft, aber bewusst nicht aktiviert: 304 echte
+  chronologische Cachevergleiche sind schlechter. Aktive v1/v14 unverändert;
+  bekannte Modell-/Original-/Fitversionen bleiben geschlossen gebunden.
+- [x] Vollprüfung des eingefrorenen Index `b879d8d75ececc72848a3a2917bfab79959c8e95`:
+  **13781 bestanden, 97 bestehende Plattform-Skips, 147 Untertests, 0 Fehler**.
+  A4: 6648/58 Skips/36 Untertests, 2775,93s; B4: 7133/39/111, 946,85s.
+  `check_complete_qa.py` bestätigt alle **13878 Haupttest-Items genau einmal**,
+  keine fehlenden/doppelten Haupttests und keine Fehler.
+- [x] Letzte separate UI-Ergänzung: „Tipp merken“ auch in der manuellen Tennissuche.
+  Neun Regressionen zuerst RED (6 Fehler/3 PASS), danach alle acht betroffenen
+  Module **255/255 PASS**, 10,16s. Native Ereignis-ID, echter dauerhafter Accountscope,
+  beide Favoritenseiten, fehlende Quote und geschützte Settled-Snapshots geprüft.
+  Diese Delta-Prüfung NICHT zur überlappenden Vollsuite addieren oder rückwirkend
+  dem vorherigen eingefrorenen Index zuschreiben. Finaler Code-/Testindex:
+  `0ca151db8eb99cbb058fd0891bfc09a492f13581`.
+- [ ] Jetzt nur die expliziten Reparaturdateien committen, main pushen und im
+  inaktiven Dienstfenster per begrenztem Fast-forward auf dem VPS deployen.
+  GitHub/VPS vor Veröffentlichung weiterhin `c5a6264`; keinen Live-Erfolg behaupten.
+- [ ] Danach Linux-Import, tatsächliche SHAs, App/Caddy/Timer, beide Healthchecks,
+  unveränderte Modell-JSONs und den neuen Button im internen Browser bestätigen.
+
+Keine neuen Backups, Produktions-DB-Kopien, Sport-/API-Scans oder Preis-/EV-Gates.
+Kein historisches Geld/Prognoseumschreiben; Cricket und Mindestquote 1,20 unverändert.
+Nach Appstart kein ungeprüfter Rückfall auf alte Code-/Storeverträge.
+**Separate Restarbeit:** Verletzungs-/Wetter-/Müdigkeitswirkung und reale 4MiB-
+Quellenpoolgrenze weiterhin nicht gelöst. Bestehende Fußball-Shadow-Preisprovenienz
+liefert keinen gültigen CLV-/ROI-Nachweis; Software-PASS belegt keine bessere Rendite.
+Belege: `C:/Projekt/BetBoy/output/audit-repairs-20261013` und
+`docs/audits/2026-10-13-claude-audit-reparaturen.md`.
+
+## 13.10.2026 – freigegebene Claude-Auditreparaturen: lokaler Abschluss
+
+Dieser neueste Block hat Vorrang. Autorisierter Umfang: Auszahlungsplausibilität,
+abgeschlossene Tippdaten, exakte Quotenprodukte, Tennis-Kausalität/Ein-Satz-Regel,
+Kalibrierungsprüfung und persönliche Merkliste. Kein neuer Kontextmodellauftrag.
+
+- [x] Isolierter Reparatur-Worktree
+  `C:/Projekt/BetBoy/betboy-app/.worktrees/audit-repairs-20261013`,
+  Branch `codex/audit-repairs-20261013`, Ausgang `c5a6264`.
+  Alte dirty/untracked WIP im Hauptcheckout vollständig unberührt lassen.
+- [x] Neue ungewöhnliche Daily3-/15K-Gutschriften benötigen konkrete Begründung
+  und separate Bestätigung; UI-Bestätigung ist an Betrag/Quote/Ticket gebunden.
+  Alte signierte Abrechnungen bleiben unverändert lesbar.
+- [x] Abgeschlossene gespeicherte Tipps unveränderbar. „Tipp merken“ funktioniert
+  ohne Quote/EV-Freigabe: BOOKMARK, Einsatz 0, unbekannte Quote NULL.
+  Atomare nullable Migration bewahrt alte Werte, IDs und AUTOINCREMENT-Zähler.
+- [x] Decimal-exakter Quoten-Korridor einschließlich 1,50×1,60×1,25=3,00;
+  riesige ungültige Kombinationen verhindern keine normalen gültigen Tickets.
+- [x] Tennisstatistiken nicht mehr anhand Turnierstart/geratener Turnierdauer
+  vorzeitig zulassen. Reale Finish-Verfügbarkeit oder konservative Datumsgrenze.
+  Backtest und neue manuelle/automatische Shadow-Abrechnung teilen one_set;
+  fehlende Abrechnungsbelege bleiben nicht auswertbar, keine erfundenen Voids.
+  Alte Abrechnungen werden nicht neu bewertet; RisikoBet-Vertrag bleibt separat.
+- [x] Explizite stärkere Kalibrierung v2 technisch testbar, aber **NICHT aktiviert**:
+  304 reale historische Spiele in zwei bestehenden Caches zeigen schlechteren
+  Brier und gemeinsamen Logloss. Produktion und Primitive bleiben v1/v14.
+  Bekannte Original-/Rezept-/Fit-/Kontrastversionen geschlossen paaren;
+  gemischte Gesetze und alte Fits auf Kandidat-v2-Basis ablehnen.
+- [x] Unabhängige begrenzte Reviews aller Reparaturbereiche PASS; echte Merkliste
+  per Streamlit-AppTest bis SQLite/Meine Tipps geprüft. Überlappende Testzahlen
+  NICHT addieren; Details im neuen Auditbericht.
+- [ ] Gemeinsame konfigurierte Offline-Gesamtprojektprüfung läuft noch.
+  Erster Aufruf scheiterte ausschließlich an fehlender Portal-QA-Konfiguration;
+  zweiter Aufruf nutzt siteconfig.qa_settings/In-memory-DB.
+  Zweiter Vorlauf wegen bereits bekannter Fixture/AST-Prüfung bei circa 10%
+  gezielt beendet (exit -1, KEIN PASS). Cricket-QA-Vertrag inzwischen repariert:
+  exakt unveränderte Fixture auf LF, gemeinsam genutzten/Cricket-Pfad weiter
+  einfrieren und Hockey-only-Pfad getrennt behandeln. 7 gezielte Tests PASS,
+  einschließlich Mutationen der gemeinsamen Mathematik/Cricket-Routing/Guards.
+  Kein Cricket-Produkt-/Fixturehashwechsel oder Testdeselektion. Finale komplette
+  Prüfung gestartet 13.10.,16:42CEST, korrekt bei erstem echten Fehler beendet:
+  3386 bestanden,25 Skips,117 Untertests,1 Fehler,1665,38s. Kein Gesamt-PASS.
+  `test_context_runtime_tennis_live::test_schema2_point_live_original_replays_read_only_without_rebuild[ATP]`:
+  neuer Tennis-Loader ändert Codehash, die Point-Schema2-Kennung unterstützte
+  nur alte Ownerbytes. Exakte statische neue LF/CRLF-Kennung und gerichtete
+  Kompatibilität repariert:162/162 betroffenes vollständiges Modul PASS,
+  unabhängig9/9 Manifest-Gegentests PASS. Alte Point-Originale (ATP/WTA,LF/CRLF)
+  replayen read-only; unbekannte/gemischte Owner und Reverse bleiben abgelehnt.
+  Kein dynamisches Hash-Bypass, keine historische Umschreibung.
+  Weitere Gesamt-QA fand Windows-TESTaufbaufehler (B2891pass/8skip/85Untertests/
+  1Fehler,603,59s; A bei22%gezielt beendet,kein PASS): text=True machte Bashstdin
+  CRLF; zwei hartgepinnte Python-Dateien lagen lokal CRLF vor,Git/LINUXbytes LF.
+  Nur Testadapter+3Aufrufermodule/LF-Attribute korrigiert; Nicht-Bash-Aufrufe,
+  Backup-/Stage-Inhalte und ihre erwarteten Hashes unverändert. UTF8-Inputbytes
+  exakt, Ausgabe behält alteTextsemantik, lokalesGitBash stattWindowsWSLalias.
+  354/354Hooktests PASS,112Updater/Servertests PASS+1vorhandenerLinuxflockSkip.
+  3neue Adapter-Regressionen PASS. Keine Testauslassung oderProdukt-/Backupänderung.
+  A2/B2 ebenfalls KEIN PASS: A2 endete2771pass/19skip/32Untertests/1Fehler
+  in1913,86s, B2 endete4835pass/8skip/111Untertests/1Fehler in1479,91s.
+  A2: altes Sequenzfixture behauptete CHF120Rückzahlung bei CHF50/Quote1,20;
+  neuer Wächter lehnte korrekt ab. Nur tatsächliche Erstquote im Test2,40,
+  Zweitbestätigung/Verlustlimit NICHT gelockert.87betroffene und alle251Daily3-
+  Tests PASS. B2: weitere rohe QA-Owner lokalCRLF statt bestehendemLinuxLF.
+  Alle exakt belegten Pfade über LF-Attribute kanonisieren, keine Pinänderung;
+  HEAD-/Index-Gitblobs der Helfer unverändert. Voller Native-Chain-Modul65PASS.
+  Vollständige7Modul-Protokollrunde:271PASS/54bestehendeLinux-root-Skips/
+  0Fehler,148,56s. Alle13formatiertenQuellen roh==HEAD==Index; bestehendePins
+  unverändert,inventory.pyunberührt. Keine neuenSkips oderGit-Codeinhaltänderung.
+  B3 vollständig beendet:7124PASS/39Skips/111Untertests/9Fehler in1201,19s.
+  Genau2weitere rohe LF-Pins betroffen (native_preparation_worker.py und
+  eingefrorene Tennis-Simulator-Fixture); bestehendeHashes/Gitblobs unverändert,
+  nur2exakteLFAttribute undFormatierung. BeideganzenModule226/226PASS,3,41s.
+  B4 abgeschlossen:7133PASS/39Skips/111Untertests/0Fehler,946,85s.
+  A3 vollständig4Fehler/6644PASS/58Skips/36Untertests,2894,95s: JSON-Probe
+  lokalCRLFstattbestehendemOriginalhash; alteMocksnahmenlaw_version/save_source
+  nichtan. NurexakteJSON-LF-Attribute/Formatierung und2expliziteTestdouble-
+  Signaturen korrigiert, aktivev1/Save-Herkunft zusätzlichassertiert.
+  Produktcode/Pins/alteSortier-/Familienasserts unverändert.188+13betroffene
+  ganzeModultestsPASS. A4 prüft diegesamteersteHälfte frisch.
+  Erneuerte Vollcollection:13878 Haupttests/367Module. A4/B4 mit184/183
+  disjunkten Modulen laufen ohne Testabwahl und ohne Fail-fast, damit alle
+  verbleibenden Fälle geprüft werden. Abschluss über final-shard-A4/B4.log/xml
+  und check_complete_qa.py: jedes gesammelte Haupttest-Item genau einmal,0Fehler.
+  Finaler Code-/Testindex `b879d8d75ececc72848a3a2917bfab79959c8e95`.
+  Gegen b841 nur2QA-Testdouble-Dateien und exakteLF-Metadaten;
+  alleProdukt-Gitblobs/B4-Testblobs unverändert.
+  Keine Dependencyinstallation.
+- [ ] Nach tatsächlichem QA-Abschluss explizite Dateien committen, main pushen
+  und VPS per begrenztem FF deployen. Noch NICHT veröffentlicht.
+  Aktueller RO-Abgleich: GitHub/VPS c5a6264, App/Caddy/7 Timer und Healthchecks ok.
+- [ ] Letzter Anschlusscheck fand: Manuelle Suche → Tennis hat noch keinen
+  persönlichen Merken-Button. Enger Patch außerhalb des eingefrorenen Worktrees:
+  `C:/Projekt/BetBoy/output/audit-repairs-20261013/manual-tennis-bookmark.patch`.
+  Unabhängig statisch PASS; 9 neue Fälle im bestehenden Bookmark-Testmodul.
+  Nach A4 zuerst Tests RED, danach Produktanschluss und vollständige betroffene
+  UI-/Merkliste-/Tennis-Prüfung. Keine Neuberechnung, Quoten-/EV-/Einsatzfreigabe;
+  native Ereignisbindung und dauerhafter Accountscope, geschützte Settled-Snapshots.
+  A4/B4 qualifizieren den eingefrorenen Index b879; diese letzte UI-Ergänzung
+  anschließend separat und ausdrücklich als Delta qualifizieren, nicht als
+  bereits vollständig getesteten Bestandteil der alten Vollsuite ausgeben.
+- [ ] Separate vorhandene Fußball-Shadow-Evidenzlücke: Vorprüfung meldet
+  betboy-football-shadow.service partial/exit1. Für Fixture1497716 gibt es keine
+  akzeptierte aktuelle Bet365-Quote mit Providerzeit; vorhandene Retrylogik
+  verschiebt wahrheitsgemäß. Zwei bereits alte abgerechnete Belege haben
+  invalid_quote_provenance/malformed_settlement; kein gültiger CLV-/ROI-Nachweis.
+  Unabhängig gegen unveränderten produktiven c5a6264-Code bestätigt; keine
+  Regression dieses noch unveröffentlichten Pakets. Nächsten regulären Lauf
+  beobachten, Originalbelege getrennt prüfen; keine Zusatzabfrage/Altzeilen-
+  Löschung, erfundene Provenienz oder künstliche Erfolgsstatuskorrektur.
+- [ ] Nach Appstart KEIN blinder Old-Code-Rollback: neue BOOKMARK/nullable Felder
+  und Sondergutschriftverträge können bereits benutzt sein. Vor Appstart nur
+  source-only Recovery erlaubt; kein Geld löschen/umsignieren/zurückübersetzen.
+
+Keine neuen Backups/Produktions-DB-Kopien/Sport-/API-Scans. Keine neuen Preis-/EV-
+Gates, kein Wechsel der 1,20-Regel, keine rückwirkenden Prognose-/Geldänderungen.
+Verletzungs-/Wetter-/Müdigkeitsnachweis weiterhin separat offen; die darunter
+beschriebene reale 4MiB-Quellenpoolgrenze wird durch dieses Paket NICHT gelöst.
+Belege: `C:/Projekt/BetBoy/output/audit-repairs-20261013`,
+`docs/audits/2026-10-13-claude-audit-reparaturen.md`.
+
 ## 13.10.2026 – Kontextanschlüsse live; reale Einzelquellengrenze bleibt offen
 
 Auf ausdrückliches „machen“: bestehende v2-Kadermerkmale im Worker/Transport

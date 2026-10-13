@@ -4,15 +4,17 @@ Protocol (strictly causal, same discipline as the football pipeline):
 
 1. Model state (Surface-Elo + serve/return tracker) is built ONLY from
    the odds-blind stats plane (ManTennisData).  A stats row enters the
-   state only when its tournament start date lies before a conservative
-   cutoff: match date minus 10 days (15 for Grand Slams).  Retirements
+   state only after its actual tournament finish-date boundary, or verified
+   aware individual publication availability, lies before the decision.
+   Unknown finish evidence is excluded (no guessed event duration). Retirements
    (``match_ret``) never update the state — a retired match is not a
    real result.  Serve/return ratings consume tour-level matches only
    (challenger box scores measure the wrong opposition level; Elo still
    sees everything because Elo is opponent-adjusted by construction).
 2. For every market row (tennis-data.co.uk, Pinnacle closing prices)
-   we predict BEFORE knowing the result.  Retired matches are VOID for
-   settlement and excluded from scoring.
+   we predict BEFORE knowing the result. Match-winner retirement settlement
+   shares the declared one-set shadow rule; unknown evidence is non_evaluable.
+   Retirements never train healthy-result calibration or ratings.
 3. Raw model probabilities pass a WALK-FORWARD Platt recalibration
    (2-parameter logistic on logit(p), refit as history grows, applied
    only to future rows).  Raw ratings are range-compressed; the
@@ -42,7 +44,8 @@ import pandas as pd
 
 from betting_math import MINIMUM_RECOMMENDED_DECIMAL_ODDS
 
-from .data_loader import load_atp_stats, load_market_odds, load_wta_ta_stats, add_normalized_names
+from .data_loader import load_atp_stats, load_market_odds, load_wta_ta_stats, add_normalized_names, stats_available_at
+from .settlement_policy import match_winner_status, unit_return
 from .elo import SurfaceElo
 from .serve_model import (
     ServeAdmissionDiagnostics,
@@ -53,9 +56,6 @@ from .serve_model import (
 )
 from .simulator import simulate_match, LEGACY_MODEL_VERSION, POINT_MODEL_VERSION, point_match_win_probability
 
-GRAND_SLAMS = ("Australian Open", "Roland Garros", "Wimbledon", "US Open")
-CUTOFF_DAYS = 10
-CUTOFF_DAYS_SLAM = 15
 MIN_SERVE_GAMES = 60.0   # both players need this many tracked service games
 MIN_ELO_MATCHES = 20     # experience gate: below this we do not bet
 RETIRED_FLAGS = {"retired", "ret", "walkover", "w/o", "def", "default"}
@@ -201,6 +201,8 @@ class BacktestRow:
     y_alpha: int
     p_alpha: float           # calibrated prob for alphabetically-first player
     p_alpha_raw: float       # raw prob for alphabetically-first player
+    settlement_status: str = "standing"
+    termination: str = "normal"
 
 
 @dataclass
@@ -213,20 +215,24 @@ class BacktestReport:
     def summary(self, edge_thresholds=(0.0, 0.02, 0.05, 0.08, 0.10)) -> pd.DataFrame:
         """Legacy diagnostic showing historical edge-threshold sensitivity."""
         frame = self.to_frame()
+        if frame.empty:
+            return pd.DataFrame([{"edge>=": thr, "bets": 0} for thr in edge_thresholds])
         out = []
         for thr in edge_thresholds:
-            bets = frame[(frame["chosen_edge"] >= thr) & frame["gated"]]
+            bets = frame[(frame["chosen_edge"] >= thr) & frame["gated"]
+                         & frame["settlement_status"].isin(("standing", "void"))]
             if len(bets) == 0:
                 out.append({"edge>=": thr, "bets": 0})
                 continue
             pnl = bets.apply(
-                lambda r: (r["chosen_odds"] - 1.0) if r["bet_won"] else -1.0, axis=1
+                lambda r: unit_return(r["settlement_status"], r["bet_won"], r["chosen_odds"]), axis=1
             )
+            resolved = bets[bets["settlement_status"].eq("standing")]
             out.append(
                 {
                     "edge>=": thr,
                     "bets": int(len(bets)),
-                    "win_rate": round(float(bets["bet_won"].mean()), 4),
+                    "win_rate": round(float(resolved["bet_won"].mean()), 4) if len(resolved) else None,
                     "roi": round(float(pnl.mean()), 4),
                     "avg_edge": round(float(bets["chosen_edge"].mean()), 4),
                     "avg_odds": round(float(bets["chosen_odds"].mean()), 3),
@@ -303,7 +309,7 @@ class BacktestReport:
                 "minimum_published_odds": float(minimum_published_odds),
             }
 
-        replay = frame[frame["gated"]].copy()
+        replay = frame[frame["gated"] & frame["settlement_status"].isin(("standing", "void"))].copy()
         if allowed_surfaces is not None:
             replay = replay[replay["surface"].isin(allowed_surfaces)]
         if require_serve_model:
@@ -359,11 +365,9 @@ class BacktestReport:
             lambda row: row["odds_w"] if row["policy_side"] == "W" else row["odds_l"],
             axis=1,
         )
-        replay["policy_won"] = replay["policy_side"] == "W"
+        replay["policy_won"] = (replay["policy_side"] == "W") & (replay["settlement_status"] == "standing")
         returns = replay.apply(
-            lambda row: (
-                row["policy_odds"] - 1.0 if row["policy_won"] else -1.0
-            ),
+            lambda row: unit_return(row["settlement_status"], row["policy_won"], row["policy_odds"]),
             axis=1,
         )
         roi = float(returns.mean())
@@ -397,6 +401,12 @@ class BacktestReport:
 
     def calibration(self) -> Dict[str, float]:
         frame = self.to_frame()
+        if not frame.empty:
+            frame = frame[frame["termination"].eq("normal") & frame["settlement_status"].eq("standing")]
+        if frame.empty:
+            return {**dict.fromkeys(("brier_raw", "brier_cal", "brier_market",
+                    "logloss_raw", "logloss_cal", "logloss_market",
+                    "pick_accuracy", "gate_coverage")), "n": 0}
         y = frame["y_alpha"].astype(float)
 
         def _metrics(pcol: str) -> Tuple[float, float]:
@@ -426,6 +436,9 @@ class BacktestReport:
 
     def bias_table(self) -> pd.DataFrame:
         frame = self.to_frame()
+        if frame.empty:
+            return frame
+        frame = frame[frame["termination"].eq("normal") & frame["settlement_status"].eq("standing")].copy()
         if frame.empty:
             return frame
         frame["bucket"] = pd.cut(
@@ -464,9 +477,17 @@ def _devig(odds_w: float, odds_l: float) -> Optional[Tuple[float, float]]:
     return (1.0 / ow) / total, (1.0 / ol) / total
 
 
-def _cutoff(date: pd.Timestamp, tournament: str) -> pd.Timestamp:
-    days = CUTOFF_DAYS_SLAM if tournament in GRAND_SLAMS else CUTOFF_DAYS
-    return date - pd.Timedelta(days=days)
+def _cutoff(date: pd.Timestamp, tournament: str = "") -> pd.Timestamp:
+    """Aware decision or earliest possible start of an unzoned market day.
+
+    An unknown venue date may start in UTC+14. Choosing its earliest boundary
+    complements the latest UTC-12 end boundary of date-only training evidence.
+    Tournament names/aliases never decide availability.
+    """
+    date = pd.Timestamp(date)
+    if date.tzinfo is not None:
+        return date.tz_convert("UTC")
+    return date.normalize().tz_localize("UTC") - pd.Timedelta(hours=14)
 
 
 def _is_retired(value) -> bool:
@@ -526,7 +547,7 @@ def run_backtest(
     if end_cutoff is not None:
         if not isinstance(end_cutoff, datetime) or end_cutoff.tzinfo is None or end_cutoff.utcoffset() is None:
             raise ValueError("end_cutoff must be timezone-aware")
-        end_ts = pd.Timestamp(end_cutoff.astimezone(timezone.utc)).tz_localize(None)
+        end_ts = pd.Timestamp(end_cutoff.astimezone(timezone.utc))
     if calibration_only and (len(tours) != 1 or tours[0] not in ("atp", "wta")):
         raise ValueError("calibration requires exactly one explicit tour")
     if diagnostics is not None and not calibration_only:
@@ -541,18 +562,28 @@ def run_backtest(
         if end_ts is None:
             return frame
         frame = frame.copy()
-        frame[column] = pd.to_datetime(frame[column], errors="coerce", utc=True).dt.tz_localize(None)
-        return frame[frame[column].notna() & frame[column].le(end_ts)]
+        values = pd.to_datetime(frame[column], errors="coerce", utc=True)
+        return frame[values.notna() & values.le(end_ts)]
+
+    def available_history(frame, tour, *, individual_match_date=False):
+        if frame.empty:
+            return [], []
+        frame = frame.copy()
+        frame["stats_available_at"] = pd.to_datetime([
+            stats_available_at(row, individual_match_date=individual_match_date)
+            for row in frame.to_dict("records")
+        ], utc=True)
+        frame = bounded(frame, "stats_available_at", tour)
+        frame = frame[frame["stats_available_at"].notna()]
+        frame = add_normalized_names(frame, "winner_name", "loser_name")
+        frame = frame.sort_values("stats_available_at", kind="mergesort").reset_index(drop=True)
+        return frame.to_dict("records"), frame["stats_available_at"].tolist()
 
     stats_records = None
     stats_dates = None
     if "atp" in tours:
         stats = load_atp_stats(stats_years)
-        stats = bounded(stats, "tourney_date", "atp")
-        stats = add_normalized_names(stats, "winner_name", "loser_name")
-        stats = stats.sort_values("tourney_date", kind="mergesort").reset_index(drop=True)
-        stats_records = stats.to_dict("records")
-        stats_dates = stats["tourney_date"].tolist()
+        stats_records, stats_dates = available_history(stats, "atp")
 
     # WTA serve plane: Tennis Abstract leaderboard box scores (2024 -> today).
     # Same schema as the ATP stats plane; consumed through its own causal
@@ -561,11 +592,7 @@ def run_backtest(
     wta_dates = None
     if "wta" in tours and serve_weight > 0:
         wta_stats = load_wta_ta_stats()
-        wta_stats = bounded(wta_stats, "tourney_date", "wta")
-        wta_stats = add_normalized_names(wta_stats, "winner_name", "loser_name")
-        wta_stats = wta_stats.sort_values("tourney_date", kind="mergesort").reset_index(drop=True)
-        wta_records = wta_stats.to_dict("records")
-        wta_dates = wta_stats["tourney_date"].tolist()
+        wta_records, wta_dates = available_history(wta_stats, "wta", individual_match_date=True)
 
     score_from_ts = pd.Timestamp(score_from) if score_from else None
 
@@ -643,8 +670,20 @@ def run_backtest(
             w_key, l_key = row.winner_key, row.loser_key
             if not w_key or not l_key:
                 continue
-            if _is_retired(getattr(row, "Comment", None)):
-                continue  # retired matches are void — no scoring, no state
+            comment = str(getattr(row, "Comment", "")).strip().casefold()
+            abnormal = _is_retired(comment)
+            if abnormal and any(flag in comment for flag in ("def", "default")):
+                continue  # unsupported terminal, not a retirement or normal win
+            termination = ("walkover" if any(flag in comment for flag in ("walkover", "w/o"))
+                           else "retirement" if abnormal else "normal")
+            completed_sets = None
+            if termination == "retirement":
+                values = (getattr(row, "Wsets", None), getattr(row, "Lsets", None))
+                if all(isinstance(value, (int, float)) and not isinstance(value, bool)
+                       and math.isfinite(value) and value >= 0 and int(value) == value for value in values):
+                    completed_sets = int(sum(values))
+            settlement_status = match_winner_status(termination,
+                str(row.Winner) if termination != "walkover" else None, completed_sets)
             surface = row.Surface if isinstance(row.Surface, str) else None
             try:
                 best_of = int(row.BestOf)
@@ -680,6 +719,8 @@ def run_backtest(
             )
 
             if calibration_only:
+                if abnormal:
+                    continue
                 if score_from_ts is None or row.Date >= score_from_ts:
                     alpha_first_is_w = w_key <= l_key
                     p_alpha_raw = p_model if alpha_first_is_w else 1.0 - p_model
@@ -690,13 +731,13 @@ def run_backtest(
                         p_alpha_raw=round(p_alpha_raw, 4),
                         y_alpha=1 if alpha_first_is_w else 0,
                     ))
-                if tour == "wta":
+                if tour == "wta" and not abnormal:
                     elo.update(w_key, l_key, surface)
                 continue
 
             prices = _devig(row.PSW, row.PSL)
             if prices is None:
-                if tour == "wta":
+                if tour == "wta" and not abnormal:
                     elo.update(w_key, l_key, surface)
                 continue
             implied_w, implied_l = prices
@@ -706,7 +747,7 @@ def run_backtest(
             # the serve plane has no coverage yet — a distribution the
             # calibrator must NOT learn)
             if score_from_ts is not None and row.Date < score_from_ts:
-                if tour == "wta":
+                if tour == "wta" and not abnormal:
                     elo.update(w_key, l_key, surface)
                 continue
 
@@ -759,13 +800,15 @@ def run_backtest(
                     y_alpha=1 if alpha_first_is_w else 0,
                     p_alpha=round(p_alpha_cal, 4),
                     p_alpha_raw=round(p_alpha_raw, 4),
+                    settlement_status=settlement_status,
+                    termination=termination,
                 )
             )
 
             # 4) only now may anything learn from this result
-            if recalibrate:
+            if recalibrate and not abnormal:
                 cal.add(p_alpha_raw, 1 if alpha_first_is_w else 0)
-            if tour == "wta":
+            if tour == "wta" and not abnormal:
                 elo.update(w_key, l_key, surface)
 
     return result

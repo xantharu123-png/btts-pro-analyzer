@@ -15,7 +15,7 @@ import math
 import challenge_engine as engine
 from context_models.contracts import ContextContractError, ContextIntegrityError
 from context_models.football_original_storage import MAX_ORIGINAL_BYTES, _packet
-from football_joint_calibration import LAW_VERSION
+from football_joint_calibration import LAW_VERSION, LEGACY_LAW_VERSION, prediction_version_for_law
 from football_original import FootballOriginal
 from model_artifacts import _decode_object
 
@@ -98,12 +98,16 @@ def compare_captured_joint(original: FootballOriginal) -> dict:
         packet = _decode_object(original._bytes, label="football ORIGINAL")
     except RecursionError as exc:
         raise ContextIntegrityError("football ORIGINAL exceeds supported JSON depth") from exc
+    if packet.get("schema") == 2 and packet.get("prediction_version") not in (
+        prediction_version_for_law(LEGACY_LAW_VERSION), prediction_version_for_law(LAW_VERSION),
+    ):
+        raise ContextContractError("joint comparison has no matching installed law")
     _packet(packet)
     if packet["schema"] != 2:
         raise ContextContractError("joint comparison requires ORIGINAL v2")
-    if (packet["prediction_version"] != engine.CHALLENGE_PREDICTION_VERSION
-            or packet["model_contract_signature"] != engine.CHALLENGE_MODEL_CONTRACT_SIGNATURE
-            or packet["distribution_capture"]["law_version"] != LAW_VERSION):
+    law_version = packet["distribution_capture"]["law_version"]
+    if (packet["prediction_version"] != prediction_version_for_law(law_version)
+            or packet["model_contract_signature"] != engine.CHALLENGE_MODEL_CONTRACT_SIGNATURE):
         raise ContextContractError("joint comparison has no matching installed law")
 
     families = packet["distribution_capture"]["families"]
@@ -153,7 +157,7 @@ def compare_captured_joint(original: FootballOriginal) -> dict:
         "version": COMPARISON_VERSION,
         "scope": "captured-settlement-only",
         "original_logical_digest": hashlib.sha256(original._bytes).hexdigest(),
-        "law_version": LAW_VERSION,
+        "law_version": law_version,
         "raw_probabilities": raw_markets,
         "probabilities": effective_markets,
         "delta_pp": {key: [100.0 * (new - old) for old, new in zip(raw_markets[key], effective_markets[key])]

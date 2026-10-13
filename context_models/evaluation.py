@@ -122,7 +122,7 @@ def compare_registered_losses(plan: dict, *, results: dict, distribution_losses:
             _membership(row, inventory)
         distributions, policy = _distributions(losses, inventory, family=config["family"],
                                                contract=config["outcome_contract"],
-                                               joint=config['model_variant'] == 'football-joint-log-tilt-v1')
+                                               joint=config['model_variant'] in {'football-joint-log-tilt-v1', 'football-joint-log-tilt-v2'})
         if status == "baseline_control" and (
                 any(r["p_base"] != r["p_context"] for r in rows)
                 or any(r["base_logloss"] != r["context_logloss"] for r in losses)):
