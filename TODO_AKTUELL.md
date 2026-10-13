@@ -1,6 +1,6 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
-## 13.10.2026 – Claude-Auditpaket: Prüfung abgeschlossen, Veröffentlichung folgt
+## 13.10.2026 – Claude-Auditpaket: geprüft, gepusht und auf dem VPS live
 
 Dieser Abschlussblock ersetzt die darunterstehenden historischen Zwischenstände.
 Autoritative Arbeitskopie: `C:/Projekt/BetBoy/betboy-app/.worktrees/audit-repairs-20261013`.
@@ -24,11 +24,27 @@ Der Hauptcheckout hält unveröffentlichte frühere WIP; nicht resetten oder bre
   Diese Delta-Prüfung NICHT zur überlappenden Vollsuite addieren oder rückwirkend
   dem vorherigen eingefrorenen Index zuschreiben. Finaler Code-/Testindex:
   `0ca151db8eb99cbb058fd0891bfc09a492f13581`.
-- [ ] Jetzt nur die expliziten Reparaturdateien committen, main pushen und im
-  inaktiven Dienstfenster per begrenztem Fast-forward auf dem VPS deployen.
-  GitHub/VPS vor Veröffentlichung weiterhin `c5a6264`; keinen Live-Erfolg behaupten.
-- [ ] Danach Linux-Import, tatsächliche SHAs, App/Caddy/Timer, beide Healthchecks,
-  unveränderte Modell-JSONs und den neuen Button im internen Browser bestätigen.
+- [x] Codecommit `6636530267826fb37b3c834b8e94afa4ebc1b019` auf GitHub-main
+  gepusht und am 13.10.2026 um 20:33 CEST per begrenztem Fast-forward vom
+  bisherigen `c5a6264` auf dem VPS veröffentlicht. Reparatur-Worktree/GitHub/VPS
+  vor dem rein dokumentarischen Nachtrag exakt identisch; Hauptcheckout-WIP erhalten.
+- [x] Offline-Linux-Imports einschließlich Tennisrenderer erfolgreich; aktive
+  Kalibrierung ausdrücklich legacy-v1. App/Caddy aktiv, alle sieben Timer aktiv
+  und enabled, letzte Dienste success/inactive, beide Healthchecks `ok`.
+  Backupdienst/-timer weiterhin inactive, 21GiB frei.
+- [x] Wettfinder-/RisikoBet-JSONs vor und nach dem Deploy bytegleich:
+  `f20422a802fd61461d8f8ab548f85228a1d083bdba92c51a0615bf9364a81bd4` /
+  `6f0c5f3158fb2bbe08bc8b7692636a0f16847e90c32742a7f7497346b644e8f1`.
+- [x] Interner Browser nach Reload: 18 „Tipp merken“-Buttons, erster sichtbar,
+  keine Seitenexception und keine neuen Warnungen/Fehler seit dem Wiederanlauf.
+  Erwartete Verbindungs-/502-Meldungen während des kurzen kontrollierten Neustarts
+  nicht als permanente Appfehler oder als vollständig fehlerfreien Neustart ausgeben.
+  Keine echte Produktions-Merkliste oder Geldbuchung testweise angelegt.
+
+Produktionsbelege: `deploy-code.log` und `production-code-final.log` im Belegordner.
+Dieser dokumentarische Nachtrag wird separat ohne Appneustart per FF nachgezogen;
+Code- und QA-Stand ändern sich dadurch nicht. Alle historischen PENDING-Blöcke
+darunter sind überholt und keine offenen Aufgaben dieses abgeschlossenen Pakets.
 
 Keine neuen Backups, Produktions-DB-Kopien, Sport-/API-Scans oder Preis-/EV-Gates.
 Kein historisches Geld/Prognoseumschreiben; Cricket und Mindestquote 1,20 unverändert.

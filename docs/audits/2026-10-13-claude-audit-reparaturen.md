@@ -1,6 +1,6 @@
 # BetBoy – Claude-Auditreparaturen vom 13. Oktober 2026
 
-Stand: isolierter Arbeitsstand `C:/Projekt/BetBoy/betboy-app/.worktrees/audit-repairs-20261013`, Basis `c5a6264`. Die sechs freigegebenen Bereiche sind umgesetzt und qualifiziert. **Softwareprüfung abgeschlossen; Veröffentlichung steht noch aus.** Historische Fehlrunden darunter bleiben Fehlberichte und sind durch diesen neuesten Abschlussstatus ersetzt, nicht rückwirkend grün umgedeutet.
+Stand: isolierter Arbeitsstand `C:/Projekt/BetBoy/betboy-app/.worktrees/audit-repairs-20261013`, Basis `c5a6264`. Die sechs freigegebenen Bereiche sind umgesetzt, qualifiziert und als **Codecommit `6636530267826fb37b3c834b8e94afa4ebc1b019` auf GitHub-main und VPS live** (13.10.2026,20:33CEST). Historische Fehlrunden darunter bleiben Fehlberichte und sind durch diesen neuesten Abschlussstatus ersetzt, nicht rückwirkend grün umgedeutet.
 
 ## Abschließende Qualifikation
 
@@ -21,9 +21,22 @@ Stand: isolierter Arbeitsstand `C:/Projekt/BetBoy/betboy-app/.worktrees/audit-re
 - Finale Code-/Testtree `0ca151db8eb99cbb058fd0891bfc09a492f13581`.
   Vollsuite und nachfolgende Delta-Prüfung getrennt ausweisen; keine Addition
   überlappender Prüfungen oder Behauptung einer erneuten finalen Vollsuite.
-- GitHub/VPS vor Veröffentlichung weiterhinc5a6264. Geplantes Release erzeugt
-  keine neue Sicherung, DB-Kopie oder Sport-/API-Abfrage. Echte Produktions-
-  und Browsernachweise werden erst nach dem begrenzten FF ergänzt.
+- Begrenzt veröffentlichter Code6636530: Offline-Linux-Imports inklusive
+  Tennisrenderer PASS, aktive Kalibrierung legacy-v1. Beide Healthchecksok,
+  App/Caddy aktiv, sieben Timer aktiv/enabled und letzte Dienste success/inactive.
+  BackupTimer/-Dienst inactive,21GiBfrei. Kein neuer Backup-/API-/Sportscan.
+- Beide gespeicherten ModelJSONs SHA-identisch vor/nach Release:
+  Wettfinderf20422a802fd61461d8f8ab548f85228a1d083bdba92c51a0615bf9364a81bd4,
+  RisikoBet6f0c5f3158fb2bbe08bc8b7692636a0f16847e90c32742a7f7497346b644e8f1.
+  [Deploymentprotokoll](C:/Projekt/BetBoy/output/audit-repairs-20261013/deploy-code.log),
+  [Produktionsnachweis](C:/Projekt/BetBoy/output/audit-repairs-20261013/production-code-final.log).
+- Interner Browser nach frischem Reload:18 Merken-Buttons, erster sichtbar,
+  keine Seitenexception und keine neuen Warnungen/Fehler seit18:33:12UTC.
+  Während kurzem kontrolliertem Neustart gab es erwartete WebSocket-/502Logs;
+  diese nicht löschen oder als permanente Appfehler ausgeben. Keine echten
+  Produktions-Testmerker, Einsätze oder Geldbuchungen angelegt.
+- Dieser Produktionsnachtrag wird dokumentations-only ohne Appneustart per
+  Fast-forward veröffentlicht. Er ändert keinen Code oder geprüften Vertrag.
 
 ## Reparaturumfang
 

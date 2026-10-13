@@ -1,6 +1,6 @@
 # BetBoy - Übergabe auf einen neuen PC
 
-## Neuester Einstieg – 13.10.2026: Claude-Auditpaket qualifiziert
+## Neuester Einstieg – 13.10.2026: Claude-Auditpaket live
 
 Oberster TODO-Block hat Vorrang vor historischen Zwischenständen. Autoritative
 Arbeitskopie: `C:/Projekt/BetBoy/betboy-app/.worktrees/audit-repairs-20261013`,
@@ -15,12 +15,20 @@ Module255/255 PASS. Finale Code-/Testtree0ca151db8eb99cbb058fd0891bfc09a492f1358
 Überlappende Zahlen nicht addieren; die UI-Ergänzung ist eine eigene Abschluss-
 qualifikation, keine nachträgliche Behauptung zur alten Vollsuite.
 
-Nächster Schritt: expliziter Commit/Push und begrenzter VPS-FF mit idle-Dienst-
-Guard, ohne Backup oder zusätzlichen Sportscan. GitHub/VPS noch c5a6264.
-Nach tatsächlicher Veröffentlichung SHAs/Health/JSON-Gleichheit/Browserbutton
-hier und im TODO dokumentieren. Kalibrierungv2 nicht aktiv:304 reale Vergleiche
-schlechter. Kein Rendite-/Verletzungs-/Wetter-/Müdigkeitsnachweis aus QA ableiten.
-Separate reale Quellenpool-/Shadow-Preisprovenienzprobleme bleiben offen.
+Codecommit `6636530267826fb37b3c834b8e94afa4ebc1b019` aufmain/VPS live,
+13.10.2026 um20:33 CEST. Reparatur-Worktree/GitHub/VPS vor Dokumentationsnachtrag
+exakt gleich. Offline-Linux-Import/aktivelegacy-v1/App/Caddy/7aktive enabledTimer/
+beideHealthchecksok; ModelJSONs bytegleich,21GiBfrei,BackupTimer/Dienstinactive.
+Interner Browser:18MerkenButtons,erster sichtbar,keineSeitenexception/neuenLogs
+nachWiederanlauf. KurzeDisconnect-/502Logs währendkontrolliertemNeustart bleiben
+korrekt alsRestartartefakte dokumentiert. KeineechtenTestmerker/Geldbuchungen.
+DieserNachtrag wird separat alsDocs-onlyFF ohneAppneustart veröffentlicht.
+Historische PENDING-Blöcke darunter sind für dieses Paket ersetzt.
+
+Kalibrierungv2 nicht aktiv:304 reale Vergleiche schlechter. KeinRendite-/
+Verletzungs-/Wetter-/Müdigkeitsnachweis ausQA ableiten. Separate realeQuellenpool-
+undShadow-Preisprovenienzprobleme bleiben offen. NeueArbeit dort anschließen,
+nicht erneut die sechs abgeschlossenenReparaturen oder alleQA-Vorläufe starten.
 
 ## Aktiver Einstieg – 13.10.2026: freigegebene Claude-Auditreparaturen
 
