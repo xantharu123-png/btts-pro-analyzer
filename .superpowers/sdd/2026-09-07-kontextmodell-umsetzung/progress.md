@@ -1,5 +1,61 @@
 # SDD ledger — plan: docs/superpowers/plans/2026-09-07-kontextmodell-umsetzung.md
 
+## Account continuation — 13 October 2026, context connections
+
+Latest gate: exact staged football-only code treeaf0d4d4b007d2a3a90ea9cfdb66e48a9d09959fb
+has663passed/0fail/0skip across25owning modules,3136.79s,offline. Full203native
+synthetic roundtrip passed1820.03s (fit2train/1tune,200final,legacy-fit equality,
+owning evaluate+verify,noactivation); retained-training-cap denial118.99s.
+Original37module diagnostic interrupted; never add it to663orclaimitsPASS.
+Test setup individual-player column honestly unavailable/unsupported; onlynew
+stress configuration corrected to observed schedulegap. Root and taskreviewPASS.
+V2,physicalclock,D1andfinalintegration reviewsPASS. Detailed D1RSS/universal-
+coverage and real qualification deliberately outside; full22player/128source
+pool stillfails4MiB. No silently dropped reviewer scope. Sourcefiles frozen;
+publication/Linux/realfeature inventory pending this precommit documentation.
+
+User explicitly authorized implementation after662Shadow/588outcome evaluation;
+canonical main6f86b31. Reuse existing checkout with inherited WIP preserved and
+explicit previously authorized main releases; exact QA source snapshot reused.
+No new backups/DB copies/provider scans. Latest no-backup instruction overrides
+the Sept plan's old backup step; existing archives remain untouched.
+
+Preflight interfaces:
+| Pending task | Producer/consumer | Finding |
+| --- | --- | --- |
+| B5/D3 pooled connection | existing v2 builder → worker/transport | Builder present locally;consumer accepts onlyv1/v3. Version+coverage must stay exact. |
+| D1 preparation viability | ORIGINAL/shared receipts → readyness/fit/evaluator | Current expanded per-event accounting can cut cohort;retained cases also grow. Needs bounded physical reuse,not increased runtime budget. |
+| Combined release | inherited enrichment/decision/POINT prerequisites → sourcefreeze | WIP must be reviewed and explicitly staged;new callers cannot ship without their prerequisite modules. |
+
+Task B5/D3 continuation:in progress;brief output/context-integration-20261013/task-v2-brief.md
+outside repo,parent workspace. One implementer,read-only independent D1 analysis
+may run concurrently. Root owns sourcefreeze,review,Git,TODO and deployment.
+Inherited owner baseline52/52passed136.39s; actualVPS RO101bindings/8captured,
+0fit/effect/approval; no new acquisition. B5/D3implementer new19nativeSQLite
+cases GREEN164.68s after genuine6fail/12passRED andcoverageRED. First setup/
+envelope mistakes explicitly logged,notclaimedPASS. Taskreview in progress.
+D1read-only analysis confirms physical reuse alone insufficient; finalcases
+muststream and train/tune retained expansion needs independent admission.
+TaskD1brief outsideGit output/context-integration-20261013/task-readiness-brief.md;
+no implementation until preceding taskreview clean. Existingcaps unchanged.
+TaskB5/D3scoped Spec/QualityPASS19GREEN; owning mixedrun explicitlyunfrozen,
+root's exactstagedwideQA remains mandatory. TaskD1implementation started only
+ownedreadiness/training+newscale test. Ruling:globalunique-content ledger admission
+for sources follows the EXISTING bounded owner-source-header/body resolver,
+avoiding duplicate selection/player-scope logic. One bounded sourcepool may be
+decoded before global reject;physicalIO ledger is not a totalRAMguarantee.
+Original/decision/outcome admission remains beforebody;retainedtraining separate.
+Existing post-context decision writerpreview excludes enrichment entirely; it
+can be reviewed in parallel read-only,without adding providerrequests.
+DecisiontaskreviewImportant:sharedresolver omits physicalOriginalcreation<=
+proofdecision; oldtrainingindependentguarddoesnotprotectpublicationreuse.
+ScopedTDDfix dispatched onlydecisionmodule+newclocktest; no overlappingD1files.
+Ruling:independent clockfix mayrunparallel with D1 (explicit developerparallel
+preference),shared signatures unchanged and finalsourcefreeze QA mandatory.
+Scalefixture firstfull128distinct/22player pool4,584,842B exceedsunchanged4MiB.
+Proof narrowed to truthful partialreported stats with supportedselectedfeature;
+unknownotherfields remainunknown. No claim fullsquad/all-featurequalification.
+
 ## Account continuation — 16 September 2026, 01:10 CEST
 
 Current ordered backlog: [TODO_AKTUELL.md](../../../TODO_AKTUELL.md).

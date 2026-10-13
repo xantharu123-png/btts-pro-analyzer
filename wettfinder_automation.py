@@ -60,6 +60,7 @@ from config_loader import AppConfig, load_app_config
 from context_sources.football_capture import capture_report_fields, capture_football_worker
 from context_models.football_original_publication import original_capture_report_fields
 from football_joint_worker import joint_comparison_report_fields
+from football_context_decisions import decision_report_fields
 from forecast_analysis import project_football_analysis
 from football_model_refresh import MODEL_REFRESH_VERSION, refresh_fixture_models
 from ev_signal_sources import (
@@ -1356,6 +1357,7 @@ def _football_state_from_snapshot(
         **capture_report_fields(snapshot),
         **original_capture_report_fields(snapshot),
         **joint_comparison_report_fields(snapshot),
+        **decision_report_fields(snapshot),
     }
 
 
@@ -1866,6 +1868,7 @@ def _merge_context_refresh(
             **capture_report_fields(result),
             **original_capture_report_fields(result),
             **joint_comparison_report_fields(result),
+            **decision_report_fields(result),
             "context_checks": checks,
             "candidates": merged_records,
             "basis_candidates": merged_basis_records,
@@ -2409,8 +2412,13 @@ def _finish_football_joint_capture(snapshot, capture, publication):
     if capture is None or publication is None:
         return
     from football_joint_worker import publish_joint_capture_report
+    current_decision = datetime.now(timezone.utc)
+    # Freeze the actual post-capture clock now, but preserve later batches'
+    # ORIGINAL priority. The shared finalizer publishes compact proofs only
+    # after every owning batch has finished, using the same leftover envelope.
+    publication._budget.defer_context_decisions(capture.path, publication.report(), decision_at=current_decision)
     snapshot["football_joint_comparison"] = publish_joint_capture_report(
-        capture.path, publication.report(), decision_at=datetime.now(timezone.utc),
+        capture.path, publication.report(), decision_at=current_decision,
     )
 
 
@@ -4437,7 +4445,9 @@ def run_wettfinder(
     if original_collection_admission is not None:
         document['football_original_admission'] = original_collection_admission
     if original_collection_budget is not None:
-        stage('football_opponent_comparisons', original_collection_budget.finish_optional_comparisons)
+        decisions = stage('football_opponent_comparisons', original_collection_budget.finish_optional_comparisons)
+        if decisions is not None:
+            document['football'].update(decision_report_fields({'football_context_decisions': decisions}))
         document['football_original_usage'] = original_collection_budget.report()
     stage('forecast_publication', write_state, document, state_path)
     if production_state:

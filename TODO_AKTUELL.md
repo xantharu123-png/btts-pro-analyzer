@@ -1,5 +1,54 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 13.10.2026 – Kontextanschlüsse: Code fertig geprüft, Veröffentlichung folgt
+
+Auf ausdrückliches „machen“: bestehende v2-Kadermerkmale im Worker/Transport
+anschließen, anschließend D1-Kohorte ohne mehrfach gehaltene Finalspieldaten
+vorbereiten. Kein neuer Modellvertrag oder numerisches Freigabesiegel.
+
+- [x] Inherited native Owner-Baseline52/52,136,39s; alte WIP-Dateien erhalten.
+- [x] Erneute reine Serverinventur:101 Originalbindings,8 captured/93 partial;
+  keine Fits/Effekte/Approvals. Zahlreiche Beobachtungszeilen sind vorhanden,
+  aber nicht automatisch vollständige verknüpfte Vergleichsspiele.
+- [x] Neue19 echte native SQLite-Tests bestanden164,68s; v2-Verbindung und
+  versionsgenaue Coverage auch ohne Effekt geprüft.6 neue Verhaltensfehler plus
+  ein falscher Coverage-Return vorher reproduziert. Setup-/Envelope-Tippfehler
+  separat dokumentiert und nicht als erfolgreiche Runden dargestellt.
+- [x] Unabhängiges v2-Taskreview PASS. Gemeinsame Release-QA bleibt unten separat.
+- [x] D1-Code: eindeutige physische Original-/Quellenbytes einmal zählen; Finalfälle
+  streamen statt alle Originals halten; Train/Tune separat begrenzen.64/128MiB-
+  Offlinegrenzen und1/3MiB-Produktionserfassung nicht bloß erhöhen.
+- [x] D1-Review PASS; physische Daten nicht mit RAM-Garantie verwechseln.
+- [x] Tatsächliche Post-Kontext-Entscheidung mit Quellenhash/-anzahl separat
+  festhalten. ORIGINAL-Batches haben Vorrang; höchstens32 kompakte Belege/32KiB
+  aus dem bestehenden Restbudget. Keine erfundene frühere Empfangszeit.
+- [x] Reviewbefund: logische Entscheidung konnte vor der physischen ORIGINAL-
+  Veröffentlichung liegen. Gemeinsamen Resolver repariert;6 echte SQLite-
+  Regressionen und48 Nachbarn bestanden, unabhängige Nachprüfung PASS.
+- [x] Exakte21-Dateien-Fußball-Veröffentlichung vorbereitet; Enrichment-/Tennis-/
+  15K-WIP ausdrücklich NICHT enthalten. Finales Integrationsreview PASS.
+- [x] Korrigierter203-Fall-Test mit echtem Fit/Evaluator/Verify und gleichem
+  Legacy-Fit bestanden;203 Fälle,2Train/1Tune/200Final,keine Aktivierung.
+  Das bleibt synthetische Softwaremechanik, kein Verletzungs-/Qualitätsnachweis.
+- [x] Vollständige begrenzte Release-QA:663 Tests in25 Modulen bestanden,
+  0 Fehler/Skips,3136,79s. Exakter isolierter Codeindex
+  `af0d4d4b007d2a3a90ea9cfdb66e48a9d09959fb`; keine fremde WIP im Teststand.
+  `frozen-corrected.xml` außerhalb Git.203-Roundtrip1820,03s, Retained-Cap-
+  Negativtest118,99s. Ursprüngliche203-Fall-Testkonfiguration
+  verlangte ein tatsächlich fehlendes Spielermerkmal. Das Modell lehnte korrekt
+  ab (unsupported,0/0). Nur neue Testkonfiguration auf belegtes Spielplanmerkmal
+  korrigiert; physische Quellen140.424.440B vorherige Mehrfachzählung gegenüber
+  44.576.281B eindeutig. Kein Verletzungs-/Gesamtkadernachweis daraus ableiten.
+  Erster37-Modul-Lauf abgebrochen, KEIN PASS; nicht zu663 addieren.
+- [x] Nur explizit geprüfte Voraussetzungen/Dateien vorbereitet;
+  Tennis-/Enrichment-/andere Alt-WIP nicht unbeabsichtigt mitnehmen.
+- [ ] Commit/Push, kontrollierter FF-Deploy und echte RO-Merkmalsinventur.
+- [ ] Tatsächliche Quellen-/Wirkungsabnahme bleibt separat. Keine Prozentabschläge
+  erfinden, keine alten Empfangszeiten/Prognosen/Geldbuchungen ändern.
+
+Ausgang6f86b31; diese Fassung dokumentiert die QA vor Commit/Push/VPS-Deploy.
+Arbeitsberichte `C:/Projekt/BetBoy/output/context-integration-20261013` außerhalbGit.
+
 ## 13.10.2026 – vorhandene Historie/Shadow wirklich auswerten
 
 Nutzerauftrag: vorhandene History und Schattendaten nutzen, nicht nur auf neue

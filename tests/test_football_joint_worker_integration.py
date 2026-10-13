@@ -3,6 +3,7 @@ from contextlib import contextmanager
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+from threading import Lock
 
 import pytest
 import wettfinder_automation as automation
@@ -13,6 +14,8 @@ ORIGINAL = dict(schema=1, scope='football-final-same-call-originals',
     published_count=0, inserted_payload_bytes=0, source_inserted_payload_bytes=0, events=[])
 JOINT = dict(schema=1, scope='football-post-capture-internal-joint-comparison',
     events=[], unprocessed_events=0, reserved_payload_bytes=0)
+DECISIONS = dict(schema=1, scope='football-post-capture-decisions',
+    events=[], unprocessed_events=0, inserted_payload_bytes=0)
 
 
 @pytest.mark.parametrize('entry', ['scan', 'model-refresh', 'context-only'])
@@ -23,7 +26,8 @@ def test_comparison_runs_only_after_committed_opt_in_original(entry, enabled, tm
     capture = SimpleNamespace(path=tmp_path/'never-created.db',
         report=lambda: dict(schema=1, scope='existing-football-context-requests',
             status='no_receipts', receipt_refs=[], issues=[]))
-    publication = SimpleNamespace(report=lambda: deepcopy(ORIGINAL))
+    shared = SimpleNamespace(lock=Lock(), remaining_payload_bytes=32768)
+    publication = SimpleNamespace(report=lambda: deepcopy(ORIGINAL), _budget=shared)
     @contextmanager
     def capturing(_provider, **_kwargs):
         state['open'] = True
@@ -37,6 +41,18 @@ def test_comparison_runs_only_after_committed_opt_in_original(entry, enabled, tm
         assert decision_at == NOW + timedelta(minutes=3)
         calls.append(decision_at)
         return deepcopy(JOINT)
+    def decide(path, report, *, decision_at, max_run_bytes):
+        assert state['closed'] and not state['open']
+        assert path == capture.path and report == ORIGINAL
+        assert decision_at == NOW + timedelta(minutes=3) and max_run_bytes == 32768
+        return deepcopy(DECISIONS)
+    def defer(path, report, *, decision_at):
+        assert state['closed'] and not state['open']
+        assert path == capture.path and report == ORIGINAL
+        assert decision_at == NOW + timedelta(minutes=3)
+        assert shared.remaining_payload_bytes == 32768
+        state['deferred'] = True
+    shared.defer_context_decisions = defer
     def work(_provider, *_args, **kwargs):
         assert state['open']
         if kwargs.get('original_publication') is not None:
@@ -54,6 +70,7 @@ def test_comparison_runs_only_after_committed_opt_in_original(entry, enabled, tm
     monkeypatch.setattr('context_models.football_original_publication.publication_for_worker',
         lambda *_args, **_kwargs: publication)
     monkeypatch.setattr('football_joint_worker.publish_joint_capture_report', compare)
+    monkeypatch.setattr('football_context_decisions.publish_capture_decisions', decide)
     monkeypatch.setattr(automation, 'scan_daily_challenge', work)
     monkeypatch.setattr(automation, 'refresh_fixture_models', work)
     monkeypatch.setattr(automation, 'refresh_discovered_candidates', work)
@@ -67,15 +84,22 @@ def test_comparison_runs_only_after_committed_opt_in_original(entry, enabled, tm
     expected = enabled and entry != 'context-only'
     assert bool(calls) is expected
     assert ('football_joint_comparison' in result) is expected
+    # Optional decisions are committed only after all original batches, using
+    # the shared finalizer. A per-batch write must not steal original capacity.
+    assert state.get('deferred', False) is expected
+    assert 'football_context_decisions' not in result
     assert result['marker'] == 'baseline-unchanged'
     assert not capture.path.exists()
 
 
 def test_internal_report_survives_state_and_context_merge_without_public_selection_changes():
-    source = dict(football_original_capture=deepcopy(ORIGINAL), football_joint_comparison=deepcopy(JOINT))
+    source = dict(football_original_capture=deepcopy(ORIGINAL), football_joint_comparison=deepcopy(JOINT),
+                  football_context_decisions=deepcopy(DECISIONS))
     state = automation._football_state_from_snapshot(source, attempted_at=NOW, search_date=NOW.date())
     assert state['football_joint_comparison'] == JOINT
+    assert state['football_context_decisions'] == DECISIONS
     before = deepcopy(state['candidates'])
     merged = automation._merge_context_refresh(state, source, fixture_ids=[], checked_at=NOW)
     assert merged['football_joint_comparison'] == JOINT
+    assert merged['football_context_decisions'] == DECISIONS
     assert merged['candidates'] == before

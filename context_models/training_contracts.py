@@ -103,14 +103,17 @@ def validate_family_config(config: dict) -> dict:
         from context_models.football_effect import GOAL_KINDS
         joint = row['model_variant'] == 'football-joint-log-tilt-v1'
         if joint:
-            from context_models.football_joint_context import BASE_VERSION, FEATURE_VERSION, PLAYER_LOAD_FEATURE_VERSION, LINK, feature_group, feature_coverage
-            if (row['feature_version'] not in {FEATURE_VERSION, PLAYER_LOAD_FEATURE_VERSION} or row['base_versions'] != [BASE_VERSION]
+            from context_models.football_joint_context import BASE_VERSION, FEATURE_VERSION, POOLED_FEATURE_VERSION, PLAYER_LOAD_FEATURE_VERSION, LINK, feature_group, feature_coverage
+            if (row['feature_version'] not in {FEATURE_VERSION, POOLED_FEATURE_VERSION, PLAYER_LOAD_FEATURE_VERSION} or row['base_versions'] != [BASE_VERSION]
                     or row['reference_version'] != 'football-context-reference-v2' or row['coverage'] != feature_coverage(row['feature_version'])
                     or row['head_links'] != {'home': LINK, 'away': LINK} or row['preprocessing_artifacts']
                     or row['outcome_contract'] != 'football-regulation-ft-v1' or row['population']['formats'] != ['90min']):
                 raise ContextContractError('unreviewed captured-joint training law')
             groups = {}
             for name in row['feature_names']:
+                from context_models.football_roster_pool import POOL_COLUMN
+                if row['feature_version'] == FEATURE_VERSION and POOL_COLUMN.fullmatch(name):
+                    raise ContextContractError('pooled roster exposure requires its separate v2 feature contract')
                 from context_models.football_player_load import LOAD_COLUMN
                 if row['feature_version'] != PLAYER_LOAD_FEATURE_VERSION and LOAD_COLUMN.fullmatch(name):
                     raise ContextContractError('player load requires its separate v3 feature contract')

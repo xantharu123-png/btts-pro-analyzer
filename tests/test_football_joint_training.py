@@ -201,7 +201,7 @@ def test_existing_worker_keeps_unapproved_joint_effect_out_of_selected_probabili
     assert result['result']['comparison_params'] != payload['base']['params']
 
 
-def test_later_weather_uses_real_later_decision_not_backdating(native_case, tmp_path):
+def test_later_weather_uses_real_later_decision_not_backdating(native_case, tmp_path, monkeypatch):
     import shutil
     from context_models.football_training import build_joint_training_case
     from context_sources.openweather import forecast_payload, normalize_forecast
@@ -219,6 +219,14 @@ def test_later_weather_uses_real_later_decision_not_backdating(native_case, tmp_
         return build_joint_training_case(path, binding_ref=payload['replay_ref'], outcome_ref=payload['outcome_ref'],
             identity_ref=payload['event_identity_hash'], config=config, as_of=NOW+timedelta(hours=6), decision_at=decision)
     assert build(NOW)['case']['payload']['features']['values']['weather.temperature_c'] is None
+    from context_models.replay import ReplayUnavailable
+    with pytest.raises(ReplayUnavailable, match='later_context_decision_unpublished'):
+        build(clock)
+    import football_context_decisions as decisions
+    from test_football_joint_worker import capture_report
+    monkeypatch.setattr(decisions, '_now', lambda: clock+timedelta(seconds=1))
+    proof = decisions.publish_capture_decisions(path, capture_report([payload['replay_ref']]), decision_at=clock)
+    assert proof['events'][0]['status'] == 'captured'
     later = build(clock)['case']['payload']
     assert later['features']['values']['weather.temperature_c'] == 18.
     assert later['base']['params'] == payload['base']['params']

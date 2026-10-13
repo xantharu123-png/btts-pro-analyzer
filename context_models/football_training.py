@@ -7,6 +7,7 @@ by the database owner before detached validation and chronological fitting.
 from copy import deepcopy
 from datetime import datetime
 import hashlib
+import sqlite3
 
 import challenge_engine as engine
 from context_models.contracts import ContextContractError, ContextIntegrityError, canonical_timestamp, digest, require_object, validate_base_distribution
@@ -73,9 +74,11 @@ def joint_base(original, binding, *, decision_at=None):
         history_refs=packet['goal_provenance']['history_refs'], reference_weights=packet['goal_provenance']['reference_weights']))
 
 
-def _load_publication(connection, binding_ref, *, latest):
+def _load_publication(connection, binding_ref, *, latest, admit=None):
     from context_models.dataset import _artifact
     from context_models.experiments import _artifact_created_at
+    if admit is not None:
+        admit('artifacts', binding_ref)
     envelope = _artifact(connection, binding_ref, BINDING_KIND, latest=latest)
     binding = envelope['payload']
     require_object(binding, {'schema', 'source_state', 'code_state', 'empirical_state', 'native_event',
@@ -85,16 +88,20 @@ def _load_publication(connection, binding_ref, *, latest):
     if binding['source_state'] != 'captured' or binding['unresolved']:
         raise ReplayUnavailable('original_native_sources_incomplete')
     manifest = binding['original_manifest_digest']
-    rows = {manifest: _raw(connection, manifest, MAX_MANIFEST_BYTES)}
+    def raw(ref, limit):
+        if admit is not None:
+            admit('artifacts', ref)
+        return _raw(connection, ref, limit)
+    rows = {manifest: raw(manifest, MAX_MANIFEST_BYTES)}
     body = _hint(connection, manifest, ('body',))
     if body is None:
         raise ContextIntegrityError('original manifest has no body')
-    rows[body] = _raw(connection, body, MAX_ORIGINAL_BYTES)
+    rows[body] = raw(body, MAX_ORIGINAL_BYTES)
     for keys in _ALL_PATHS:
         ref = _hint(connection, body, keys)
         if ref is not None and ref not in rows:
             remaining = MAX_ORIGINAL_BYTES + 32*1024 - sum(len(row[1]) for row in rows.values())
-            rows[ref] = _raw(connection, ref, min(MAX_ORIGINAL_BYTES, remaining))
+            rows[ref] = raw(ref, min(MAX_ORIGINAL_BYTES, remaining))
     original = _expand(rows, manifest)[0]
     packet = original.to_dict()
     if packet['schema'] != 2:
@@ -106,6 +113,8 @@ def _load_publication(connection, binding_ref, *, latest):
         raise ContextIntegrityError('original was not physically published before kickoff')
     _same(binding['captured_at'], packet['captured_at'], 'capture clock differs from binding')
     _same(binding['original_logical_digest'], hashlib.sha256(original._bytes).hexdigest(), 'original logical bytes differ')
+    if admit is not None:
+        admit('artifacts', binding['code_digest'])
     code = _artifact(connection, binding['code_digest'], CODE_KIND, latest=created)
     for key in ('prediction_version', 'model_contract_signature'):
         _same(binding[key], packet[key], 'binding model identity differs')
@@ -139,17 +148,39 @@ def joint_case_artifacts(connection, payload, *, latest):
     from context_models.dataset import _artifact
     binding, original, code = _load_publication(connection, payload['replay_ref'], latest=latest)
     decision = payload['base']['cutoff']
+    decision_proof = None
     if decision != binding['payload']['decision_at']:
         from context_models.experiments import _artifact_created_at
         if _artifact_created_at(connection, payload['replay_ref']) > decision:
             raise ContextIntegrityError('later context decision precedes physical original publication')
+        from football_context_decisions import DECISION_KIND, MAX_DECISION_BYTES, resolve_decision
+        # Read only compact typed metadata before resolving complete physical
+        # bytes. A caller-selected later clock is not a captured decision.
+        invalid = connection.execute("SELECT 1 FROM artifacts WHERE kind=? "
+            "AND (typeof(payload)!='blob' OR length(payload)>? OR length(payload)=0) LIMIT 1",
+            (DECISION_KIND, MAX_DECISION_BYTES)).fetchone()
+        if invalid:
+            raise ContextIntegrityError('invalid physical context decision header')
+        try:
+            matches = connection.execute("SELECT digest FROM artifacts WHERE kind=? "
+                "AND json_extract(CAST(payload AS TEXT),'$.binding_ref')=? "
+                "AND json_extract(CAST(payload AS TEXT),'$.decision_at')=? LIMIT 2",
+                (DECISION_KIND, payload['replay_ref'], decision)).fetchall()
+        except sqlite3.DatabaseError as exc:
+            raise ContextIntegrityError('invalid physical context decision metadata') from exc
+        if not matches:
+            raise ReplayUnavailable('later_context_decision_unpublished')
+        if len(matches) != 1:
+            raise ContextIntegrityError('duplicate physical context decision')
+        decision_proof = resolve_decision(connection, matches[0][0], latest=latest)
     _same(joint_base(original, binding['payload'], decision_at=decision), payload['base'], 'case changed captured joint baseline')
     _same(binding['payload']['native_event'], payload['event'], 'case changed native event')
     identity = _artifact(connection, payload['event_identity_hash'], 'context-native-identity-map-v1', latest=latest)
     # Expanded original is a detached derived view of the existing chunks;
     # do NOT store another full original in the database.
     derived = _original_envelope(original)
-    return {item['digest']: item for item in (binding, derived, code, identity)}
+    items = (binding, derived, code, identity) + (() if decision_proof is None else (decision_proof,))
+    return {item['digest']: item for item in items}
 
 
 def validate_joint_training_case(resolved, *, config, payload):
@@ -161,7 +192,21 @@ def validate_joint_training_case(resolved, *, config, payload):
     from context_models.football_joint_context import PLAYER_LOAD_FEATURE_VERSION
     if config['feature_version'] == PLAYER_LOAD_FEATURE_VERSION and decision != binding['decision_at']:
         raise ReplayUnavailable('player_load_requires_original_decision')
-    if set(artifacts) != {payload['replay_ref'], base['model_hash'], payload['event_identity_hash'], binding['code_digest']}:
+    expected_artifacts = {payload['replay_ref'], base['model_hash'], payload['event_identity_hash'], binding['code_digest']}
+    decision_proof = None
+    if decision != binding['decision_at']:
+        from football_context_decisions import DECISION_KIND, validate_decision
+        candidates = [value for value in artifacts.values() if value.get('kind') == DECISION_KIND]
+        if len(candidates) != 1:
+            raise ContextIntegrityError('later case lacks its exact captured decision')
+        envelope = validate_artifact_envelope(candidates[0], kind=DECISION_KIND)
+        decision_proof = validate_decision(envelope['payload'])
+        if (decision_proof['binding_ref'] != payload['replay_ref']
+                or decision_proof['event_key'] != event['event_key']
+                or decision_proof['decision_at'] != decision):
+            raise ContextIntegrityError('captured decision differs from case binding, event or clock')
+        expected_artifacts.add(envelope['digest'])
+    if set(artifacts) != expected_artifacts:
         raise ContextIntegrityError('joint case lacks exact original, binding, code or identity bytes')
     for ref, value in artifacts.items():
         if value.get('digest') != ref:
@@ -196,6 +241,11 @@ def validate_joint_training_case(resolved, *, config, payload):
             if row['observed_at'] > decision or row['effective_at'] > decision or row['evidence_class'] != 'prospective':
                 raise ReplayUnavailable('late_feature_receipt_is_not_predecision_evidence')
             source.append(row)
+    if decision_proof is not None:
+        refs = sorted(row['digest'] for row in source)
+        if (len(refs) != decision_proof['observation_count']
+                or digest(refs) != decision_proof['observation_refs_hash']):
+            raise ContextIntegrityError('captured decision differs from complete source revisions')
     if len(outcomes) != 1 or outcomes[0]['digest'] != payload['outcome_ref']:
         raise ContextIntegrityError('joint case must resolve exactly its own result')
     outcome = validate_outcome_record(outcomes[0], event=event)

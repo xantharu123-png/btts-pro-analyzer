@@ -101,6 +101,52 @@ class FootballOriginalBudget:
         self._sealed = False
         self._optional = {}
         self._optional_bytes = 0
+        self._decisions = {}
+        self._decision_path = None
+        self._decision_bytes = 0
+        self._decision_unprocessed = 0
+        self._decision_report = None
+
+    def defer_context_decisions(self, path, capture_report, *, decision_at):
+        """Retain one bounded compact proof per original, never spend its bytes."""
+        from football_context_decisions import MAX_DECISION_BYTES, MAX_DECISION_EVENTS, prepare_capture_decisions
+        with self.lock:
+            if self._sealed:
+                raise ContextContractError("reserved original worker is already finished")
+            path = Path(path).resolve()
+            if self._decision_path is not None and self._decision_path != path:
+                raise ContextIntegrityError("one reserved worker cannot mix decision stores")
+            prepared = prepare_capture_decisions(path, capture_report, decision_at=decision_at)
+            self._decision_path = path
+            self._decision_unprocessed += prepared["unprocessed_events"]
+            for row in prepared["events"]:
+                key = row["binding_ref"]
+                old = self._decisions.get(key)
+                if old is not None and old["payload"] is not None and row["payload"] is None:
+                    continue  # An unavailable later attempt cannot erase genuine earlier evidence.
+                if old is not None and old["payload"] is not None and row["payload"] is not None:
+                    if old["payload"]["observation_refs_hash"] == row["payload"]["observation_refs_hash"]:
+                        continue  # Preserve the first actual decision of this source revision.
+                    if row["payload"]["decision_at"] <= old["payload"]["decision_at"]:
+                        raise ContextIntegrityError("deferred source revisions have conflicting clocks")
+                size = len(a1.canonical_bytes(row))
+                old_size = 0 if old is None else len(a1.canonical_bytes(old))
+                displaced = None
+                if old is None and len(self._decisions) >= MAX_DECISION_EVENTS and row["payload"] is not None:
+                    displaced = next((item for item in self._decisions
+                                      if self._decisions[item]["payload"] is None), None)
+                    if displaced is not None:
+                        old_size = len(a1.canonical_bytes(self._decisions[displaced]))
+                if ((old is None and len(self._decisions) >= MAX_DECISION_EVENTS)
+                        and displaced is None
+                        or self._decision_bytes-old_size+size > MAX_DECISION_BYTES*MAX_DECISION_EVENTS):
+                    self._decision_unprocessed += 1
+                    continue
+                if displaced is not None:
+                    del self._decisions[displaced]
+                    self._decision_unprocessed += 1
+                self._decisions[key] = deepcopy(row)
+                self._decision_bytes += size-old_size
 
     def _defer_comparison(self, path, prepared, *, captured_at, scheduled_start):
         """Called under the shared lock; retain compact bytes, never history/owners."""
@@ -125,8 +171,23 @@ class FootballOriginalBudget:
         from context_models.football_training import _load_publication
         with self.lock:
             if self._sealed:
-                return
+                return deepcopy(self._decision_report)
             self._sealed = True
+            # All owning ORIGINALs now have priority over compact decisions,
+            # which in turn precede optional opponent research. One unchanged
+            # worker envelope bounds every committed artifact.
+            from football_context_decisions import MAX_DECISION_BYTES, MAX_DECISION_EVENTS, publish_deferred_decisions
+            decisions, self._decisions = self._decisions, {}
+            self._decision_bytes = 0
+            if self._decision_path is not None:
+                def debit(size):
+                    if type(size) is not int or not 0 <= size <= self.remaining_payload_bytes:
+                        raise ContextIntegrityError("invalid deferred decision byte accounting")
+                    self.remaining_payload_bytes -= size
+                self._decision_report = publish_deferred_decisions(self._decision_path,
+                    {"events": list(decisions.values()), "unprocessed_events": self._decision_unprocessed},
+                    max_run_bytes=min(self.remaining_payload_bytes, MAX_DECISION_BYTES*MAX_DECISION_EVENTS),
+                    on_commit=debit)
             pending, self._optional = self._optional, {}
             self._optional_bytes = 0
             for path, obj, captured_at, scheduled_start in pending.values():
@@ -176,6 +237,7 @@ class FootballOriginalBudget:
                         connection.rollback()
                         raise
                 self.remaining_payload_bytes -= inserted
+            return deepcopy(self._decision_report)
 
     def report(self):
         with self.lock:

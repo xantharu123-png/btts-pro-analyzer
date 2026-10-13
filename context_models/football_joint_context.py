@@ -21,13 +21,14 @@ BASE_VERSION = 'football-goals-captured-joint-v1'
 COMPARISON_VERSION = 'football-goals-context-joint-v1'
 FEATURE_VERSION = 'football-native-context-v1'
 COVERAGE = {'version': FEATURE_VERSION + '.coverage', 'case': 'source-bound'}
+POOLED_FEATURE_VERSION = 'football-native-context-exposure-v2'
 PLAYER_LOAD_FEATURE_VERSION = 'football-native-player-load-v3'
 LINK = 'log_joint_tilt'
 TAIL_POLICY = 'calibrated-joint-goal-buckets-25plus-log-v1'
 
 
 def feature_coverage(version):
-    if version not in {FEATURE_VERSION, PLAYER_LOAD_FEATURE_VERSION}:
+    if version not in {FEATURE_VERSION, POOLED_FEATURE_VERSION, PLAYER_LOAD_FEATURE_VERSION}:
         raise ContextContractError('unknown native football context feature version')
     return {'version': version+'.coverage', 'case': 'source-bound'}
 
@@ -65,6 +66,9 @@ def feature_group(name):
     from context_models.football_player_load import LOAD_COLUMN
     if LOAD_COLUMN.fullmatch(name):
         return 'load'
+    from context_models.football_roster_pool import POOL_COLUMN
+    if POOL_COLUMN.fullmatch(name):
+        return 'roster'
     if re.fullmatch(r'roster\.(home|away)\.(venue|form)_(attack|defense)\.(goals|xg)\.api-football:player:[1-9][0-9]*', name):
         return 'roster'
     if name in {'weather.'+key for key in ('temperature_c', 'wind_mps', 'rain_3h_mm', 'snow_3h_mm',
@@ -96,6 +100,11 @@ def joint_features(event, observations, base, *, cutoff, version=FEATURE_VERSION
     for prefix, block in (('roster', roster), ('weather', weather)):
         for field in ('values', 'states', 'refs'):
             result[field].update({prefix+'.'+key: value for key, value in block[field].items()})
+    if version == POOLED_FEATURE_VERSION:
+        from context_models.football_roster_pool import pooled_roster_features
+        pooled = pooled_roster_features(roster)
+        for field in ('values', 'states', 'refs'):
+            result[field].update(pooled[field])
     if version == PLAYER_LOAD_FEATURE_VERSION:
         from context_models.football_player_load import player_load_features
         load = player_load_features(event, observations, cutoff=cutoff)

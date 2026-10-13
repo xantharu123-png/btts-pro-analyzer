@@ -1,5 +1,39 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktiver Einstieg – 13.10.2026: Kontextanschlüsse und exakte Release-QA
+
+Vorrang: oberster Block `TODO_AKTUELL.md` und
+`docs/audits/2026-10-13-kontextanschluesse.md`. Diese Zwischenfassung ersetzt
+keinen später eingetragenen Produktionsnachweis. Ausgang main/VPS6f86b31.
+
+Gezielte21-Dateien-Fußball-Closure: v2-Kadermerkmale im Worker/Transport,
+tatsächliche spätere Kontextentscheidung mit physischer ORIGINAL-Uhr,
+physische Readiness-Deduplizierung/Finalstreaming bei unveränderten Caps.
+Vier Codeprüfungen PASS, gefrorene25-Modul-QA **663/663 bestanden**,
+0 Fehler/Skips,3136,79s. Indexcode `af0d4d4b007d2a3a90ea9cfdb66e48a9d09959fb`,
+isolierte vorhandene QA `C:/Projekt/BetBoy/.qa-tmp/release-3dea2d3`.
+Großer203-Test inzwischen bestanden (Fit/Evaluator/Verify/Legacy-Fit-Gleichheit,
+2Train/1Tune/200Final,keine Aktivierung). Kein Gesamtapp-/Qualitäts-PASS.
+
+Neue203-Regressionskonfiguration korrigiert: Spielermerkmal war tatsächlich
+fehlend; Owner lehnte Fit korrekt ab. Test nun belegtes `schedule.gap_hours_home`,
+kein numerischer Verletzungseffekt. Produktionscode/Math/Caps unverändert.
+Alter37-Modul-Lauf interrupted, exit1, kein JUnit/PASS. Nicht nachträglich grün
+nennen oder zu anderen überlappenden Läufen addieren. XML/Taskberichte außerhalb
+Git unter `C:/Projekt/BetBoy/output/context-integration-20261013`.
+Entscheidende XML `frozen-corrected.xml`; 203-Roundtrip1820,03s,
+Train/Tune-Cap-Verweigerung118,99s. Diese Zwischenfassung ist vor Veröffentlichung.
+
+Alle101 realen Bindings stammen VOR der heutigen Capture-Reparatur. Rein
+lesend:8native Spiele captured/93partial. Alte83 globale Budgetlabels sind
+keine belegten83 echten pro-ID-Ausschlüsse. Nächster regulärer14.10.,03:35-
+Lauf muss neue Zielpriorität/Gründe/Entscheidungsbelege erst beweisen. Kein
+200-Fälle-Versprechen, keine rückwirkenden Quellenuhren oder Geldänderungen.
+
+Enrichment-,Tennis-,15K-/andere Alt-WIP ausdrücklich nicht veröffentlichen.
+Keine Backups/DB-Kopien/API-Zusatzscans/Budgeterhöhung. Gefrorene QA, exakten
+Commit/Push/FF-Deploy, Linux-Import/Health und RO-Merkmalsinventur abschließen.
+
 ## Neuester Einstieg – 13.10.2026: Shadow-Historie und echte Capture-Lücken
 
 Erster Block `TODO_AKTUELL.md` und Audit

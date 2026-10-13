@@ -18,7 +18,7 @@ from context_models.contracts import (
 from context_models.dataset import _reader
 from context_models.experiments import _artifact_created_at
 from context_models.football_joint_context import (
-    FEATURE_VERSION, PLAYER_LOAD_FEATURE_VERSION, VERSION, feature_coverage, joint_features,
+    FEATURE_VERSION, POOLED_FEATURE_VERSION, PLAYER_LOAD_FEATURE_VERSION, VERSION, feature_coverage, joint_features,
 )
 from context_models.football_original_storage import StorageBudgetExceeded
 from context_models.football_training import _load_publication, joint_base
@@ -112,7 +112,7 @@ def _active_fits(connection, *, decision):
         if effect["training_end"] > created:
             raise ContextIntegrityError("joint effect was published before its stated training end")
         if (effect["sport"] == "football" and effect["family"] == "football:goals:90min"
-                and effect["feature_version"] in {FEATURE_VERSION, PLAYER_LOAD_FEATURE_VERSION}
+                and effect["feature_version"] in {FEATURE_VERSION, POOLED_FEATURE_VERSION, PLAYER_LOAD_FEATURE_VERSION}
                 and effect["coverage"] == feature_coverage(effect["feature_version"])
                 and effect["model_variant"] == VERSION and effect["training_end"] <= decision
                 and created <= decision):

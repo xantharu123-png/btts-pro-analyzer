@@ -57,9 +57,12 @@ def _feature_binding(ev, original, feats, preprocessing_refs):
         validate_live_winner_origin(original, ev)
     pair = original["family"], feats["version"]
     if pair in {("football:goals:90min", version) for version in (
-            "football-native-context-v1", "football-native-player-load-v3")}:
+            "football-native-context-v1", "football-native-context-exposure-v2", "football-native-player-load-v3")}:
         if original['version'] != 'football-goals-captured-joint-v1' or preprocessing_refs:
             raise ContextContractError('joint worker needs its captured original and no preprocessing')
+        from context_models.football_joint_context import feature_coverage
+        if feats['coverage'] != feature_coverage(feats['version']):
+            raise ContextContractError('joint worker feature coverage differs from its native version')
         expected = digest({"version": "football-context-reference-v2", "base_hash": digest(original),
             "event_hash": digest(ev), "preprocessing": []})
     elif pair == ("football:goals:90min", "football-roster-components-v2"):
