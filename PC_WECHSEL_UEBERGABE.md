@@ -3,8 +3,8 @@
 ## Aktiver Einstieg – 13.10.2026: Kontextanschlüsse und exakte Release-QA
 
 Vorrang: oberster Block `TODO_AKTUELL.md` und
-`docs/audits/2026-10-13-kontextanschluesse.md`. Diese Zwischenfassung ersetzt
-keinen später eingetragenen Produktionsnachweis. Ausgang main/VPS6f86b31.
+`docs/audits/2026-10-13-kontextanschluesse.md`. Ausgang main/VPS6f86b31;
+Codecommit5f175889c4058e65995ca358709b7499d3582fd7 aufmain/VPSlive14:13CEST.
 
 Gezielte21-Dateien-Fußball-Closure: v2-Kadermerkmale im Worker/Transport,
 tatsächliche spätere Kontextentscheidung mit physischer ORIGINAL-Uhr,
@@ -22,7 +22,21 @@ Alter37-Modul-Lauf interrupted, exit1, kein JUnit/PASS. Nicht nachträglich grü
 nennen oder zu anderen überlappenden Läufen addieren. XML/Taskberichte außerhalb
 Git unter `C:/Projekt/BetBoy/output/context-integration-20261013`.
 Entscheidende XML `frozen-corrected.xml`; 203-Roundtrip1820,03s,
-Train/Tune-Cap-Verweigerung118,99s. Diese Zwischenfassung ist vor Veröffentlichung.
+Train/Tune-Cap-Verweigerung118,99s. Linux-Import/Health/App/Caddy/7Timer bestätigt,
+ModellJSONs SHA-identisch,21GiB frei,keinBackup/zusätzlicherSportscan.
+
+NEUE REALE RESTARBEIT:RO-Readiness acht native ORIGINALs,aber7/8 fallen am
+einzelnen4MiB-Quellenpoollimit aus; nur1Quellenfall/Ergebnis auflösbar. Die drei
+ausdrücklich geprüften Merkmale (v2Rosterverlust/v3gemeldete7dMinuten/Temperatur)
+jeweils0vollständig. Keine Fits/Effekte/Freigaben. Mehr Rohspiele allein löst
+dieses Poolproblem nicht. Ursache physisch/revisionsbedingt/unbenutzte Zweige
+quantifizieren und danach ohneCap-Anhebung/Quellenverlust korrigieren. Kein
+"alleKontexteffektefertig" oder künstlichesAktivieren behaupten.
+Headerdiagnose:6Fälle97–100MB/36–37kReceipts,weitererFall4.533.002B/3046,
+kleinerFall197.155B/130. WiederholteContentDigests0,unverbrauchteRaw-IDs0;
+großeFälle auchüber4096Receipts. Rollen-/Revisions-Semantiknichtdekodiert;
+gezielter vollständiger Streaming-/Projektionspfad ist nächsteRestarbeit,
+kein einfachesphysischesDeduplizieren,keineCap-Anhebung/Quellenkürzung.
 
 Alle101 realen Bindings stammen VOR der heutigen Capture-Reparatur. Rein
 lesend:8native Spiele captured/93partial. Alte83 globale Budgetlabels sind
@@ -31,8 +45,9 @@ Lauf muss neue Zielpriorität/Gründe/Entscheidungsbelege erst beweisen. Kein
 200-Fälle-Versprechen, keine rückwirkenden Quellenuhren oder Geldänderungen.
 
 Enrichment-,Tennis-,15K-/andere Alt-WIP ausdrücklich nicht veröffentlichen.
-Keine Backups/DB-Kopien/API-Zusatzscans/Budgeterhöhung. Gefrorene QA, exakten
-Commit/Push/FF-Deploy, Linux-Import/Health und RO-Merkmalsinventur abschließen.
+Keine Backups/DB-Kopien/API-Zusatzscans/Budgeterhöhung. QA/Commit/Push/FF-Deploy/
+Linux-Import/Health/RO-Inventur erledigt; reale Poolreparatur und qualifizierte
+numerische Wirkung bleiben offen.
 
 ## Neuester Einstieg – 13.10.2026: Shadow-Historie und echte Capture-Lücken
 

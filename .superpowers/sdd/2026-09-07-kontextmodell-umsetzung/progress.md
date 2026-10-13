@@ -14,6 +14,17 @@ coverage and real qualification deliberately outside; full22player/128source
 pool stillfails4MiB. No silently dropped reviewer scope. Sourcefiles frozen;
 publication/Linux/realfeature inventory pending this precommit documentation.
 
+Post-release:code5f175889c4058e65995ca358709b7499d3582fd7 pushedmain and FF-
+deployed13Oct14:13CEST. Linuxofflineimports/health/app/Caddy/7timers pass,
+modelJSONshashes unchanged; nobackup/API/DBcopy. RealRO8native originals gives
+7sourcepool4MiB failures,1resolvedsource/outcome; testedrosterloss/load7d/temp
+columns each0complete,0fits/effects/approvals. Thus fullnumericacceptance NOTDONE.
+Current priority is exactsourcepool diagnosis/repair,notmerelywaitingfor200games.
+Boundedheaderdiagnosticconfirms6cases97-100MB/36-37kreceipts,one4.533MB/3046,
+one0.197MB/130;0repeatedcontentdigests/0unusedrawIDs. Actualsemanticbranches/
+revisionsnotdecoded; streaming/projectedcompletevalidation needs its own
+proveninvariants beforecode,notcapraise/latest-only/sourceorcohortdrop.
+
 User explicitly authorized implementation after662Shadow/588outcome evaluation;
 canonical main6f86b31. Reuse existing checkout with inherited WIP preserved and
 explicit previously authorized main releases; exact QA source snapshot reused.

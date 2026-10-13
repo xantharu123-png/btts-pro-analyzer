@@ -1,6 +1,6 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
-## 13.10.2026 – Kontextanschlüsse: Code fertig geprüft, Veröffentlichung folgt
+## 13.10.2026 – Kontextanschlüsse live; reale Einzelquellengrenze bleibt offen
 
 Auf ausdrückliches „machen“: bestehende v2-Kadermerkmale im Worker/Transport
 anschließen, anschließend D1-Kohorte ohne mehrfach gehaltene Finalspieldaten
@@ -42,11 +42,39 @@ vorbereiten. Kein neuer Modellvertrag oder numerisches Freigabesiegel.
   Erster37-Modul-Lauf abgebrochen, KEIN PASS; nicht zu663 addieren.
 - [x] Nur explizit geprüfte Voraussetzungen/Dateien vorbereitet;
   Tennis-/Enrichment-/andere Alt-WIP nicht unbeabsichtigt mitnehmen.
-- [ ] Commit/Push, kontrollierter FF-Deploy und echte RO-Merkmalsinventur.
+- [x] Codecommit **5f175889c4058e65995ca358709b7499d3582fd7** committed,
+  auf main gepusht und13.10.,14:13CEST kontrolliert per FF auf dem VPS live.
+  Linux-Offline-Import,App/Caddy,beideHealthchecks und7aktivierteTimer bestätigt.
+  Zwei anfängliche lokale Verbindungsmeldungen während Neustart durch normale
+  Retrylogik beendet; finalerDeployexit0.21GiB frei; Backupdienst/-timer inactive.
+  ModellJSON-SHA vor/nach gleich:Wettfinderf20422a8…,RisikoBet6f0c5f31….
+- [x] Neue tatsächliche RO-Merkmalsinventur ohne Kopie/API/Fit/Aktivierung:
+  8native ORIGINAL-Katalogspiele geprüft. **7/8 scheitern weiterhin an der
+  einzelnen4MiB-Quellenpoolgrenze**,1Quellenfall mit Ergebnis auflösbar.
+  Für die ausdrücklich geprüften Einzelmerkmale v2-Kaderverlust,v3gemeldete
+  7-Tage-Belastung undWettertemperatur jeweils0verfügbar. Kein Audit sämtlicher
+  möglicher Merkmale/Populationen;0Fits/Effekte/Freigaben aktiv.
+- [ ] NächstePriorität:4MiB-Poolursache erklären und Quelle/Revision/
+  tatsächlich konsumierten Zweig sauber aufteilen,ohne Cap-Anhebung oder
+  Quellenverlust/Umdeutung. Mehr Spiele sammeln beseitigt diese Sperre NICHT.
+- [x] Ursache rein lesend weiter eingegrenzt:6große Fälle je36.105–37.092
+  Receipts/97.105.011–99.654.909B; weiterer Fall3046Receipts/4.533.002B;
+  kleiner Fall130/197.155B. Jeweils ALLE Content-Digests verschieden,
+  alle Raw-IDs Teil der Goal-/Prior-/Binding-Closure,unverbrauchteIDs0.
+  Sechs große Fälle zusätzlich latent über4096Receipts. Baseline34,39–35,34MB
+  plusAppearance62,07–63,64MB. VerschiedeneHashes beweisen keine verschiedenen
+  sportlichenWerte; Body-/Rollen-/Revisionsabhängigkeit noch NICHT dekodiert.
+  ReineDeduplikation/EntfernenunverbrauchterRaw-IDs löst diese sieben Fälle nicht.
+- [ ] Nächster konkreterCodepfad:branch-/rollenbezogene vollständige Quellen-
+  auflösung mit Streaming/Projektion entwerfen und invariantengetreu testen.
+  Originalconsumed/inspectedRefs,sameclockKonflikte,ersteResultatbelege und
+  tatsächlicheUhren behalten; kein willkürlicheslatest-only/kleineresKollektiv.
+  Kein kleiner sichererFix ist durch reineHeaderstatistik bereits bewiesen.
 - [ ] Tatsächliche Quellen-/Wirkungsabnahme bleibt separat. Keine Prozentabschläge
   erfinden, keine alten Empfangszeiten/Prognosen/Geldbuchungen ändern.
 
-Ausgang6f86b31; diese Fassung dokumentiert die QA vor Commit/Push/VPS-Deploy.
+Ausgang6f86b31; funktionaler,testverifizierterCode5f17588 jetztlive.
+Ein folgender reinerDokucommit hält diesen Produktionsnachweis fest.
 Arbeitsberichte `C:/Projekt/BetBoy/output/context-integration-20261013` außerhalbGit.
 
 ## 13.10.2026 – vorhandene Historie/Shadow wirklich auswerten

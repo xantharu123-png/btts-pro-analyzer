@@ -2,7 +2,8 @@
 
 Fortsetzung des freigegebenen September-Plans; kein neuer Modellvertrag.
 Ausgang lokal/main/VPS: `6f86b3146b54052b7b30d34f5505533cbc6522c0`.
-Noch kein Veröffentlichungsnachweis dieses Pakets in dieser Zwischenfassung.
+Codecommit5f175889c4058e65995ca358709b7499d3582fd7 committed,pushed und
+13.10.,14:13CEST ohneBackup/API-Zusatzscan per FF auf demVPS veröffentlicht.
 
 ## Korrekturen
 
@@ -76,9 +77,47 @@ regulären14.10.,03:35-Lauf unterscheiden, keine alten Bindings umdeuten.
 Arbeitsberichte und XML außerhalb Git:
 `C:/Projekt/BetBoy/output/context-integration-20261013`.
 
-## Noch offene Abnahme
+## Produktion und noch offene Abnahme
 
-Gefrorene Release-QA abgeschlossen; exakt veröffentlichen, Linux-Import/Health/
-Revisionen und echte rein lesende Merkmalsinventur prüfen. Nächster regulärer
+Gefrorene Release-QA und Veröffentlichung abgeschlossen. Linux-Offline-Import
+ok,App/Caddy aktiv,7Timer enabled,beideHealthchecksok nach normalem Start-Retry.
+WettfinderJSON vorher/nachher SHA256
+`f20422a802fd61461d8f8ab548f85228a1d083bdba92c51a0615bf9364a81bd4`,
+RisikoBet `6f0c5f3158fb2bbe08bc8b7692636a0f16847e90c32742a7f7497346b644e8f1`.
+Backupdienst/-timer inactive,21GiBfrei. Keine alten Prognosen/Geldbuchungen verändert.
+
+Echte RO-Readiness nachDeploy:8captured native ORIGINAL-Spiele explizit geprüft,
+aber7davon `joint_source_byte_bound_exceeded`. Nur1Quellenpool/Ergebnis auflösbar;
+die drei ausdrücklich geprüften Spalten (v2gemeldeterRosterverlust,
+v3gemeldete7dMinuten,Temperatur)jeweils0vollständig.0Fits/Effekte/Approvals,
+keine Aktivierung. Das ist KEIN umfassender Test allerdenkbaren Kontextspalten.
+NeuePriorität: tatsächliche4MiB-Poolursache aufteilen und ohneBudgetanhebung,
+willkürlicheQuellenkürzung oder historischeUmdeutung lösen. Mehr Rohspiele allein
+beseitigen dieseSoftware-/Admissiongrenze nicht.
+
+Die anschließende ausschließlichHeader-basierte Produktionsdiagnose ergab,
+Reihenfolge `created_at,digest`,jeweils eindeutigem nativenSpiel:
+
+| Fall | Native IDs | Receipts = verschiedene Inhalte | Physische Bytes |
+| --- | ---: | ---: | ---: |
+| 1 |420|36111|97110896|
+| 2 |420|36105|97105011|
+| 3 |420|36105|97105044|
+| 4 |423|36182|97260618|
+| 5 |480|3046|4533002|
+| 6 |130|130|197155|
+| 7 |425|37037|99521485|
+| 8 |429|37092|99654909|
+
+Raw-ID-Pool = Goal-/Prior-/Binding-Closure,unverbrauchteIDs0;wiederholte
+Content-Digests0. Sechs großeFälle zusätzlichüber4096Receipts. AlleinBaseline
+34,39–35,34MB plusAppearances62,07–63,64MB. UnterschiedlicheHashwerte beweisen
+keine unterschiedlichen sportlichenWerte;Body/Rollen/Revisions-Semantik wurde
+hierNICHTdekodiert. DedupoderEntfernenunverbrauchterRaw-IDs ist kein bewiesener
+Fix. Vollständige branch-/rollenbezogene Quellenauflösung mit Streaming/
+Projektion muss vor Implementierung ihre kausalen/hash-/Revisionsinvarianten
+belegen;keine willkürlichelatest-only-Auswahl oderBudgeterhöhung.
+
+Nächster regulärer
 Lauf muss die neuen tatsächlichen Entscheidungsbelege zeigen. Numerische
 Kontextqualifizierung bleibt ein eigenständiger Nachweis, kein Software-PASS.
