@@ -8,27 +8,30 @@ Branch `codex/audit-repairs-20261013`, Basis `c5a6264`. Hauptcheckout enthält
 frühere unveröffentlichte WIP: nicht resetten, breit stagen oder überschreiben.
 
 Sechs freigegebene Reparaturen qualifiziert. Vollsuite auf eingefrorenem Index
-`b879d8d75ececc72848a3a2917bfab79959c8e95`: 13781 PASS,97 Plattform-Skips,
-147 Untertests,0 Fehler; exakt13878 Hauptitems einmal abgedeckt. Letzter manueller
+`b879d8d75ececc72848a3a2917bfab79959c8e95`: 13781 PASS, 97 Plattform-Skips,
+147 Untertests, 0 Fehler; exakt 13878 Hauptitems einmal abgedeckt. Letzter manueller
 Tennis-Merken-Anschluss separat RED→GREEN: neun neue Fälle, alle acht betroffenen
-Module255/255 PASS. Finale Code-/Testtree0ca151db8eb99cbb058fd0891bfc09a492f13581.
+Module 255/255 PASS. Finaler Code-/Testbaum: `0ca151db8eb99cbb058fd0891bfc09a492f13581`.
 Überlappende Zahlen nicht addieren; die UI-Ergänzung ist eine eigene Abschluss-
 qualifikation, keine nachträgliche Behauptung zur alten Vollsuite.
 
-Codecommit `6636530267826fb37b3c834b8e94afa4ebc1b019` aufmain/VPS live,
-13.10.2026 um20:33 CEST. Reparatur-Worktree/GitHub/VPS vor Dokumentationsnachtrag
-exakt gleich. Offline-Linux-Import/aktivelegacy-v1/App/Caddy/7aktive enabledTimer/
-beideHealthchecksok; ModelJSONs bytegleich,21GiBfrei,BackupTimer/Dienstinactive.
-Interner Browser:18MerkenButtons,erster sichtbar,keineSeitenexception/neuenLogs
-nachWiederanlauf. KurzeDisconnect-/502Logs währendkontrolliertemNeustart bleiben
-korrekt alsRestartartefakte dokumentiert. KeineechtenTestmerker/Geldbuchungen.
-DieserNachtrag wird separat alsDocs-onlyFF ohneAppneustart veröffentlicht.
+Codecommit `6636530267826fb37b3c834b8e94afa4ebc1b019` auf main und VPS live,
+13.10.2026 um 20:33 CEST. Reparatur-Worktree, GitHub und VPS vor Dokumentationsnachtrag
+exakt gleich. Offline-Linux-Imports bestanden, Kalibrierung legacy-v1 aktiv.
+App/Caddy laufen; sieben Timer aktiv und enabled, beide Healthchecks ok.
+Modell-JSONs bytegleich, 21 GiB frei, Backup-Timer und -Dienst inactive.
+Interner Browser: 18 Merken-Buttons, erster sichtbar, keine Seitenexception und
+keine neuen Warnungen/Fehler nach Wiederanlauf. Kurze Disconnect-/502-Logs während
+des kontrollierten Neustarts bleiben korrekt als Restartartefakte dokumentiert.
+Keine echten Produktions-Testmerker oder Geldbuchungen angelegt.
+Dieser Nachtrag wird separat als Docs-only-FF ohne Appneustart veröffentlicht.
 Historische PENDING-Blöcke darunter sind für dieses Paket ersetzt.
 
-Kalibrierungv2 nicht aktiv:304 reale Vergleiche schlechter. KeinRendite-/
-Verletzungs-/Wetter-/Müdigkeitsnachweis ausQA ableiten. Separate realeQuellenpool-
-undShadow-Preisprovenienzprobleme bleiben offen. NeueArbeit dort anschließen,
-nicht erneut die sechs abgeschlossenenReparaturen oder alleQA-Vorläufe starten.
+Kalibrierung v2 nicht aktiv: 304 reale Vergleiche schlechter. Keinen Rendite-,
+Verletzungs-, Wetter- oder Müdigkeitsnachweis aus QA ableiten. Separate reale
+Quellenpool- und Shadow-Preisprovenienzprobleme bleiben offen. Neue Arbeit dort
+anschließen, nicht erneut die sechs abgeschlossenen Reparaturen oder alle
+QA-Vorläufe starten.
 
 ## Aktiver Einstieg – 13.10.2026: freigegebene Claude-Auditreparaturen
 

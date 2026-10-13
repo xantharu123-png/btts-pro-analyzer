@@ -5,13 +5,13 @@ Stand: isolierter Arbeitsstand `C:/Projekt/BetBoy/betboy-app/.worktrees/audit-re
 ## Abschließende Qualifikation
 
 - Vollsuite am eingefrorenen Index `b879d8d75ececc72848a3a2917bfab79959c8e95`:
-  **13781 bestanden,97 bestehende Plattform-Skips,147 Untertests,0 Fehler**.
-  A4:6648/58/36,2775,93s; B4:7133/39/111,946,85s.
+  **13781 bestanden, 97 bestehende Plattform-Skips, 147 Untertests, 0 Fehler**.
+  A4: 6648/58/36, 2775,93 s; B4: 7133/39/111, 946,85 s.
   [Abdeckungsprüfung](C:/Projekt/BetBoy/output/audit-repairs-20261013/complete-qa-coverage.log)
-  bestätigt jedes der13878 gesammelten Hauptitems exakt einmal ohne Fehler.
+  bestätigt jedes der 13878 gesammelten Hauptitems exakt einmal ohne Fehler.
 - Letzter statischer Anschlusscheck fand noch den fehlenden Merken-Button der
   manuellen Tennissuche. Neun neue Regressionen belegten den Fehler zunächst
-  (6 RED/3 PASS). Der minimale21-Zeilen-Anschluss verwendet das vorhandene Modell,
+  (6 RED/3 PASS). Der minimale 21-Zeilen-Anschluss verwendet das vorhandene Modell,
   native Ereignis-ID und den bestehenden geschützten Bookmark-Speicherweg.
   Anschließend alle acht betroffenen UI-/Tennis-/Speichermodule **255/255 PASS**,
   10,16s, unabhängig statisch geprüft. [Abschlusslauf](C:/Projekt/BetBoy/output/audit-repairs-20261013/manual-tennis-bookmark-green.log).
@@ -21,18 +21,18 @@ Stand: isolierter Arbeitsstand `C:/Projekt/BetBoy/betboy-app/.worktrees/audit-re
 - Finale Code-/Testtree `0ca151db8eb99cbb058fd0891bfc09a492f13581`.
   Vollsuite und nachfolgende Delta-Prüfung getrennt ausweisen; keine Addition
   überlappender Prüfungen oder Behauptung einer erneuten finalen Vollsuite.
-- Begrenzt veröffentlichter Code6636530: Offline-Linux-Imports inklusive
-  Tennisrenderer PASS, aktive Kalibrierung legacy-v1. Beide Healthchecksok,
+- Begrenzt veröffentlichter Code `6636530`: Offline-Linux-Imports inklusive
+  Tennisrenderer PASS, aktive Kalibrierung legacy-v1. Beide Healthchecks ok,
   App/Caddy aktiv, sieben Timer aktiv/enabled und letzte Dienste success/inactive.
-  BackupTimer/-Dienst inactive,21GiBfrei. Kein neuer Backup-/API-/Sportscan.
-- Beide gespeicherten ModelJSONs SHA-identisch vor/nach Release:
-  Wettfinderf20422a802fd61461d8f8ab548f85228a1d083bdba92c51a0615bf9364a81bd4,
-  RisikoBet6f0c5f3158fb2bbe08bc8b7692636a0f16847e90c32742a7f7497346b644e8f1.
+  Backup-Timer/-Dienst inactive, 21 GiB frei. Kein neuer Backup-/API-/Sportscan.
+- Beide gespeicherten Modell-JSONs SHA-identisch vor/nach Release:
+  Wettfinder: `f20422a802fd61461d8f8ab548f85228a1d083bdba92c51a0615bf9364a81bd4`,
+  RisikoBet: `6f0c5f3158fb2bbe08bc8b7692636a0f16847e90c32742a7f7497346b644e8f1`.
   [Deploymentprotokoll](C:/Projekt/BetBoy/output/audit-repairs-20261013/deploy-code.log),
   [Produktionsnachweis](C:/Projekt/BetBoy/output/audit-repairs-20261013/production-code-final.log).
-- Interner Browser nach frischem Reload:18 Merken-Buttons, erster sichtbar,
-  keine Seitenexception und keine neuen Warnungen/Fehler seit18:33:12UTC.
-  Während kurzem kontrolliertem Neustart gab es erwartete WebSocket-/502Logs;
+- Interner Browser nach frischem Reload: 18 Merken-Buttons, erster sichtbar,
+  keine Seitenexception und keine neuen Warnungen/Fehler seit 18:33:12 UTC.
+  Während kurzem kontrolliertem Neustart gab es erwartete WebSocket-/502-Logs;
   diese nicht löschen oder als permanente Appfehler ausgeben. Keine echten
   Produktions-Testmerker, Einsätze oder Geldbuchungen angelegt.
 - Dieser Produktionsnachtrag wird dokumentations-only ohne Appneustart per
