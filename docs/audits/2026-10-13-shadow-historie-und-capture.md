@@ -74,7 +74,7 @@ Ergebnis- und Quotenmetadaten wachsen weiterhin mit der tatsächlichen Kardinali
 
 ## Noch offene Abnahmen
 
-- Echten Qualitätsreport RO am Serverbestand durchführen; Modelle/Märkte getrennt.
+- Echte Qualitätsauswertung unten durchgeführt; Modelle/Märkte getrennt halten.
   Hypothetischer Einsatz-ROI ist weder echter Gewinn noch neue Strategiequalität.
 - Priorisierte Capture-Publikation erst im nächsten REGULÄREN Sportlauf belegen.
 - Separate3MiB-Originalgrenze/Readiness-Streaming und gemeinsame Quellreuse lösen.
@@ -89,5 +89,56 @@ Ergebnis- und Quotenmetadaten wachsen weiterhin mit der tatsächlichen Kardinali
 Ausgang47fe15ab7524ac34216ec8322c88384b31e4a115. Nur6 gezielt gestagte
 Code-/Testdateien plus diese Doku/zentraler TODO/Übergabe. Shared Publisher enthält
 weiterhin fremdes unstaged WIP; es darf nicht als Ganzes gestagt werden.
-Commit,Push,VPS-FF,Import,Health und RO-Messung werden nach tatsächlichem Erfolg
-nachgetragen. Kein Backup,DB-Kopie oder zusätzlicher Sport-/API-Lauf.
+Codecommit **d47c9b09903b9445541745a583e12c98552bc6bf** ist committed,auf main
+gepusht und13.10.,11:02CEST auf dem VPS per Fast-forward veröffentlicht.
+Offline-Imports auf Linux ok; App/Caddy aktiv,7 bestehende Timer aktiviert,
+beide Healthchecks ok. Kurze lokale Connect-Retries direkt beim Neustart liefen
+innerhalb der begrenzten Healthprüfung aus; final beide `ok`,kein Rollback.
+Wettfinder-JSON SHA256f20422a802fd61461d8f8ab548f85228a1d083bdba92c51a0615bf9364a81bd4
+undRisikoBet-JSON6f0c5f3158fb2bbe08bc8b7692636a0f16847e90c32742a7f7497346b644e8f1
+vor/nach bitgleich.21GiB freier VPS-Speicher; keine Bereinigung erforderlich.
+Deploymenthelper separat reviewt:>480s freies Timerfenster umfasst Erfolgsweg
+UND späte code-only Recovery. Reguläre Jobs nicht gestartet/abgeschaltet.
+Backupservice/-timer bleiben inactive. Kein Backup,DB-Kopie oder Zusatzscan.
+
+## Tatsächlicher gespeicherter Qualitätsreport
+
+Zeit13.10.,11:02:56,864Europe/Zurich,exakt releasede Funktion auf vorhandenem
+Produktionsbestand,ein Read-only-Snapshot. DB-Präsenz zwingend geprüft,
+Provider-Sockets gesperrt,serverseitiger90s-Timeout.10,423s Gesamtlauf,
+87.004KiB=84,965MiB Peak-RSS; reine Prozessmessung,keine allgemeine RAM-Zusage.
+131 Modell-/Markt-/Policy-Gruppen,129 besitzen gescorte Entscheidungen.
+
+| Sport | Spiele | mit irgendeinem Ergebnis | noch ohne Ergebnis |
+| --- | ---: | ---: | ---: |
+| Fußball |662|588|74|
+| Tennis |241|213|28|
+| E-Sport |365|354|11|
+| Eishockey |7|0|7|
+
+Scoring:erste kausale Entscheidung proEvent/Selection/Modell/Policy;
+Preisreturns separat erste kausale ausführbare Entscheidung. Tatsächlicher
+Anpfiff und Aufnahmeuhren bleiben maßgeblich. Vorsicht:Scoreanzahl/Quote sind
+keine Gesamtzahl unabhängiger Spiele über korrelierte Märkte hinweg.
+
+| Beispiele getrennten Modell-Scores | gescorte Entscheidungen | Brier | Log-Loss |
+| --- | ---: | ---: | ---: |
+| Fußball,v14,Heimmannschaft unter2,5Tore |175|0,132524|0,429089|
+| Fußball,v12,Heimsieg |127|0,221861|0,633809|
+| Tennis,elo-serve-platt-v3,H2H |206|0,217468|0,625527|
+| E-Sport,subgraph-elo-v3,H2H |345|0,231311|0,653833|
+
+Keine Rangliste dieser unterschiedlichen Ereignisse/Wettarten und kein neuer
+Train/Test- oder pairedKontextvergleich. Insbesondere ein hohes Unter2,5-
+Trefferniveau beweist weder interessante Quoten noch einen Müdigkeitsvorteil.
+Gegenquoten-/ROI-Stichproben meist0,einzeln2–4; einzelne positive/negative
+hypothetische Returns werden ausdrücklich NICHT als belastbare Rendite behandelt.
+213 Tennis-Ergebnisse enthalten7Void-Fälle;H2H-Score206 ist daher nicht213.
+Die vollständigen Ergebnisgrundlagen dieser konkreten Messung bestehen in der
+DB; gespeicherte Report-Summary mit20 größten Gruppen außerhalb Git:
+`C:/Projekt/BetBoy/output/football-history-shadow-20261013/quality-report-summary.json`.
+
+Fazit:vorhandene Historie/Shadow ist jetzt tatsächlich messbar benutzt,nicht nur
+gezählt. Sie ersetzt die noch fehlende vollständige numerische Kontextkette
+und deren zeitgetrennten Qualitätsnachweis nicht. Keine Prognose/Geldbuchung
+wurde geändert. Nächste echte Capture-Abnahme beim regulären14.10.-Tageslauf.

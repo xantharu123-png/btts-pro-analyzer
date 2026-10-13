@@ -18,8 +18,16 @@ unabhängiges Review ohne Befunde. Kein Vollsuite-PASS: nach behobenen reinen
 QA-Zeilenenden bleibt der vorbestehende Hockey-`_variant`-AST-Freeze-Konflikt;
 Cricket-Replaywerte sind bitgleich. Keine Produktiv-/Testfixtureänderung.
 
-Ausgang lokal/main/VPS47fe15a; Veröffentlichung und echter RO-Qualitätsreport
-werden im neuen TODO-Block nachgetragen. Alte Publisher-/Kontext-/Tennis-WIP-
+Codecommitd47c9b09903b9445541745a583e12c98552bc6bf ist auf main und VPS live,
+13.10.,11:02CEST. Linux-Offline-Import,App/Caddy,7Timer und beide Healthchecks ok;
+Modell-JSONs vor/nach SHA256-identisch. Echter RO-Report11:02:56CEST in10,423s,
+84,965MiB Prozess-Peak:131 Gruppen/129 mit Scores.662 Fußballspiele/588 Ergebnisse,
+241 Tennis/213 Ergebnisse,365E-Sport/354 Ergebnisse,7Hockey/0 Ergebnisse.
+Entscheidungen nach Modell/Markt/Policy getrennt; kein gemeinsamer ROI-/Qualitäts-
+Nachweis. Native Kontextwirkung weiterhin0. Rohsummen außerhalb Git unter
+`output/football-history-shadow-20261013/quality-report-summary.json` (20 größte
+Gruppen). Nachweis-Dokucommit ändert keinen funktionalen Code/keine Modelle.
+Alte Publisher-/Kontext-/Tennis-WIP-
 Änderungen bleiben UNVERÖFFENTLICHT. Keine neuen Backups, DB-Kopien, Zusatzscans,
 höheren Budgets oder historischen Prognose-/Geldänderungen. Nächster regulärer
 Capture-Lauf,3MiB-Originalgrenze und200 qualifizierte Kontext-Testspiele bleiben

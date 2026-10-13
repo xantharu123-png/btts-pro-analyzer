@@ -39,11 +39,23 @@ Bindings, NICHT den gesamten Prognose-/Shadow-Bestand. Dieser Block hat Vorrang.
   QA-Materialisierung korrigiert, ohne Produktiv-/Testfixtureänderung. Danach
   Cricket-Replays numerisch bitgleich, aber vorbestehender Hockey-`_variant`-
   AST-Freeze-Konflikt bleibt. Kein Gesamtapp-PASS; Cricket unverändert/ausgenommen.
-- [ ] Veröffentlichung dieser6 gezielt gestagten Code-/Testdateien plus Doku;
-  keine fremden dirty/untracked Kontextmodell-Arbeiten übernehmen.
-- [ ] Bestehende Qualitätsauswertung am echten VPS-Bestand rein lesend messen;
-  Ereignisse/Modellversionen getrennt berichten, hypothetischen ROI nicht als
-  Echtgeldgewinn darstellen. Kein weiterer Sport-/API-/Modellscan.
+- [x] Codecommit **d47c9b09903b9445541745a583e12c98552bc6bf** auf main gepusht
+  und13.10.,11:02CEST per Fast-forward auf dem VPS live. Nur6 gezielt gestagte
+  Code-/Testdateien plus Doku; fremdes WIP erhalten. Linux-Offline-Import ok,
+  App/Caddy aktiv,7 Timer aktiviert,beide Healthchecks ok. Beide Modell-JSONs
+  SHA256-identisch vor/nach Deploy. Kein Backup oder zusätzlicher Sportlauf.
+- [x] Bestehenden Qualitätsreport am echten VPS-Bestand rein lesend ausgeführt,
+  Stichtag13.10.,11:02:56CEST:131 Modell-/Markt-/Policy-Gruppen,129 mit gescorten
+  Ergebnissen;662 Fußballspiele/588 mit Ergebnis,241 Tennis/213 mit Ergebnis,
+  365 E-Sport/354 mit Ergebnis,7 Hockey/0 mit Ergebnis.10,423s,84,965MiB
+  Gesamtprozess-Peak-RSS (Linux; keine allgemeine RAM-Grenze),90s Timeout,
+  Providerverbindungen blockiert. Gespeicherte Historie wurde tatsächlich benutzt.
+  Vergleichsbeispiele:Brier v14 Heimmannschaft U2,5=0,132524 (175 Entscheidungen),
+  Tennis-H2H=0,217468 (206),E-Sport-H2H=0,231311 (345). KEINE gemeinsame Rangliste,
+  kein kausaler Kontextvorteil. Modellversionen/Märkte nicht blind zusammenlegen.
+  Exakte Ausgabe `output/football-history-shadow-20261013/quality-report-summary.json`
+  außerhalb Git;20 größte Gruppen,keine Behauptung vollständiger Rohdatenexport.
+  Preis-/ROI-Stichproben meist0,vereinzelt2–4; kein belastbarer Gewinnnachweis.
 - [ ] Neue Capture-Priorität erst beim nächsten REGULÄREN Lauf produktiv belegen.
   Separate3MiB-ORIGINAL-Grenze und Readiness-Streaming/Reuse bleiben offen.
 - [ ] Numerische Kontextwirkung weiterhin0 aktiv. Vorhandene ehrliche Quellen
@@ -54,6 +66,8 @@ Bindings, NICHT den gesamten Prognose-/Shadow-Bestand. Dieser Block hat Vorrang.
 Ausgang lokal/main/VPS47fe15ab7524ac34216ec8322c88384b31e4a115. Kein neues
 Backup, keine DB-Kopie, Bereinigung, Migration, externe Sportabfrage oder höhere
 API-/Speichergrenze. Details `docs/audits/2026-10-13-shadow-historie-und-capture.md`.
+Ein anschließender Dokucommit hält ausschließlich den Produktionsnachweis fest;
+funktionaler,testverifizierter Code bleibtd47c9b0.
 
 ## 12.10.2026 – Spielerbelastung Verein + Nationalteam: Datenverbindung
 
