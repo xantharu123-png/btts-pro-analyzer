@@ -207,6 +207,7 @@ class FootballOriginalPublication:
         self._rows = None
         self._associations = {}
         self._source_exhausted = False
+        self._source_budget_excluded = frozenset()
         self._code = a1.prepare_artifact(kind=CODE_KIND, payload=executed_code_identity())
 
     @property
@@ -241,6 +242,11 @@ class FootballOriginalPublication:
                             self.capture.baseline_refs.get(record["fixture_id"], ()))) if record["source_marker"] in {
                                 "unresolved", "api-football", "api-football-ft-tail"} else ()
                 finally:
+                    # A failed native append is not evidence that CSV rows or
+                    # never-received fixtures were excluded by the byte budget.
+                    # Freeze this flush's IDs before any later capture batch.
+                    self._source_budget_excluded = frozenset(
+                        getattr(self.capture, "baseline_budget_excluded_ids", ()))
                     # A later batch must not regain bytes committed before an
                     # error in this one. A process crash forfeits the whole permit.
                     inserted = self.capture.source_inserted_bytes - before
@@ -280,7 +286,11 @@ class FootballOriginalPublication:
             for ref, fixture in records.items():
                 evidence = provenance["records"].get(ref)
                 if evidence is None:
-                    unresolved[ref] = ("source-retention-budget-exhausted" if self._source_exhausted else
+                    baseline = football_base_history_record(fixture)
+                    budget_excluded = (baseline["source_marker"] in {
+                        "unresolved", "api-football", "api-football-ft-tail"}
+                        and baseline["fixture_id"] in self._source_budget_excluded)
+                    unresolved[ref] = ("source-retention-budget-exhausted" if budget_excluded else
                         "native-receipt-reference-unavailable" if not self._associations.get(ref) else "native-revision-unresolved")
                 else:
                     consumed[ref] = sorted(row["digest"] for row in source_rows

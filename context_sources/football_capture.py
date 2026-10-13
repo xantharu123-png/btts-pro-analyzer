@@ -119,6 +119,7 @@ class _Capture:
         self.baseline_processed = set()
         self.baseline_refs = {}
         self.baseline_scope_records = {}
+        self.baseline_budget_excluded_ids = set()
         self.source_inserted_bytes = 0
         self.baseline_enabled = baseline_enabled
         self._projection_log_count = 0
@@ -134,64 +135,79 @@ class _Capture:
             raise ContextContractError("baseline input scope must be an explicit tuple")
         if type(max_new_payload_bytes) is not int or max_new_payload_bytes < 0:
             raise ValueError("source payload budget must be a finite nonnegative integer")
+        # A publication freezes this flush's exclusions. Replace, rather than
+        # clear, the set so a later flush cannot mutate that earlier snapshot.
+        self.baseline_budget_excluded_ids = set()
         records = {}
+        target_ids = set()
         for row in selected_input_scope:
             try:
                 record = football_base_history_record(row)
                 records[digest(record)] = record
+                status = row["fixture"].get("status")
+                if (record["source_marker"] in {"unresolved", "api-football", "api-football-ft-tail"}
+                        and type(record["fixture_id"]) is int and record["fixture_id"] > 0
+                        and type(status) is dict and status.get("short") in {"NS", "TBD", "PST"}):
+                    target_ids.add(record["fixture_id"])
             except ContextIntegrityError:
                 raise
             except (ContextContractError, KeyError, TypeError, ValueError, OverflowError):
                 self.errors.append("Kontext-Capture: native-projection-unavailable")
         self.baseline_scope_records = records
         wanted = {row["fixture_id"] for row in records.values()
-                  if row["source_marker"] in {"unresolved", "api-football", "api-football-ft-tail"}}
+                  if row["source_marker"] in {"unresolved", "api-football", "api-football-ft-tail"}
+                  and type(row["fixture_id"]) is int and row["fixture_id"] > 0}
+        target_ids.intersection_update(wanted)
         retained = RetainedFinals(self.path, tuple((raw, receipt["observed_at"])
             for receipt in self.receipts if receipt["endpoint"] == "fixtures"
             for raw in receipt["rows"] if raw["fixture"]["id"] in wanted))
         remaining = max_new_payload_bytes
         exhausted = False
         incomplete_ids = set()
-        for index, receipt in enumerate(self.receipts):
-            if receipt["endpoint"] != "fixtures":
+        pending = [(index, row_index, receipt, raw)
+            for index, receipt in enumerate(self.receipts) if receipt["endpoint"] == "fixtures"
+            for row_index, raw in enumerate(receipt["rows"])
+            if raw["fixture"]["id"] in wanted and (index, row_index) not in self.baseline_processed]
+        # Stable event-level priority: retain every received revision of a
+        # target before spending bytes on new FT history. Within either class,
+        # reception order and all correction/conflict material stay unchanged.
+        pending.sort(key=lambda item: item[3]["fixture"]["id"] not in target_ids)
+        for index, row_index, receipt, raw in pending:
+            key = (index, row_index)
+            observed = datetime.fromisoformat(receipt["observed_at"])
+            try:
+                additions, base_index = fixture_bundle(raw, observed)
+                if len(additions) > 512:
+                    raise ContextContractError("native fixture projection exceeds bounded batch")
+            except ContextIntegrityError:
+                raise
+            except (ContextContractError, KeyError, TypeError, ValueError, OverflowError):
+                self.errors.append("Kontext-Capture: native-projection-unavailable")
+                incomplete_ids.add(raw["fixture"]["id"])
+                self.baseline_refs.pop(raw["fixture"]["id"], None)
                 continue
-            for row_index, raw in enumerate(receipt["rows"]):
-                key = (index, row_index)
-                if raw["fixture"]["id"] not in wanted or key in self.baseline_processed:
-                    continue
-                observed = datetime.fromisoformat(receipt["observed_at"])
+            reuse = retained.reuse(raw, observed=observed)
+            if reuse is not None:
+                refs, base_index = reuse
+                inserted = 0
+            else:
                 try:
-                    additions, base_index = fixture_bundle(raw, observed)
-                    if len(additions) > 512:
-                        raise ContextContractError("native fixture projection exceeds bounded batch")
-                except ContextIntegrityError:
-                    raise
-                except (ContextContractError, KeyError, TypeError, ValueError, OverflowError):
-                    self.errors.append("Kontext-Capture: native-projection-unavailable")
+                    refs, inserted = append_bounded_observation_batch(self.path,
+                        tuple((record, observed) for record in additions), max_new_payload_bytes=remaining)
+                except StorageBudgetExceeded:
+                    # A too-large new bundle must not hide later zero-cost
+                    # complete bundles. The caller still reports partial.
+                    exhausted = True
+                    self.baseline_budget_excluded_ids.add(raw["fixture"]["id"])
                     incomplete_ids.add(raw["fixture"]["id"])
                     self.baseline_refs.pop(raw["fixture"]["id"], None)
                     continue
-                reuse = retained.reuse(raw, observed=observed)
-                if reuse is not None:
-                    refs, base_index = reuse
-                    inserted = 0
-                else:
-                    try:
-                        refs, inserted = append_bounded_observation_batch(self.path,
-                            tuple((record, observed) for record in additions), max_new_payload_bytes=remaining)
-                    except StorageBudgetExceeded:
-                        # A too-large new bundle must not hide later zero-cost
-                        # complete bundles. The caller still reports partial.
-                        exhausted = True
-                        incomplete_ids.add(raw["fixture"]["id"])
-                        self.baseline_refs.pop(raw["fixture"]["id"], None)
-                        continue
-                remaining -= inserted
-                self.source_inserted_bytes += inserted
-                self.refs.update(refs)
-                if raw["fixture"]["id"] not in incomplete_ids:
-                    self.baseline_refs.setdefault(raw["fixture"]["id"], set()).add(refs[base_index])
-                self.baseline_processed.add(key)
+            remaining -= inserted
+            self.source_inserted_bytes += inserted
+            self.refs.update(refs)
+            if raw["fixture"]["id"] not in incomplete_ids:
+                self.baseline_refs.setdefault(raw["fixture"]["id"], set()).add(refs[base_index])
+            self.baseline_processed.add(key)
         if exhausted:
             raise StorageBudgetExceeded("source retention payload budget exhausted")
         return {ref: tuple(sorted(self.baseline_refs.get(row["fixture_id"], ())))

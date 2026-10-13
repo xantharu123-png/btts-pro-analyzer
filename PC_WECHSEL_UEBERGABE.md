@@ -1,5 +1,30 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Neuester Einstieg – 13.10.2026: Shadow-Historie und echte Capture-Lücken
+
+Erster Block `TODO_AKTUELL.md` und Audit
+`docs/audits/2026-10-13-shadow-historie-und-capture.md` haben Vorrang.
+Frühere95 zählen nur native ORIGINAL-Bindings. Echte Produktionsinventur:
+662 Fußball-SHADOW-Spiele,588 mit Ergebnis,84.025 Revisionen. Wiederholungen
+und mehrere Märkte zählen NICHT als unabhängige Fälle.101 native Bindings,
+8 captured/93 partial; Shadow enthält keine volle kalibrierte Torverteilung.
+Deshalb vorhandene Grundmodelle bewerten, aber keine Müdigkeitsfreigabe vortäuschen.
+
+Gezielte6-Dateien-Reparatur: aktuelle native NS/TBD/PST-Ziele vor älterer
+Historie im gleichen Quellenbudget; tatsächliche Budgetausschlüsse pro Flush/ID;
+Qualitätsreport verarbeitet Forecast-Payloads einzeln im Read-only-Snapshot.
+267 isolierte Release-/Nachbartests,47 korrekte Portaltests bestanden;
+unabhängiges Review ohne Befunde. Kein Vollsuite-PASS: nach behobenen reinen
+QA-Zeilenenden bleibt der vorbestehende Hockey-`_variant`-AST-Freeze-Konflikt;
+Cricket-Replaywerte sind bitgleich. Keine Produktiv-/Testfixtureänderung.
+
+Ausgang lokal/main/VPS47fe15a; Veröffentlichung und echter RO-Qualitätsreport
+werden im neuen TODO-Block nachgetragen. Alte Publisher-/Kontext-/Tennis-WIP-
+Änderungen bleiben UNVERÖFFENTLICHT. Keine neuen Backups, DB-Kopien, Zusatzscans,
+höheren Budgets oder historischen Prognose-/Geldänderungen. Nächster regulärer
+Capture-Lauf,3MiB-Originalgrenze und200 qualifizierte Kontext-Testspiele bleiben
+eigene Abnahmen;0 numerische Effekte aktiv.
+
 ## Neuester Einstieg – 12.10.2026: Vereins-/Nationalteam-Spielerbelastung
 
 Nutzerauftrag „machen“ nach Dortmund-/Nationalteam-Erholung. Einstieg erster

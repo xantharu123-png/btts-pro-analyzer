@@ -1,5 +1,60 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 13.10.2026 – vorhandene Historie/Shadow wirklich auswerten
+
+Nutzerauftrag: vorhandene History und Schattendaten nutzen, nicht nur auf neue
+Belege warten. Die früher genannten95 betreffen ausschließlich native ORIGINAL-
+Bindings, NICHT den gesamten Prognose-/Shadow-Bestand. Dieser Block hat Vorrang.
+
+- [x] Rein lesende Produktionsinventur:84.025 Fußball-SHADOW-Revisionen,
+  **662 unterschiedliche Spiele,588 davon mit Ergebnis**,4.396 Event-/Markt-/
+  Auswahl-Ergebnisse. Wiederholte Läufe/Märkte sind keine unabhängigen Spiele.
+  Legacy `shadow_clv.db` enthält dagegen nur3 Prognosen;3.387 Fixtures darin
+  sind Spieltermine und keine Prognosebelege. Inventur13.10.,08:38–08:49CEST.
+- [x] Native ORIGINAL-Bestände getrennt:101 Bindings,8 vollständig captured,
+  93 partial. Die588 auswertbaren Shadow-Spiele belegen Grundmodell-Ergebnisse,
+  aber keine200 vollständigen unabhängigen Verletzungs-/Müdigkeits-Testfälle.
+  Shadow speichert skalare Wahrscheinlichkeiten, nicht die ursprüngliche volle
+  kalibrierte Torverteilung samt sämtlichen konsumierten Quellen.
+- [x] Reproduzierter Speicherfehler: Quellenflush verbrauchte sein gleiches
+  Bytebudget zuerst für ältere Historie und verlor später empfangene aktuelle
+  Spiele. Jetzt native NS/TBD/PST-Ziele und sämtliche empfangenen Revisionen
+  stabil zuerst; Budget, Quelluhren, Korrekturfolge und historische FT-Reuse gleich.
+- [x] Irreführender globaler Sperrgrund repariert: nur tatsächlich am Budget
+  gescheiterte native IDs heißen Budgetausschluss. CSV-/nie empfangene Quellen
+  bleiben fehlende native Belege, keine erfundene Budgetursache.
+- [x] Bestehende Qualitätsauswertung streamt Forecast-Payloads in EINEM Read-only-
+  SQLite-Snapshot statt sie vollständig zu materialisieren. Gleiche kausale
+  Erstentscheidung, Ergebnis-/Preisregeln, Brier/Log-Loss/Kalibrierung. Synthetischer
+  Python-Payload-Peak137MB→221KB; Quote-Payload17MB→32KB. Das sind tracemalloc-
+  Messungen, KEINE allgemeine Prozess-RAM-Garantie; Identitäts-/Ergebnis-/
+  Quotenindizes und SQLite-Puffer wachsen weiterhin mit den echten Daten.
+- [x] Exakter isolierter Indexstand:267 Release-/Nachbartests bestanden.
+  Abschließende LF-materialisierte Runde267/267 in32,35s,0 Skips/Fehler.
+  Frischer unabhängiger Review:keine Critical/Important/Minor-Befunde.
+  Portal mit vorgesehenen `siteconfig.qa_settings`:47 Tests bestanden, keine
+  externen Netzverbindungen. Runden überlappen; nicht zu einer Vollsuite addieren.
+- [ ] Vollsuite bleibt offen: erster Kernlauf224 bestanden/6 Skips/1 Failure.
+  Die eingefrorene Fixture war durch Windows-Archiv-Zeilenenden CRLF statt LF;
+  QA-Materialisierung korrigiert, ohne Produktiv-/Testfixtureänderung. Danach
+  Cricket-Replays numerisch bitgleich, aber vorbestehender Hockey-`_variant`-
+  AST-Freeze-Konflikt bleibt. Kein Gesamtapp-PASS; Cricket unverändert/ausgenommen.
+- [ ] Veröffentlichung dieser6 gezielt gestagten Code-/Testdateien plus Doku;
+  keine fremden dirty/untracked Kontextmodell-Arbeiten übernehmen.
+- [ ] Bestehende Qualitätsauswertung am echten VPS-Bestand rein lesend messen;
+  Ereignisse/Modellversionen getrennt berichten, hypothetischen ROI nicht als
+  Echtgeldgewinn darstellen. Kein weiterer Sport-/API-/Modellscan.
+- [ ] Neue Capture-Priorität erst beim nächsten REGULÄREN Lauf produktiv belegen.
+  Separate3MiB-ORIGINAL-Grenze und Readiness-Streaming/Reuse bleiben offen.
+- [ ] Numerische Kontextwirkung weiterhin0 aktiv. Vorhandene ehrliche Quellen
+  mit Ergebnissen verbinden, zeitgetrennte Trainings-/Abstimmungs-/Testkohorten
+  schaffen; erst den freigegebenen200-Testspiel-Vertrag erfüllen und qualifizieren.
+  Alte spätemfangene Spielerlisten nicht in frühere Prognosen zurückdatieren.
+
+Ausgang lokal/main/VPS47fe15ab7524ac34216ec8322c88384b31e4a115. Kein neues
+Backup, keine DB-Kopie, Bereinigung, Migration, externe Sportabfrage oder höhere
+API-/Speichergrenze. Details `docs/audits/2026-10-13-shadow-historie-und-capture.md`.
+
 ## 12.10.2026 – Spielerbelastung Verein + Nationalteam: Datenverbindung
 
 Fortsetzung auf ausdrückliches „machen“ nach der Dortmund-/Länderspiel-Frage.

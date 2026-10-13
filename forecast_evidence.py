@@ -440,44 +440,70 @@ def build_quality_report(db_path: str | Path, *, as_of: datetime | str | None = 
     report['limitations'].append('Verified actual kickoff overrides the planned start for causal scoring and prices; frozen forecasts stay unchanged.')
     if not path.is_file():
         return report
+
+    class Mean:
+        """Bounded compensated totals instead of retaining every scored sample."""
+
+        def __init__(self):
+            self.n = 0
+            self.total = 0.0
+            self.correction = 0.0
+
+        def add(self, value):
+            combined = self.total + value
+            if abs(self.total) >= abs(value):
+                self.correction += (self.total - combined) + value
+            else:
+                self.correction += (value - combined) + self.total
+            self.total = combined
+            self.n += 1
+
+        def value(self):
+            total = self.total
+            if self.correction and math.isfinite(self.correction):
+                total += self.correction
+            return total / self.n if self.n else None
+
+    groups, sport_rows = {}, {}
     with closing(sqlite3.connect(path.resolve().as_uri()+"?mode=ro", uri=True)) as conn:
         conn.row_factory = sqlite3.Row
         conn.execute("BEGIN")
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         if not _TABLES.issubset(tables):
             raise ValueError("incomplete forecast evidence database")
-        forecasts = [dict(r) for r in conn.execute("SELECT * FROM forecast_rows WHERE decision_at<=? ORDER BY decision_at,forecast_id", (cutoff.isoformat(),))]
         results = {}
-        for row in conn.execute("SELECT * FROM forecast_results WHERE observed_at<=? ORDER BY observed_at,result_id", (cutoff.isoformat(),)):
+        for row in conn.execute("SELECT event_key,market_key,selection,outcome,observed_at,payload_json FROM forecast_results WHERE observed_at<=? ORDER BY observed_at,result_id", (cutoff.isoformat(),)):
             key = (row["event_key"], row["market_key"], row["selection"])
             results.setdefault(key, dict(row))
         quotes = defaultdict(list)
-        for row in conn.execute("SELECT * FROM forecast_quotes WHERE fetched_at<=? ORDER BY observed_at,quote_id", (cutoff.isoformat(),)):
+        for row in conn.execute("SELECT quote_id,forecast_id,kind,bookmaker_id,observed_at,fetched_at,odds,executable FROM forecast_quotes WHERE fetched_at<=? ORDER BY observed_at,quote_id", (cutoff.isoformat(),)):
             quotes[row["forecast_id"]].append(dict(row))
-    groups = defaultdict(list)
-    sport_rows = defaultdict(list)
-    for row in forecasts:
-        groups[(row["sport"],row["market_key"],row["model_version"],row["policy_version"])].append(row)
-        sport_rows[row['sport']].append(row)
-    # Do not sum per-market counts into a misleading sample size. All markets,
-    # repeated runs and policy revisions of the same fixture remain one event.
-    for sport, rows in sorted(sport_rows.items()):
-        event_ids = {row['event_key'] for row in rows}
-        resolved = {row['event_key'] for row in rows
-                    if (row['event_key'], row['market_key'], row['selection']) in results}
-        report['sport_coverage'].append(dict(sport=sport, forecast_revisions=len(rows),
-            unique_events=len(event_ids), events_with_any_result=len(resolved),
-            events_without_results=len(event_ids-resolved)))
-    for key, group in sorted(groups.items()):
-        summary = dict(zip(("sport","market","model_version","policy_version"),key))
-        summary.update({"decision_revisions":len(group), "unique_events":len({r["event_key"] for r in group}), "causal_forecasts":0, "unknown_input_clocks":0, "wins":0, "losses":0, "voids":0, "unresolved":0, "scored":0, "entry_quote_coverage":0, "executable_entry_coverage":0})
-        losses, log_losses, returns, clvs = [], [], [], []
-        scored_identities, outcome_identities, executable_identities = set(), set(), set()
-        bins = [{"lower":i/10,"upper":(i+1)/10,"n":0,"sum_p":0.0,"wins":0} for i in range(10)]
-        for record in group:
+        # Keep the cursor and all caches in this one read-only snapshot. Only
+        # the current forecast payload is materialized; retained state scales
+        # with distinct identities/groups and quote/result observations, not
+        # with all forecast revisions or their context payloads.
+        for record in conn.execute("SELECT forecast_id,event_key,sport,market_key,selection,model_version,policy_version,starts_at,decision_at,payload_json FROM forecast_rows WHERE decision_at<=? ORDER BY decision_at,forecast_id", (cutoff.isoformat(),)):
+            key = (record["sport"],record["market_key"],record["model_version"],record["policy_version"])
+            if key not in groups:
+                summary = dict(zip(("sport","market","model_version","policy_version"),key))
+                summary.update({"decision_revisions":0, "unique_events":0, "causal_forecasts":0, "unknown_input_clocks":0, "wins":0, "losses":0, "voids":0, "unresolved":0, "scored":0, "entry_quote_coverage":0, "executable_entry_coverage":0})
+                groups[key] = dict(summary=summary, events=set(), scored=set(), outcomes=set(), executable=set(),
+                                   losses=Mean(), log_losses=Mean(), returns=Mean(), clvs=Mean(),
+                                   bins=[{"lower":i/10,"upper":(i+1)/10,"n":0,"sum_p":0.0,"wins":0} for i in range(10)])
+            group = groups[key]
+            summary = group["summary"]
+            summary["decision_revisions"] += 1
+            group["events"].add(record["event_key"])
+            scored_identities, outcome_identities, executable_identities = group["scored"], group["outcomes"], group["executable"]
+            losses, log_losses, returns, clvs, bins = group["losses"], group["log_losses"], group["returns"], group["clvs"], group["bins"]
             forecast = json.loads(record["payload_json"])
             identity = (record["event_key"],record["market_key"],record["selection"])
             result = results.get(identity)
+            sport = sport_rows.setdefault(record["sport"], dict(revisions=0, events=set(), resolved=set()))
+            sport["revisions"] += 1
+            sport["events"].add(record["event_key"])
+            if result:
+                sport["resolved"].add(record["event_key"])
             proof = json.loads(result['payload_json']).get('provenance', {}) if result else {}
             effective_start = _utc(proof.get('actual_starts_at', record['starts_at']))
             causal = forecast["causal_provenance_complete"]
@@ -486,7 +512,7 @@ def build_quality_report(db_path: str | Path, *, as_of: datetime | str | None = 
             # never rewrites the original forecast, only the terminal proof.
             causal = causal and _utc(record['decision_at']) < effective_start and _utc(forecast['recorded_at']) < effective_start
             summary["causal_forecasts" if causal else "unknown_input_clocks"] += 1
-            observed_quotes = quotes[record["forecast_id"]]
+            observed_quotes = quotes.get(record["forecast_id"], ())
             entries = [q for q in observed_quotes if q["kind"] == "entry"
                        and _utc(q['observed_at']) < effective_start and _utc(q['fetched_at']) < effective_start]
             executable = [q for q in entries if q["executable"]]
@@ -503,9 +529,9 @@ def build_quality_report(db_path: str | Path, *, as_of: datetime | str | None = 
                             and _utc(q['observed_at']) <= effective_start and _utc(q['fetched_at']) <= effective_start]
                 if closings:
                     close = max(closings,key=lambda q:(q["observed_at"],q["quote_id"]))
-                    clvs.append(entry["odds"]/close["odds"]-1)
+                    clvs.add(entry["odds"]/close["odds"]-1)
                 if outcome in {"WIN","LOSS"} and _utc(result["observed_at"]) > _utc(record["decision_at"]):
-                    returns.append(entry["odds"]*int(outcome=="WIN")-1)
+                    returns.add(entry["odds"]*int(outcome=="WIN")-1)
             if identity in scored_identities:
                 continue
             if causal:
@@ -513,14 +539,24 @@ def build_quality_report(db_path: str | Path, *, as_of: datetime | str | None = 
             if not causal or outcome not in {"WIN","LOSS"} or _utc(result["observed_at"]) <= _utc(record["decision_at"]):
                 continue
             p, y = forecast["probability"], int(outcome=="WIN")
-            losses.append((p-y)**2)
+            losses.add((p-y)**2)
             clipped = max(1e-15,min(1-1e-15,p))
-            log_losses.append(-(y*math.log(clipped)+(1-y)*math.log(1-clipped)))
+            log_losses.add(-(y*math.log(clipped)+(1-y)*math.log(1-clipped)))
             cell = bins[min(9,int(p*10))]
             cell["n"] += 1; cell["sum_p"] += p; cell["wins"] += y
-        summary.update({"scored":len(losses), "brier_score":sum(losses)/len(losses) if losses else None, "log_loss":sum(log_losses)/len(log_losses) if log_losses else None, "hypothetical_executable_samples":len(returns), "hypothetical_unit_roi":sum(returns)/len(returns) if returns else None, "same_book_raw_clv_samples":len(clvs), "same_book_raw_clv":sum(clvs)/len(clvs) if clvs else None, "calibration_bins":[{"lower":b["lower"],"upper":b["upper"],"n":b["n"],"mean_probability":b["sum_p"]/b["n"] if b["n"] else None,"observed_rate":b["wins"]/b["n"] if b["n"] else None} for b in bins]})
-        summary["unique_event_selections"] = len(outcome_identities)
-        summary["first_causal_observations"] = len(scored_identities)
+    # Do not sum per-market counts into a misleading sample size. All markets,
+    # repeated runs and policy revisions of the same fixture remain one event.
+    for sport, rows in sorted(sport_rows.items()):
+        report['sport_coverage'].append(dict(sport=sport, forecast_revisions=rows["revisions"],
+            unique_events=len(rows["events"]), events_with_any_result=len(rows["resolved"]),
+            events_without_results=len(rows["events"]-rows["resolved"])))
+    for key, group in sorted(groups.items()):
+        summary = group["summary"]
+        losses, log_losses, returns, clvs, bins = group["losses"], group["log_losses"], group["returns"], group["clvs"], group["bins"]
+        summary["unique_events"] = len(group["events"])
+        summary.update({"scored":losses.n, "brier_score":losses.value(), "log_loss":log_losses.value(), "hypothetical_executable_samples":returns.n, "hypothetical_unit_roi":returns.value(), "same_book_raw_clv_samples":clvs.n, "same_book_raw_clv":clvs.value(), "calibration_bins":[{"lower":b["lower"],"upper":b["upper"],"n":b["n"],"mean_probability":b["sum_p"]/b["n"] if b["n"] else None,"observed_rate":b["wins"]/b["n"] if b["n"] else None} for b in bins]})
+        summary["unique_event_selections"] = len(group["outcomes"])
+        summary["first_causal_observations"] = len(group["scored"])
         summary["quote_coverage_unit"] = "decision revisions"
         report["groups"].append(summary)
     return report
