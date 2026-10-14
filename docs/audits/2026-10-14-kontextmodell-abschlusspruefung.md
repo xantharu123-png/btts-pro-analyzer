@@ -16,8 +16,14 @@ identisch. Nativer Footprint-Pfad vermeidet die kausal nachgewiesene Intern-Dict
 Allokation; ursprünglicher kombinierter Peak 7.720.933 → 30.604 Bytes, keine
 Grenzanhebung/Warmups/GC/Testverkürzung. Alte Path-Rückgabe, vollständige
 Admission, Fehlerpolitik, zweite stat-Raceprüfung und alle SQL-Budgets erhalten.
-Gezielte unabhängige Reviews ohne offene Befunde. Quellen-Release steht jetzt
-an; kein numerischer Effekt oder besseres Wetter-/Verletzungsmodell daraus.
+Gezielte unabhängige Reviews ohne offene Befunde. Quellen-Release `50ec019` auf
+main und VPS15:23CEST, genau ein App-Neustart1131606→1136736; Offline-Imports/
+Literalquellenfamilien und unveränderteModell-JSONs bestätigt. SSH-WrapperExit127
+erst nach erfolgreichen Prüfungen durch letzteWindows-CR-Leerzeile; separate
+korrigierte lesende Nachprüfung15:24Exit0. ZielHEAD/PID, App/Caddy, siebenTimer
+und beideHealthchecksok; Backupdisabled/inactive. Keine Sicherung/DBkopie/
+Schemaänderung/Bereinigung/APIscan. Kein numerischer Effekt oder besseres
+Wetter-/Verletzungsmodell daraus. Docs-only Abschluss benötigt keinen Neustart.
 
 Nutzerentscheidung: nur vorhandene und kostenlose Quellen. ATP-/WTA-Dauer ist
 bereits vorhanden, wo geliefert, aber ohne automatisch belegte individuelle

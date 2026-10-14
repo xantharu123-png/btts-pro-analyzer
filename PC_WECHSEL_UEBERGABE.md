@@ -16,10 +16,15 @@ unverändert. Kombinierter Originalmesslauf 7.720.933 → 30.604 Bytes.
 POINT-Schutz und v3-Fußballquellen vollständig regressionsgeprüft;
 gezielte unabhängige Reviews ohne offene Befunde. Kein numerischer Effekt daraus.
 
-GitHub/VPS vor Veröffentlichung 15:16 CEST `242093f`, Jobs success/Exit 0,
-App/Caddy aktiv, beide Healthchecks `ok`. Quellenpaket-Push und VPS-FF-Pull
-stehen noch an; ausschließlich ein App-Neustart, keine DB-/Schemaänderung,
-Sicherung, Kopie, Bereinigung oder zusätzlicher Sportscan.
+Quellenpaket `50ec01910c3ed4ed6a0caa2fb08bf48720a573b5` ist auf GitHub `main`
+und seit 15:23 CEST auf dem VPS. Offline-Imports/Literalquellenfamilien bestanden,
+genau ein App-Neustart (1131606 → 1136736), Modell-JSONs unverändert.
+Keine DB-/Schemaänderung, Sicherung, Kopie, Bereinigung oder zusätzlicher Scan.
+SSH-Wrapper erst nach erfolgreichen Prüfungen wegen Windows-CR-Trailer Exit127.
+Echtes Ergebnis erhalten, nicht umetikettiert; separate korrigierte lesende
+Nachprüfung15:24 Exit0: ZielHEAD/PID stimmen, beide Healthchecksok,
+App/Caddy aktiv, sieben Timer enabled/geplant, Tagesbackupdisabled/inactive.
+Anschließend docs-only FF-Pull ohne zweiten App-Neustart; Codebasis weiter50ec019.
 
 **Nicht Gesamtabschluss:** realer begrenzter historischer Quellenleser noch offen
 (Vier-Fall-Abfrage >45 s; tatsächliche Datei 7.35 GB > bestehendes C-4-GiB-Limit).

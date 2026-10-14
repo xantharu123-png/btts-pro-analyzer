@@ -22,9 +22,13 @@ All-generation936 native finals are not qualified train/tune/200test cohorts;
 old149ATP/312WTA Winner POINT-state events are not new capture publications.
 WTA state serve_weight0 supplies no joint law. No retrospective POINT claim.
 
-Engineering release gate now green; main/VPS precheck15:16CEST still242093f,
-alljobs success/Exit0, App/Caddy active, bothhealthok. Source-only push/FFpull
-with one Apprestart remains pending; no backup/APIscan/DBcopy/schema mutation.
+Engineering source50ec019 pushedmain/FFpulledVPS15:23CEST. Linuxsyntax,
+offlineimports/allliteral sourcefamilies PASS; one Apprestart1131606→1136736,
+forecastJSONs unchanged. SSHwrapperExit127 only after successfuldeploy checks,
+finalWindowsCRblankline; originalfailure retained. Corrected no-final-newline
+trailer and separate read-only reconciliation15:24Exit0: actualHEAD/PID/health/
+App/Caddy/sevenenabledscheduledtimers verified, backupdisabled/inactive. No
+secondrestart/backup/APIscan/DBcopy/schema mutation. Docs-only final FFpull next.
 Numerical injury/weather/fatigue effect/empiricalapproval/publicconsumer still
 open: real bounded historical source owner, large-source compact projection,
 causal coverage, independent cohorts and quality. No silent C4GiB limit increase.

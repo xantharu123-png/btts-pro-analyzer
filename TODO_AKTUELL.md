@@ -24,11 +24,17 @@ Datenquellen, keine neuen Tarife. Cricket bleibt ausgenommen.
   geschlossene Quellenfamilien, Prüfung aller Belege und geschützte ungeöffnete
   Endergebnisse. Fußball: identische Club-/Nationalteam-Spielerquellen in allen
   v3-Ownern. Die gezielten unabhängigen Reviews sind ohne offene Befunde.
-- [ ] Finales Quellenpaket auf `main` veröffentlichen und auf den VPS ziehen,
-  ausschließlich Code + ein App-Neustart. Keine neue Sicherung, Datenbankkopie,
-  Schemaänderung, Bereinigung oder zusätzlicher Sport-/API-Scan. Vorprüfung
-  14.10. 15:16 CEST: GitHub/VPS `242093f`, sämtliche Jobs zuletzt success/Exit 0,
-  App/Caddy aktiv, beide Healthchecks `ok`. Release erst im geprüften Idlefenster.
+- [x] Quellenpaket `50ec01910c3ed4ed6a0caa2fb08bf48720a573b5` auf `main`
+  gepusht und 14.10. um 15:23 CEST per Fast-Forward auf den VPS gezogen.
+  Linux-Syntax und Offline-Imports/Literalquellenfamilien bestanden. Genau ein
+  App-Neustart: PID 1131606 → 1136736. Modell-JSONs vor/nach identisch; keine
+  Sicherung, Datenbankkopie, Schemaänderung, Bereinigung oder zusätzlicher Scan.
+  App/Caddy aktiv, sieben Timer enabled/geplant, Tages-Backup disabled/inactive,
+  beide Healthchecks `ok`. SSH-Wrapper erst nach erfolgreichen Prüfungen mit
+  Exit127 wegen letzter Windows-CR-Leerzeile; nicht als Exit0 umetikettiert.
+  Separate korrigierte lesende Nachprüfung15:24 Exit0: ZielHEAD/PID/Health/Timer
+  stimmen, kein zweiter Neustart. Abschlussdokumentation nur docs-only FF-Pull;
+  ausführbarer Code bleibt der voll geprüfte Stand von `50ec019`.
 
 ### Fachlich weiterhin offen – keine numerische Aktivierung behaupten
 
