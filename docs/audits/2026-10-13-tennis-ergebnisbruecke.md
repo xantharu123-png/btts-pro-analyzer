@@ -168,10 +168,24 @@ Datenbanktabelle, Migration, Netzwerkanfrage oder permanente Historienkopie.
   Idleprüfung, begrenzte PID-Abfragen und ein vollständig aufgeräumter einzelner
   Watchdog ohne vererbte Deploy-Lock-/SSH-Ausgabekanäle. Keine weiteren
   konkreten Freigabeblocker; Produktiv-/Testquellen dadurch nicht verändert.
-- Commit/Push und source-only VPS-FF folgen jetzt nach den Abschlussgates.
-  Ein begrenzter App-Neustart übernimmt alle Module deterministisch; Caddy,
-  Timer, Berechnungsjobs, Modelle und Datenbanken bleiben unangetastet.
-  Der nächste reguläre Modellaufbau übernimmt die Ergänzungen. Alte Modellartefakte
+- Codecommit `a3f465c673da2d4c3050bdd26203519181bcb882` nach vollständiger QA
+  auf main gepusht und source-only auf dem VPS per FF veröffentlicht.
+  Produktionsprüfung 14.10.2026 08:23 CEST: kanonischer Worktree/GitHub/VPS
+  identisch. Offline-Linux-Imports und historische/current Quellenfamilie PASS;
+  begrenzter App-only-Neustart, PID 1116649 → 1131606.
+  App/Caddy aktiv, alle sieben Timer aktiv und enabled, beide Healthchecks `ok`.
+  Wettfinder-/RisikoBet-JSONs bytegleich vor/nach Veröffentlichung:
+  `09c3f411d752d1228e3c4a4b0a31c3d5d12f6cb1deb2f984ba8b853c060e566b` /
+  `6a5001e2b1df5904e747743fce632475b301836d72918a6ad62102a55cd1fcc3`.
+  21 GiB frei; Backupdienst/-timer inactive. Kein neues Backup, API-/Sportscan,
+  Modellaufbau, historischer Write oder Geldvorgang. Berechnungsjobs und Timer
+  nicht neu gestartet. Zehn geerbte Hauptcheckout-Codehashes unverändert.
+  Belege: `deploy-code.log`, `production-code-final.log`, `root-wip-preservation.log`.
+  Unabhängiger finaler JUnit-/Hash-Abgleich bestätigt die vollständige QA erneut.
+- Dieser Abschluss wird als reiner Dokumentations-FF ohne weiteren Appneustart
+  veröffentlicht. Der nächste reguläre Modellaufbau übernimmt die Ergänzungen;
+  sein tatsächlicher Produktionsnachweis steht am **15.10.2026 00:05** noch aus.
+  Alte Modellartefakte
   werden nicht umgeschrieben; kein zusätzlicher Scan zur Beschleunigung.
 - Software-/Datenweg-PASS beweist keine bessere Kalibrierung, Trefferquote oder
   Rendite und keine aktivierte Verletzungs-/Wetter-/Müdigkeitswirkung.

@@ -35,12 +35,19 @@
   Keine dieser Vorprüfungen als bestandene Vollsuite zählen.
   `full4` durch Unterbrechung bei 81 % ohne Abschluss-JUnit beendet, kein PASS.
   Eigene temporäre Verzeichnisse, `partition5.json` und strikter Vereinigungsabgleich.
-- [ ] Erst nach Vollsuite Abschlusscommit, Push auf main und begrenzter source-only
-  VPS-Fast-forward mit App-only-Neustart. Kein neues Backup, kein Zusatzscan und
-  kein Neuaufbau alter Tipps; Berechnungsdienste und Timer nicht neu starten.
+- [x] Codecommit `a3f465c673da2d4c3050bdd26203519181bcb882` nach Vollsuite
+  auf main gepusht und per begrenztem source-only VPS-Fast-forward veröffentlicht.
+  Am 14.10.2026 08:23 CEST: kanonischer Worktree, GitHub und VPS identisch.
+  Offline-Linux-Imports/Quellenfamilie PASS; App-PID 1116649 → 1131606,
+  App/Caddy aktiv, sieben Timer aktiv/enabled, beide Healthchecks `ok`.
+  Modell-JSONs bytegleich; Backupdienst/-timer inactive, kein neues Backup,
+  Zusatzscan oder Neuaufbau alter Tipps. Berechnungsdienste/Timer nicht neu gestartet.
+  Zehn geerbte Hauptcheckout-Codehashes unverändert. Abschlussbelege:
+  `deploy-code.log`, `production-code-final.log`, `root-wip-preservation.log`.
+  Rein dokumentarischer Abschluss separat per FF ohne weiteren Appneustart.
 - [ ] Produktionsübernahme in neue Modellartefakte beim nächsten **regulären**
   Touraufbau bestätigen; installierter Code allein ist kein neuer Modelllauf.
-  Status 14.10. 07:01: VPS weiterhin `dd704ade`, regulärer alter-Code-Tennisjob
+  Vorinstallation 14.10. 07:01: VPS `dd704ade`, regulärer alter-Code-Tennisjob
   erfolgreich. Nächster Termin **15.10.2026 00:05 Europe/Zurich**; keinen Zusatzscan.
   Echter Nachtlauf: Exit 0, 45 verarbeitet/35 neue Prognosen, keine ungelösten
   Ergebnisse. Kontext weiterhin partiell: 14 Identitätskonflikte + 1 nativ

@@ -1,6 +1,6 @@
 # BetBoy - Übergabe auf einen neuen PC
 
-## Neuester Einstieg – 13.10.2026: Tennis-Ergebnisbrücke (noch nicht veröffentlicht)
+## Neuester Einstieg – 14.10.2026: Tennis-Ergebnisbrücke live
 
 Autoritative Arbeitskopie `.worktrees/audit-repairs-20261013`, Ausgangscommit
 `dd704ade`. Begrenzte reparierte Integration bestehender bestätigter Sieger in
@@ -18,10 +18,15 @@ fail-closed. Gemeinsame historische Runtime-/D1-/Brücken-/CLI-Runde: 364 PASS,
 unverändert. Beide vollständigen Dateigruppen `full5-A/B` am 14.10. abgeschlossen:
 13.825 PASS, 97 unveränderte Plattform-Skips, 147 Untertests, null Fehler.
 Alle 13.922 Hauptitems genau einmal nachgewiesen; acht eingefrorene Hashes gleich.
-Nun Commit/Push/source-only FF mit App-only-Neustart. Reguläre Modellübernahme danach
+Codecommit `a3f465c673da2d4c3050bdd26203519181bcb882` auf main und VPS live,
+14.10.2026 08:23 CEST verifiziert. Offline-Linux-Imports/Quellenfamilie bestanden;
+App-PID 1116649 → 1131606, beide Healthchecks ok, sieben Timer aktiv/enabled.
+Modell-JSONs bytegleich; keine neuen Backups oder Sport-/API-Scans.
+Zehn geerbte Hauptcheckout-Codehashes gleich. Dokumentarischer Abschluss separat
+als FF ohne weiteren Neustart. Reguläre Modellübernahme weiterhin
 separat bestätigen. Siehe obersten Block TODO_AKTUELL.md und
 `docs/audits/2026-10-13-tennis-ergebnisbruecke.md`.
-VPS am 14.10. 07:01 weiterhin `dd704ade`, gesund; regulärer alter-Code-Tennisjob
+Vorinstallation am 14.10. 07:01: VPS `dd704ade`, gesund; regulärer alter-Code-Tennisjob
 erfolgreich. Nächster regulärer Aufbau **15.10.2026 00:05 Europe/Zurich**.
 
 ## Neuester Einstieg – 13.10.2026: Claude-Auditpaket live
