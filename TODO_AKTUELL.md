@@ -58,7 +58,8 @@ Ausgang lokal/GitHub/VPS `242093f`; autoritative Arbeitskopie weiterhin
 ### Aktueller Endgate – kein Gesamtabschluss
 
 - Die A-Vollgruppe wurde nach einem realen unveränderten Speichergrenzen-FAIL
-  bei 47 % angehalten. B läuft weiter; noch kein vollständiges Ergebnis.
+  bei 47 % angehalten. B danach bei 65 % kontrolliert beendet, ohne neue
+  Fehlermeldung, aber ebenfalls ohne Abschluss-JUnit. Beide Exit 1; kein PASS.
 - Der einzelne Cold-Speicherfall wurde unverändert mehrfach reproduziert:
   645.510 / 641.969 / 641.984 Python-Bytes bei Grenze 524.288. Sammlung vor
   Messung allein und ein Diagnose-Cursor-Schließungsproxy beheben ihn nicht.
@@ -75,6 +76,16 @@ Ausgang lokal/GitHub/VPS `242093f`; autoritative Arbeitskopie weiterhin
   bestimmen. Tennis hat im geprüften Adapter keine gemessenen Matchzeiten oder
   bestätigten akuten Verletzungsmerkmale. Ergebnisheader allein ersetzen dies
   nicht. Numerische Freigabe und öffentliche Anwendung bleiben offen.
+
+Verifizierter Checkpoint: `291525211ab0e66591e878a6217b568a739293f8`, committed
+und auf `origin/codex/audit-repairs-20261013` gepusht, kein main-Release.
+GitHub-main und read-only VPS weiterhin `242093feda28a31bb8729e31529032ee059b570a`;
+App/Caddy aktiv, beide Healthchecks `ok`, letzter Tennisservice Result success/
+ExecMainStatus0. Kein neuer Pull, Restart, Backup oder Sport-/API-Scan.
+Alle 17 eingefrorenen Code-/Testhashes sowie 10 geerbten Root-Codehashes gleich.
+Fortsetzungsreihenfolge: realer Quellen-/Abfragepfad, unverändertes Speichergate
+kausal reparieren, komplette Regression, danach Integration/Veröffentlichung;
+erst qualifizierte numerische Modelle an künftige Marktwerte anbinden.
 
 Bericht: `docs/audits/2026-10-14-kontextmodell-abschlusspruefung.md`.
 Belege: `C:/Projekt/BetBoy/output/context-completion-20261014`.

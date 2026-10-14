@@ -32,12 +32,23 @@ Source-Freeze/Collection14.038 (13.922 alte +116 neue) und Vollrunde laufen
 in `output/context-completion-20261014/qa-final`. Noch kein neuer Push/Deploy.
 
 Neuester Endgate: vollständige A-Gruppe wegen reproduziertem unverändertem
-Cold-Speicher-Test bei47% angehalten, B-Gruppe läuft noch. Warmup-Testkorrektur
+Cold-Speicher-Test bei47% angehalten, B-Gruppe bei65% danach kontrolliert beendet.
+Beide Exit1/ohne abschließendesJUnit, keine neuenBFehler gemeldet, kein PASS.
+Warmup-Testkorrektur
 nicht akzeptiert: owning71PASS/1FAIL trotz unveränderter512KiB-Grenze; echte
 1MiB-NegativkontrollePASS. Kandidat diagnostisch gespeichert, Basistest wieder
 vollständig hergestellt. Kein Vollsuite-PASS, keine numerische Aktivierung und
 kein neuer VPS-Release. Akzeptierte17Sourcehashes und Root10Hashes erhalten.
 Scoped Branch-Checkpoint ist nur Arbeitsfortschritt; Main/VPS weiterhin242093f.
+
+Source-Checkpoint291525211ab0e66591e878a6217b568a739293f8 committed und auf
+origin/codex/audit-repairs-20261013. Frisch remoteMain/VPS242093f unverändert,
+App/Caddy aktiv, zweiHealthchecksok, Tennisserviceletztmalsuccess/Exit0.
+Kein neuerVPSPull/Restart/Backup/Sportscan. QA-Sessions54309/24558 sind beendet;
+nicht als noch laufend pollend neu anfangen. OriginaleColdfehler und verworfene
+CTE/NOT-INDEXED/Warmup/Cursor-Proben vollständig erhalten. Geerbtes ungetracktes
+output/audit-repairs/ und RootWIPunangetastet. Erst Datenpfad+Speichergate
+reparieren, dann kompletteQA, Integration/main/VPS und echte Modellqualifikation.
 
 ## Neuester Einstieg – 14.10.2026: Tennis-Ergebnisbrücke live
 

@@ -114,6 +114,14 @@ Task21brief/report are historical failed-proposal evidence, NOT active contract.
 Reviewed POINT/football prerequisites may be versioned as branchcheckpoint only;
 model effects/data replay and final verification remain open. Main/VPS242093f.
 
+Checkpoint291525211ab0e66591e878a6217b568a739293f8 committed31exact reviewed
+source/test/evidence paths, pushedonlyexistingcodex/audit-repairs-20261013.
+Remote main/VPS242093f freshly verified, app/Caddy/healthok, TennislastResult
+success/ExecMainStatus0; no source release/restart/backup/APIscan. Source17 and
+inheritedRoot10 hashes preserved. FullA54309 stopped47%, FullB24558 stopped65%
+after explicit unresolvedGate; both exit1/no finalJUnit, no fullPASS. Do not
+poll them as live, discard old baseline IDs or claim empirical activation.
+
 ## Account continuation — 13 October 2026, context connections
 
 Latest gate: exact staged football-only code treeaf0d4d4b007d2a3a90ea9cfdb66e48a9d09959fb

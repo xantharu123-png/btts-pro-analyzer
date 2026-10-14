@@ -119,7 +119,9 @@ Speichertest als Fehler gemeldet. Eine gezielte echte Wiederholung bestätigte
 645.510 statt weniger als 524.288 gemessenen Python-Bytes. Ursache wird separat
 diagnostiziert; Limit und Test-ID unverändert, kein Vollsuite-PASS oder Release.
 
-Endgate: A bei47% angehalten, B läuft weiter. Die unveränderten Cold-Proben
+Endgate: A bei47% angehalten, B bei65% anschließend kontrolliert beendet.
+Beide Exit1 ohne Abschluss-JUnit, kein weitererBFehler berichtet, kein PASS.
+Die unveränderten Cold-Proben
 ergaben zusätzlich641.969/641.984 Bytes. Voll-GC nach der Messung senkt den
 aktuellen Bestand, nicht den bereits gemessenen Peak; GC vor Messung allein
 und reine Cursor-Schließung beheben ihn nicht. Ein fixer19-Ref-Warmup bestand
@@ -132,6 +134,14 @@ Dies ist kein Beleg eines neuen großen gehaltenen Referenzpuffers und auch
 keine native-RSS-Freigabe. Das technische Prerequisite-Paket bleibt lokaler
 reviewter Arbeitsfortschritt bis zu tatsächlicher abschließender Regression;
 numerische Effekte, empirische Freigabe und Produktion sind nicht abgeschlossen.
+
+Source-Checkpoint `291525211ab0e66591e878a6217b568a739293f8` auf dem bestehenden
+Entwicklungsbranch committed/gepusht, ausdrücklich keine main-Integration.
+Frische Remote-/read-onlyVPS-Prüfung: main und VPS `242093f`, App/Caddy aktiv,
+beide Healthchecks `ok`; letzter Tennisservice Result success/ExecMainStatus0.
+Kein neuer Pull oder Restart. Alle17frozenSource- und10inheritedRootHashwerte
+unverändert. Alle verworfenen Experimente/RED-Runden erhalten, keine Datenbank-
+kopie oder neue API-Sportabfrage; vollständige numerische Ziele bleiben offen.
 
 Belege außerhalb von Git: `C:/Projekt/BetBoy/output/context-completion-20261014`.
 Kein neuer API-/Sportscan, Backup, Produktionsdatenbankabzug oder Bereinigung.
