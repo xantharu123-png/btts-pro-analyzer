@@ -1,5 +1,147 @@
 # SDD ledger — plan: docs/superpowers/plans/2026-09-07-kontextmodell-umsetzung.md
 
+## Final complete QA04 gate, 14 October 2026
+
+Newest authoritative override: full QA04 completed, A/B Exit 0;
+14035 PASS / 98 skips / 147 PASS subtests. Exact-once coverage14133/14133,
+all13922 original IDs +211 new; no missing/duplicate/unexpected/failing items.
+All97 old skip IDs retained exactly; one explicit new Windows1314 symlinkskip,
+not a PASS, no OSprivilege change. Frozen21 source/tests and inheritedRoot10
+hashes identical after both runs. Sessions96255/36580 ended, not pending.
+Original512KiB gate passed in complete regression; exact combined-prefix
+causal RED7720933→GREEN30604 with unchanged original test/threshold. Native
+Path cold API, admission, errors, secondstat race and all SQL budgets retained.
+Final independent source/task reviews without open findings. Existing QA03/02
+failure history remains, not relabeled. No source mutation during QA04 freeze.
+
+User now explicitly existing/free sources only. Existing ATP/WTA duration
+fields retained; no invented native IDs/endtimes/publication clocks/diagnoses.
+Football native minutes and prospective cityweather plus separately supported
+Tennis set/game/recovery-lower-bound features are the smallest relevant studies.
+All-generation936 native finals are not qualified train/tune/200test cohorts;
+old149ATP/312WTA Winner POINT-state events are not new capture publications.
+WTA state serve_weight0 supplies no joint law. No retrospective POINT claim.
+
+Engineering release gate now green; main/VPS precheck15:16CEST still242093f,
+alljobs success/Exit0, App/Caddy active, bothhealthok. Source-only push/FFpull
+with one Apprestart remains pending; no backup/APIscan/DBcopy/schema mutation.
+Numerical injury/weather/fatigue effect/empiricalapproval/publicconsumer still
+open: real bounded historical source owner, large-source compact projection,
+causal coverage, independent cohorts and quality. No silent C4GiB limit increase.
+
+Read-only historical-feasibility review disposition: existing v4 Winner family
+can study available bounded recovery/set/game features without invented exact
+endtimes, subject to per-feature coverage/full original replay/cohort criteria.
+It changes winner_a/b only. Actual current POINT-state owner explicitly disables
+old residual effect/approval with point-winner-law-needs-own-effect-contract;
+removing that guard or training binary labels as serve trials is not this repair.
+Distinct retrospective joint reconstruction/tilt requires its own model and
+approval contract; not implemented or mislabeled as earlier captured POINT.
+WTA serve_weight0/empty servehistory is not a joint baseline. Controller checked
+training_contracts, effect head/catalog and live_context guard directly.
+
+## User-resumed repair continuation, 14 October 2026
+
+Newestoverride: genuine combined fullcollection/exactprefix memoryRED7720933
+nowGREEN30604 with original524288unchanged. Nativefootprint9ACF8B54/newtests
+06F28CF6 frozen, finalfocused54PASS+oneactualWindows1314symlinkskip; cold1/
+originalchunks71/neighbors281PASS, independentreviewnofindings with real WAL/SHM.
+No warmup/GC/testthresholdchange, Path-return/admission/error/secondstat preserved.
+Final completeQA04 nowrunning A96255/B36580 on21hashes,14133allIDs:
+13922original+211new. Strictold97skipIDs unchanged, optionalnewexactsymlinkID
+separately counted; no other newly skippedID accepted. Root10unchanged.
+No mainrelease/VPSwrite/backup/APIscan; no numericaleffectclaim.
+
+QA03 final:13980PASS/1FAIL/97 unchangedskips/147PASSsubtests. All14078IDs exactly
+once,13922 old+156new; no missing/duplicate/unexpected. AExit1 after3105.87s,
+BExit0 after3044.42s; sessions23235/34109 closed. Sole originalmemoryFAIL peak
+7720876 vs524288; prior scoped literal-six GREEN is not wide acceptance. Exact
+A-collection but diagnostic only-target control peak461173PASS rules out
+collection alone; no fullsuitecoverage claim from6836deselections. New bounded
+predecessor/allocation diagnosis outsideGit; no source changes, mainrelease,
+VPSwrite/backup/APIscan. Below runningQA03 wording superseded by this result.
+
+Task10 protected-final repair final93PASS/0errors/skips,26newcases, independently
+reviewed without findings. Original retained fullD4 fixture now has zero
+protected decoder accesses and identical DBbytes; empiricalapprovalfalse.
+Actual helddescriptor/ref/physicalmappings/connection/completedproof/native
+candidate used, raw directcollector behaviorunchanged; no bool/None fallback.
+Source5A99290B andtestAF204D92 frozen. Intermediate141PASS overlaps final93;
+neither substitutes completeQA. New QA03 freezes20source/test files, all
+inheritedroot10 unchanged; no missing/renamed baseline testIDs allowed.
+
+Fresh existing-source Winner inventory14Oct10:36:53Z is distinct from earlier
+POINT-generation header counts:5367publications,1045earliest native events,
+936matching normal native finals (ATP270/WTA666), inventory-only17.129s.
+No test-plan/experiment/dataset artifact was present before that read; no
+unopened label body read. No winners scored, featurecoverage/fit/cohorts not
+qualified. Currentphysicalcatalog haszero POINTpublication artifacts; earlier
+149/312 describe Winner originals from POINT-model state generation, NOT new
+same-call POINTcapture publications. New capture starts only after release.
+Football107binding/body/manifests are upper-boundpublication counts, not8 total
+events;8 was the earlier inspected subset. Do not confuse counts/samples.
+
+Alternative ordinaryB1 partialindex is reachable via existing append->_connect
+and unchanged trainingquery, not Cproof. It remains a candidate: exact optional
+schema acceptance, build CPU/disk/journal/TEMP/lock/rollback envelope and actual
+45s equivalence/speed proof are missing. No automatic unbounded CREATEINDEX,
+ANALYZE, new schema or productionwrite was installed. Source7.35GB>C4GiB only
+blocks existing C-file lane, not evidence that every other bounded reader is
+impossible. No data deletion or larger silent limit.
+
+Final packetreview has confirmed a newP1 using actual normalized old-schedule
+label plus genuine unopened D2 experiment: POINT D4 raw _native_binding decodes
+protectedfinal while the earlier verified Winner owner correctly masks it.
+Returned transport_only still listed final-source-not-opened; not acceptable.
+Ruling: repair only POINT owning D4/native-owner seam, preserve directcollector
+behavior and full replay/clock/source/currentconflict checks. No callback/bool
+proof, body suppression or stale owner accepted. Task10 protected-final brief
+assignedfresh. QA02 atA47/B29 stopped withExit1/no finalJUnit; never reportPASS.
+Root and previously accepted source owners unchanged except declared correction.
+
+Task21 scoped allocation fix is frozen and independently reviewed without
+actionable findings. Only the ephemeral generation last member changed to an
+exact six-value literal; all unchanged guards and the real cold512KiB gate
+remain. Actual RED1/13, focusedGREEN14, coldGREEN1, completechunksGREEN71;
+same four owning neighborsGREEN281 after a preserved native-Windows hardlink
+access failure. No warmup,GC,threshold or test removal. Current complete QA will
+run against a new exact source/collection manifest, not overwrite failed rounds.
+
+C permission correction: the archived decision's old unapproved header is
+superseded by implementation plan's actual user approval08f296bf and approved
+gesamtintegration. Private indices/projections within C are already authorized;
+no repeated resource-policy permission is required. They still need actual
+source/image/lifetime binding and paid build costs. No live completed C owner
+for the training discovery has yet been demonstrated; no dormant helper is a
+production repair. Source-main/TEMP, oldlimits, opaque finals and later user
+no-backup/no-extra-scan constraints remain unchanged.
+
+Football dependency correction: the current eventkey resolver includes all
+non-outcome appearances for prior fixtures, although the goal prior itself
+uses score fixtures only. `unused0` is declaration closure, not proof that all
+37k appearance rows enter numeric features. Their complete legacy validation
+must remain; category counts and a compact validated C fit projection have not
+been measured/implemented. Do not claim all100MB are numeric dependencies.
+
+Read-only three-domain diagnosis at74f8e0d. No prior successful task re-dispatched.
+Ruling: optimize the private same-six-value generation snapshot rather than
+change the512KiBColdGate — actual CPython tuple-cache cause is now proved — if
+wrong the unchanged cold/module tests remainRED; no weaker admission is allowed.
+Allocation-owner task21 brief has one source owner plus six-field lifecycle
+checks; controller retains complete regression/release. Current B and A QA
+sessions from the previous turn are ended, never reportedPASS.
+
+Ruling: full native football source cannot fit4MiB when first unique input is
+97–100MB — any viable repair must name a distinct resource policy and compact
+verified input representation, preserve the legacy limits, and never describe
+aggregateIO asRAM. No such variant has yet been implemented/activated. If wrong
+resource verification must reject before decoder/publish, not drop revisions.
+
+Tennis discovery is the proved failing seam, not a measuredJSON/disk ratio.
+Tour-prefix shortcuts and global future mappings change corruption/cutoff
+semantics; they are not accepted. Request/frozen-image bound projection remains
+to design within the existing input-owner contract. No extra provider scan.
+
 ## Continuation 14 October 2026: remaining numeric context prerequisites
 
 Baseline canonical/GitHub/VPS 242093f; full QA 13825 PASS,97 unchanged skips,

@@ -161,7 +161,43 @@ def publish_point_original(path, *, winner_original_hash, origin, capture, state
             raise
 
 
-def _read_original(connection, ref, states):
+def _owning_native_binding(connection, owner_ref, winner, origin, owning):
+    """Consume D4's actual held Winner/source owner, never a caller waiver."""
+    from context_runtime_history_cache import EncodedHistoryCache
+    from context_runtime_inventory import VerifiedArtifactMapping, VerifiedReceiptMapping
+    from context_runtime_tennis import LiveReplayDescriptor, _native_event, _original_native_candidate
+    if (type(owning) is not LiveReplayDescriptor or owning.artifact_ref != owner_ref
+            or type(owning.artifacts) is not VerifiedArtifactMapping
+            or type(owning.receipts) is not VerifiedReceiptMapping
+            or owning.artifacts._connection is not connection
+            or owning.receipts._connection is not connection
+            or owning.artifacts._generation != owning.receipts._generation):
+        raise ContextIntegrityError("point original lacks its exact held Winner/source owner")
+    owning.artifacts._check_transaction()
+    owning.receipts._check_validation()
+    if owning.receipts._validation_stamp is None:
+        raise ContextIntegrityError("point original lacks its completed physical receipt owner")
+    if canonical_bytes(owning.artifacts[owner_ref]) != canonical_bytes(winner):
+        raise ContextIntegrityError("point original differs from its physical Winner owner")
+    cache = owning.history_cache
+    if cache is not None:
+        if type(cache) is not EncodedHistoryCache:
+            raise ContextIntegrityError("point original lacks its owning native replay context")
+        cache._check_selected_proof(owning.receipts)
+    count, candidate = _original_native_candidate(owning.receipts, origin["event"],
+        datetime.fromisoformat(origin["cutoff"]), owning.history_max_bytes, cache)
+    if (count != 1 or candidate is None or candidate["source_schema"] != STATUS_SCHEMA
+            or candidate["digest"] != origin["native_receipt"]
+            or candidate["observed_at"] != origin["native_observed_at"]
+            or candidate["payload"]["competition_revision"] != origin["competition_revision"]
+            or candidate["payload"]["status"] != "scheduled" or candidate["payload"]["issues"]
+            or canonical_bytes(_native_event(candidate)) != canonical_bytes(origin["event"])):
+        raise ContextIntegrityError("point original native current input was absent or revised")
+    owning.artifacts._check_transaction()
+    owning.receipts._check_validation()
+
+
+def _read_original(connection, ref, states, *, owning=None):
     envelope = _load_artifact(connection, ref)
     if envelope["kind"] != POINT_ORIGINAL_KIND:
         raise ContextIntegrityError("not an owning point original")
@@ -201,8 +237,12 @@ def _read_original(connection, ref, states):
         inputs["surface"], as_of=datetime.fromisoformat(origin["cutoff"]), indoor=inputs["indoor"])
     if canonical_bytes(list(holds)) != canonical_bytes([params["hold_a"], params["hold_b"]]):
         raise ContextIntegrityError("point original holds do not replay from its immutable state")
-    from context_sources.tennis_outcome_capture import _native_binding
-    _native_binding(connection, origin)
+    if owning is None:
+        # Ordinary physical score/collection reads have no unopened D2 owner.
+        from context_sources.tennis_outcome_capture import _native_binding
+        _native_binding(connection, origin)
+    else:
+        _owning_native_binding(connection, payload["winner_original_hash"], winner, origin, owning)
     from context_runtime_tennis import replay_live_winner_calculation
     prediction = replay_live_winner_calculation(origin, state)
     if (prediction.markets is None
@@ -218,14 +258,15 @@ def verify_point_originals(connection, artifacts, winner_originals):
     retirement or outcome can exempt an inactive POINT artifact from replay.
     This stays in the same held read-only transaction and never opens a path.
     """
+    from context_runtime_tennis import LiveReplayDescriptor
     states = {}
     for ref, envelope in artifacts.items():
         if envelope["kind"] != POINT_ORIGINAL_KIND:
             continue
-        _read_original(connection, ref, states)
         owner = envelope["payload"]["winner_original_hash"]
-        if owner not in winner_originals:
+        if owner not in winner_originals or type(winner_originals[owner]) is not LiveReplayDescriptor:
             raise ContextIntegrityError("point original lacks its fully verified physical Winner owner")
+        _read_original(connection, ref, states, owning=winner_originals[owner])
 
 
 def _native_score(connection, ref, *, as_of, states):

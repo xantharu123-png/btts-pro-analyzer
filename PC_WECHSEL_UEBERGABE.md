@@ -1,5 +1,101 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg 14.10.2026 – QA04 fertig, Quellen-Release
+
+Kanonisch: `.worktrees/audit-repairs-20261013`, Branch
+`codex/audit-repairs-20261013`. Root-WIP und ungetrackte Auditdateien erhalten.
+Nutzerwahl: nur vorhandene/kostenlose Quellen; keine neuen Backups/API-Scans.
+
+QA04 vollständig fertig: **14.035 PASS, 98 Skips, 147 PASS-Untertests**,
+beide Exit 0. Alle 14.133 IDs exakt einmal, alle 13.922 alten + 211 neuen.
+97 alte Skips identisch, ein neuer echter Windows-Symlinkskip (WinError 1314).
+21 Source-/Testhashes und zehn geerbte Root-Codehashes unverändert nachgeprüft.
+Sessions 96255/36580 beendet, nicht erneut als laufend behandeln.
+Der reale breite Speichergate ist jetzt repariert; Originaltest/512-KiB-Grenze
+unverändert. Kombinierter Originalmesslauf 7.720.933 → 30.604 Bytes.
+POINT-Schutz und v3-Fußballquellen vollständig regressionsgeprüft;
+gezielte unabhängige Reviews ohne offene Befunde. Kein numerischer Effekt daraus.
+
+GitHub/VPS vor Veröffentlichung 15:16 CEST `242093f`, Jobs success/Exit 0,
+App/Caddy aktiv, beide Healthchecks `ok`. Quellenpaket-Push und VPS-FF-Pull
+stehen noch an; ausschließlich ein App-Neustart, keine DB-/Schemaänderung,
+Sicherung, Kopie, Bereinigung oder zusätzlicher Sportscan.
+
+**Nicht Gesamtabschluss:** realer begrenzter historischer Quellenleser noch offen
+(Vier-Fall-Abfrage >45 s; tatsächliche Datei 7.35 GB > bestehendes C-4-GiB-Limit).
+Keine Grenzerhöhung/retroaktive POINT-Umetikettierung. Roh-Finals 936 über alle
+Winner-Generationen sind keine qualifizierten Trainings-/200-Testkohorten.
+WTA-POINT-Modellgeneration bedeutet nicht Serve-Joint-Baseline. Vorhandene
+Fußballminuten/Wetter und getrennte Tennis-Sätze/Games/Erholungsuntergrenzen
+priorisieren; fehlende exakte Endzeiten oder Diagnosen nicht erfinden.
+Numerische Verletzungs-/Wetter-/Müdigkeitswirkung, Qualität und öffentliche
+Anwendungsbrücke bleiben offen. Aktuellste TODO und Audit haben Vorrang.
+
+## Historischer Einstieg 14.10 – nachfolgende Laufstatus ersetzt
+
+NeuesterOverride: NativeFootprint-Fix 9ACF8B54 undneueTests06F28CF6 final.
+Identischer kombinierter RED/GREEN-Prefix:7.720.933→30.604Bytes, Original512KiB
+Test unverändert. Finale54PASS/1neuerWinError1314Symlinkskip,Cold1/chunks71/
+Nachbarn281PASS und unabhängigerReview ohneBefund. NochkeinVollsuitePASS.
+QA04 A96255/B36580 läuft mit21Dateihashes/14.133IDs (alle13.922alten+211neue);
+97alteSkip-IDs müssen erhalten, neueSymlinkplattform-Skip getrennt zählen.
+AlleQA03-Sessionangaben unten sind beendet; keineCodeänderungen imQA04-Freeze.
+Main/VPS noch242093f, keinPull/Restart/Backup/Scan. NeuerBrief/Report task21-
+native-footprint; neuevollständigeBelege rootoutput/qa-final-04.
+
+QA03 vollständig beendet:13.980PASS/1FAIL/97 identischeSkips/147PASSUntertests.
+14.078Items exakt einmal, alle13.922 alten plus156 neue erhalten. Sessions
+23235(AExit1) und34109(BExit0) beendet, nicht erneut als laufend pollend behandeln.
+Originale512KiBMessung im breiten A-Prozess:7.720.876Bytes. Eine zusätzliche
+voll gesammelte, ausdrücklich nur auf den einzelnen Knoten selektierte Diagnose
+bestand mit461.173Bytes; das ist keine Suite-Abdeckung und widerlegt Sammlung
+allein als Ursache. Neue begrenzte Vorläufer-/Allokationsdiagnose läuft außerhalb
+Git. Kein mainPush/Deploy/Backup/Scan. Der unten stehende QA03-Laufstatus ist
+historisch und wird durch diesen Abschluss ersetzt.
+
+Anschließender kombinierter Diagnoseprefix hielt alle6.837 gesammelten Knoten
+lebend und führte exakt1.544Prefix-Items aus:Originalpeak7.720.933FAIL. Größte
+einzelne7.689.584ByteAllokation ist pathlib/sys.intern, CPythonIntern-Dict-
+Neuanlage (nicht bewiesene Verdoppelung), MainThread. EngerTDD-Fix am realen
+Footprint-Owner wird durchgeführt; keineWarmups/GC/Filter-/Grenzänderung.
+Bestehende Path-Rückgabe für andere Leser, Fehlerpolitik und zweitesstat nach
+exists sowie alleSQL/Ressourcenchecks müssen unverändert bleiben. NeuerBrief
+task-21-native-footprint-20261014, Belege rootoutput/memory-full-causal.
+
+Kanonisch weiterhin `.worktrees/audit-repairs-20261013`, committed74f8e0d plus
+lokaler geprüfter sechs-Wert-Generationfix. OriginalCold512KiBTest1PASS,
+vollständiges unverändertes Refchunksmodul71PASS, Nachbarn281PASS;
+unabhängiger Review ohne Befund. Kein Warmup/GC/Testgrenzenwechsel.
+Finaler Paketreview fand echte P1: POINT-D4 öffnete geschützt ungeöffnetes
+Endergebnis. Eng repariert, final93PASS/26neueFälle; unabhängige ursprüngliche
+Gegenprobe ohne Zugriff und ohne geänderteDBbytes. DirekteLeser unverändert.
+QA02Sessions79653/83393 wurden dafür bei47%A/29%B beendet,
+Exit1/kein AbschlussJUnit, nicht weiterpollend als laufend behandeln.
+Collection14.052 enthält sämtliche13.922bisherigenIDs plus130neue.
+ScopedGREEN/Gegenprüfung abgeschlossen; QA03Sessions23235/34109 laufen auf
+20Source-/Testhashes und14.078Items (13.922alte+156neue) in qa-final-03.
+Erst vollständiger exact-once Abschluss, dann standingautorisierten mainPush/
+source-onlyVPSPull ohneBackup. Keine weiteren Sourceänderungen während QA03.
+
+Echter Quellenpfad ist noch nicht gelöst: Training/Readiness haben keinen
+lebenden CompletedC-Owner. Produktive Kontextdatei7350726656Bytes,
+freelist0; C-Gesamteingabe4GiB. Keine freieSeiten-Vacuum-Lösung nachgewiesen,
+keine still erhöhte Grenze, Löschung oder DBkopie. Weitere privateC-Arbeit
+ist bereits genehmigt, aber ein bloßer ungenutzter Indexhelper wäre keinFix.
+Quellendeklaration großer Fußballpools beweist nicht, dass alle Appearance-
+Zeilen numerisch gebraucht werden; vollständige Altprüfung muss bleiben.
+Numerische Wirkung/200Testkohorten/Qualität/öffentliche Anwendung offen.
+Frische Winner-Rohinventur allerGeneration hat270ATP/666WTA passende normale
+native Finals bei1045erstenEreignissen/5367Publikationen. Keine Gewinnselektion,
+Merkmalsprüfung oder qualifizierteKohorte. PhysischerKatalog0 POINTcapture-
+Publikationen;149/312frühereZahlen sind Winner einer POINTmodellGeneration,
+nicht neueSameCallcaptures. Native B1-Suchindex ist ein erreichbarer separater
+Kandidat, braucht aber exakteoptionaleSchemaannahme und begrenztenBuild/Rollback;
+nichts installiert, keinANALYZE. C4GiB weiterunverändert.
+Siehe neuesten TODO-Block und SDD task22diagnosis. Main/VPS frisch242093f,
+App/Caddy und Healthchecksok, Tenniszuletzt success/Exit0. Kein neuer Deploy,
+APIscan, Backup oder Datenverlust; RootWIP/ungetrackteAudits unverändert.
+
 ## Aktiver Einstieg – 14.10.2026: numerische Kontext-Restarbeit
 
 Autoritative Arbeitskopie `.worktrees/audit-repairs-20261013`, Basis242093f.

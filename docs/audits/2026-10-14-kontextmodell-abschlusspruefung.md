@@ -4,6 +4,87 @@ Ausgang: autoritative Arbeitskopie `.worktrees/audit-repairs-20261013`,
 lokal/GitHub/VPS `242093feda28a31bb8729e31529032ee059b570a`.
 Der Hauptcheckout mit geerbten Änderungen bleibt unberührt.
 
+## Neuester Stand der Fortsetzung
+
+**Aktueller Abschluss:** QA04 hat den unveränderten ursprünglichen Speichertest
+und sämtliche alten Tests bestanden: 14.035 PASS, 98 Skips, 147 PASS-Untertests,
+beide Shards Exit 0. Alle 14.133 IDs exakt einmal, alle 13.922 alten + 211 neuen
+erhalten; 97 alte Skip-IDs identisch. Neuer realer Symlinktest ist allein wegen
+Windows WinError 1314 übersprungen, auch nach scoped Dateisystemretry.
+21 eingefrorene Source-/Testhashes und zehn Root-WIP-Codehashes anschließend
+identisch. Nativer Footprint-Pfad vermeidet die kausal nachgewiesene Intern-Dict-
+Allokation; ursprünglicher kombinierter Peak 7.720.933 → 30.604 Bytes, keine
+Grenzanhebung/Warmups/GC/Testverkürzung. Alte Path-Rückgabe, vollständige
+Admission, Fehlerpolitik, zweite stat-Raceprüfung und alle SQL-Budgets erhalten.
+Gezielte unabhängige Reviews ohne offene Befunde. Quellen-Release steht jetzt
+an; kein numerischer Effekt oder besseres Wetter-/Verletzungsmodell daraus.
+
+Nutzerentscheidung: nur vorhandene und kostenlose Quellen. ATP-/WTA-Dauer ist
+bereits vorhanden, wo geliefert, aber ohne automatisch belegte individuelle
+Spielendzeit/native Bindung/damalige Veröffentlichung. Native Fußballminuten,
+vor Anpfiff empfangene Wetterprognosen und getrennte belegte Tennismerkmale
+zuerst verwenden. Neue kostenpflichtige Tarife werden nicht eingerichtet.
+Realer Quellenanschluss, qualifizierte Kohorten und öffentliche Anwendung
+bleiben offen. Kein historischer Winner wird in einen Same-call-POINT-Capture
+umbenannt; WTA mit Serve-Gewicht null ist keine Joint-Baseline.
+
+Die nachfolgenden QA03-/QA02-Status sind erhaltene Fehlerhistorie, nicht der
+aktuelle Release-Status. Belege: root `output/context-completion-20261014/qa-final-04`
+und `native-footprint/parent-combined.xml`.
+
+QA03 ist vollständig abgeschlossen:13.980PASS/1FAIL/97 unveränderteSkips und
+147PASSUntertests. JUnit-Abgleich14.078Items exakt einmal; keine fehlenden,
+doppelten oder unerwarteten Fälle. Einziger FAIL: ursprünglicher Speicher-
+grenzentest7.720.876Bytes bei unverändert524.288. Ein voll gesammelter A-Kontroll-
+prozess mit ausschließlich diesem diagnostisch selektierten Knoten bestand
+mit461.173Bytes. Sammlung allein ist daher keine belegte Ursache. Scoped
+AllocationGREEN unten ist kein abgeschlossener breiter Speicherfix. Die frühere
+Vermutung eines Player-Load-Stillstands war nicht aus dem Fortschrittsmarker
+beweisbar; die Vollgruppen endeten regulär nach3105,87/3044,42s.
+Kein Veröffentlichungsgate erfüllt; weitere begrenzte Kausaldiagnose statt
+neuer Vollsuite. Die anschließende Beschreibung der laufenden QA03 ist historisch.
+
+Zwei weitere konkrete Fehler sind jetzt lokal repariert und unabhängig geprüft:
+die unnötige Zwischentupel-Allokation im Speicherprüfpfad und der geschützte
+Ergebniszugriff in der neuen POINT-D4-Nachrechnung. Der originale Cold512KiBTest
+und das gesamte unveränderte Refchunksmodul bestehen; alle sechs gültigen
+Limitänderungen bleiben erkannt. Finaler POINT-Schutzlauf93PASS/26neueFälle;
+ursprüngliche volle Gegenprobe ohne Labelzugriff und ohne Datenänderung.
+Direkte Ergebnisleser und sämtliche alten Quellenfamilien bleiben unverändert.
+
+QA02 wurde für den belegten POINT-Zugriff bei47%A/29%B beendet, ohne Abschluss-
+JUnit/ohnePASS. Neue QA03 läuft auf20eingefrorenen Source-/Testdateien und
+14.078Items: alle13.922bisherigen plus156neue. Keine Suite wird ausgefiltert.
+Main-/VPS-Release erst nach tatsächlichem vollständigem Abschluss.
+
+Die frische vorhandene Winner-Rohinventur14Oct10:36:53UTC zählt5367Publikationen,
+1045erste native Ereignisse und936passende normale Ergebnisbindungen:
+ATP270/WTA666. Keine geschützten Testplan-/Experiment-/Dataset-Artefakte waren
+vor diesem lesenden Inventurlauf vorhanden. Keine Gewinner/Renditen ausgewertet,
+Merkmals-/Trainings-/Testqualifikation weiter offen. Die ältere149/312-Zahl
+bezieht sich auf Winner-Belege einer POINTmodellGeneration, nicht auf neue
+same-call-POINT-Publikationen: deren physischer Katalog ist nochleer. Neue
+Capturebelege entstehen erst nach Veröffentlichung und regulärer Berechnung.
+Fußball hat107Binding-/Body-/Manifestpublikationen; die früheren8 waren nur
+eine ausgewertete Teilmenge. Publikationen sind nochkeine unabhängigen Testfälle.
+
+Aktuelle Kontextdatei7350726656Bytes; SQLite-Seiteninventar1794611*4096,
+freelist0. Das sind Dateiseiten, nicht gemessene JSON-/wichtige Modelldatenbytes.
+Eine anschließende rein physische BLOB-Längensummenprobe wurde nach8s planmäßig
+unterbrochen, vor dem ersten Resultat; daraus keine Payloadsumme, Korruption
+oder Aufräumgarantie ableiten. Keine Datei/Datenbank kopiert, gelöscht oder
+verkleinert. Das aktuelle C-File-Inputlimit4GiB passt nicht auf diese Datei.
+Ein normaler abgeleiteter B1-Suchindex ist ein anderer erreichbarer Kandidat,
+aber noch nicht implementiert/installiert: exakte optionale Schemaannahme,
+begrenzter atomarer Build und derselbe reale45sGegentest müssen nachgewiesen
+werden. Weder ein C-Proofflag noch automatisch unboundedDDL/ANALYZE ist erlaubt.
+
+Die Zahl vorhandener Matches ist daher nicht gleichbedeutend mit fehlenden
+oder vorhandenen geeigneten Merkmalen. Tatsächliche Verletzungs-, Wetter- und
+Müdigkeitseffekte, ihre Testkohorten und öffentliche Anwendung bleiben offen.
+Keine zufälligen Abschläge und keine bessere Wettqualität aus Software-PASS.
+Siehe neuestenTODO/SDD task21,task10protected-final,task22history-owner.
+
 ## Was als numerischer Abschluss zählt
 
 Eine vorhandene Ausfallliste oder Wetterabfrage ist kein Wahrscheinlichkeitseffekt.

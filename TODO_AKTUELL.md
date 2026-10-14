@@ -1,5 +1,176 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 14.10.2026 – finaler lokaler Release-Nachweis
+
+Dieser Abschnitt ersetzt sämtliche nachfolgenden gleichdatierten Laufstatus.
+Autoritativ: `.worktrees/audit-repairs-20261013`, nicht der geerbte schmutzige
+Hauptcheckout. Nutzerentscheidung: ausschließlich vorhandene und kostenlose
+Datenquellen, keine neuen Tarife. Cricket bleibt ausgenommen.
+
+- [x] Vollständige Offline-Regressionsrunde QA04 abgeschlossen: **14.035 Tests
+  bestanden, 98 Skips, 147 bestandene Untertests, null Fehler**. A: 6.915 PASS /
+  60 Skips / 62 Untertests, Exit 0, 2.938,93 s. B: 7.120 PASS / 38 Skips /
+  85 Untertests, Exit 0, 3.010,35 s. Beide Sitzungen beendet.
+- [x] Strenger JUnit-/Collection-Abgleich: alle **14.133 IDs genau einmal**,
+  sämtliche 13.922 bisherigen IDs und 211 neue erhalten. Keine fehlenden,
+  doppelten oder unerwarteten Fälle. 97 alte Skip-IDs unverändert; einziger
+  zusätzlicher Skip ist der neue reale Windows-Symlinktest, WinError 1314.
+  Keine OS-Einstellungen geändert, kein synthetischer Symlink-PASS behauptet.
+- [x] Alle 21 eingefrorenen Source-/Testhashes und zehn geerbten Root-Codehashes
+  nach beiden Läufen erneut identisch geprüft. Originaler 512-KiB-Speichertest,
+  Grenzen und alte Tests unverändert. Nativer Pfadfix besteht auch im echten
+  kombinierten Prozess: 30.604 statt 7.720.933 Bytes gemessener Peak.
+- [x] POINT: echte gemeinsame Marktberechnung, vollständiger Winner-Replay,
+  geschlossene Quellenfamilien, Prüfung aller Belege und geschützte ungeöffnete
+  Endergebnisse. Fußball: identische Club-/Nationalteam-Spielerquellen in allen
+  v3-Ownern. Die gezielten unabhängigen Reviews sind ohne offene Befunde.
+- [ ] Finales Quellenpaket auf `main` veröffentlichen und auf den VPS ziehen,
+  ausschließlich Code + ein App-Neustart. Keine neue Sicherung, Datenbankkopie,
+  Schemaänderung, Bereinigung oder zusätzlicher Sport-/API-Scan. Vorprüfung
+  14.10. 15:16 CEST: GitHub/VPS `242093f`, sämtliche Jobs zuletzt success/Exit 0,
+  App/Caddy aktiv, beide Healthchecks `ok`. Release erst im geprüften Idlefenster.
+
+### Fachlich weiterhin offen – keine numerische Aktivierung behaupten
+
+- [ ] Tatsächlich erreichbarer begrenzter Trainingsleser. Der bestehende
+  Vier-Fall-Pilot schafft innerhalb 45 s noch keinen Merkmalsvektor. Der
+  verworfene Query-Kandidat ist **nicht** im Release. Die reale 7.35-GB-Datei
+  überschreitet den bestehenden 4-GiB-C-Gesamteingang; keine stille Grenzerhöhung.
+  Ein normaler B1-Suchindex ist ein separater unimplementierter Kandidat, kein
+  C-Nachweis; atomarer begrenzter Build und derselbe reale Gegentest fehlen.
+- [ ] Vorhandene Fußball-Spielminuten und vor Anpfiff empfangene Stadtprognosen
+  zuerst nutzen. Große vollständige Quellenpools müssen validiert bleiben;
+  kompakte geprüfte Fitprojektion und numerische Abhängigkeiten fehlen noch.
+- [ ] Tennis nutzt bereits gespeicherte ATP-/WTA-Matchdauer, wo vorhanden.
+  Sie besitzt aber nicht automatisch individuelle Endzeit, damalige
+  Veröffentlichungszeit oder native ESPN-Spielerbindung. Für getrennte vorhandene
+  Merkmale (Sätze, Games, belegte Erholungsuntergrenzen) keine exakten Endzeiten
+  erfinden. Ausfallursachen und bestätigte akute Verletzungen sind nicht vollständig
+  vorhanden. Eine Aufgabe beweist keine Verletzungsdiagnose.
+- [ ] Rohinventur nicht als Testkohorte ausgeben: 936 passende native Finals
+  über alle Winner-Generationen (270 ATP / 666 WTA). Tatsächliche neue
+  POINT-Capture-Publikationen waren vor Release null. Ältere 149 ATP / 312 WTA
+  sind Winner-Belege einer POINT-Modellgeneration; WTA hat dort keine belegte
+  Serve-Joint-Baseline. Alte Belege nicht rückwirkend umetikettieren.
+- [ ] Mindestens 200 unangetastete Testspiele zusätzlich zu Training/Tuning,
+  drei Zeitblöcke, statistischer Qualitätsnachweis und anschließende echte
+  öffentliche Anwendung. Verletzungs-, Wetter- und Müdigkeitseffekte sind
+  **nicht abgeschlossen oder aktiviert**; bessere Wettqualität nicht belegt.
+
+Der bestehende Tennis-v4-Winner-Pfad kann getrennte belegte Belastungsmerkmale
+ohne erfundene Endzeiten untersuchen, verändert aber nur Siegerwahrscheinlichkeiten.
+Aktuelle POINT-Zustände deaktivieren diesen alten Effekt ausdrücklich
+(`point-winner-law-needs-own-effect-contract`). Den Guard nicht löschen oder
+einen Winner-Fit als konsistente Serve-/Satz-/Game-Wirkung ausgeben. Zuerst den
+vorhandenen begrenzten Quellen-/Merkmalsvergleich durchführen; eine neue
+POINT-Effektfamilie wäre ein eigenständiger Modellvertrag, noch nicht umgesetzt.
+
+Belege außerhalb Git: `C:/Projekt/BetBoy/output/context-completion-20261014/qa-final-04`
+und `native-footprint/parent-combined.xml`. Vorangegangene Fehlerläufe bleiben
+erhalten und werden nicht nachträglich zu PASS erklärt. Geerbtes
+`output/audit-repairs/` unberührt. Nächster fachlicher Arbeitsschritt ist der
+echte begrenzte Quellenanschluss, nicht ein weiterer unaufgerufener Adapter.
+
+## Historischer Zwischenstand 14.10.2026 – durch obigen Abschluss ersetzt
+
+Dieser Block hat Vorrang vor früheren gleichdatierten Zwischenständen.
+Autoritative Arbeitskopie bleibt `.worktrees/audit-repairs-20261013`;
+Main/VPS zuletzt frisch lesend `242093f`, gesund. Kein neuer Deploy/Backup/Scan.
+
+Neuerer Abschlussgate: nativer Footprint-Fix final eingefroren, ursprünglicher
+kombinierter Sammlungs-/Ausführungs-Gegentest jetzt GREEN:Peak30.604Bytes
+statt7.720.933 bei unveränderterGrenze524.288,1.536PASS/8bestehendeSkips und
+32PASSUntertests;5.293Suffix-Items nur diagnostisch deselektiert, keineVollsuite.
+Finale neue54PASS/1echterWinError1314Symlinkskip, OriginalCold1PASS/chunks71PASS/
+Nachbarn281PASS; unabhängiger Review ohne offeneBefunde, realeWAL/SHM-Prüfung.
+QA04 läuft als abschließende vollständige Regression auf21Source-/Testhashes:
+14.133Items (sämtliche13.922alten +211neue), A96255/B36580. Alte97Skip-IDs
+müssen identisch bleiben; allein der neue nativeSymlinktest kann einen explizit
+ausgewiesenen zusätzlichenWindows-Skip liefern. NochkeinVollsuitePASS/Deploy.
+Keine weiterenCode-/Teständerungen während dieses Freeze;10RootWIP-Hashes gleich.
+
+Konkreter Quellenbefund: ATP-CSV und WTA-TennisAbstract behalten bereits
+Matchdauer, aber keine garantierte nativeESPN-ID-/individuelleSpielendzeit-/
+damaligePublikationsbindung. Nicht pauschal behaupten, es gebe keinerlei
+Tennisdauerdaten. GeplanteZeit/Ergebnisempfang bleiben keine tatsächlicheErholung.
+NativeFußballminuten und vorAnpfiff empfangeneStadtprognosen sind im bestehenden
+Zugang vorhanden; diese Teilmengen zuerst auswerten statt neueAdapter zu erfinden.
+Die noch fehlende kompletteQuellenanbindung und zeitlich unabhängigeEmpirie
+bleiben offen. Nutzerwahl zu weiterenAnbietern ohneBuchung ist eingeblendet.
+
+Aktuelle Einschränkung: QA03 hat den unveränderten 512-KiB-Speichertest im
+breiten Prozess erneut als FAIL gemeldet. Die nachstehende lokale Allokations-
+korrektur ist deshalb noch kein belastbar abgeschlossener Speicherfix. Ein
+gesonderter Kausaltest beobachtet die unveränderte ursprüngliche Messung;
+keine Warmups, GC-Erleichterungen, Testkürzungen oder Grenzanhebungen. QA03 ist
+vollständig beendet:13.980PASS/1FAIL/97 unveränderteSkips/147PASSUntertests.
+Alle14.078Items exakt einmal, keine fehlenden oder neuen Skip-IDs. Original-
+peak7.720.876Bytes, Grenze524.288 unverändert; dies ist größer als die bislang
+diagnostizierten Tuple-Caches. Ursache inzwischen mit echtem kombinierten
+Sammlungs-/Ausführungsprefix reproduziert:7.720.933Bytes, eine neue7.689.584Byte-
+Allokation aus pathlib/sys.intern. Belegt ist die Neuanlage einer Intern-Dict-
+Tabelle, nicht zwingend deren Verdoppelung. Enger nativer Footprint-Pfadfix ist
+in TDD-Umsetzung; alte Path-Rückgabe/alle Fehler- und Raceprüfungen bleiben.
+Kein neuer Gesamt-PASS oder Release daraus. Der kurz
+vermutete Player-Load-Stillstand war aus der Punktanzeige falsch lokalisiert;
+ein echter Stillstand oder eine neue Rekursion sind nicht nachgewiesen.
+
+- [x] Reale Speicherursache statt verworfener Warmups repariert: interne
+  Zustandsprüfung erfasst dieselben sechs Grenzwerte ohne wiederholte
+  Zwischentupel. Grenzen, Persistenzformat und ursprünglicher Test unverändert.
+  Echte neue RED1/13, GREEN14, unveränderter Coldtest1PASS, komplettes
+  Refchunksmodul71PASS; Nachbarn281PASS nach erhaltenem Windows-Hardlink-
+  Zugriffsfehler. Unabhängiger Review ohne Befund; kein numerischer Effekt.
+- [x] Neuer abschließender Paketreview-P1: POINT-D4 konnte ein geschütztes,
+  noch nicht geöffnetes Endergebnis lesen. Mit tatsächlichem normalisiertem
+  altem Ergebnis, aktuellem Status und echtem ungeöffnetem Experiment belegt.
+  Enger owning-D4-Fix abgeschlossen: finale93PASS einschließlich26neuer Fälle;
+  unabhängiger Review und ursprüngliche Gegenprobe ohne geschützten Zugriff.
+  Physische Datenbankbytes gleich, direkte Ergebnisleser unverändert.
+  Keine Unterdrückung des Decoders und kein behaupteter Freigabenachweis.
+- [ ] QA02 mit unveränderter Collection14.052 (alle13.922 bisherigen +130neue)
+  bei47%A/29%B für diesen Quellenfix beendet. BeideExit1, keine Abschluss-JUnit,
+  keinVollsuitePASS. ScopedGREEN/Review abgeschlossen; eingefrorene QA03 läuft
+  nun mit14.078Items (13.922bisherige +156neue),20Source-/Testhashes.
+- [ ] Tatsächlicher historischer Quellenanschluss: Training/Readiness benutzen
+  noch plainSQLite, keinen bereits vollständigen C-Owner. Ein weiterer
+  unaufgerufener Indexhelper würde das Problem nicht lösen.
+  Die bestehende Produktionsdatei misst7350726656Bytes, freiesSeiteninventar0;
+  dies ist nicht JSON-Payloadgröße oder ein Beweis gegen jede Fragmentierung.
+  Vorhandener C-Gesamteingabegrenzwert4GiB passt nicht auf diese Datei.
+  Keine Daten gelöscht, kopiert oder Grenze still erhöht. Genehmigte private
+  C-Engineeringarbeit ist erlaubt; ein aktueller vollständiger Inputowner und
+  explizite Ressourcen-/Rechenbilanz müssen tatsächlich angeschlossen werden.
+- [ ] Große Fußballpools: vollständige Quellendeklaration ist nicht identisch
+  mit numerischer Nutzung jedes Liga-Spielerbelegs. Altprüfungen müssen bleiben;
+  kompakte geprüfte Fitprojektion/Abhängigkeitsmessung fehlen noch.
+- [x] Frische native Winner-Inventur aller vorhandenen Generationen, ohne
+  neuen API-Scan:5367Publikationen,1045erste native Ereignisse,936passende
+  normale Ergebnisbindungen (ATP270/WTA666),17,129s am14.10.10:36:53UTC.
+  Vorab keine Testplan-/Experiment-/Dataset-Artefakte vorhanden; keine
+  geschützten Labels geöffnet, Gewinner oder Renditen nicht ausgewertet.
+  Das ist Rohinventur, keine qualifizierte Training-/200Testkohorte.
+  Physischer Katalog hat noch0 POINT-Capture-Publikationen. Frühere149/312
+  beziehen sich auf Winner-Belege einer POINT-Modellgeneration, nicht neue
+  Same-call-Capture-Belege. Fußball107Bindingpublikationen sind eine neue
+  Obergrenze;8 war früher nur die geprüfte Teilmenge, nicht der Gesamtbestand.
+- [ ] Erreichbarer alternativer B1-Suchindex: unveränderte Trainingsabfrage
+  könnte über den bestehenden Schreibowner beschleunigt werden. Kandidat noch
+  nicht implementiert/installiert; optionale exakte Schemaannahme, begrenzter
+  Indexbau samt Rollback und derselbe reale45sGegentest erforderlich.
+  Keine automatische unboundedDDL/ANALYZE oder behauptete Covering-Garantie.
+- [ ] Verletzungs-/Wetter-/Müdigkeitswirkung,200unberührte Testfälle pro
+  geeigneter Domäne, tatsächliche Qualitätsprüfung und zukünftige öffentliche
+  Anwendung weiterhin nicht abgeschlossen. Keine Matchzeiten oder Verletzungen
+  erfunden; Ergebnisheader sind keine qualifizierten Testkohorten.
+
+Aktuelle briefs/reports liegen im bestehenden SDD-Verzeichnis. Diagnose des
+wirklich erreichbaren Datenpfads: `task-22-history-owner-20261014-diagnosis.md`.
+QA/Produktionsbelege außerhalbGit: root`output/context-completion-20261014`.
+Kausalbeleg: `memory-full-causal/REPORT.md`; neuer Brief im SDD:
+`task-21-native-footprint-20261014-brief.md`.
+Geerbte Root-Codehashes und `output/audit-repairs/` bleiben unangetastet.
+
 ## 14.10.2026 – Verletzungs-, Wetter- und Müdigkeitseffekte: aktuelle Fortsetzung
 
 Dieser Block ersetzt keine empirischen Lücken durch Software-PASS.

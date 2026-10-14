@@ -18,7 +18,9 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass, fields
+from errno import ENOENT, ENOTDIR, EBADF, ELOOP
 import hashlib
+import os
 from pathlib import Path
 import re
 import shutil
@@ -98,7 +100,7 @@ def _query(connection, sql, parameters=()):
         raise StorageIntegrityError("reference storage query failed") from exc
 
 
-def _require_connection(connection, limits):
+def _require_connection_path(connection, limits):
     if type(connection) is not TrackedConnection:
         raise StorageIntegrityError("reference storage requires an exact tracked SQLite connection")
     if type(limits) is not StorageLimits:
@@ -119,11 +121,31 @@ def _require_connection(connection, limits):
         or _query(connection, "SELECT 1 FROM temp.sqlite_schema LIMIT 1").fetchone()
     ):
         raise StorageIntegrityError("reference storage requires one private on-disk database")
-    return Path(databases[0][2])
+    return databases[0][2]
+
+
+def _require_connection(connection, limits):
+    # Cold admissions retain the Path API used by samefile-owning consumers.
+    return Path(_require_connection_path(connection, limits))
+
+
+def _native_exists(path):
+    # Preserve Path.exists' exact absent/non-encodable-path policy. A generic
+    # os.path.exists would also hide permission and other measurement failures.
+    try:
+        os.stat(path, follow_symlinks=True)
+    except OSError as exc:
+        if (getattr(exc, "errno", None) not in (ENOENT, ENOTDIR, EBADF, ELOOP)
+                and getattr(exc, "winerror", None) not in (21, 123, 1921)):
+            raise
+        return False
+    except ValueError:
+        return False
+    return True
 
 
 def _check_footprint(connection, limits):
-    path = _require_connection(connection, limits)
+    path = _require_connection_path(connection, limits)
     page_count = _query(connection, "PRAGMA main.page_count").fetchone()[0]
     page_size = _query(connection, "PRAGMA main.page_size").fetchone()[0]
     if type(page_count) is not int or type(page_size) is not int:
@@ -131,13 +153,13 @@ def _check_footprint(connection, limits):
     if page_count < 0 or page_size < 512 or page_size > 65536 or page_size & (page_size - 1):
         raise StorageIntegrityError("invalid reference database page accounting")
     try:
-        physical = path.stat().st_size
+        physical = os.stat(path, follow_symlinks=True).st_size
         companions = sum(
-            candidate.stat().st_size
+            os.stat(candidate, follow_symlinks=True).st_size
             for suffix in ("-wal", "-shm", "-journal")
-            if (candidate := Path(str(path) + suffix)).exists()
+            if _native_exists(candidate := path + suffix)
         )
-        free = shutil.disk_usage(path.parent).free
+        free = shutil.disk_usage(os.path.dirname(path) or os.curdir).free
     except OSError as exc:
         raise StorageIntegrityError("reference output footprint could not be measured") from exc
     # page_count includes staging tables, indexes and free pages, not just blocks.
@@ -564,7 +586,10 @@ def _generation(connection, limits=DEFAULT_LIMITS):
         _query(connection, "PRAGMA main.cache_size").fetchone()[0],
         _query(connection, "PRAGMA main.mmap_size").fetchone()[0],
         limits,
-        tuple((field.name, getattr(limits, field.name)) for field in fields(StorageLimits)),
+        (
+            limits.input_bytes, limits.tour_history_bytes, limits.block_bytes,
+            limits.workspace_bytes, limits.min_free_bytes, limits.blocks_per_set,
+        ),
     )
 
 
