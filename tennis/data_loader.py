@@ -27,6 +27,8 @@ import ast
 import math
 import re
 import unicodedata
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
@@ -48,6 +50,17 @@ MAN_TENNIS_BASE = (
 TENNIS_DATA_BASE = "https://tennis-data.co.uk/hrjk-85HytOjkhth76j_ygh4jf7"
 
 DEFAULT_CACHE_DIR = TENNIS_TRAINING_DATA_DIR
+_CACHE_ONLY = ContextVar("tennis_training_cache_only", default=False)
+
+
+@contextmanager
+def cached_training_inputs():
+    """No downloads or packaged-cache seeding, including calibration loaders."""
+    token = _CACHE_ONLY.set(True)
+    try:
+        yield
+    finally:
+        _CACHE_ONLY.reset(token)
 
 # ---------------------------------------------------------------------------
 # STATS plane allowlist (odds-blind)
@@ -209,6 +222,8 @@ def cached_training_file(name: str, cache_dir: Path = DEFAULT_CACHE_DIR) -> Path
     if not name or Path(name).name != name or name in {".", ".."}:
         raise ValueError("training cache filename must be a single path component")
     target = Path(cache_dir) / name
+    if _CACHE_ONLY.get():
+        return _assert_no_symlink_components(target)
     if Path(cache_dir) != DEFAULT_CACHE_DIR:
         return target
     _assert_no_symlink_components(target)
@@ -225,6 +240,10 @@ def _download(
     refresh: bool = False, validate: Callable[[bytes], None] | None = None,
 ) -> Path:
     cache_path = cached_training_file(cache_path.name, cache_path.parent)
+    if _CACHE_ONLY.get():
+        if not cache_path.is_file() or cache_path.stat().st_size <= 0:
+            raise FileNotFoundError("required local tennis training cache is missing")
+        return cache_path
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     if not refresh and cache_path.exists() and cache_path.stat().st_size > 0:
         return cache_path

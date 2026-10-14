@@ -88,6 +88,15 @@ _REVIEWED_CAUSAL_AVAILABILITY_MANIFEST = {
        if name != "tennis/data_loader.py"},
     "tennis/data_loader.py": frozenset({"305174f1967b177bd32affbaee24829d2f91d09f15a559675dd5714fd1da6e15", "9cc33eba3bb60254cb5c5949eca37b3f1b221b0bf1853a357be6e745f20edd16"}),
 }
+_REVIEWED_CACHED_TRAINING_MANIFEST = {
+    # Exact additive cache-only acquisition scope. All five prediction owners,
+    # player resolution and numerical loader transforms remain unchanged.
+    # Historical replay executes the sealed state, never the new state builder
+    # or its result bridge. No evaluation/activation report is requalified here.
+    **{name: hashes for name, hashes in _REVIEWED_CAUSAL_AVAILABILITY_MANIFEST.items()
+       if name != "tennis/data_loader.py"},
+    "tennis/data_loader.py": frozenset({"9a38d6602f675c3f3e2f98ba960cdca0eb4067b69b64e9a1f0499943bfd7bf80", "6f2bfe6fa3e4201d97266b97d7896b46b2ff674b94d393fe4e69d7ca3240ed8d"}),
+}
 
 
 def _same(actual, expected, label):
@@ -135,6 +144,10 @@ def _code_manifest_supported(recorded, running):
          (*duration_predecessors, _REVIEWED_RECONCILED_DURATION_MANIFEST,
           _REVIEWED_RESULTS_PLACEHOLDER_MANIFEST, _REVIEWED_RECENT_TRAINING_MANIFEST,
           _REVIEWED_POINT_JOINT_MANIFEST)),
+        (_REVIEWED_CACHED_TRAINING_MANIFEST,
+         (*duration_predecessors, _REVIEWED_RECONCILED_DURATION_MANIFEST,
+          _REVIEWED_RESULTS_PLACEHOLDER_MANIFEST, _REVIEWED_RECENT_TRAINING_MANIFEST,
+          _REVIEWED_POINT_JOINT_MANIFEST, _REVIEWED_CAUSAL_AVAILABILITY_MANIFEST)),
     )
     return any(
         all(executor[name] <= running[name] for name in CODE_PATHS)
@@ -157,7 +170,8 @@ def _state_code_manifest_supported(recorded, state):
     return (version == POINT_MODEL_VERSION and set(recorded) == set(CODE_PATHS)
             and any(all(recorded[name] in manifest[name] for name in CODE_PATHS)
                     for manifest in (_REVIEWED_POINT_JOINT_MANIFEST,
-                                     _REVIEWED_CAUSAL_AVAILABILITY_MANIFEST)))
+                                     _REVIEWED_CAUSAL_AVAILABILITY_MANIFEST,
+                                     _REVIEWED_CACHED_TRAINING_MANIFEST)))
 
 
 def _native_event(row):

@@ -1,5 +1,29 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Neuester Einstieg – 13.10.2026: Tennis-Ergebnisbrücke (noch nicht veröffentlicht)
+
+Autoritative Arbeitskopie `.worktrees/audit-repairs-20261013`, Ausgangscommit
+`dd704ade`. Begrenzte reparierte Integration bestehender bestätigter Sieger in
+ATP/WTA-Elo; keine zusätzlichen API-/Sportscans, Backups, historische Writes
+oder erfundenen Serve-/Verletzungs-/Müdigkeitsdaten. Täglicher Cache-Aufbau,
+striktes Download-/Seedingverbot bei Cachemiss und CAS-Stichtagsmonotonie ergänzt.
+25 neue Schutzfälle; finale betroffene Runde 151 PASS und unabhängiger Review
+145 überlappende Tests PASS. Echter VPS-Fall `184936` am alten Stichtag genau einmal
+zugelassen, Original-/Shadow-/Revisionssignaturen unverändert. Fehlende neue
+Quellenfamilie in `full3` reproduziert und mit zehn zusätzlichen Übergangs-/
+Unknown-/Mixed-Owner-Tests korrigiert. Alte Pins unverändert; D2-Evaluation bleibt
+fail-closed. Gemeinsame historische Runtime-/D1-/Brücken-/CLI-Runde: 364 PASS,
+316,65 s. VPS hat keine aktive Kontextfreigabe. `full4` durch Unterbrechung bei
+81 % ohne Abschluss-JUnit beendet, kein Vollsuite-PASS. Code-/Testdateihashes
+unverändert. Beide vollständigen Dateigruppen `full5-A/B` am 14.10. abgeschlossen:
+13.825 PASS, 97 unveränderte Plattform-Skips, 147 Untertests, null Fehler.
+Alle 13.922 Hauptitems genau einmal nachgewiesen; acht eingefrorene Hashes gleich.
+Nun Commit/Push/source-only FF mit App-only-Neustart. Reguläre Modellübernahme danach
+separat bestätigen. Siehe obersten Block TODO_AKTUELL.md und
+`docs/audits/2026-10-13-tennis-ergebnisbruecke.md`.
+VPS am 14.10. 07:01 weiterhin `dd704ade`, gesund; regulärer alter-Code-Tennisjob
+erfolgreich. Nächster regulärer Aufbau **15.10.2026 00:05 Europe/Zurich**.
+
 ## Neuester Einstieg – 13.10.2026: Claude-Auditpaket live
 
 Oberster TODO-Block hat Vorrang vor historischen Zwischenständen. Autoritative

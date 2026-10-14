@@ -107,9 +107,10 @@ def test_causal_availability_transition_is_pinned_directional_and_point_state_bo
         _REVIEWED_POINT_JOINT_MANIFEST,
     )
     from tennis.simulator import POINT_MODEL_VERSION
-    running = _code_variants()
     newer = _causal_availability_source_manifest()
-    assert all(hashes <= running[name] for name, hashes in newer.items())
+    # Own the exact historical transition, not a demand that future additive
+    # cache-only owners keep this predecessor's whole-file identity forever.
+    running = newer
     previous = {name: sorted(hashes)[0] for name, hashes in _REVIEWED_POINT_JOINT_MANIFEST.items()}
     current = {name: sorted(hashes)[0] for name, hashes in newer.items()}
     assert _code_manifest_supported(previous, running)
@@ -117,6 +118,52 @@ def test_causal_availability_transition_is_pinned_directional_and_point_state_bo
     state = SimpleNamespace(market_model_version=POINT_MODEL_VERSION)
     assert _state_code_manifest_supported(current, state)
     assert _state_code_manifest_supported(previous, state)
+
+
+def _cached_training_source_manifest():
+    return {**_causal_availability_source_manifest(), "tennis/data_loader.py": frozenset({
+        "9a38d6602f675c3f3e2f98ba960cdca0eb4067b69b64e9a1f0499943bfd7bf80",
+        "6f2bfe6fa3e4201d97266b97d7896b46b2ff674b94d393fe4e69d7ca3240ed8d"})}
+
+
+def test_cache_only_source_transition_is_pinned_directional_and_point_state_bound():
+    from types import SimpleNamespace
+    from context_runtime_tennis import _code_manifest_supported, _code_variants, _state_code_manifest_supported
+    from tennis.simulator import POINT_MODEL_VERSION
+    running = _code_variants()
+    current = _cached_training_source_manifest()
+    assert all(hashes <= running[name] for name, hashes in current.items())
+    previous = {name: sorted(hashes)[0] for name, hashes in _causal_availability_source_manifest().items()}
+    recorded = {name: sorted(hashes)[0] for name, hashes in current.items()}
+    assert _code_manifest_supported(previous, running)
+    assert not _code_manifest_supported(recorded, _causal_availability_source_manifest())
+    assert _state_code_manifest_supported(recorded, SimpleNamespace(market_model_version=POINT_MODEL_VERSION))
+
+
+@pytest.mark.parametrize("owner", ("tennis/predict.py", "tennis/model_state.py", "tennis/elo.py",
+    "tennis/serve_model.py", "tennis/simulator.py", "tennis/data_loader.py"))
+def test_cache_only_point_source_cannot_claim_an_unknown_owner(owner):
+    from types import SimpleNamespace
+    from context_runtime_tennis import _code_manifest_supported, _code_variants, _state_code_manifest_supported
+    from tennis.simulator import POINT_MODEL_VERSION
+    recorded = {name: sorted(hashes)[0] for name, hashes in _cached_training_source_manifest().items()}
+    recorded[owner] = "0" * 64
+    assert not _code_manifest_supported(recorded, _code_variants())
+    assert not _state_code_manifest_supported(recorded, SimpleNamespace(market_model_version=POINT_MODEL_VERSION))
+
+
+@pytest.mark.parametrize("owner", ("tennis/predict.py", "tennis/model_state.py", "tennis/simulator.py"))
+def test_cache_only_point_source_cannot_claim_a_known_legacy_inference_owner(owner):
+    from types import SimpleNamespace
+    from context_runtime_tennis import (
+        _code_manifest_supported, _code_variants, _state_code_manifest_supported,
+        _REVIEWED_RECENT_TRAINING_MANIFEST,
+    )
+    from tennis.simulator import POINT_MODEL_VERSION
+    recorded = {name: sorted(hashes)[0] for name, hashes in _cached_training_source_manifest().items()}
+    recorded[owner] = sorted(_REVIEWED_RECENT_TRAINING_MANIFEST[owner])[0]
+    assert not _code_manifest_supported(recorded, _code_variants())
+    assert not _state_code_manifest_supported(recorded, SimpleNamespace(market_model_version=POINT_MODEL_VERSION))
 
 
 @pytest.mark.parametrize("source", ["causal_availability", "prior_point"])

@@ -1,5 +1,56 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 13.10.2026 – Tennis-Ergebnisbrücke nach Hurkacz–Davidovich
+
+- [x] Der belegte Datenbruch ist in ATP/WTA reproduziert und begrenzt repariert:
+  bestätigte, fehlende Ergebnisse aus bestehenden Original-/Status-/Siegerbelegen
+  gelangen einmal in die Elo-Modellbasis. Keine erfundenen Serve-/Kontexteffekte.
+- [x] Schutz gegen zukünftige Ergebnisse, spätere Rücknahmen/unklare Sieger,
+  widersprüchliche Originalbindungen und mögliche CSV-Doppelzählung.
+  Alte Prognosen, Abrechnungen, Guthaben und Preise unverändert.
+- [x] Täglicher Cache-Aufbau auch bei frischen Tourmodellen; keine zusätzlichen
+  Downloads oder Cache-Seeding, auch nicht bei fehlenden Dateien. Älterer
+  paralleler Trainingsstichtag kann keinen neueren Zustand überschreiben.
+- [x] 25 neue Schutzfälle; finale betroffene Vier-Modul-Runde 151 PASS,
+  unabhängiger Review 145 PASS (überlappend, nicht addieren), keine offenen P1/P2.
+- [x] Echte read-only VPS-Probe: fehlendes Davidovich–Tiafoe-Spiel `184936`
+  am damaligen Stichtag genau einmal als Davidovich-Sieg zugelassen.
+  23 native Belege, 4 Originale und bestehende Shadow-/Modellrevisionen unverändert.
+- [x] Neue exakt gepinnte Cache-only-Quellenfamilie erhält historische Replay-
+  Identitäten. Zehn zusätzliche Übergangs-/Unknown-/Mixed-Owner-Schutzfälle;
+  ursprüngliche Pins unverändert, keine D2-Evaluation oder Aktivierung umgangen.
+  VPS read-only: null aktive Kontextfreigaben, nur ATP/WTA-Modellslots.
+- [x] Gemeinsame Abschlussrunde mit historischen Runtime-/D1-Replays:
+  364 PASS, 316,65 s (`source-family-green.xml`). Überlappende Zahlen nicht addieren.
+  Unabhängiger Quellenfamilien-Review ebenfalls ohne Befund, 213 Replaytests PASS.
+- [x] Autoritative vollständige Dateigruppen `full5-A` und `full5-B` abgeschlossen:
+  **13.825 PASS, 97 unveränderte Plattform-Skips, 147 Untertests, null Fehler**.
+  Beide Exit 0; A: 6.419/66/79 in 3.811,57 s, B: 7.406/31/68 in 3.598,25 s.
+  `complete-qa5-check.log`: alle 13.922 Hauptitems genau einmal, keine fehlenden,
+  doppelten oder unerwarteten IDs. Acht eingefrorene Code-/Testhashes identisch;
+  die 97 Skip-IDs sind exakt dieselben wie in der vorherigen vollständigen Suite.
+  Belege:
+  `C:/Projekt/BetBoy/output/tennis-result-bridge-20261013`. Frühere begonnene
+  Vollrunden abgebrochen; `full3` fand Quellenidentitätsfehler, begrenzt korrigiert.
+  Keine dieser Vorprüfungen als bestandene Vollsuite zählen.
+  `full4` durch Unterbrechung bei 81 % ohne Abschluss-JUnit beendet, kein PASS.
+  Eigene temporäre Verzeichnisse, `partition5.json` und strikter Vereinigungsabgleich.
+- [ ] Erst nach Vollsuite Abschlusscommit, Push auf main und begrenzter source-only
+  VPS-Fast-forward mit App-only-Neustart. Kein neues Backup, kein Zusatzscan und
+  kein Neuaufbau alter Tipps; Berechnungsdienste und Timer nicht neu starten.
+- [ ] Produktionsübernahme in neue Modellartefakte beim nächsten **regulären**
+  Touraufbau bestätigen; installierter Code allein ist kein neuer Modelllauf.
+  Status 14.10. 07:01: VPS weiterhin `dd704ade`, regulärer alter-Code-Tennisjob
+  erfolgreich. Nächster Termin **15.10.2026 00:05 Europe/Zurich**; keinen Zusatzscan.
+  Echter Nachtlauf: Exit 0, 45 verarbeitet/35 neue Prognosen, keine ungelösten
+  Ergebnisse. Kontext weiterhin partiell: 14 Identitätskonflikte + 1 nativ
+  fehlendes Ergebnis; nicht als volle sportliche Datenabdeckung bezeichnen.
+
+Details: `docs/audits/2026-10-13-tennis-ergebnisbruecke.md`.
+Diese Reparatur beweist weder eine bessere Rendite noch aktivierte numerische
+Verletzungs-, Wetter- oder Müdigkeitseffekte. Autoritative Arbeitskopie weiterhin
+`.worktrees/audit-repairs-20261013`; Hauptcheckout-WIP unberührt lassen.
+
 ## 13.10.2026 – Claude-Auditpaket: geprüft, gepusht und auf dem VPS live
 
 Dieser Abschlussblock ersetzt die darunterstehenden historischen Zwischenstände.

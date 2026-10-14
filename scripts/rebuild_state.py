@@ -22,6 +22,7 @@ from tennis.model_state import build_state, save_state, load_state, state_exists
 from tennis.tour_state import build_tour_state, refresh_tours
 from runtime_paths import CONTEXT_MODEL_DB_PATH
 from tennis.simulator import POINT_MODEL_VERSION
+from tennis.data_loader import cached_training_inputs
 
 
 def _compact_serve_diagnostics(diagnostics: dict) -> dict:
@@ -34,7 +35,7 @@ def _compact_serve_diagnostics(diagnostics: dict) -> dict:
     )
     return {
         phase: {name: summary[name] for name in fields if name in summary}
-        for phase, summary in diagnostics.items()
+        for phase, summary in diagnostics.items() if phase != "cached_results"
     }
 
 
@@ -51,19 +52,23 @@ def main() -> int:
     if not args.legacy_combined:
         cutoff = datetime.fromtimestamp(time.time(), timezone.utc)
         diagnostics_by_tour = {}
-        def build(tour):
+        def build(tour, *, refresh_training_data=args.refresh_data):
             diagnostics = {}
             diagnostics_by_tour[tour] = diagnostics
             return build_tour_state(
-                tour, as_of=cutoff, refresh_training_data=args.refresh_data,
+                tour, as_of=cutoff, refresh_training_data=refresh_training_data,
                 diagnostics=diagnostics,
             )
+        def build_cached(tour):
+            with cached_training_inputs():
+                return build(tour, refresh_training_data=False)
         try:
             result = refresh_tours(
                 path=CONTEXT_MODEL_DB_PATH, as_of=cutoff,
                 builder=build,
                 if_stale_days=None if args.force else args.if_stale_days,
                 required_market_version=POINT_MODEL_VERSION,
+                cached_builder=build_cached if not args.force else None,
             )
         except Exception as exc:
             print(f"REFRESH_FAILED: {type(exc).__name__}; bisherige Tour-Artefakte bleiben erhalten.")
@@ -78,6 +83,9 @@ def main() -> int:
                 print(f"{tour} serve_admission=" + json.dumps(
                     compact, ensure_ascii=True, separators=(",", ":"), sort_keys=True,
                 ))
+                if "cached_results" in diagnostics_by_tour[tour]:
+                    print(f"{tour} cached_results=" + json.dumps(
+                        diagnostics_by_tour[tour]["cached_results"], sort_keys=True, separators=(",", ":")))
         print(f"REFRESH_{result['status'].upper()}; Datenrefresh angefordert={args.refresh_data}")
         return 0 if result["status"] == "complete" else 1
 

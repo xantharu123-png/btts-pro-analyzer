@@ -424,6 +424,7 @@ def test_separate_atp_build_skips_bad_serve_row_but_retains_elo_and_reports(monk
     assert built.elo.known_players() == {"vatutin a", "fawcett t"}
     assert built.serve.to_payload()["rows"] == []
     assert diagnostics == {
+        "cached_results": {"added": 0, "candidates": 0, "rejected": 0, "csv_overlap": 0},
         "serve_build": {
             "admitted": 0, "skipped": 1,
             "admitted_match_count": 0, "skipped_match_count": 1,

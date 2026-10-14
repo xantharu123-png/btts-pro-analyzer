@@ -94,8 +94,23 @@ def build_tour_state(tour: str, *, as_of: datetime,
         column, winner, loser, surface, retired = "Date", "Winner", "Loser", "Surface", "Comment"
     frame = _dated_inputs(frame, column, tour, cutoff)
     frame = add_normalized_names(frame, winner, loser)
+    from .result_training import cached_elo_results, missing_results
+    result_diagnostics = {}
+    cached = cached_elo_results(CONTEXT_MODEL_DB_PATH, tour=tour, cutoff=cutoff,
+        known_keys=set(frame["winner_key"]) | set(frame["loser_key"]), diagnostics=result_diagnostics)
+    cached = missing_results(frame, cached, column=column, tour=tour, diagnostics=result_diagnostics)
+    if diagnostics is not None:
+        diagnostics["cached_results"] = result_diagnostics
+    # Leave CSV coverage/serve dates unchanged. Receipt order is explicit and
+    # must not pretend to be an actual end clock or certify complete history.
+    ordered = [(row[column], 0, index, row) for index, row in enumerate(frame.to_dict("records"))]
+    ordered.extend((pd.Timestamp(row["result_observed_at"]), 1, index, row)
+        for index, row in enumerate(cached))
     consumed = []
-    for row in frame.to_dict("records"):
+    for _, source, _, row in sorted(ordered, key=lambda item: item[:3]):
+        if source == 1:
+            elo.update(row["winner_key"], row["loser_key"], row["surface"])
+            continue
         if _is_retired(row.get(retired)) or not row.get("winner_key") or not row.get("loser_key"):
             continue
         elo.update(row["winner_key"], row["loser_key"], row.get(surface))
@@ -254,11 +269,15 @@ def refresh_tours(*, path: Path, as_of: datetime,
                   builder: Callable[[str], ModelState],
                   publication_clock: Callable[[], datetime] | None = None,
                   if_stale_days: float | None = None,
-                  required_market_version: str | None = None) -> dict:
+                  required_market_version: str | None = None,
+                  cached_builder: Callable[[str], ModelState] | None = None) -> dict:
     """Attempt each tour independently and CAS-publish only validated states.
 
     A failed tour retains its exact previous identity and metadata. Conflict
     retries reload the manifest, protecting other slots and newer coverage.
+    The daily owner may refresh local results once per UTC training day while
+    keeping the unchanged external-source refresh policy. Other owners retain
+    the existing fresh-model behavior when no cached builder is supplied.
     """
     cutoff = _utc(as_of)
     clock = publication_clock or _now
@@ -267,9 +286,12 @@ def refresh_tours(*, path: Path, as_of: datetime,
     if if_stale_days is not None and (isinstance(if_stale_days, bool) or
             not math.isfinite(if_stale_days) or if_stale_days < 0):
         raise ValueError("stale days must be finite and nonnegative")
+    if cached_builder is not None and not callable(cached_builder):
+        raise TypeError("cached builder must be callable or None")
     result = {"tours": {}}
     for tour in ("ATP", "WTA"):
         previous = None
+        selected_builder = builder
         try:
             decision = _utc(clock())
             if cutoff > decision:
@@ -285,9 +307,12 @@ def refresh_tours(*, path: Path, as_of: datetime,
                 if (0 <= age < if_stale_days and 0 <= coverage_age < if_stale_days
                         and (required_market_version is None or previous.market_model_version == required_market_version)):
                     _check_predictions(previous)
-                    result["tours"][tour] = _record("retained_fresh", previous)
-                    continue
-            state = builder(tour)
+                    if (cached_builder is None or cutoff.date() <=
+                            datetime.fromisoformat(previous.training_cutoff).date()):
+                        result["tours"][tour] = _record("retained_fresh", previous)
+                        continue
+                    selected_builder = cached_builder
+            state = selected_builder(tour)
             if required_market_version is not None and state.market_model_version != required_market_version:
                 raise ValueError("builder did not produce required tennis market version")
             payload = encode_state(state, tour=tour)
@@ -307,6 +332,8 @@ def refresh_tours(*, path: Path, as_of: datetime,
                     previous = current
                     if date.fromisoformat(checked.stats_through) < date.fromisoformat(current.stats_through):
                         raise ValueError("incoming training coverage regressed")
+                    if datetime.fromisoformat(checked.training_cutoff) < datetime.fromisoformat(current.training_cutoff):
+                        raise ValueError("incoming training cutoff regressed")
                 if digest is None:
                     digest = put_artifact(path, kind="tennis-tour-state", payload=envelope, created_at=completed)
                 # Storage may take time; sample the CAS receipt after that I/O.
