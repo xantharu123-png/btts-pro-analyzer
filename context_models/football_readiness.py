@@ -20,7 +20,7 @@ from context_models.football_joint_context import (
     BASE_VERSION, FEATURE_VERSION, POOLED_FEATURE_VERSION, PLAYER_LOAD_FEATURE_VERSION, VERSION, joint_features,
 )
 from context_models.football_original_publication import BINDING_KIND
-from context_models.football_training import _load_publication, _original_envelope, build_joint_training_case, joint_base
+from context_models.football_training import _load_publication, _original_envelope, build_joint_training_case, joint_base, joint_source_scope_kwargs
 from context_models.replay import ReplayUnavailable
 from context_models.training import fit_family, split_windows
 from context_models.training_cases import assemble_training_cases
@@ -184,7 +184,7 @@ def _inspect(path, requests, config, blocks, *, as_of):
                 if config['feature_version'] == PLAYER_LOAD_FEATURE_VERSION and decision_proof is not None:
                     raise ReplayUnavailable("player_load_requires_original_decision")
                 rows = _bounded_receipts(connection, packet, cutoff=decision,
-                    include_player_load=config['feature_version'] == PLAYER_LOAD_FEATURE_VERSION)
+                    **joint_source_scope_kwargs(config['feature_version']))
                 # The owning source resolver admits its unchanged per-case pool
                 # before decoding it. One bounded pool may exist transiently
                 # before this cumulative physical-IO admission rejects it.

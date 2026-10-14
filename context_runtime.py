@@ -335,6 +335,10 @@ def _verify_artifact_types(connection, artifacts, created_at, limitations):
             # observation decoding, including originals with no B3 consumer.
             from context_models.tennis_live import validate_original_publication
             validate_original_publication(payload, created_at=created_at[key])
+        elif kind == "tennis-point-joint-original-v1":
+            # Same-transaction owning A1/B1/Winner/POINT replay follows after
+            # the full physical inventory, even for inactive/orphan originals.
+            pass
         elif kind == "context-effect-v1":
             validated = validate_effect_artifact(payload)
             if canonical_bytes(validated) != canonical_bytes(payload):
@@ -536,6 +540,8 @@ def _verify_connection(connection, *, history_max_bytes=None):
     from context_runtime_tennis import verify_live_originals
     live_originals = verify_live_originals(artifacts, created_at, receipts, limitations,
                                          history_max_bytes=history_max_bytes, history_cache=history_cache)
+    from context_models.tennis_point_original import verify_point_originals
+    verify_point_originals(connection, artifacts, live_originals)
     snapshot_count = _verify_snapshots(connection, tables, artifacts, receipts, limitations, live_originals)
     rollback_count = _verify_rollbacks(connection, tables, manifests, chain)
     slots = manifests[current]["slots"] if current is not None else {}

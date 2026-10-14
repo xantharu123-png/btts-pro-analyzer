@@ -1,5 +1,85 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 14.10.2026 – Verletzungs-, Wetter- und Müdigkeitseffekte: aktuelle Fortsetzung
+
+Dieser Block ersetzt keine empirischen Lücken durch Software-PASS.
+Ausgang lokal/GitHub/VPS `242093f`; autoritative Arbeitskopie weiterhin
+`.worktrees/audit-repairs-20261013`. Geerbte Hauptcheckout-Änderungen erhalten.
+
+- [x] Unveröffentlichte Tennis-POINT-Arbeit gezielt integriert: echte gemeinsame
+  Berechnung, volle Sieger-Nachrechnung, geschlossene Quellenfamilien und D4-
+  Prüfung sämtlicher POINT-Artefakte. Kein rückwirkendes Umetikettieren alter
+  Siegerbelege. 472 gezielte Tests PASS; getrennt Cache/Shadow 44 PASS/3 bestehende
+  Skips. Unabhängiger Review ohne Befund. Das ist noch keine vollständige Suite.
+- [x] Fußball-v3-Quellenparität: tatsächliche Club-/Nationalteam-Historie in
+  Worker, Training, Bereitschaftsprüfung und detached D4 identisch auflösen.
+  Zwei echte SQLite-Fälle zunächst RED, danach vollständiger owning D4 GREEN.
+  Fünfter Owner korrigiert die Verwechslung mit einem alten Modelltyp. Finale
+  begrenzte Runde 71 PASS/0 Fehler/0 Skips, davon 26 neue Fälle; unabhängiger
+  Review ohne Befund. Keine Freigabe eines numerischen Effekts daraus ableiten.
+- [x] Frische read-only Tennis-Generationsinventur: 149 ATP-/312 WTA-Ereignisse,
+  134/248 passende native Ergebnis-Header. Keine alten Modellgenerationen,
+  Doppelpolls oder ATP/WTA vermischen; Header sind noch keine qualifizierten
+  Training-/Abstimmungs-/200-Test-Fälle. Keine Ergebnis-/Gewinnselektion.
+- [ ] Tennis-Historienabfrage: identische Vier-Fall-Merkmalsrekonstruktion
+  überschritt 45s vor dem ersten Vektor. Der lokal geprüfte Query-Kandidat
+  scheiterte auch im tatsächlichen begrenzten VPS-Test vor dem ersten Vektor
+  und wurde ausdrücklich NICHT übernommen. Owner ist wieder bytegleich mit
+  `242093f`; Kandidat und Tests nur diagnostisch außerhalb aktiver Collection.
+  Merkmalsabdeckung und tatsächliche Reparatur bleiben offen. Ein zusätzlicher rein
+  metadatenseitiger 15s-Zählversuch wurde begrenzt abgebrochen; kein bekannter
+  Deduplikationsfaktor daraus und keine bewiesene DB-Korruption.
+- [ ] Große Fußballquellen und später v3-Zeitpunkt: bestehende Gesamt-I/O-Caps
+  und vollständige native Herkunft müssen bewahrt bzw. ausdrücklich versioniert
+  werden. Nicht nur Limit erhöhen, alte v3-Entscheidungssperre entfernen oder
+  Quellen unangekündigt wegfiltern.
+- [ ] Empirische Wirkung: kein reales qualifiziertes Modell/keine numerische
+  Aktivierung aus diesen Reparaturen ableiten. Ein POINT-Sieger-Kontextmodell
+  braucht eigene geprüfte Training-/Testkohorten; Aufschlag-, Satz-/Game- und
+  Verletzungswirkungen sind damit nicht automatisch identifiziert.
+- [ ] Fußball-Anwendungsbrücke erst auf der tatsächlich qualifizierten
+  Modell-/Quellendomäne: dieselbe gelesene Freigabe, unveränderlicher gemeinsamer
+  zukünftiger Prognosebeleg und eigener Consumer. Nicht neue p-Werte in alte
+  Challenge-Validierung/Sicherheitsabschläge/15K-Freigaben hineinsplicen.
+- [x] Abschlussreview-P2 repariert: optionales Tennis-Ergebnislesen bei mehr
+  als 500 erfassten Ereignissen darf fertige Prognosen nicht abbrechen. Nur
+  explizite endliche Admission kann intern vollständig abgelehnt werden;
+  Integritäts-/Quellen-/Zeitfehler bleiben strikt. Sechs echte RED-Fälle,
+  danach 9 PASS; owning Nachbarn 131 PASS/3 bestehende Skips. Unabhängig
+  nachgeprüft, keine offenen Befunde. Keine Kürzung, Cap-Erhöhung oder Kundentexte.
+- [ ] Eine finale vollständige Regression, dokumentierter scoped Commit/Push,
+  anschließender begrenzter VPS-Pull ohne neues Backup. Aktuelle Pakete lokal
+  noch unveröffentlicht. Alte Tipps/Geld/Quoten-/Einsatzregeln unverändert.
+  Erste kombinierte Runde wegen des obigen echten P2 gezielt abgebrochen, kein
+  PASS. Neue finale Collection: 14.038 Items, alle 13.922 alten genau erhalten
+  plus 116 neue; Source-Freeze und zwei disjunkte Dateigruppen in `qa-final`.
+  Die vollständige Endrunde läuft; ein Teilfortschritt ist kein Vollsuite-PASS.
+
+### Aktueller Endgate – kein Gesamtabschluss
+
+- Die A-Vollgruppe wurde nach einem realen unveränderten Speichergrenzen-FAIL
+  bei 47 % angehalten. B läuft weiter; noch kein vollständiges Ergebnis.
+- Der einzelne Cold-Speicherfall wurde unverändert mehrfach reproduziert:
+  645.510 / 641.969 / 641.984 Python-Bytes bei Grenze 524.288. Sammlung vor
+  Messung allein und ein Diagnose-Cursor-Schließungsproxy beheben ihn nicht.
+- Ein fest begrenzter kleiner Warmup bestand isoliert, scheiterte aber im
+  ganzen owning Modul: 71 PASS/1 FAIL, 993.124 Bytes. Echte 1-MiB-Negativkontrolle
+  erkannte den Puffer korrekt. Kandidat deshalb NICHT akzeptiert; owning Test
+  wieder vollständig auf Basis, ursprüngliche IDs/512-KiB-Grenze unverändert.
+  Diagnosekopie/RED-Bericht erhalten; kein Wiederholen bis zufällig grün.
+- Akzeptierte POINT-/Fußballcodehashes weiterhin unverändert. Der Arbeitsstand
+  darf als scoped Branch-Checkpoint gesichert werden, nicht als fertige
+  Modellwirkung oder erfolgreicher Hauptrelease. Kein neuer VPS-Pull/Restart.
+- Fachlich zuerst die reale Teilnehmerfindung und große vollständige native
+  Quellenpools reparieren, dann echte Merkmals-/Training-/Zeit-Test-Abdeckung
+  bestimmen. Tennis hat im geprüften Adapter keine gemessenen Matchzeiten oder
+  bestätigten akuten Verletzungsmerkmale. Ergebnisheader allein ersetzen dies
+  nicht. Numerische Freigabe und öffentliche Anwendung bleiben offen.
+
+Bericht: `docs/audits/2026-10-14-kontextmodell-abschlusspruefung.md`.
+Belege: `C:/Projekt/BetBoy/output/context-completion-20261014`.
+Keine neue Sport-/API-Abfrage, Produktionsdatenbankkopie oder Bereinigung.
+
 ## 13.10.2026 – Tennis-Ergebnisbrücke nach Hurkacz–Davidovich
 
 - [x] Der belegte Datenbruch ist in ATP/WTA reproduziert und begrenzt repariert:

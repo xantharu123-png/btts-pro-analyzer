@@ -163,6 +163,8 @@ class LiveWorker:
         self.bindings, self.pending = {}, []
         self.finished = False
         self.reasons = []
+        self.point_outcomes = ()
+        self.point_scores_decline = None
         self._progress = progress
         self._started = monotonic()
 
@@ -284,7 +286,8 @@ class LiveWorker:
             "receipt": actual["digest"], "observed_at": actual["observed_at"]}
         return current
 
-    def enqueue(self, fixture, state, prediction, originals, *, decision_at, kwargs, result, success_counter="stored"):
+    def enqueue(self, fixture, state, prediction, originals, *, decision_at, kwargs, result, success_counter="stored",
+                point_originals=None):
         if self.finished:
             raise ContextContractError("live batch is already finished")
         binding = self.bindings.get(id(fixture)) if originals else None
@@ -292,8 +295,21 @@ class LiveWorker:
             raise ContextIntegrityError("formatted fixture changed after its actual native reception")
         if binding is not None and len(originals) != 1:
             raise ContextIntegrityError("same-call original was not captured exactly once")
+        point_original = None
+        if point_originals:
+            from context_models.tennis_point_original import validate_point_capture, market_projection
+            if binding is None or len(point_originals) != 1 or prediction.markets is None:
+                raise ContextIntegrityError("point capture lacks its same-call native owner")
+            point_original = validate_point_capture(point_originals[0])
+            if not _equal(point_original["markets"], market_projection(prediction.markets)):
+                raise ContextIntegrityError("point capture differs from the actually published market sheet")
+        elif point_originals is not None and binding is not None and prediction.markets is not None:
+            from tennis.simulator import POINT_MODEL_VERSION
+            if state.market_model_version == POINT_MODEL_VERSION:
+                raise ContextIntegrityError("actual point market sheet was not captured")
         self.pending.append({"fixture": deepcopy(fixture), "state": state, "prediction": deepcopy(prediction),
             "original": deepcopy(originals[0]) if binding else None, "binding": deepcopy(binding),
+            "point_original": point_original,
             "decision": decision_at, "kwargs": dict(kwargs), "result": result, "success_counter": success_counter})
         result["prepared"] = result.get("prepared", 0)+1
 
@@ -435,6 +451,11 @@ class LiveWorker:
                     original_published_at = _artifact_created_at(connection, original_hash)
                     validate_original_publication(stored_original["payload"],
                         created_at=original_published_at)
+                if (item["point_original"] is not None
+                        and canonical_timestamp(published_at) < origin["event"]["scheduled_start"]):
+                    from context_models.tennis_point_original import publish_point_original
+                    publish_point_original(self.path, winner_original_hash=original_hash, origin=origin,
+                        capture=item["point_original"], state=item["state"], clock=_now)
                 payload = compute_once(self.path, key, lambda inputs=inputs: calculate_context_payload(**inputs))
                 # Existing same-key bytes must match our actual resolved inputs,
                 # not merely be self-hashed valid JSON from another producer.
@@ -472,6 +493,28 @@ class LiveWorker:
                 item["result"]["skipped"] += 1
             if ordinal == 1 or ordinal % 10 == 0 or ordinal == len(self.pending):
                 self._report("published", processed=ordinal, total=len(self.pending))
+        if self.capture is not None and self.capture.pending:
+            from context_models.tennis_point_original import (MAX_SCORE_EVENT_KEYS,
+                PointScoreAdmissionLimit, point_scores_as_of)
+            # Read only native events actually received by this existing batch.
+            # No new outcome rows, whole-history replay or source request.
+            event_keys = {rows[0]["event_key"] for _, rows in self.capture.pending}
+            if len(event_keys) > MAX_SCORE_EVENT_KEYS:
+                # Optional score evidence must not abort a valid forecast batch
+                # after its public writes. Decline the whole read, not a subset.
+                self.point_scores_decline = {"reason": "event_scope_limit_exceeded",
+                    "event_count": len(event_keys), "limit": MAX_SCORE_EVENT_KEYS}
+            else:
+                try:
+                    self.point_outcomes = point_scores_as_of(self.path, as_of=_now(), event_keys=event_keys)
+                except PointScoreAdmissionLimit as exc:
+                    # Only typed finite-budget exhaustion is optional. Native,
+                    # clock, source and integrity failures still propagate.
+                    self.point_scores_decline = dict(exc.detail)
+            if self.point_scores_decline is not None:
+                self._report("point_scores_declined", **self.point_scores_decline)
+            if self.point_outcomes:
+                self._report("point_scores", bound=len(self.point_outcomes))
         self.finished = True
         self._report("complete", total=len(self.pending))
 

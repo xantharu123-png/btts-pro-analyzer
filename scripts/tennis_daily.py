@@ -1013,6 +1013,7 @@ def refresh_pending_predictions(
                 indoor = None
             surface = row.get("surface")
             originals = []
+            point_originals = []
             capture_options = {}
             if live_batch is not None and has_stored_context(row):
                 row = live_batch.bind_pending(row, decision_at=modeled_at)
@@ -1021,7 +1022,8 @@ def refresh_pending_predictions(
                     continue
                 if not live_batch.wants_original(row, state):
                     raise ValueError("native context refresh requires the actual separate tour model")
-                capture_options = {"original_capture": originals.append}
+                capture_options = {"original_capture": originals.append,
+                    "point_original_capture": point_originals.append}
             prediction = predict_match(
                 state, row["player_a"], row["player_b"],
                 surface if surface in ("Hard", "Clay", "Grass", "Carpet") else None,
@@ -1052,7 +1054,8 @@ def refresh_pending_predictions(
             )
             if originals:
                 live_batch.enqueue(row, state, prediction, originals, decision_at=modeled_at,
-                    kwargs=store_options, result=result, success_counter="refreshed")
+                    kwargs=store_options, result=result, success_counter="refreshed",
+                    point_originals=point_originals)
                 continue
             shadow.store_prediction(row["match_date"], row["tour"], row.get("tournament"), prediction, **store_options)
             result["refreshed"] += 1
@@ -1147,7 +1150,9 @@ def scan_fixtures(
             if indoor is None:
                 indoor = catalog_indoor
             originals = []
-            capture_options = ({"original_capture": originals.append}
+            point_originals = []
+            capture_options = ({"original_capture": originals.append,
+                "point_original_capture": point_originals.append}
                 if live_batch is not None and live_batch.wants_original(fx, state) else {})
             pred = predict_match(
                 state,
@@ -1171,7 +1176,7 @@ def scan_fixtures(
                 modeled_at=decision_at, append_observed_at=append_observed_at, db_path=db_path)
             if live_batch is not None:
                 live_batch.enqueue(fx, state, pred, originals, decision_at=decision_at,
-                    kwargs=store_options, result=result)
+                    kwargs=store_options, result=result, point_originals=point_originals)
                 continue
             row_id = shadow.store_prediction(fx["match_date"], tour, fx["tournament"], pred, **store_options)
             if row_id > 0:

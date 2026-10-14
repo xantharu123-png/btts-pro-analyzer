@@ -126,6 +126,7 @@ def predict_match(
     workload_history=(),
     *,
     original_capture=None,
+    point_original_capture=None,
 ) -> TennisPrediction:
     """Full prediction + gate evaluation for one fixture.
 
@@ -143,6 +144,8 @@ def predict_match(
     """
     if original_capture is not None and not callable(original_capture):
         raise TypeError("original_capture must be callable")
+    if point_original_capture is not None and not callable(point_original_capture):
+        raise TypeError("point_original_capture must be callable")
     tour = str(tour or "ATP").upper()
     scope = getattr(state, "tour_scope", "legacy-combined")
     if scope != "legacy-combined" and scope != tour:
@@ -215,6 +218,9 @@ def predict_match(
     if have_serve and market_version == POINT_MODEL_VERSION:
         markets = simulate_match(hold_a, hold_b, best_of=best_of, strict=True,
             model_version=market_version, winner_probability=round(p_cal, 4))
+        if point_original_capture is not None:
+            from context_models.tennis_point_original import point_capture
+            point_original_capture(point_capture(hold_a, hold_b, best_of, round(p_cal, 4), markets))
     if original_capture is not None:
         # Opt-in owning worker receives the actual same-call original before
         # presentation rounding. It neither recalibrates nor modifies output.

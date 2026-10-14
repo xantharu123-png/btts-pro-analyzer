@@ -1,5 +1,119 @@
 # SDD ledger — plan: docs/superpowers/plans/2026-09-07-kontextmodell-umsetzung.md
 
+## Continuation 14 October 2026: remaining numeric context prerequisites
+
+Baseline canonical/GitHub/VPS 242093f; full QA 13825 PASS,97 unchanged skips,
+147 subtests,13922 exact-once IDs. Root c5a6264 inherited WIP remains untouched.
+Spec and execution method remain explicitly approved; no repeated approval gate.
+
+| Current task | Producer / consumer | Checked finding |
+| --- | --- | --- |
+| B4/B5,C1 source resolution | ORIGINAL / worker,D1,D4 | 7/8 measured originals rejected by aggregate source materialization; all source closures must remain proved |
+| B4 v3 postdecision | captured clock / expanded player-history train+worker | schema1 proves nonexpanded pool only; a later v3 decision is deliberately rejected |
+| B6/B7 POINT originals | same-call distribution / replay,D4 | useful root WIP is unpublished; exact new source family and owning D4 validation are missing |
+| D2/D3 application | verified approval / football consumer | worker always uses approval=None and forbids applied; no verified public application connection |
+| B7 fit | native outcomes / fitting targets | bilateral set results are not service-success trials; POINT Winner anchor cannot remain fixed if Winner is changed |
+
+Ruling: Adopt only the bounded existing POINT capture hunks plus full owning
+source/D4 verification, not whole root files — root predates the daily cached-
+result repair and copying files would delete accepted fixes — wrong scope costs
+cache/replay regressions; focused parity/source tests and independent task review
+are required. This completion is not a numerical effect or empirical acceptance.
+
+Ruling: No coefficients, collection completeness or 200-event success may be
+invented to call the context work finished — those are explicit approved spec
+requirements — wrong admission would change customer probabilities without valid
+evidence. Existing fits/approvals must be strictly used only through owning D2.
+
+Current task brief: task-10-point-completion-20261014-brief.md.
+Next bounded repair: task-8-v3-detached-completion-20261014-brief.md, correcting
+the proven D4 nonexpanded-player source mismatch without changing admission.
+POINT-generation calibrated-H2H Winner-only recovery variant is mathematically
+within B7; real generation/coverage/time-block inventory is requested read-only
+before selecting its immutable experiment. No claim of 200 qualifying cases yet.
+Controller owns documentation and source-publication index; task implementer
+does not commit or start a duplicate whole suite. Existing ledger retained since
+the parent plan is not finished; no cleanup of inherited plan evidence.
+
+14 October 09:39 CEST checkpoint: Task10 POINT prerequisite implemented locally.
+Actual scoped QA472 PASS; unchanged cache/Shadow44 PASS,3 existing platform skips.
+Initial19 environment failures remain logged and causally recovered without
+source fixes; these are overlapping runs, not additive coverage or full QA.
+Independent immutable review has no critical/important/minor findings. Review
+explicitly excludes empirical fit,200-test qualification,whole-repository QA,
+production release,UI and unrelated work: controller retains every gate.
+Task8 v3 detached-source parity now assigned; POINT owners frozen pending final QA.
+
+Fresh read-only VPS header inventory242093f at2026-10-14T07:24:41Z: actual POINT
+generation selected BEFORE earliest-original-per-event gives149ATP/312WTA modeled
+Bo3 events,134/248 matching native outcome HEADERS. No labels or losses read.
+Those counts are upper bounds,not qualified train/tune/200-test cases. Four fixed
+tour/day feature cases cancelled at45s SQL budget before the first feature vector;
+participant-history query is the observed bottleneck,not proven DB corruption.
+No new provider scan,backup,production DB copy or effect activation performed.
+
+Task8 extension explicitly ruled in: real full D4 initially failed before the
+source comparison because context_runtime_semantics._case_shape treated captured
+football joint bases as legacy context-base-replay artifacts. The narrow fifth
+owner now calls existing joint_case_artifacts at the physical case clock, with
+preprocessing/outcome checks retained. This is required to fulfill owning D4,
+not a new public activation law. Two actual SQLite cases RED then2PASS; expanded
+boundaries20PASS after the candidate-v2 fixture honestly executed documentedv15.
+Initial6PASS/14setup errors are preserved; no production code/version pin waived.
+Final task review and complete combined regression remain pending.
+
+Read-only approval bridge analysis retained: existing B3 math is not the missing
+part. A qualified model still needs same-read-image approval, concurrency-safe
+immutable forecast publication and a shared consumer without inheriting legacy
+Challenge validation/haircuts or15K certification. No real qualified effect
+currently demonstrated, so no dormant bridge may be reported as a numeric effect.
+
+Task8 final71PASS/0failure/0error/0skip in262.22s, including26new real SQLite
+boundaries. Independent taskreview no critical/important/minor findings; six
+source hashes match report. Every deferred numeric/fullQA/production gate stays
+open. Five football owners and POINT owners frozen. New fresh implementer for
+the strictly unchanged-semantics Tennis relevance-key CTE; no new schema/index,
+cohort,model or budget. Real reuse ratio and45s production success remain unknown;
+the bounded15s header aggregate was intentionally interrupted,not corruption.
+VPS SQLite3.45.1 currently verified; minimum syntax3.35 checked in officialdocs.
+
+Controller disposition: the actual identical four-case/45s candidate probe
+failed its first history-membership query before any vector. Candidate not
+accepted. Restored tennis_training.py exactly to BASE SHA28a94651d30d1a226c14a349255b498fa2fd0c006af05925bc52e0e9fbb9cceb;
+35 candidate-only tests moved byte-identically outside active collection to
+output/context-completion-20261014/tennis-selector. No baseline ID removed or
+budget/index/schema changed. task-10-tennis-selector-20261014-disposition.md
+supersedes the producer's local-GREEN report as release disposition.
+
+Final independent combined review found a real P2: optional POINT outcome
+admission rejected >500 captured keys after valid public writes and before
+finished/complete. One bounded owner repair was authorized; all other code
+frozen. Actual RED4finish+2finite admission, then GREEN9 and131neighborPASS/
+3existing Windows-skips. Only typed PointScoreAdmissionLimit is nonfatal;
+all corruption/native/source/clock failures propagate, all finite caps remain.
+No truncation, customer prose or public numbers changed. Independent re-review
+closes P2 with no open Critical/Important/Minor findings on exact hashes.
+
+Initial combined sessions85970/22709 deliberately stopped exit1 before final
+JUnit because of P2, not PASS. New final source freeze17files including restored
+unchanged selector; inherited root10filehashes all preserved. Fresh full
+collection14038 keeps every13922baseline ID plus116new. Two disjoint ordinary
+whole-file shards now executing offline in qa-final; exact-once/97unchanged
+skips and final XML must pass before scoped checkpoint/source-only release.
+No empirical experiment, numerical activation, extra API scan or backup.
+
+FinalQA disposition: real untouched cold stream-memory testFAIL at645510bytes
+vs524288; A stopped47%, B continues on identical production hashes. Focused
+original measurements641969/641984 and677492preGC; close-cursor-only diagnostic
+638932 stillFAIL. Post-GC reclamation does not erase peak or prove native RSS.
+One fixed19ref warmup passed standalone but owning module71PASS/1FAIL at993124;
+real1MiB control rejected extra held buffer properly. Harness proposal rejected,
+full owning baseline test restored, candidate preserved outside collection.
+No old ID or threshold changed, no acceptance/fullPASS/production release.
+Task21brief/report are historical failed-proposal evidence, NOT active contract.
+Reviewed POINT/football prerequisites may be versioned as branchcheckpoint only;
+model effects/data replay and final verification remain open. Main/VPS242093f.
+
 ## Account continuation — 13 October 2026, context connections
 
 Latest gate: exact staged football-only code treeaf0d4d4b007d2a3a90ea9cfdb66e48a9d09959fb

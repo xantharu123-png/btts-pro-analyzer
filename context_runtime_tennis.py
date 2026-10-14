@@ -99,6 +99,23 @@ _REVIEWED_CACHED_TRAINING_MANIFEST = {
 }
 
 
+_REVIEWED_POINT_CAPTURE_MANIFEST = {
+    # Exact inherited capture-only predict transition against root c5a6264.
+    # Same numerical Winner/POINT execution; the six original owners stay
+    # literally identifiable. Its loader is the prior POINT-joint owner.
+    **{name: hashes for name, hashes in _REVIEWED_POINT_JOINT_MANIFEST.items()
+       if name != "tennis/predict.py"},
+    "tennis/predict.py": frozenset({"1bcfd397dabda9a0cf075894d2d3c1dc4a191fe9ce880652e050b6e3257dfebe", "5c730696f81b621ef02a461d32d91cddf118dbb40d65264c9699b4bff28a7a2d"}),
+}
+_REVIEWED_CACHED_POINT_CAPTURE_MANIFEST = {
+    # Canonical adoption retains a3f465c's cache-only acquisition owner; never
+    # overwrite its loader with the older inherited file. Only capture changes.
+    **{name: hashes for name, hashes in _REVIEWED_CACHED_TRAINING_MANIFEST.items()
+       if name != "tennis/predict.py"},
+    "tennis/predict.py": _REVIEWED_POINT_CAPTURE_MANIFEST["tennis/predict.py"],
+}
+
+
 def _same(actual, expected, label):
     if canonical_bytes(actual) != canonical_bytes(expected):
         raise ArtifactIntegrityError(label)
@@ -120,9 +137,17 @@ def _code_variants():
 
 def _code_manifest_supported(recorded, running):
     names = set(CODE_PATHS)
-    if set(recorded) != names:
+    if set(recorded) != names or set(running) != names:
         return False
-    if all(recorded[name] in running[name] for name in CODE_PATHS):
+    reviewed = (_REVIEWED_LOCATOR_OLD_MANIFEST, _REVIEWED_PRE_DURATION_MANIFEST,
+        _REVIEWED_DURATION_MANIFEST, _REVIEWED_RECONCILED_DURATION_MANIFEST,
+        _REVIEWED_RESULTS_PLACEHOLDER_MANIFEST, _REVIEWED_RECENT_TRAINING_MANIFEST,
+        _REVIEWED_POINT_JOINT_MANIFEST, _REVIEWED_CAUSAL_AVAILABILITY_MANIFEST,
+        _REVIEWED_CACHED_TRAINING_MANIFEST, _REVIEWED_POINT_CAPTURE_MANIFEST,
+        _REVIEWED_CACHED_POINT_CAPTURE_MANIFEST)
+    # Equality to arbitrary running bytes is not a reviewed source family.
+    if any(all(manifest[name] <= running[name] and recorded[name] in manifest[name]
+               for name in CODE_PATHS) for manifest in reviewed):
         return True
     # Closed, directional compatibility for exact reviewed transitions. A new
     # loader may replay the old saved states; older code does not thereby gain
@@ -148,6 +173,15 @@ def _code_manifest_supported(recorded, running):
          (*duration_predecessors, _REVIEWED_RECONCILED_DURATION_MANIFEST,
           _REVIEWED_RESULTS_PLACEHOLDER_MANIFEST, _REVIEWED_RECENT_TRAINING_MANIFEST,
           _REVIEWED_POINT_JOINT_MANIFEST, _REVIEWED_CAUSAL_AVAILABILITY_MANIFEST)),
+        (_REVIEWED_POINT_CAPTURE_MANIFEST,
+         (*duration_predecessors, _REVIEWED_RECONCILED_DURATION_MANIFEST,
+          _REVIEWED_RESULTS_PLACEHOLDER_MANIFEST, _REVIEWED_RECENT_TRAINING_MANIFEST,
+          _REVIEWED_POINT_JOINT_MANIFEST)),
+        (_REVIEWED_CACHED_POINT_CAPTURE_MANIFEST,
+         (*duration_predecessors, _REVIEWED_RECONCILED_DURATION_MANIFEST,
+          _REVIEWED_RESULTS_PLACEHOLDER_MANIFEST, _REVIEWED_RECENT_TRAINING_MANIFEST,
+          _REVIEWED_POINT_JOINT_MANIFEST, _REVIEWED_CAUSAL_AVAILABILITY_MANIFEST,
+          _REVIEWED_CACHED_TRAINING_MANIFEST, _REVIEWED_POINT_CAPTURE_MANIFEST)),
     )
     return any(
         all(executor[name] <= running[name] for name in CODE_PATHS)
@@ -171,7 +205,9 @@ def _state_code_manifest_supported(recorded, state):
             and any(all(recorded[name] in manifest[name] for name in CODE_PATHS)
                     for manifest in (_REVIEWED_POINT_JOINT_MANIFEST,
                                      _REVIEWED_CAUSAL_AVAILABILITY_MANIFEST,
-                                     _REVIEWED_CACHED_TRAINING_MANIFEST)))
+                                     _REVIEWED_CACHED_TRAINING_MANIFEST,
+                                     _REVIEWED_POINT_CAPTURE_MANIFEST,
+                                     _REVIEWED_CACHED_POINT_CAPTURE_MANIFEST)))
 
 
 def _native_event(row):
@@ -261,13 +297,38 @@ def _original_native_candidate(receipts, event, decision, max_bytes, cache):
     return min(2, len(latest)), latest[0] if len(latest) == 1 else None
 
 
+def replay_live_winner_calculation(origin, state, *, variants=None):
+    """Shared exact Winner owner; callers separately bind physical A1/B1.
+
+    POINT reads cannot trust a stored calibrated scalar or just the simulator
+    and serve files. Replay every original input/value under the closed full
+    source family and immutable causal state, with no source request or fit.
+    """
+    from tennis.predict import predict_match
+    original_base(origin)
+    variants = _code_variants() if variants is None else variants
+    decision = datetime.fromisoformat(origin["cutoff"])
+    if not _code_manifest_supported(origin["code_hashes"], variants):
+        raise ArtifactIntegrityError("original Tennis code has no supported exact replay")
+    if not _state_code_manifest_supported(origin["code_hashes"], state):
+        raise ArtifactIntegrityError("point joint Tennis state lacks its reviewed versioned code identity")
+    if state.built_at > decision.timestamp():
+        raise ArtifactIntegrityError("live original state was built after its decision")
+    recorded = []
+    args = {name: origin["inputs"][name] for name in (
+        "player_a", "player_b", "surface", "best_of", "tour", "indoor")}
+    prediction = predict_match(state, **args, as_of=decision, workload_history=(), original_capture=recorded.append)
+    _same(recorded, [{"inputs": origin["inputs"], "values": origin["values"]}],
+          "live original differs from its actual tour model calculation")
+    return prediction
+
+
 def _verify_live_original(ref, publication, artifacts, created_at, receipts, variants, history_max_bytes, history_cache):
     """Own all decoded state/history in this one call, never in descriptors."""
-    from tennis.predict import predict_match
     from tennis.tour_state import _decode_wrapper
     validate_original_publication(publication, created_at=created_at[ref])
     origin = publication["origin"]
-    original_base(origin)  # Preserve the original's owning distribution check.
+    original_base(origin)
     cutoff, event = origin["cutoff"], origin["event"]
     decision = datetime.fromisoformat(cutoff)
     if not _code_manifest_supported(origin["code_hashes"], variants):
@@ -278,10 +339,6 @@ def _verify_live_original(ref, publication, artifacts, created_at, receipts, var
             or canonical_timestamp(created_at[state_ref]) > cutoff):
         raise ArtifactIntegrityError("live original lacks its actual predecision tour state")
     state = _decode_wrapper(envelope["payload"], event["tour"])
-    if not _state_code_manifest_supported(origin["code_hashes"], state):
-        raise ArtifactIntegrityError("point joint Tennis state lacks its reviewed versioned code identity")
-    if state.built_at > decision.timestamp():
-        raise ArtifactIntegrityError("live original state was built after its decision")
     count, candidate = _original_native_candidate(receipts, event, decision, history_max_bytes, history_cache)
     if (count != 1 or candidate["source_schema"] != STATUS_SCHEMA
             or candidate["digest"] != origin["native_receipt"]
@@ -290,12 +347,7 @@ def _verify_live_original(ref, publication, artifacts, created_at, receipts, var
             or candidate["payload"]["status"] != "scheduled" or candidate["payload"]["issues"]):
         raise ArtifactIntegrityError("live original native current input was absent or revised")
     _same(_native_event(candidate), event, "live original differs from its native event")
-    recorded = []
-    args = {name: origin["inputs"][name] for name in (
-        "player_a", "player_b", "surface", "best_of", "tour", "indoor")}
-    predict_match(state, **args, as_of=decision, workload_history=(), original_capture=recorded.append)
-    _same(recorded, [{"inputs": origin["inputs"], "values": origin["values"]}],
-          "live original differs from its actual tour model calculation")
+    replay_live_winner_calculation(origin, state, variants=variants)
 
 
 def verify_live_originals(artifacts, created_at, receipts, limitations, *, history_max_bytes=None, history_cache=None):

@@ -22,7 +22,7 @@ from context_models.football_joint_context import (
     joint_versions_for_variant,
 )
 from context_models.football_original_storage import StorageBudgetExceeded
-from context_models.football_training import _load_publication, joint_base
+from context_models.football_training import _load_publication, joint_base, joint_source_scope_kwargs
 from context_models.replay import ReplayUnavailable
 from context_snapshots import _decode_snapshot, compute_once
 from context_transport import (
@@ -204,7 +204,7 @@ def publish_joint_comparison(path, binding_ref, *, decision_at, max_payload_byte
             reason = "effect-unavailable" if not fits else "effect-ambiguous" if len(fits) != 1 else reason
             version = effect["payload"]["feature_version"] if effect is not None else FEATURE_VERSION
             rows = _bounded_receipts(connection, original.to_dict(), cutoff=decision,
-                include_player_load=version == PLAYER_LOAD_FEATURE_VERSION)
+                **joint_source_scope_kwargs(version))
             _native_binding(binding, original, rows)
             features = joint_features(binding["native_event"], rows, base, cutoff=decision_at, version=version)
     except ReplayUnavailable as exc:

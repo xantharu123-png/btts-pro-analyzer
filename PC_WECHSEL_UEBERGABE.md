@@ -1,5 +1,44 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktiver Einstieg – 14.10.2026: numerische Kontext-Restarbeit
+
+Autoritative Arbeitskopie `.worktrees/audit-repairs-20261013`, Basis242093f.
+Aktuelle lokale, noch nicht veröffentlichte POINT-Prerequisite472PASS+44PASS/
+3Plattformskips mit unabhängigem Review; keine numerische Aktivierung oder
+Vollsuitebehauptung. Fußball-v3 owning D4 benötigt die identische zusätzliche
+Nationalteam-Spielerhistorie; zwei echte SQLite-RED/GREEN-Fälle, finale Runde71PASS
+mit26neuen Grenztests, unabhängiger Review ohne Befund. Nicht Hauptcheckout-WIP
+darüberkopieren. Numerischer Effekt weiterhin separat offen.
+
+Frische VPS-Headerinventur: tatsächliche POINT-Generation149ATP/312WTA-Bo3,
+134/248 matching Ergebnis-Header, keine qualifizierten200Testfälle. Vier feste
+Merkmalsfälle scheiterten an der45sTeilnehmer-Abfrage; kein Vektor und kein
+DBkorruptionsnachweis. Der lokal geprüfte Query-Kandidat scheiterte auch real
+auf dem VPS vor dem ersten Vektor und ist NICHT im Veröffentlichungspaket;
+Owner base-bytegleich, Kandidat außerhalb aktiver Tests als Diagnose erhalten.
+Keine neue Freigabe oder Quellen-/Merkmalsabdeckung daraus. Keine neuen
+Provider-Scans, Backups oder DBkopien. Vollständige numerische Freigabe und
+öffentliche Anwendungsbrücke nicht mit den Prerequisite-Tests gleichsetzen.
+Oberster TODO-Block und docs/audits/2026-10-14-kontextmodell-abschlusspruefung.md
+haben Vorrang. Gemeinsame finale QA/Commit/Push/VPS-Veröffentlichung erst nach
+dem implementierten und unabhängig geprüften begrenzten Paket.
+
+Finalreview-P2 (optional POINT-Lesen >500 Ereignisse) tatsächlich reproduziert
+und eng repariert: RED4+2, GREEN9 und owning131PASS/3alte Plattformskips;
+unabhängiger Gegenreview ohne Befunde. Nur explizite finite Admission wird
+vollständig intern declined, echte Integritätsfehler bleiben ablehnend.
+Erster kombinierter Lauf deshalb gestoppt, kein PASS. Finale unveränderte
+Source-Freeze/Collection14.038 (13.922 alte +116 neue) und Vollrunde laufen
+in `output/context-completion-20261014/qa-final`. Noch kein neuer Push/Deploy.
+
+Neuester Endgate: vollständige A-Gruppe wegen reproduziertem unverändertem
+Cold-Speicher-Test bei47% angehalten, B-Gruppe läuft noch. Warmup-Testkorrektur
+nicht akzeptiert: owning71PASS/1FAIL trotz unveränderter512KiB-Grenze; echte
+1MiB-NegativkontrollePASS. Kandidat diagnostisch gespeichert, Basistest wieder
+vollständig hergestellt. Kein Vollsuite-PASS, keine numerische Aktivierung und
+kein neuer VPS-Release. Akzeptierte17Sourcehashes und Root10Hashes erhalten.
+Scoped Branch-Checkpoint ist nur Arbeitsfortschritt; Main/VPS weiterhin242093f.
+
 ## Neuester Einstieg – 14.10.2026: Tennis-Ergebnisbrücke live
 
 Autoritative Arbeitskopie `.worktrees/audit-repairs-20261013`, Ausgangscommit

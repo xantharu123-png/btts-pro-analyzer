@@ -146,9 +146,15 @@ def _case_shape(connection, ref, payload, *, configs, actual):
     for receipt in sorted({r for refs in features["refs"].values() for r in refs}):
         _physical_ref(connection, receipt, latest=features["cutoff"])
     from context_models.tennis_live import BASE_VERSION as LIVE_BASE
+    from context_models.football_joint_context import BASE_VERSIONS as JOINT_BASES
     if base["version"] == LIVE_BASE:
         from context_models.tennis_training import live_case_artifacts
         live_case_artifacts(connection, payload, latest=actual)
+    elif base["version"] in JOINT_BASES:
+        # Structural ownership precedes the detached complete-pool replay.
+        # Keep the actual case clock and all preprocessing/outcome checks below.
+        from context_models.football_training import joint_case_artifacts
+        joint_case_artifacts(connection, payload, latest=actual)
     else:
         replay = _artifact(connection, payload["replay_ref"], "context-base-replay-v1", latest=actual)["payload"]
         if (replay.get("base") != base or replay.get("event_hash") != digest(event)

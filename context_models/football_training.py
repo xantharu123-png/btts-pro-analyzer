@@ -132,6 +132,20 @@ def _load_publication(connection, binding_ref, *, latest, admit=None):
     return envelope, original, code
 
 
+def joint_source_scope_kwargs(feature_version):
+    """One closed source-scope law for worker, D1 construction and detached D4.
+
+    Legacy callers retain their original resolver/default kwargs. Only the
+    exact player-load generation expands the unchanged complete native pools.
+    Keep this owner in the existing evaluator source pin, not an unpinned file.
+    """
+    from context_models.football_joint_context import FEATURE_VERSION, POOLED_FEATURE_VERSION, PLAYER_LOAD_FEATURE_VERSION
+    if (type(feature_version) is not str
+            or feature_version not in {FEATURE_VERSION, POOLED_FEATURE_VERSION, PLAYER_LOAD_FEATURE_VERSION}):
+        raise ContextContractError('unknown native football source-scope feature version')
+    return {'include_player_load': True} if feature_version == PLAYER_LOAD_FEATURE_VERSION else {}
+
+
 def relevant_receipts(connection, packet, *, cutoff, include_player_load=False):
     """Complete predecision revision pool for the original's native events.
 
@@ -367,7 +381,7 @@ def build_joint_training_case(path, *, binding_ref, outcome_ref, identity_ref, c
         if config['feature_version'] == PLAYER_LOAD_FEATURE_VERSION and base['cutoff'] != binding['payload']['decision_at']:
             raise ReplayUnavailable('player_load_requires_original_decision')
         history = relevant_receipts(connection, original.to_dict(), cutoff=base['cutoff'],
-            include_player_load=config['feature_version'] == PLAYER_LOAD_FEATURE_VERSION)
+            **joint_source_scope_kwargs(config['feature_version']))
         features = joint_features(event, history, base, cutoff=datetime.fromisoformat(base['cutoff']),
                                   version=config['feature_version'])
         payload = dict(schema=1, event=event, base=base, features=features, replay_ref=binding_ref,

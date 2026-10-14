@@ -368,10 +368,11 @@ def resolve_case(connection, item, *, config, plan, latest):
     live = payload["base"]["version"] == LIVE_BASE
     joint = payload['base']['version'] in {'football-goals-captured-joint-v1', 'football-goals-captured-joint-v2'}
     if joint:
-        from context_models.football_training import joint_case_artifacts, relevant_receipts
+        from context_models.football_training import joint_case_artifacts, relevant_receipts, joint_source_scope_kwargs
         artifacts = joint_case_artifacts(connection, payload, latest=_artifact_created_at(connection, case['digest']))
         packet = artifacts[payload['base']['model_hash']]['payload']
-        expected = {row['digest'] for row in relevant_receipts(connection, packet, cutoff=decision)}
+        expected = {row['digest'] for row in relevant_receipts(connection, packet, cutoff=decision,
+            **joint_source_scope_kwargs(config['feature_version']))}
         if set(item['observation_refs']) != expected | {payload['outcome_ref']}:
             raise ContextIntegrityError('joint case omits or adds a causal native revision')
     elif live:
