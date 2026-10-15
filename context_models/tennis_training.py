@@ -99,9 +99,14 @@ def _batch_reader(path, budget):
 
 class _TennisBatchDiscovery:
     """Transaction-local small membership index, never a receipt validation flag."""
-    def __init__(self, connection, cases, budget):
+    def __init__(self, connection, cases, budget, membership_mode):
         self.connection, self.budget = connection, budget
+        self.membership_mode = membership_mode
         self.membership = {}
+        if membership_mode == 'indexed':
+            from context_tennis_index import _verified_index_state
+            _verified_index_state(connection)
+            return
         players = sorted({(event['tour'], player) for event, _ in cases
                           for player in (event['home_id'], event['away_id'])})
         clock = max(cutoff for _, cutoff in cases)
@@ -145,8 +150,18 @@ class _TennisBatchDiscovery:
         from tennis.history_projection import PreparedTennisHistory
         budget = self.budget
         keys = {event['event_key']}
-        keys.update(key for (tour, player, key), first in self.membership.items()
-                    if tour == event['tour'] and player in (event['home_id'], event['away_id']) and first <= cutoff)
+        if self.membership_mode == 'indexed':
+            from context_tennis_index import _player_membership_candidates, player_event_keys
+            selection = dict(tour=event['tour'], player_ids=(event['home_id'], event['away_id']), cutoff=cutoff)
+            budget.charge_metadata(1536+len(event['event_key'].encode('utf8')))
+            for member in _player_membership_candidates(self.connection, **selection):
+                budget.check()
+                if member[2] not in keys:
+                    budget.charge_metadata(512+len(member[2].encode('utf8')))
+                    keys.add(member[2])
+        else:
+            keys.update(key for (tour, player, key), first in self.membership.items()
+                        if tour == event['tour'] and player in (event['home_id'], event['away_id']) and first <= cutoff)
         budget.check()
         count = payload_bytes = 0
         for key in sorted(keys):
@@ -158,6 +173,13 @@ class _TennisBatchDiscovery:
             count += row[0]
             payload_bytes += row[1]
         budget.admit_selected(count, payload_bytes)
+        if self.membership_mode == 'indexed':
+            # Only metadata was touched above. Admit the complete history before
+            # the public owner opens even the first native membership proof.
+            proved = set(player_event_keys(self.connection, **selection)) | {event['event_key']}
+            if proved != keys:
+                raise ContextIntegrityError('indexed membership changed within its held snapshot')
+            budget.check()
         encoded = 0
         def rows():
             nonlocal encoded
@@ -180,19 +202,21 @@ class _TennisBatchDiscovery:
         return owner
 
 
-def iter_live_tennis_features(connection, origins, *, budget, feature_version='tennis-performed-load-v4'):
+def iter_live_tennis_features(connection, origins, *, budget, feature_version='tennis-performed-load-v4',
+                              membership_mode='indexed'):
     """Actual readiness/training feature consumer in its caller's read transaction.
 
     Yields one validated history owner at a time. No outcome is read, no mutable
     owner is reused between cases, and no validation scope escapes a feature call.
     """
+    _validate_membership_mode(membership_mode)
     if type(origins) is not tuple or not 1 <= len(origins) <= 100:
         raise ValueError('feature batch requires 1 to 100 explicit frozen origins')
     if not connection.in_transaction:
         raise ContextContractError('tennis feature batch requires its owning read transaction')
     from context_models.tennis_v4 import live_tennis_features
     cases = tuple((origin['event'], canonical_timestamp(origin['cutoff'])) for origin in origins)
-    discovery = _TennisBatchDiscovery(connection, cases, budget)
+    discovery = _TennisBatchDiscovery(connection, cases, budget, membership_mode)
     for origin, (event, cutoff) in zip(origins, cases):
         budget.check()
         owner = discovery.prepare(event, cutoff)
@@ -206,9 +230,15 @@ def iter_live_tennis_features(connection, origins, *, budget, feature_version='t
     budget.check()
 
 
-def build_live_training_cases(path, requests, *, config, as_of, seconds=45):
+def _validate_membership_mode(mode):
+    if type(mode) is not str or mode not in {'indexed', 'legacy'}:
+        raise ValueError('membership_mode must be indexed or legacy')
+
+
+def build_live_training_cases(path, requests, *, config, as_of, seconds=45, membership_mode='indexed'):
     """Build an unpublished bounded case tuple with one actual B1 transaction."""
     started = monotonic()
+    _validate_membership_mode(membership_mode)
     budget = _TennisBatchBudget(seconds, started=started)
     from context_models.dataset import _artifact, _receipt
     from context_models.training_contracts import validate_family_config, validate_resolved_case
@@ -236,7 +266,8 @@ def build_live_training_cases(path, requests, *, config, as_of, seconds=45):
             origins.append(origin)
         results = []
         for _, history, features in iter_live_tennis_features(connection, tuple(origins), budget=budget,
-                                                              feature_version=config['feature_version']):
+                                                              feature_version=config['feature_version'],
+                                                              membership_mode=membership_mode):
             request, origin = frozen[len(results)], origins[len(results)]
             budget.check()
             payload = {'schema': 1, 'event': origin['event'], 'base': original_base(origin), 'features': features,

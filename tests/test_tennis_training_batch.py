@@ -11,9 +11,18 @@ from context_models import tennis_training as impl
 from context_observations import append_observation
 from context_sources.tennis_status import normalize_tennis_status
 from model_artifacts import canonical_bytes, load_artifact
-from test_tennis_live_training import packet, live_config
+from test_tennis_live_training import packet as legacy_packet, live_config
 from test_tennis_live_worker import NOW
 from test_context_tennis_outcome_capture import completed
+
+
+def packet(*args, **kwargs):
+    """Batch fixtures explicitly migrate/build; production never does this."""
+    from context_tennis_index_build import initialize_index, build_index
+    result = legacy_packet(*args, **kwargs)
+    initialize_index(result[0])
+    assert build_index(result[0]).status == 'ready'
+    return result
 
 
 def batch_api():
@@ -106,7 +115,8 @@ def test_actual_batch_discovery_extracts_one_small_projection_after_native_prefi
     sql = []
     with _reader(db) as conn:
         conn.set_trace_callback(sql.append)
-        rows = list(impl.iter_live_tennis_features(conn, origins, budget=impl._TennisBatchBudget(45)))
+        rows = list(impl.iter_live_tennis_features(conn, origins, budget=impl._TennisBatchBudget(45),
+                                                 membership_mode='legacy'))
     assert [len(history) for _, history, _ in rows] == [7, 7]
     discovery, = [query for query in sql if 'WITH receipt_candidates' in query]
     assert discovery.count('json_extract(') == 1
@@ -138,7 +148,8 @@ def test_batch_checks_all_selected_physical_revisions(tmp_path, corruption):
         else:
             conn.execute("UPDATE context_observations SET subject_id='wrong:identity' WHERE event_key='espn:tennis:ATP:match:1000'")
     with pytest.raises(ContextIntegrityError):
-        build(db, requests_for(originals[:1], outcomes[:1], identity), config=live_config(), as_of=at)
+        build(db, requests_for(originals[:1], outcomes[:1], identity), config=live_config(), as_of=at,
+              membership_mode='legacy')
 
 
 def test_feature_batch_discovers_once_in_same_transaction_and_never_opens_outcomes(tmp_path):
@@ -150,7 +161,7 @@ def test_feature_batch_discovers_once_in_same_transaction_and_never_opens_outcom
     with _reader(db) as conn:
         conn.set_trace_callback(sql.append)
         actual = list(function(conn, origins, budget=impl._TennisBatchBudget(45),
-                               feature_version='tennis-performed-load-v3'))
+                               feature_version='tennis-performed-load-v3', membership_mode='legacy'))
         assert conn.in_transaction
     assert len(actual) == 2
     assert [len(history) for _, history, _ in actual] == [7, 7]

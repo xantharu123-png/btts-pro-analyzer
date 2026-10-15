@@ -1,6 +1,6 @@
 """Diagnostic native inventory never turns repeated receipts into test games."""
 from context_models.readiness import audit_tennis_readiness
-from test_tennis_live_training import packet
+from test_tennis_training_batch import packet
 import pytest
 
 

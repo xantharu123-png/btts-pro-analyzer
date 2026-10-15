@@ -42,7 +42,10 @@ def _deadline_reader(path, *, cancelled):
 
 
 def audit_tennis_readiness(path, *, as_of, sample_limit=25, seconds=120, progress=None,
-                           inventory_only=False, all_features=False, event_offset=0, event_count=None):
+                           inventory_only=False, all_features=False, event_offset=0, event_count=None,
+                           membership_mode='indexed'):
+    from context_models.tennis_training import _validate_membership_mode
+    _validate_membership_mode(membership_mode)
     if type(inventory_only) is not bool or type(all_features) is not bool:
         raise ValueError('inventory_only and all_features must be boolean')
     if inventory_only and all_features:
@@ -146,9 +149,13 @@ def audit_tennis_readiness(path, *, as_of, sample_limit=25, seconds=120, progres
         results, feature_cohorts = [], {}
         from context_models.tennis_training import _TennisBatchBudget, iter_live_tennis_features
         shared_budget = _TennisBatchBudget(seconds, started=started)
+        if membership_mode == 'indexed' and not sample:
+            from context_tennis_index import _verified_index_state
+            _verified_index_state(conn)
         if len(sample) > 100:
             raise ValueError('feature batch requires at most 100 events; use an explicit inventory range')
-        feature_rows = (iter_live_tennis_features(conn, tuple(origin for _, origin in sample), budget=shared_budget)
+        feature_rows = (iter_live_tennis_features(conn, tuple(origin for _, origin in sample), budget=shared_budget,
+                                                membership_mode=membership_mode)
                         if sample else ())
         for owner, observations, features in feature_rows:
             ref, origin = sample[len(results)]

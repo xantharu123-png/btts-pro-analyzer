@@ -16,7 +16,7 @@ import time
 
 from context_models.contracts import (
     ContextContractError, ContextIntegrityError, OBSERVATION_FIELDS,
-    _validate_canonical_observation_content, digest, require_digest, require_object,
+    _validate_canonical_observation_content, canonical_timestamp, digest, require_digest, require_object,
 )
 from context_sources.tennis import SOURCE_SCHEMA
 from context_sources.tennis_status import STATUS_SCHEMA, _validate_tennis_source_tail
@@ -266,6 +266,62 @@ def _append_identity(connection):
 def _append_tail(connection):
     row = connection.execute("SELECT rowid FROM main.context_observations ORDER BY rowid DESC LIMIT 1").fetchone()
     return row[0] if row else None
+
+
+def _verified_index_state(connection):
+    """Verify only the caller's held snapshot; never renew or publish readiness."""
+    if not connection.in_transaction:
+        raise TennisIndexUnavailable("tennis index requires a held read transaction")
+    from context_models.dataset import _DatasetConnection
+    identity = (connection._verified_reader_identity if isinstance(connection, _DatasetConnection)
+                else _append_identity(connection))
+    try:
+        state = read_index_state(connection)
+    except ArtifactIntegrityError as exc:
+        raise TennisIndexUnavailable("tennis player index schema/state is unusable") from exc
+    if not (
+        identity is not None and state.status == 'ready'
+        and state.schema_version == INDEX_SCHEMA_VERSION
+        and state.projector_sha256 == PROJECTOR_SHA256
+        and hashlib.sha256(Path(__file__).read_bytes()).hexdigest() == PROJECTOR_SHA256
+        and state.db_identity == identity
+        and state.source_generation == state.verified_source_generation
+        and state.index_generation == state.verified_index_generation
+        and state.rewrite_generation == state.verified_rewrite_generation
+        and 4096 <= state.logical_bytes <= MAX_APPEND_LOGICAL_BYTES
+        and state.covered_rowid == _append_tail(connection)
+    ):
+        raise TennisIndexUnavailable("tennis player index is not verified ready for this source snapshot")
+    return state
+
+
+def _player_membership_candidates(connection, *, tour, player_ids, cutoff):
+    """Metadata only, never a membership proof or permission to consume bodies."""
+    if (type(tour) is not str or tour not in {'ATP', 'WTA'} or type(player_ids) is not tuple
+            or not 1 <= len(player_ids) <= 200
+            or any(type(player) is not str or not player for player in player_ids)):
+        raise ContextContractError("indexed membership requires a native tour and explicit player IDs")
+    clock = canonical_timestamp(cutoff)
+    _verified_index_state(connection)
+    for player in sorted(set(player_ids)):
+        yield from connection.execute("""SELECT tour,player_id,event_key,first_observed_at,first_receipt_digest
+                FROM main.tennis_player_events WHERE tour=? AND player_id=? AND first_observed_at<=?
+                ORDER BY event_key""", (tour, player, clock))
+
+
+def player_event_keys(connection, *, tour: str, player_ids: tuple[str, ...], cutoff: str) -> tuple[str, ...]:
+    """Causal indexed keys, with every selected mapping physically/native bound."""
+    from context_observations import _SELECT, _decode_receipt
+    keys = set()
+    for stored in _player_membership_candidates(connection, tour=tour, player_ids=player_ids, cutoff=cutoff):
+        member = tuple(stored)
+        raw = connection.execute(_SELECT + " WHERE r.digest=? AND r.event_key=? AND r.observed_at=?"
+            " AND r.source='espn' AND r.kind IN ('event_status','workload')",
+            (member[4], member[2], member[3])).fetchone()
+        if raw is None or member not in project_memberships(_decode_receipt(raw)):
+            raise ContextIntegrityError("indexed tennis membership differs from its physical native receipt")
+        keys.add(member[2])
+    return tuple(sorted(keys))
 
 
 def _append_budget(context, started):

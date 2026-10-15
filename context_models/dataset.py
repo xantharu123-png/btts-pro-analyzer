@@ -62,6 +62,11 @@ def _reader_files(path, *, expected=None):
     return identities
 
 
+class _DatasetConnection(sqlite3.Connection):
+    """Held reader's filesystem proof, established before caller SQL policy."""
+    __slots__ = ('_verified_reader_identity',)
+
+
 @contextmanager
 def _reader(path):
     """Live read transaction: no data/schema publication or implicit creation.
@@ -74,17 +79,19 @@ def _reader(path):
     connection = None
     try:
         connection = sqlite3.connect(path.as_uri()+"?mode=ro", uri=True,
-                                     timeout=SQLITE_BUSY_TIMEOUT_SECONDS)
+                                     timeout=SQLITE_BUSY_TIMEOUT_SECONDS, factory=_DatasetConnection)
         opened = _reader_files(path, expected=original)
         connection.execute("PRAGMA query_only=ON")
         connection.execute("PRAGMA trusted_schema=OFF")
         connection.execute("BEGIN")
+        connection._verified_reader_identity = opened[path]
         yield connection
         _reader_files(path, expected=opened)
     except (ArtifactIntegrityError, sqlite3.DatabaseError, KeyError) as exc:
         raise ContextIntegrityError("context database references or stored bytes are invalid") from exc
     finally:
         if connection is not None:
+            connection._verified_reader_identity = None
             try:
                 connection.rollback()
             finally:
