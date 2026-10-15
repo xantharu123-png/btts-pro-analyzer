@@ -15,6 +15,11 @@ geprüft. Task 4 v2 (`3279be4`, 344 PASS) und Task 5 echter Leser (`7351b9d`,
 Weiter ausschließlich mit Task 6: ganze Offline-Suite/identische Skip-IDs,
 Branch-Review und erst danach kompatible Bereitstellung, expliziter Aufbau sowie
 unveränderter echter Vier-Fall-/45-s-Nachweis. Noch kein neuer Main-/VPS-Release.
+Abschlussreview inzwischen vollständig: Kontrollwert-Materialisierung durch
+`c3e25a1` begrenzt, 163 gezielte Tests, sauberes unabhängiges Nachreview. Früherer
+Vollsuite-Anlauf `qa-final-01` wurde dafür gezielt abgebrochen und ist KEIN PASS.
+Neue vollständige Prüfung in `output/tennis-player-index-20261015/qa-final-02`;
+keine Quelle/HEAD während dieses Laufs verändern. Danach erst Produktionsphasen.
 Vorher 14.160 Test-IDs gesammelt, alle alten 14.133 und
 27 Task-23-IDs erhalten. Das ist eine Collection, kein neuer vollständiger Testpass.
 Separater Benfica/Celtic-Audit liest gespeicherte Produktionsdaten ohne Scan.

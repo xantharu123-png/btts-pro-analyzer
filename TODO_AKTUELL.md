@@ -25,6 +25,14 @@
 - [ ] Task 6: Vollsuite, vollständiges Branch-Review, nativer Vier-Fall-Nachweis
   und koordinierte Produktionsumstellung weiterhin offen. Vorher kein Main-Release.
 
+Abschlussreview: Ein zu spät begrenzter Kontrollwert-Leser wurde mit `c3e25a1`
+korrigiert; 163 gezielte Tests bestanden, begrenztes unabhängiges Nachreview ohne
+Befunde. Schema/Trigger unverändert. Damit ist das Source-Review abgeschlossen,
+aber **noch keine Vollsuite-/Produktionsfreigabe** erteilt.
+`qa-final-01`: 14.280 IDs gesammelt, alle alten IDs erhalten; beide laufenden
+Shards nach dem Reviewfund gezielt abgebrochen. Kein Test-PASS daraus, keine JUnits.
+Frische Vollabnahme ausschließlich unter `output/tennis-player-index-20261015/qa-final-02`.
+
 Verbindlicher Wiederaufnahmeort:
 `.superpowers/sdd/2026-10-15-tennis-spielerindex-umsetzung/progress.md`.
 Keine neuen APIs, Sportscans, Backups, Datenbankkopien oder Bereinigungen.
