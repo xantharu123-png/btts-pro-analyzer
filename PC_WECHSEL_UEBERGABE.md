@@ -1,5 +1,21 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg 15.10.2026 23:46 – QA02 vollständig, noch kein Release
+
+Kanonisch weiter `.worktrees/audit-repairs-20261013`, Branch
+`codex/audit-repairs-20261013`; Aufgaben 1–5 nicht neu starten. Ganze QA02 am
+unveränderten HEAD `41e6a69`: 14.222 PASS, 98 unveränderte Skips, 3 FAIL,
+147 PASS-Untertests. Alle 14.323 IDs genau einmal, 769 Quellhashes und Root-WIP
+unverändert. Belege/Details im plan-eigenen SDD-Ledger und QA02-Verzeichnis.
+
+Nur drei alte Prüfadapter sind betroffen: SQLite-Verbindungs-Factory im
+Reader-Trust-Test sowie fehlende historische Receipt-Corpus/-Append-Quellfixtures
+für die eingefrorenen nativen Manifestprüfungen. Produktquellen und alte Pins
+nicht lockern; Adapter minimal korrigieren, RED/GREEN/Review und neue Vollabnahme.
+Main/VPS bleiben `4ece002`, Arbeitscode `41e6a69`; nichts produktiv umgestellt.
+Index-Aufbau und echter unveränderter nativer 4/4-/45-s-Test bleiben offen.
+Keine neuen Sport-/API-Scans, Backups, DB-Kopien, Bereinigungen oder Effektfreigaben.
+
 ## Aktueller Einstieg 15.10.2026 – Planfreigabe und Ausführungsstart
 
 „Umsetzungsplan freigegeben“ ist ausdrücklich erteilt. Weiterarbeiten in

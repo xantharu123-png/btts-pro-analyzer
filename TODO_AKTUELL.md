@@ -1,5 +1,26 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 15.10.2026 23:46 – vollständige QA02 mit drei Testadapter-Fehlern
+
+- [x] Beide eingefrorenen Läufe vollständig beendet: **14.222 bestanden,
+  98 unveränderte Skips, 3 Fehler, 147 bestandene Untertests**. Alle 14.323
+  gesammelten Haupt-IDs genau einmal; keine entfernten/doppelten/neuen Skips.
+  HEAD `41e6a69`; alle 769 Quellhashes und Root-WIP-Hashes unverändert.
+- [x] Ursachen unabhängig rein lesend eingegrenzt: SQLite-Test injiziert neben
+  dem neuen Verbindungs-Untertyp einen zweiten `factory`-Parameter; die native
+  Manifest-Fixture reicht aktuelle Receipt-Owner statt ihrer unverändert
+  eingefrorenen historischen Quellbytes ein.
+- [ ] Task 6: ausschließlich diese Prüfadapter anpassen, Schutz-Assertions/
+  historische Pins/Produktquellen unverändert lassen; gezielt RED/GREEN und
+  unabhängig prüfen. Danach neue eingefrorene Vollsuite in frischem Verzeichnis.
+- [ ] Kompatibler Main-/VPS-Deploy, expliziter Indexaufbau und unveränderter
+  echter 4/4-/45-s-Nachweis bleiben blockiert, bis die Abnahme besteht.
+
+Kein vollständiger Test-PASS. GitHub `main` und VPS weiterhin `4ece002`;
+Code-Arbeitsbranch `41e6a69`. Keine Produktionsänderung, Sicherung, Datenbankkopie,
+Bereinigung oder zusätzliche Sport-/API-Abfrage. QA01-Unterbrechungen und QA02-
+Fehlerbelege erhalten; keine Wiederholung schon abgeschlossener Aufgaben 1–5.
+
 ## 15.10.2026 – Umsetzungsplan freigegeben, Ausführung begonnen
 
 - [x] Nutzerfreigabe: „Umsetzungsplan freigegeben“; keine weitere Designrunde erforderlich.
