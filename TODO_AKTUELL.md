@@ -1,5 +1,27 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 16.10.2026 00:11 – Prüfadapter korrigiert und unabhängig geprüft
+
+- [x] `e717936`: ausschließlich Prüfadapter, zwei exakte historische DATA-
+  Fixtures/LF-Einträge und zusätzliche Negativtests; Produktquellen unverändert.
+  Ursprüngliche 3 Fehler RED reproduziert, danach 17/17 GREEN. Ein isolierter
+  No-BEGIN-Gegentest scheitert am echten Snapshot-Verhalten, nicht am Testaufbau.
+- [x] Eingefrorene Nachbarprüfung im regulären Windows-Berechtigungskontext:
+  **238 bestanden, dieselben 9 Skips**, alle 233 alten IDs und 14 neue Fälle.
+  Vorheriger Sandbox-FAIL mit 13 Dateiverknüpfungsfehlern und einer unveränderten
+  Zeitgrenze bleibt dokumentiert. Kein Limit/Pin/Schutzassertion gelockert.
+- [x] Unabhängiges begrenztes Review: Spezifikation und Qualität PASS, keine
+  Critical-/Important-/Minor-Befunde. 1.102 Original-Produktowner hash-identisch.
+- [ ] Jetzt frische vollständige Abnahme `qa-final-03`; alle 14.323 QA02-IDs,
+  ältere Baselines und genau dieselben 98 Skip-Identitäten erhalten. Keine
+  Quelle/HEAD während des neuen eingefrorenen Laufs verändern.
+- [ ] Main-/VPS-Release, abgeleiteter Aufbau und echter unveränderter nativer
+  4/4-/45-s-Nachweis weiterhin erst nach erfolgreicher Gesamtabnahme.
+
+QA02 bleibt ein abgeschlossener FAIL, nicht nachträglich grün. `main`/VPS bleiben
+`4ece002`. Keine neue API-/Sportabfrage, Sicherung, Produktionsdatenbankkopie,
+Bereinigung, numerische Effektfreigabe oder Änderung an Tickets/Geldbewegungen.
+
 ## 15.10.2026 23:46 – vollständige QA02 mit drei Testadapter-Fehlern
 
 - [x] Beide eingefrorenen Läufe vollständig beendet: **14.222 bestanden,

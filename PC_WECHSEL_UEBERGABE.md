@@ -1,5 +1,19 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg 16.10.2026 00:11 – QA03 als nächster Gate
+
+Kanonischer Branch unverändert `codex/audit-repairs-20261013`. Die drei QA02-
+Prüfadapterfehler sind mit `e717936` korrigiert: 17 gezielt bestanden, echter
+No-BEGIN-Sensitivitätsfehler, finale Nachbarprüfung 238 PASS/9 gleiche Skips,
+unabhängiges Review sauber. Produktowner/Pins/Schutzassertionen unverändert.
+QA02 und frühere Unterbrechungen behalten ihren ursprünglichen FAIL/INCOMPLETE-
+Status; sie sind keine ganze Freigabe. Nächster Schritt nur neue vollständige
+eingefrorene QA03 mit allen alten IDs und unveränderten 98 Skip-Identitäten.
+Danach erst kompatibel deployen, explizit Index aufbauen, echte unveränderte
+vier Fälle innerhalb insgesamt 45 Sekunden prüfen und operativ abschließen.
+Main/VPS noch `4ece002`; keine Produktionsdatenbankkopien, Backups, Zusatzscans
+oder neuen numerischen Effekte. Nicht Tasks 1–5 oder fertige Reviews neu starten.
+
 ## Aktueller Einstieg 15.10.2026 23:46 – QA02 vollständig, noch kein Release
 
 Kanonisch weiter `.worktrees/audit-repairs-20261013`, Branch
