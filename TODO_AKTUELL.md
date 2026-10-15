@@ -1,5 +1,23 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 15.10.2026 – Spezifikation freigegeben, Umsetzungsplan zur Prüfung
+
+- [x] Nutzerfreigabe der schriftlichen Spielerindex-Spezifikation dokumentiert.
+- [x] Plan erstellt und gegen die Spezifikation selbst geprüft:
+  `docs/superpowers/plans/2026-10-15-tennis-spielerindex-umsetzung.md`.
+  Sechs Pakete: Schema/Projektion, Aufbau, Live-Append, v2-Verträglichkeit,
+  tatsächlicher Leser, vollständiger Nachweis/koordinierte Umstellung.
+  v2-Kopien bleiben ausdrücklich index-invalid; kein neues allgemeines Ledger.
+- [ ] Nutzer prüft/freigibt den Plan; die zuvor gewählte Ausführung mit
+  Unteragenten und Review je Aufgabe bleibt erhalten.
+- [ ] Danach erst Umsetzung/Migration. Ein erforderlicher schemafähiger
+  Vorbereitungsdeploy ist vom abschließenden echten 4/4-/45-s-Erfolg zu trennen.
+
+Nur Plan, Freigabestatus und Übergabe geändert. Keine Produktivcodeänderung,
+Tests, Sport-/API-Läufe, Backups, Migration oder VPS-Veröffentlichung.
+Der technische/fachliche Gesamtabschluss bleibt offen; frühere Statusblöcke
+sind historisch. Main/VPS werden durch diesen Planungsschritt nicht verändert.
+
 ## 15.10.2026 – Spielerindex schriftlich entworfen, wartet auf Prüfung
 
 - [x] Nach Nutzer-„Ja“ die Spezifikation erstellt:

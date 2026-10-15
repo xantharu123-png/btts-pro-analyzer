@@ -1,5 +1,19 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg 15.10.2026 – Umsetzungsplan zur Freigabe
+
+Nutzer hat die schriftliche Spielerindex-Spezifikation ausdrücklich freigegeben.
+Plan: `docs/superpowers/plans/2026-10-15-tennis-spielerindex-umsetzung.md`.
+Sechs testbare Pakete, bestehende API-/Ressourcengrenzen und Originaldaten
+unverändert. Für private v2-Kopien nur kontrollierte Indexinvalidierung mit
+strikter Original-/Zuordnungsprüfung; kein allgemeines neues Änderungsledger.
+
+Nächster Gate: Nutzer prüft/freigibt Plan. Ausführung wie früher gewählt mit
+Unteragenten und Review je Aufgabe. Noch keine Umsetzung, Tests oder VPS-Aktion.
+Spätere Reihenfolge: lokal vollständig prüfen → schemafähiger Vorbereitungs-
+deploy → expliziter Aufbau → echter unveränderter 4/4-/45-s-Gate → Abschluss.
+Vorbereitungsstand nicht als fertige Reparatur/Qualitätsverbesserung melden.
+
 ## Aktueller Einstieg 15.10.2026 – Spielerindex-Spezifikation zur Freigabe
 
 Nutzer hat die Erstellung der kurzen Schriftfassung bestätigt, nicht deren

@@ -1,5 +1,18 @@
 # SDD ledger — plan: docs/superpowers/plans/2026-09-07-kontextmodell-umsetzung.md
 
+## 15 October 2026: written spec approved; implementation plan for review
+
+Human explicitly: "Spezifikation freigegeben, weiter mit dem Umsetzungsplan."
+Spec status recorded, contract body unchanged. Plan created at
+docs/superpowers/plans/2026-10-15-tennis-spielerindex-umsetzung.md, six tasks
+with owning files/interfaces, RED/GREEN, exact limits and five concrete review
+focus tests. Main controller self-reviewed spec coverage, interface consistency
+and proportion. v2 private copies deliberately stay index-invalid; no generic
+transition ledger. Required schema-capable preparation deploy precedes migration,
+but is never the final native-performance release claim. Earlier subagent/review
+execution choice retained. Await human plan review before implementation.
+Documentation only; no product edits/tests/DDL/API/backup/VPS operations.
+
 ## 15 October 2026: player-index specification only
 
 User approved writing the proposed persisted participant/event lookup spec.

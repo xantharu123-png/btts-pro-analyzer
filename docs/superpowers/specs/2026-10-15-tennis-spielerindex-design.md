@@ -1,8 +1,8 @@
 # Tennis-Spielerindex – kurzer Architekturentwurf
 
-Stand: 15.10.2026. **Schriftlicher Entwurf zur Freigabe, noch keine Umsetzung.**
-Das Gesprächs-„Ja“ erlaubt diese Spezifikation; Implementierungsplan, Migration
-und Veröffentlichung sind damit noch nicht freigegeben. Ausgangspunkt ist
+Stand: 15.10.2026. **Schriftliche Spezifikation vom Nutzer freigegeben.**
+Freigabe: „Spezifikation freigegeben, weiter mit dem Umsetzungsplan.“
+Umsetzungsplan, Migration und Veröffentlichung sind noch nicht freigegeben. Ausgangspunkt ist
 Arbeitsbranch `codex/audit-repairs-20261013`, WIP `0ce0687`; der letzte geprüfte
 Produktionsstand bleibt `4ece002`. Die fehlgeschlagenen Leistungsmessungen bleiben
 in `docs/audits/2026-10-15-tennis-batch-45s.md` dokumentiert.
