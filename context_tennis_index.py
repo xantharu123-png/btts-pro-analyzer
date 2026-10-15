@@ -111,6 +111,21 @@ for _table, _suffix, _actions in (
         _OBJECTS[_name] = ("trigger", _table)
 
 
+# REPLACE need not fire DELETE triggers when recursive_triggers is disabled.
+# Compare only the existing content primary key before replacement. New values
+# and identical ignored duplicates do not dirty the source-generation contract.
+_REPLACEMENT_TRIGGER = "tennis_player_index_contents_replace"
+INDEX_SCHEMA[_REPLACEMENT_TRIGGER] = """CREATE TRIGGER tennis_player_index_contents_replace
+BEFORE INSERT ON context_contents
+WHEN EXISTS(SELECT 1 FROM context_contents
+    WHERE content_digest=NEW.content_digest AND payload IS NOT NEW.payload)
+BEGIN
+    UPDATE tennis_player_index_state SET source_generation=source_generation+1,
+        rewrite_generation=rewrite_generation+1,status='invalid' WHERE id=1;
+END"""
+_OBJECTS[_REPLACEMENT_TRIGGER] = ("trigger", "context_contents")
+
+
 def _sql_identity(sql):
     if type(sql) is not str:
         raise ArtifactIntegrityError("tennis index schema SQL must be text")

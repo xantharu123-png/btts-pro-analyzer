@@ -240,6 +240,36 @@ def test_sql_triggers_track_generation_rewrites_and_membership_without_udfs():
         assert (current.source_generation, current.rewrite_generation) == (7, 6)
 
 
+@pytest.mark.parametrize("recursive", [0, 1])
+def test_content_replacement_invalidates_without_scanning_receipts(recursive):
+    index = owner()
+    with database(optional=True) as connection:
+        connection.execute(f"PRAGMA recursive_triggers={recursive}")
+        source_insert(connection, 1)
+        state(connection, covered_rowid=1, status="ready")
+        before = index.read_index_state(connection)
+
+        # Real SQLite authorization denies trigger-owned receipt reads (not
+        # SQLite's own FK check): this detector must not scan global receipts.
+        def no_receipt_reads(action, table, column, database_name, trigger):
+            if action == sqlite3.SQLITE_READ and table == "context_observations" and trigger is not None:
+                return sqlite3.SQLITE_DENY
+            return sqlite3.SQLITE_OK
+        connection.set_authorizer(no_receipt_reads)
+        connection.execute("INSERT INTO context_contents VALUES ('new-content', X'5b315d')")
+        connection.execute("INSERT OR IGNORE INTO context_contents VALUES ('content', X'7b7d')")
+        assert index.read_index_state(connection) == before
+        connection.execute("INSERT OR REPLACE INTO context_contents VALUES ('content', X'5b5d')")
+        assert connection.execute("SELECT payload FROM context_contents WHERE content_digest='content'").fetchone() == (b"[]",)
+        after = index.read_index_state(connection)
+        assert after.status == "invalid"
+        assert after.source_generation > before.source_generation
+        assert after.rewrite_generation > before.rewrite_generation
+        assert (after.verified_source_generation, after.verified_rewrite_generation) == (0, 0)
+        if not recursive:
+            assert (after.source_generation, after.rewrite_generation) == (1, 1)
+
+
 def test_structural_verifier_does_not_claim_sqlite_integrity():
     owner()
     from context_runtime import verify_context_schema_objects, _verify_schema
