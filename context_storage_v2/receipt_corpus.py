@@ -21,7 +21,7 @@ Failed outputs are always retained. SQLite may remove its own DELETE journal.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, replace
 import hashlib
 import os
 from pathlib import Path
@@ -34,13 +34,16 @@ import weakref
 
 from context_models.contracts import canonical_timestamp, digest, normalize_observation
 from context_runtime_transaction import TrackedConnection, TrackedCursor
+from context_tennis_index import invalidate_relocated_index, read_index_state
+from model_artifacts import ArtifactIntegrityError
 
 from .contracts import DEFAULT_LIMITS, StorageIntegrityError, StorageLimitError, StorageLimits
 from .copying import (
     _configure_copy_reader, _check_copy_reader, _copy_directory, _directory_identity,
     _file_identity, _hash_file, _no_companions, _workspace_bytes, copy_legacy,
 )
-from .inventory import RawInventory, _HeldRead, _TABLES, _field_hash, inventory_raw
+from .inventory import (RawInventory, _HeldRead, _TABLES, _field_hash, inventory_raw,
+                        _derived_rows)
 from .receipt_append import append_observation_in_connection
 from .sqlite_profile import SQLiteWriterPlan, _identity, _not_link, _parents
 
@@ -479,6 +482,51 @@ class _Build:
         self.submitted += 1
         self.check()
 
+    def verify_derived_delta(self) -> None:
+        """Permit only copied invalidation plus original-ledger receipt effects."""
+        if "tennis_player_events" not in {table.name for table in self.source_inventory.tables}:
+            return
+        output_guard = _HeldRead(self.reader)
+        old = _derived_rows(self.source, "tennis_player_events", max_value_bytes=self.limits.block_bytes)
+        new = _derived_rows(self.reader, "tennis_player_events", max_value_bytes=self.limits.block_bytes)
+        try:
+            while True:
+                self.source_check()
+                output_guard.check()
+                left, right = next(old, None), next(new, None)
+                if left != right:
+                    raise StorageIntegrityError("corpus changed copied tennis memberships")
+                if left is None:
+                    break
+        finally:
+            old.close()
+            new.close()
+        # Bounded raw enumeration must precede the semantic state reader.
+        for connection in (self.source, self.reader):
+            rows = _derived_rows(connection, "tennis_player_index_state", max_value_bytes=self.limits.block_bytes)
+            try:
+                if next(rows, None) is None or next(rows, None) is not None:
+                    raise StorageIntegrityError("corpus requires exactly one tennis control row")
+            finally:
+                rows.close()
+        try:
+            before, after = read_index_state(self.source), read_index_state(self.reader)
+        except ArtifactIntegrityError as exc:
+            raise StorageIntegrityError("corpus tennis control state is malformed") from exc
+        receipts, rewrites = 0, 0
+        for tag, rowid, _hash in self.ledger.records():
+            self.source_check()
+            output_guard.check()
+            if tag == 2:
+                receipts += 1
+                rewrites += int(before.covered_rowid is not None and rowid <= before.covered_rowid)
+        expected = replace(before, status="invalid", source_generation=before.source_generation + receipts,
+                           rewrite_generation=before.rewrite_generation + rewrites)
+        if after != expected:
+            raise StorageIntegrityError("corpus tennis control delta differs from actual original ledger")
+        self.source_check()
+        output_guard.check()
+
     def verify_complete(self):
         self.source_check()
         self.namespace(journal=False)
@@ -535,6 +583,7 @@ class _Build:
                         new.close()
         if addition is not None or additions_seen != {1: self.new_contents, 2: self.new_receipts}:
             raise StorageIntegrityError("corpus append ledger is not completely represented")
+        self.verify_derived_delta()
         self.source_check()
         output_guard.check()
         _check_copy_reader(self.reader, page_size=self.page_size, page_count=pages)
@@ -553,6 +602,7 @@ class _Build:
                 raise StorageIntegrityError("corpus source lacks its existing complete receipt schema")
             self.source_check()
             self.open_copied_writer(expected_source_sha256)
+            invalidate_relocated_index(self.connection)
             self.ledger = _Ledger(self)
             for item in observations:
                 self.append_one(item)

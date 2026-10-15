@@ -32,6 +32,7 @@ from context_models.contracts import (
 from context_observations import _decode_receipt
 from context_runtime_transaction import TrackedConnection, TrackedCursor
 from model_artifacts import canonical_bytes
+from context_tennis_index import begin_index_append, observe_index_append, finish_index_append
 
 from .contracts import StorageIntegrityError, StorageLimitError
 
@@ -123,6 +124,7 @@ def append_observation_in_connection(
         cursor.execute(f"SAVEPOINT {name}")
         saved = True
         _held(connection, generation)
+        index_context = begin_index_append(connection)
         _run(cursor, connection, generation,
              "INSERT OR IGNORE INTO main.context_contents VALUES (?, ?)",
              (content_hash, payload))
@@ -138,11 +140,17 @@ def append_observation_in_connection(
             "VALUES (?,?,?,?,?,?,?,?)", expected)
         stored = _run(cursor, connection, generation, _BOUNDED_SELECT,
                       (receipt_hash, *(2 * len(value) for value in expected), len(payload)), read=True)
-        if stored is None or _decode_receipt(stored) != {
+        decoded = _decode_receipt(stored) if stored is not None else None
+        if decoded != {
             **content, "digest": receipt_hash, "content_digest": content_hash,
             "observed_at": observed,
         }:
             raise ContextIntegrityError("context receipt identity collision")
+        _held(connection, generation)
+        if index_context is not None:
+            observe_index_append(connection, decoded, context=index_context)
+        _held(connection, generation)
+        finish_index_append(connection, context=index_context)
         _held(connection, generation)
         cursor.execute(f"RELEASE {name}")
         saved = False

@@ -278,6 +278,18 @@ def _invalidate_append(connection, context):
     connection.execute("UPDATE main.tennis_player_index_state SET status='invalid' WHERE id=1")
 
 
+def invalidate_relocated_index(connection) -> None:
+    """Invalidate a caller-owned relocated image, even before an empty iterator.
+
+    No identity rewrite, membership change or renewed readiness is permitted.
+    The private-copy owner proves the independent complete before/after delta.
+    """
+    _append_held(connection)
+    if check_index_schema(connection):
+        read_index_state(connection)
+        connection.execute("UPDATE main.tennis_player_index_state SET status='invalid' WHERE id=1")
+
+
 def begin_index_append(connection) -> IndexAppendContext | None:
     """Inspect, never initialize, under the caller's existing writer lock."""
     started = time.monotonic()

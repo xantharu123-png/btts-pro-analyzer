@@ -10,10 +10,12 @@ from dataclasses import dataclass
 import hashlib
 import sqlite3
 import struct
+from typing import Iterator
 
 from context_runtime import _verify_schema
 from context_runtime_transaction import TrackedConnection
 from model_artifacts import canonical_bytes
+from context_tennis_index import _STATE_FIELDS
 
 from .contracts import DEFAULT_LIMITS, StorageIntegrityError, StorageLimitError, StorageLimits
 
@@ -40,6 +42,72 @@ _CURSOR = TrackedConnection.cursor
 _BLOBOPEN = TrackedConnection.blobopen
 _TAGS = {"null": b"N", "integer": b"I", "text": b"T", "blob": b"B"}
 _SCHEMA_BYTES = 64 * 1024
+_DERIVED_TABLES = {
+    "tennis_player_events": tuple((name, "text", False) for name in (
+        "tour", "player_id", "event_key", "first_observed_at", "first_receipt_digest")),
+    "tennis_player_index_state": (("id", "integer", False),) + tuple(
+        (name, "text" if name in {"projector_sha256", "db_identity", "status"} else "integer",
+         name == "covered_rowid") for name in _STATE_FIELDS),
+}
+
+
+def _derived_rows(connection, table, *, max_value_bytes) -> Iterator[tuple]:
+    """Bounded typed scalars for the two fixed tables, without rowid/blobopen.
+
+    Text remains stored bytes (including UTF-16 and embedded NUL), not decoded
+    semantic values. SQLite measures the complete row BEFORE materialization.
+    The primary-key order is explicit BINARY, including all membership keys.
+    """
+    if table not in _DERIVED_TABLES:
+        raise StorageIntegrityError("unknown derived inventory table")
+    columns = _DERIVED_TABLES[table]
+    small = " + ".join(f'coalesce(octet_length("{name}"),0)' for name, _, _ in columns) + " <= ?"
+    expressions = []
+    for name, kind, _ in columns:
+        value = f'"{name}"' if kind == "integer" else f'CAST("{name}" AS BLOB)'
+        expressions += [f'typeof("{name}")', f'octet_length("{name}")',
+                        f'CASE WHEN {small} THEN {value} ELSE NULL END']
+    keys = ("tour", "player_id", "event_key") if table == "tennis_player_events" else ("id",)
+    order = ",".join(f'"{key}" COLLATE BINARY' for key in keys)
+    cursor = connection.execute(f'SELECT {", ".join(expressions)} FROM main."{table}" ORDER BY {order}',
+                                (max_value_bytes,) * len(columns))
+    try:
+        for raw in cursor:
+            row, size_total = [], 0
+            for offset, (_name, expected, nullable) in enumerate(columns):
+                kind, size, value = raw[offset * 3:offset * 3 + 3]
+                if kind != expected and not (nullable and kind == "null"):
+                    raise StorageIntegrityError("derived inventory rejects SQLite storage coercion")
+                if kind == "null":
+                    if size is not None or value is not None:
+                        raise StorageIntegrityError("derived inventory NULL changed")
+                else:
+                    if type(size) is not int or size < 0 or size > max_value_bytes:
+                        raise StorageLimitError("derived scalar length exceeds admission")
+                    size_total += size
+                    if size_total > max_value_bytes or value is None:
+                        raise StorageLimitError("derived scalar row exceeds admission")
+                    if kind == "integer":
+                        if type(value) is not int:
+                            raise StorageIntegrityError("derived integer changed storage type")
+                    elif type(value) is not bytes or len(value) != size:
+                        raise StorageIntegrityError("derived scalar bytes changed")
+                row.append((kind, size, value))
+            yield tuple(row)
+    finally:
+        cursor.close()
+
+
+def _derived_row_hash(row: tuple) -> str:
+    result = hashlib.sha256(b"betboy-context-v2-row\0")
+    for kind, size, value in row:
+        if kind == "null":
+            result.update(b"N")
+        elif kind == "integer":
+            result.update(b"I" + struct.pack(">q", value))
+        else:
+            result.update(_TAGS[kind] + struct.pack(">Q", size) + value)
+    return result.hexdigest()
 
 
 @dataclass(frozen=True)
@@ -220,11 +288,24 @@ or permission to reuse a proof after the held transaction ends.
         _size(connection, limits)
         seen, schema_digest = _schema(connection, guard)
         tables, total = [], 0
-        for table, columns in sorted(_TABLES.items()):
+        for table, columns in sorted({**_TABLES, **_DERIVED_TABLES}.items()):
             if table not in seen:
                 continue
             table_hash = hashlib.sha256(b"betboy-context-v2-table\0" + table.encode("ascii"))
             row_count, value_bytes = 0, 0
+            if table in _DERIVED_TABLES:
+                for row in _derived_rows(connection, table, max_value_bytes=limits.block_bytes):
+                    guard.check()
+                    table_hash.update(bytes.fromhex(_derived_row_hash(row)))
+                    value_bytes += sum(8 if kind == "integer" else size or 0 for kind, size, _ in row)
+                    row_count += 1
+                    if total + value_bytes > limits.input_bytes:
+                        raise StorageLimitError("raw inventory cumulative values exceed admission")
+                table_hash.update(struct.pack(">Q", row_count))
+                total += value_bytes
+                tables.append(TableInventory(table, row_count, value_bytes, table_hash.hexdigest()))
+                guard.check()
+                continue
             cursor = _raw_rows(connection, table, columns, limits.block_bytes)
             try:
                 for raw in cursor:
