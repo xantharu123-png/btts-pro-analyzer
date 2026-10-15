@@ -174,11 +174,27 @@ def read_index_state(connection) -> IndexState:
     """Return strict stored scalars without int()/str() coercion or ready claims."""
     if not check_index_schema(connection):
         raise TennisIndexUnavailable("tennis player index schema is absent")
-    rows = connection.execute("SELECT id," + ",".join(_STATE_FIELDS) +
+    checks = {name: f"typeof({name})='integer'"
+              for name in ("id", "schema_version", *_COUNTERS)}
+    checks["covered_rowid"] = "typeof(covered_rowid) IN ('integer','null')"
+    # Canonical identities contain at most 128 ASCII characters (256 stored
+    # bytes in UTF-16); digests/status are shorter. BLOB length includes NUL
+    # tails, unlike SQLite's TEXT length. Gate every scalar inside SQLite so
+    # oversized or mistyped values never cross into Python's text/blob decoder.
+    checks.update({name: f"(typeof({name})='text' AND length(CAST({name} AS BLOB))<=256)"
+                   for name in ("projector_sha256", "db_identity", "status")})
+    columns = [f"CASE WHEN {checks[name]} THEN {name} END"
+               for name in ("id", *_STATE_FIELDS)]
+    # Keep original validity separately: an invalid cursor must not become an
+    # accepted NULL merely because its bounded CASE result is NULL.
+    rows = connection.execute("SELECT " + ",".join(columns) +
+        ",(" + " AND ".join(checks.values()) + ")" +
         " FROM main.tennis_player_index_state LIMIT 2").fetchall()
     if len(rows) != 1 or type(rows[0][0]) is not int or rows[0][0] != 1:
         raise ArtifactIntegrityError("tennis index needs exactly one id=1 state row")
-    values = dict(zip(_STATE_FIELDS, rows[0][1:]))
+    if rows[0][-1] != 1:
+        raise ArtifactIntegrityError("tennis index state has invalid storage types or oversized text")
+    values = dict(zip(_STATE_FIELDS, rows[0][1:-1]))
     if type(values["schema_version"]) is not int or values["schema_version"] <= 0:
         raise ArtifactIntegrityError("tennis index schema version is not a positive integer")
     for name in _COUNTERS:

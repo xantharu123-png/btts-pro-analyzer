@@ -24,8 +24,9 @@ def owner():
     return importlib.import_module("context_tennis_index")
 
 
-def database(*, optional=False):
+def database(*, optional=False, encoding="UTF-8"):
     connection = sqlite3.connect(":memory:")
+    connection.execute(f"PRAGMA encoding='{encoding}'")
     connection.execute("PRAGMA foreign_keys=ON")
     connection.execute("PRAGMA trusted_schema=OFF")
     for sql in _SCHEMA.values():
@@ -206,6 +207,59 @@ def test_reader_rejects_noncanonical_or_bypassed_control_values(changes):
     with database(optional=True) as connection:
         connection.execute("PRAGMA ignore_check_constraints=ON")
         state(connection, **changes)
+        with pytest.raises(ArtifactIntegrityError):
+            index.read_index_state(connection)
+
+
+@pytest.mark.parametrize("encoding", ["UTF-8", "UTF-16le", "UTF-16be"])
+@pytest.mark.parametrize("field", ["projector_sha256", "db_identity", "status",
+    "source_generation", "covered_rowid"])
+@pytest.mark.parametrize("hidden_tail", [False, True])
+def test_reader_never_materializes_oversized_state_text(encoding, field, hidden_tail):
+    index = owner()
+    with database(optional=True, encoding=encoding) as connection:
+        # Projector/identity TEXT is permitted by the exact schema. Only the
+        # status and integer-column corruption fixtures need CHECK bypass.
+        if field not in {"projector_sha256", "db_identity"}:
+            connection.execute("PRAGMA ignore_check_constraints=ON")
+        prefix = {"projector_sha256": "0" * 64, "db_identity": "[0,123]",
+            "status": "ready", "source_generation": "x", "covered_rowid": "x"}[field]
+        value = prefix + ("\0" if hidden_tail else "") + "x" * 8192
+        state(connection, **{field: value})
+        assert connection.execute(f"SELECT typeof({field}) FROM tennis_player_index_state").fetchone() == ("text",)
+        received_sizes = []
+
+        def measured_text(raw):
+            received_sizes.append(len(raw))
+            return raw.decode("utf-8")
+
+        connection.text_factory = measured_text
+        with pytest.raises(ArtifactIntegrityError):
+            index.read_index_state(connection)
+        assert max(received_sizes, default=0) <= 4096
+
+
+@pytest.mark.parametrize("encoding", ["UTF-8", "UTF-16le", "UTF-16be"])
+def test_reader_preserves_maximum_canonical_identity_in_each_storage_encoding(encoding):
+    index = owner()
+    with database(optional=True, encoding=encoding) as connection:
+        raw_identity = "[0," + "1" * 124 + "]"
+        assert len(raw_identity) == 128
+        state(connection, db_identity=raw_identity)
+        read = index.read_index_state(connection)
+        assert read.db_identity == (0, int("1" * 124))
+        assert read.projector_sha256 == index.PROJECTOR_SHA256
+        assert read.covered_rowid is None
+
+
+@pytest.mark.parametrize("field", ["projector_sha256", "db_identity", "status",
+    "source_generation", "covered_rowid"])
+@pytest.mark.parametrize("value", [b"x" * 8192, 0.5])
+def test_reader_rejects_invalid_state_storage_without_normalizing(field, value):
+    index = owner()
+    with database(optional=True) as connection:
+        connection.execute("PRAGMA ignore_check_constraints=ON")
+        state(connection, **{field: value})
         with pytest.raises(ArtifactIntegrityError):
             index.read_index_state(connection)
 
