@@ -96,6 +96,11 @@ def _transaction(connection, deadline):
         _check_deadline(transaction_deadline)
         yield transaction_deadline
         _check_deadline(transaction_deadline)
+        # COMMIT may need a fresh EXCLUSIVE lock in rollback-journal mode.
+        # The busy handler does not run the progress callback while sleeping;
+        # its old pre-BEGIN allowance must not outlive the shared deadline.
+        remaining_ms = max(0, int((transaction_deadline - time.monotonic()) * 1000))
+        connection.execute(f"PRAGMA busy_timeout={remaining_ms}")
         connection.commit()
     except sqlite3.OperationalError as exc:
         # Only expected SQLite lock/interrupt codes are budgets; malformed SQL
@@ -191,14 +196,19 @@ def _build_chunk(connection, path, identity, deadline):
             CASE WHEN r.source='espn' AND r.kind IN ('event_status','workload')
             THEN 1 ELSE 0 END,
             CASE WHEN r.source='espn' AND r.kind IN ('event_status','workload')
+            THEN typeof(c.payload) ELSE NULL END,
+            CASE WHEN r.source='espn' AND r.kind IN ('event_status','workload')
+                      AND typeof(c.payload)='blob'
             THEN length(c.payload) ELSE NULL END
             FROM context_observations AS r LEFT JOIN context_contents AS c
             ON c.content_digest=r.content_digest""" + where + " ORDER BY r.rowid LIMIT ?", (*args, MAX_CHUNK_ROWS)).fetchall()
         scanned = size = 0
         logical = state.logical_bytes
-        for rowid, candidate, length in rows:
+        for rowid, candidate, storage_type, length in rows:
             _check_deadline(chunk_deadline)
             if candidate:
+                if storage_type != "blob":
+                    raise ArtifactIntegrityError("physical tennis candidate content is not a BLOB")
                 if type(length) is not int or length < 0:
                     raise ArtifactIntegrityError("missing physical tennis candidate content")
                 if length > MAX_CHUNK_BYTES:

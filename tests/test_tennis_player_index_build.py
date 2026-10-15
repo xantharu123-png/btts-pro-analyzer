@@ -1,4 +1,5 @@
 """Real SQLite receipts, rollback, signed cursors and operator boundaries."""
+from contextlib import contextmanager
 from datetime import datetime, timezone
 import importlib
 import json
@@ -471,3 +472,78 @@ def test_default_call_still_caps_real_writer_wait_at_two_seconds(tmp_path):
     finally:
         lock.rollback()
         lock.close()
+
+
+@pytest.mark.parametrize("seconds,work_seconds,maximum_elapsed", [(45, 1.0, 2.5), (1.3, 0.7, 1.8)])
+def test_commit_reader_lock_uses_only_remaining_shared_deadline(tmp_path, monkeypatch,
+        seconds, work_seconds, maximum_elapsed):
+    api = builder()
+    path = database(tmp_path)
+    insert(path)
+    api.initialize_index(path)
+    reader = sqlite3.connect(path)
+    original = api.index.project_memberships
+    def spent_transaction_work(receipt):
+        time.sleep(work_seconds)  # actual elapsed work, not a fake monotonic clock
+        return original(receipt)
+    monkeypatch.setattr(api.index, "project_memberships", spent_transaction_work)
+    try:
+        assert reader.execute("PRAGMA journal_mode").fetchone() == ("delete",)
+        reader.execute("BEGIN")
+        assert reader.execute("SELECT count(*) FROM context_observations").fetchone() == (1,)
+        # Real SHARED reader lock permits BEGIN IMMEDIATE and the body writes,
+        # but prevents their COMMIT from upgrading to EXCLUSIVE.
+        started = time.monotonic()
+        result = api.build_index(path, seconds=seconds)
+        elapsed = time.monotonic() - started
+    finally:
+        reader.rollback()
+        reader.close()
+    assert result.status != "ready"
+    assert result.stop_reason == "deadline"
+    assert result.covered_rowid is None
+    assert memberships(path) == []
+    assert state(path).covered_rowid is None
+    assert elapsed < maximum_elapsed, f"commit reused stale timeout: {elapsed:.3f}s"
+
+
+def test_nul_text_payload_rejected_from_metadata_without_raw_body_read(tmp_path, monkeypatch):
+    api = builder()
+    path = database(tmp_path)
+    insert(path)
+    with sqlite3.connect(path) as connection:
+        connection.execute("UPDATE context_contents SET payload=?", ("\x00" + "x" * 65536,))
+        assert connection.execute("SELECT typeof(payload),length(payload),length(CAST(payload AS BLOB)) FROM context_contents").fetchone() == ("text", 0, 65537)
+    api.initialize_index(path)
+    original = api._connection
+    raw_body_attempts = []
+    metadata_reads = []
+    @contextmanager
+    def guarded_connection(*args, **kwargs):
+        with original(*args, **kwargs) as opened:
+            connection = opened[0]
+            functions = []
+            def authorize(action, first, second, database_name, trigger):
+                if action == sqlite3.SQLITE_SELECT:
+                    functions.clear()
+                elif action == sqlite3.SQLITE_FUNCTION:
+                    functions.append(second)
+                elif action == sqlite3.SQLITE_READ and (first, second) == ("context_contents", "payload"):
+                    if functions:
+                        metadata_reads.append(tuple(functions))
+                    else:
+                        raw_body_attempts.append((first, second))
+                        return sqlite3.SQLITE_DENY
+                return sqlite3.SQLITE_OK
+            connection.set_authorizer(authorize)
+            try:
+                yield opened
+            finally:
+                connection.set_authorizer(None)
+    monkeypatch.setattr(api, "_connection", guarded_connection)
+    with pytest.raises(ArtifactIntegrityError):
+        api.build_index(path)
+    assert metadata_reads  # actual SQLite metadata access, not a mocked decoder
+    assert raw_body_attempts == []
+    assert state(path).covered_rowid is None
+    assert memberships(path) == []
