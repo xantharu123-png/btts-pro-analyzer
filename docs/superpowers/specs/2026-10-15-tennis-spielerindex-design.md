@@ -2,7 +2,8 @@
 
 Stand: 15.10.2026. **Schriftliche Spezifikation vom Nutzer freigegeben.**
 Freigabe: „Spezifikation freigegeben, weiter mit dem Umsetzungsplan.“
-Umsetzungsplan, Migration und Veröffentlichung sind noch nicht freigegeben. Ausgangspunkt ist
+Umsetzungsplan am 15.10.2026 ausdrücklich freigegeben; Ausführung mit Unteragenten
+und Review je Aufgabe. Migration/Veröffentlichung erst nach den Abnahmegates. Ausgangspunkt ist
 Arbeitsbranch `codex/audit-repairs-20261013`, WIP `0ce0687`; der letzte geprüfte
 Produktionsstand bleibt `4ece002`. Die fehlgeschlagenen Leistungsmessungen bleiben
 in `docs/audits/2026-10-15-tennis-batch-45s.md` dokumentiert.

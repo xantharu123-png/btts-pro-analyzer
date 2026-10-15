@@ -1,5 +1,30 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 15.10.2026 – Umsetzungsplan freigegeben, Ausführung begonnen
+
+- [x] Nutzerfreigabe: „Umsetzungsplan freigegeben“; keine weitere Designrunde erforderlich.
+- [x] Bestehende isolierte Arbeitskopie/Branch bestätigt; Root-WIP und alte Ausgaben unangetastet.
+- [x] Vor Änderungen offline 14.160 eindeutige Tests gesammelt (47,95 s, Exit 0):
+  alle ursprünglichen 14.133 QA04-IDs plus sämtliche 27 Task-23-IDs enthalten.
+- [x] Task 1 Schema/Projektion mit TDD und unabhängigem Review abgeschlossen:
+  `26b8f64` und `0d2849e`. Reviewfund Content-REPLACE-Invalidierung geschlossen;
+  finale gezielte Schema-/Transportprüfung 44 PASS. Früherer Nachbarlauf 108 PASS
+  plus ein Windows-ACL-Fall, separat auf identischem Code erfolgreich geprüft.
+- [ ] Task 2 fortsetzbarer Aufbau beginnt; Tasks 3–6 beide Writer, tatsächlicher
+  Leser, Vollsuite und nativer Produktionsnachweis offen.
+
+Verbindlicher Wiederaufnahmeort:
+`.superpowers/sdd/2026-10-15-tennis-spielerindex-umsetzung/progress.md`.
+Keine neuen APIs, Sportscans, Backups, Datenbankkopien oder Bereinigungen.
+Noch kein Leistungs-/Produktionsabschluss und keine neuen numerischen Kontexteffekte.
+Zusätzliche Benfica/Celtic-Diagnose abgeschlossen:
+`docs/audits/2026-10-15-benfica-hauptkarte.md`. X2 steht in der großen ersten Karte
+wegen technischer Marktkennzeichen-Reihenfolge bei gleichem Spielbeginn, nicht
+wegen nachgewiesener Haupttippqualität. Kein Markt dieses Spiels ist hervorgehoben.
+Offen: Darstellung/marktbezogene Erklärung korrigieren; kein Fußball-Fix aus einer
+bloßen Vermutung. 53,3 % X2 sind rechnerisch plausibel (Remis zählt mit), die Quote
+4,05 ist korrekt zugeordnet, aber historisch. Keine zusätzliche Sportabfrage.
+
 ## 15.10.2026 – Spezifikation freigegeben, Umsetzungsplan zur Prüfung
 
 - [x] Nutzerfreigabe der schriftlichen Spielerindex-Spezifikation dokumentiert.

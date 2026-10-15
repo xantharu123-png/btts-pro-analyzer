@@ -1,5 +1,19 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg 15.10.2026 – Planfreigabe und Ausführungsstart
+
+„Umsetzungsplan freigegeben“ ist ausdrücklich erteilt. Weiterarbeiten in
+`.worktrees/audit-repairs-20261013`, Branch `codex/audit-repairs-20261013`.
+Aktuelle Aufgaben-/Reviewposition ausschließlich im plan-eigenen Ledger
+`.superpowers/sdd/2026-10-15-tennis-spielerindex-umsetzung/progress.md` nachsehen;
+keine fertigen Aufgaben erneut starten. Task 1 Schema/Projektion ist mit
+`26b8f64`/`0d2849e` und sauberem Nachreview abgeschlossen; finale gezielte Prüfung
+44 PASS, keine Gesamtsuite daraus behaupten. Task 2 Aufbau folgt, Tasks 3–6 offen.
+Vorher 14.160 Test-IDs gesammelt, alle alten 14.133 und
+27 Task-23-IDs erhalten. Das ist eine Collection, kein neuer vollständiger Testpass.
+Separater Benfica/Celtic-Audit liest gespeicherte Produktionsdaten ohne Scan.
+Keine neuen Backups, DB-Kopien oder Bereinigungen, keine numerische Effektfreigabe.
+
 ## Aktueller Einstieg 15.10.2026 – Umsetzungsplan zur Freigabe
 
 Nutzer hat die schriftliche Spielerindex-Spezifikation ausdrücklich freigegeben.

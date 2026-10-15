@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Nur Planung freigegeben; Umsetzung erst nach Prüfung dieses Plans. Bereits gewählte Methode: Unteragenten mit Review je Aufgabe.
+- Plan vom Nutzer am 15.10.2026 ausdrücklich freigegeben. Gewählte Methode: Unteragenten mit Review je Aufgabe; keine Veröffentlichung vor den Abnahmegates.
 - Kanonisch `C:/Projekt/BetBoy/betboy-app/.worktrees/audit-repairs-20261013`, Arbeitsbranch `codex/audit-repairs-20261013`, Planungsbasis `e1e898a`. Root-WIP und `output/audit-repairs/` erhalten.
 - „höchstens 512 Quellzeilen und 2 MiB Tennisinhalte je Chunk“, „bestehende 256-MiB-Retentionsgrenze“, „2-Sekunden-Budget“ pro Aufbau-Schreibtransaktion einschließlich Lock/SQLite, „höchstens 45 Sekunden“ je Aufbauaufruf, „64 MiB logische Werte“ zusätzlich. Keine RAM-/Dateigrößengarantie daraus.
 - Echter Leser: **4/4 innerhalb insgesamt 45 Sekunden inklusive Vorbereitung**, dieselben Fälle/Stichtage; 512 Belege/2 MiB je Fall, 8 MiB insgesamt, CPU 50 s, AS 2 GiB, gemessener RSS unter 1 GiB.
@@ -164,4 +164,4 @@ Vor Produktänderung: aktuellen Bestand sammeln, alle QA04-14.133-IDs und sämtl
 
 Spec §1/2 → Tasks 1/5; §3 → Tasks 2/3/4; §4 → Tasks 1/2/4/5/6; §5 → Tasks 5/6. Alle fünf Review-Focus-Punkte haben konkrete owning Tests. Keine unbenannte Nachbar-API, kein neuer allgemeiner Ledger, keine C-Grenzerhöhung und kein stiller Quellenfilter. Zwei-Phasen-Umstellung trennt notwendigen schemafähigen Vorbereitungsdeploy von abschließendem Leistungs-/Nutzungsnachweis.
 
-Dieser Plan wurde noch nicht ausgeführt. Nächster Schritt: Nutzer prüft/freigibt den Plan; anschließend Umsetzung wie zuvor gewählt mit Unteragenten und Review je Aufgabe.
+Plan am 15.10.2026 vom Nutzer freigegeben: „Umsetzungsplan freigegeben“. Ausführung mit Unteragenten und Review je Aufgabe begonnen; tatsächlichen Fortschritt im plan-eigenen SDD-Ledger führen. Noch kein vollständiger Implementierungs-, Leistungs- oder Produktionsnachweis.
