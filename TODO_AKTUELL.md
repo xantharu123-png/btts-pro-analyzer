@@ -15,8 +15,15 @@
 - [x] Task 3 normaler Schreibweg atomar angebunden: `5cdcfe2`, 250 PASS,
   unabhängiges Review ohne Befunde. Bekannter ungültiger Index wird nicht repariert/
   freigegeben; Zusatzbudgetfehler bewahren gültige Originalbelege.
-- [ ] Task 4 private v2-Kopien/Inventur, Task 5 tatsächlicher Leser und Task 6
-  Vollsuite, nativer Leistungsnachweis und Produktionsumstellung weiterhin offen.
+- [x] Task 4 private v2-Kopien/Inventur: `3279be4`, finale gezielte Nachbarprüfung
+  344 PASS; unabhängiges Review ohne Befunde. Jede Spielerzuordnung bleibt in der
+  Kopie unverändert, genau eine Kontrollzeile wird gegen das Originalledger geprüft.
+- [x] Task 5 tatsächlicher Leser: `7351b9d`, 174 gezielte Tests bestanden,
+  unabhängiges Review ohne Befunde. Gleiche Stichtage und Belegmengen wie beim
+  Einzelpfad; Fallgrenzen gelten bereits vor dem Lesen der Mitgliedschaftsbelege.
+  Der echte schreibgeschützte Zugriff ist geprüft; kein stiller Legacy-Fallback.
+- [ ] Task 6: Vollsuite, vollständiges Branch-Review, nativer Vier-Fall-Nachweis
+  und koordinierte Produktionsumstellung weiterhin offen. Vorher kein Main-Release.
 
 Verbindlicher Wiederaufnahmeort:
 `.superpowers/sdd/2026-10-15-tennis-spielerindex-umsetzung/progress.md`.

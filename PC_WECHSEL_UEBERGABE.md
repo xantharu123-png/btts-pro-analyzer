@@ -10,7 +10,11 @@ keine fertigen Aufgaben erneut starten. Task 1 Schema/Projektion ist mit
 `26b8f64`/`0d2849e` und sauberem Nachreview abgeschlossen; finale gezielte Prüfung
 44 PASS, keine Gesamtsuite daraus behaupten. Task 2 Aufbau/CLI (`83f6c72`/`e872e39`,
 72 PASS) und Task 3 normaler Append (`5cdcfe2`, 250 PASS) ebenfalls unabhängig
-geprüft. Weiter mit Task 4 v2, dann Task 5 Leser und Task 6 gesamte Abnahme.
+geprüft. Task 4 v2 (`3279be4`, 344 PASS) und Task 5 echter Leser (`7351b9d`,
+174 PASS) sind inzwischen ebenfalls unabhängig ohne Befunde freigegeben.
+Weiter ausschließlich mit Task 6: ganze Offline-Suite/identische Skip-IDs,
+Branch-Review und erst danach kompatible Bereitstellung, expliziter Aufbau sowie
+unveränderter echter Vier-Fall-/45-s-Nachweis. Noch kein neuer Main-/VPS-Release.
 Vorher 14.160 Test-IDs gesammelt, alle alten 14.133 und
 27 Task-23-IDs erhalten. Das ist eine Collection, kein neuer vollständiger Testpass.
 Separater Benfica/Celtic-Audit liest gespeicherte Produktionsdaten ohne Scan.
