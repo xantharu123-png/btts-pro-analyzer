@@ -385,6 +385,44 @@ def test_closed_manifest_rejects_nonhistorical_inventory_even_when_rehashed(vari
         c.validate_manifest(value, 'd'*40, retained_raw=retained, runtime=runtime, installation=installation)
 
 
+@pytest.mark.parametrize('name,size,expected', [
+    ('context_storage_v2/receipt_corpus.py', 41136,
+     'fdbebbed9e0b14380d7226660f5f42ec9508ec2b04c727a856bb36747ae660d6'),
+    ('context_storage_v2/receipt_append.py', 9065,
+     'e96b807b2b003b00b740b0b64ba48d86ac3fd5c930ce11bdf2a40b5436fa06e9'),
+])
+def test_receipt_owner_historical_data_has_independent_exact_hash(name, size, expected):
+    import hashlib
+    from native_context_chain_fixtures import HISTORICAL
+    filename, _ = HISTORICAL[name]
+    raw = (ROOT/'tests'/'fixtures'/filename).read_bytes()
+    assert len(raw) == size
+    assert hashlib.sha256(raw).hexdigest() == expected
+    assert b'\r' not in raw
+    assert historical_source(name) == raw
+
+
+@pytest.mark.parametrize('name', ['context_storage_v2/receipt_corpus.py',
+                                 'context_storage_v2/receipt_append.py'])
+@pytest.mark.parametrize('variant', ['current', 'tampered', 'crlf'])
+def test_closed_manifest_rejects_nonhistorical_receipt_owner_even_when_rehashed(name, variant):
+    c = load('native_context_receipt_diagnostic_catalogue')
+    historical = historical_source(name)
+    candidate = {'current': (ROOT/name).read_bytes(), 'tampered': historical + b'\n',
+                 'crlf': historical.replace(b'\n', b'\r\n')}[variant]
+    assert candidate != historical
+    value, retained, runtime, installation = manifest_fixture(c)
+    member = next(item for item in value['code'] if item['path'] == name)
+    member.update(size=len(candidate), sha256=c.digest(candidate))
+    value['admission']['identity'] = c.budget_identity(value, runtime, installation)
+    value['allocation'] = c.allocation_plan(dict(value, _retained_data=c.decode(retained)),
+        archive_path='/var/lib/task61-inputs/code.tar', manifest_path='/var/lib/task61-inputs/manifest.json',
+        retained_path=value['retained']['path'])
+    value['admission']['plan_digest'] = c.digest(c.canonical({k:v for k,v in value.items() if k != 'admission'}))
+    with pytest.raises(c.DiagnosticError, match='unchanged owner pin differs'):
+        c.validate_manifest(value, 'd'*40, retained_raw=retained, runtime=runtime, installation=installation)
+
+
 def test_space_counts_occupied_history_once_and_all_future_reserve():
     d = load('native_context_receipt_diagnostic')
     # 20GiB old occupancy is already absent from f_bavail, never future growth.

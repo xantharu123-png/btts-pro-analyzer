@@ -103,6 +103,27 @@ def test_v2_manifest_rejects_nonhistorical_inventory_even_when_rehashed(variant)
         c.validate_manifest_v2(value, 'd'*40, retained_raw=raw, runtime=runtime, installation=installation)
 
 
+@pytest.mark.parametrize('name', ['context_storage_v2/receipt_corpus.py',
+                                 'context_storage_v2/receipt_append.py'])
+@pytest.mark.parametrize('variant', ['current', 'tampered', 'crlf'])
+def test_v2_manifest_rejects_nonhistorical_receipt_owner_even_when_rehashed(name, variant):
+    from native_context_chain_fixtures import ROOT, historical_source
+    historical = historical_source(name)
+    candidate = {'current': (ROOT/name).read_bytes(), 'tampered': historical + b'\n',
+                 'crlf': historical.replace(b'\n', b'\r\n')}[variant]
+    assert candidate != historical
+    c, value, raw, runtime, installation = v2_manifest()
+    member = next(item for item in value['code'] if item['path'] == name)
+    member.update(size=len(candidate), sha256=c.digest(candidate))
+    value['admission']['identity'] = c.budget_identity(value, runtime, installation)
+    value['allocation'] = c.allocation_plan(dict(value, _retained_data=c.decode(raw)),
+        archive_path='/var/lib/task61-inputs/code.tar', manifest_path='/var/lib/task61-inputs/manifest.json',
+        retained_path=value['retained']['path'])
+    value['admission']['plan_digest'] = c.digest(c.canonical({k:v for k,v in value.items() if k != 'admission'}))
+    with pytest.raises(c.DiagnosticError, match='unchanged owner pin differs'):
+        c.validate_manifest_v2(value, 'd'*40, retained_raw=raw, runtime=runtime, installation=installation)
+
+
 @pytest.mark.parametrize('missing', ['tests/native_context_qa_coordinator.py', 'tests/native_context_qa_budget.py'])
 def test_rehashed_v2_manifest_cannot_omit_its_executing_owner(missing):
     c, value, raw, runtime, installation = v2_manifest()

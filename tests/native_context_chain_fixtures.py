@@ -1,6 +1,6 @@
 """Historical native protocol DATA; never executed or a current-source approval.
 
-These two verbatim Git blobs preserve the owners pinned by the frozen native
+These verbatim Git blobs preserve the owners pinned by the frozen native
 catalogues. Portable manifest/launcher tests do not qualify today's sources.
 No Git lookup, source rewriting or production-admission override occurs here.
 """
@@ -20,11 +20,20 @@ HISTORICAL = {
         "native_context_inventory_c5912a7.py",
         "7e099cd9ed5e5b336519a23cc891e85c2136dda9fa6324c6f433f61bb37e967b",
     ),
+    # 7a099e36762fa3b9fd23d5ae550de08ba5fb9f8a, before 3279be4 index publication.
+    "context_storage_v2/receipt_corpus.py": (
+        "native_context_receipt_corpus_7a099e3.py",
+        "fdbebbed9e0b14380d7226660f5f42ec9508ec2b04c727a856bb36747ae660d6",
+    ),
+    "context_storage_v2/receipt_append.py": (
+        "native_context_receipt_append_7a099e3.py",
+        "e96b807b2b003b00b740b0b64ba48d86ac3fd5c930ce11bdf2a40b5436fa06e9",
+    ),
 }
 
 
 def historical_source(name):
-    """Return exact historical bytes only for the two reviewed fixture owners."""
+    """Return exact historical bytes only for explicitly reviewed DATA owners."""
     if name not in HISTORICAL:
         return (ROOT / name).read_bytes()
     filename, expected = HISTORICAL[name]

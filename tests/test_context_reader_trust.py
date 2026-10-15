@@ -251,7 +251,7 @@ def test_one_reader_transaction_does_not_mix_live_schema_and_payload_revisions(t
     writer.execute("PRAGMA journal_mode=WAL")
     original_connect = sqlite3.connect
     commits = []
-    class InterleavedReader(sqlite3.Connection):
+    class InterleavedReader(dataset._DatasetConnection):
         def execute(self, sql, parameters=(), /):
             if sql.startswith("SELECT key,payload,payload_digest") and not commits:
                 writer.execute("UPDATE context_snapshots SET payload=? WHERE key=?", (b"not-json", reference["key"]))
@@ -259,7 +259,8 @@ def test_one_reader_transaction_does_not_mix_live_schema_and_payload_revisions(t
                 commits.append("new committed revision")
             return super().execute(sql, parameters)
     def connect(database, *args, **kwargs):
-        return original_connect(database, *args, factory=InterleavedReader, **kwargs)
+        kwargs['factory'] = InterleavedReader
+        return original_connect(database, *args, **kwargs)
     try:
         with monkeypatch.context() as patch:
             patch.setattr(dataset.sqlite3, "connect", connect)

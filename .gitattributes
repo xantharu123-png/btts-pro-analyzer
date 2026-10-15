@@ -4,6 +4,8 @@
 Caddyfile* text eol=lf
 tests/fixtures/native_context_chain_task54_cac8db7.py text eol=lf
 tests/fixtures/native_context_inventory_c5912a7.py text eol=lf
+tests/fixtures/native_context_receipt_corpus_7a099e3.py text eol=lf
+tests/fixtures/native_context_receipt_append_7a099e3.py text eol=lf
 tests/fixtures/context/basketball/sports_prematch_legacy_0d000f6.py text eol=lf
 scripts/stage_runtime_databases.py text eol=lf
 scripts/backup_runtime_databases.py text eol=lf
