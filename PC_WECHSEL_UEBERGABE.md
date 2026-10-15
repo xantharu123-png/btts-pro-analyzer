@@ -1,5 +1,20 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg 15.10.2026 – Spielerindex-Spezifikation zur Freigabe
+
+Nutzer hat die Erstellung der kurzen Schriftfassung bestätigt, nicht deren
+Umsetzung. Neuer Entwurf:
+`docs/superpowers/specs/2026-10-15-tennis-spielerindex-design.md`.
+Zwei abgeleitete Tabellen im bestehenden Kontextspeicher; atomare Pflege durch
+beide Writer, begrenzter fortsetzbarer Aufbau, exakte optionale Schemafamilie
+auch in v2-Inventur/Corpus. Keine Kopie der Quellen, kein neuer Anbieter/Dienst.
+Gültige Nicht-Tennis-Daten und die Originalspeicherung dürfen nicht blockieren.
+
+Nächster Gate: Nutzer liest/freigibt die Schriftfassung, danach Umsetzungsplan.
+Kein Produktivcode/Testlauf/Migration/VPS-Pull in diesem Dokumentationsschritt.
+`0ce0687` bleibt Batch-WIP auf Arbeitsbranch, nicht main/VPS. Historische
+144 PASS beheben nicht das weiterhin rote Vier-Fall-/45-Sekunden-Leistungsgate.
+
 ## Aktueller Einstieg 15.10.2026 – Batch-WIP nicht deployen
 
 Kanonisch weiterhin `.worktrees/audit-repairs-20261013`, nicht Root-WIP.

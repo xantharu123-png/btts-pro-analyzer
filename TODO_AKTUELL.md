@@ -1,5 +1,26 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 15.10.2026 – Spielerindex schriftlich entworfen, wartet auf Prüfung
+
+- [x] Nach Nutzer-„Ja“ die Spezifikation erstellt:
+  `docs/superpowers/specs/2026-10-15-tennis-spielerindex-design.md`.
+  Empfohlen sind zwei abgeleitete Tabellen in derselben Datenbank, keine
+  weitere Kopie der Statistiken. Einmaliger fortsetzbarer Aufbau, danach
+  atomare Pflege durch beide vorhandenen Schreibwege.
+- [x] Gegen den tatsächlichen Code abgeglichen: geschlossene Schemakataloge
+  und v2-Corpus-Abrechnung ausdrücklich berücksichtigt, gültige NBA-Belege
+  blockieren den Tennisindex nicht; Zusatzbudgetfehler dürfen gültige neue
+  Originaldaten nicht dauerhaft blockieren. Reviewhinweise eingearbeitet.
+- [ ] Nutzer prüft die schriftliche Spezifikation; danach erst Umsetzungsplan
+  und dessen Freigabe. Das Gesprächs-„Ja“ war nur der Auftrag zur Schriftfassung.
+- [ ] Umsetzung, Initialaufbau, unveränderter Vier-Fall-/45-Sekunden-Nachweis,
+  vollständige Regression und Veröffentlichung bleiben offen.
+
+Nur Dokumentation verändert. Kein Produktivcode, keine Tests/Migration/API-
+Scans/Backups und kein VPS-Pull. Der darunter dokumentierte Batch-WIP `0ce0687`
+bleibt nicht releasefähig; `main`/VPS werden durch diesen Dokumentationsschritt
+nicht verändert. Keine numerischen Kontexteffekte oder Qualitätsgewinne daraus.
+
 ## 15.10.2026 – Tennis-Batch: korrektheitsgeprüft, Leistungsziel nicht erreicht
 
 Dieser Abschnitt hat Vorrang vor den älteren Statusangaben. Kanonisch bleibt

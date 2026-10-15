@@ -1,5 +1,18 @@
 # SDD ledger — plan: docs/superpowers/plans/2026-09-07-kontextmodell-umsetzung.md
 
+## 15 October 2026: player-index specification only
+
+User approved writing the proposed persisted participant/event lookup spec.
+Created docs/superpowers/specs/2026-10-15-tennis-spielerindex-design.md for
+human review; this is not written-spec/plan/implementation approval. Same-DB
+two-table lookup, exact optional schema admission, both append owners and
+v2-corpus derived-write accounting, resumable bounded migration and unchanged
+native four-case45s acceptance. Source-grounded read-only review notes applied:
+NBA/non-Tennis separation, lock-wait budget, original persistence on expected
+index budget failures, no original-row immutability waiver. No source edits,
+tests, schema writes, API calls, backups, remote pull or performance claims.
+Next action is human written-spec review, then implementation planning.
+
 ## Task 23, 15 October 2026: approved equivalent Tennis batch
 
 User approved the bounded short design; base4ece002. Existing linked worktree
