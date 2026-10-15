@@ -7,11 +7,12 @@ builder/writer can publish a verified predecessor and matching generations.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import hashlib
 import json
 from pathlib import Path
 import re
+import time
 
 from context_models.contracts import (
     ContextContractError, ContextIntegrityError, OBSERVATION_FIELDS,
@@ -26,6 +27,8 @@ INDEX_SCHEMA_VERSION = 1
 # Bind the actual fixed projector owner, not a caller-supplied version label.
 PROJECTOR_SHA256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 Membership = tuple[str, str, str, str, str]
+MAX_APPEND_LOGICAL_BYTES = 64 * 1024**2
+MAX_APPEND_SECONDS = 2.0
 
 
 class TennisIndexUnavailable(ContextContractError):
@@ -231,3 +234,177 @@ def project_memberships(receipt: dict) -> tuple[Membership, ...]:
                else (payload["player_id"], payload["opponent_id"]))
     return tuple((payload["tour"], player, receipt["event_key"], observed, receipt["digest"])
                  for player in sorted({player for player in players if player is not None}))
+
+
+@dataclass
+class IndexAppendContext:
+    """One held writer's predecessor, never a caller-supplied verified claim."""
+    connection: object
+    before: IndexState
+    expected_source_delta: int = 0
+    expected_index_delta: int = 0
+    invalid: bool = False
+    logical_bytes: int = 4096
+    covered_rowid: int | None = None
+    elapsed_seconds: float = 0.0
+    admitted_rowids: set[int] = field(default_factory=set)
+
+
+def _append_held(connection, context=None):
+    if not connection.in_transaction or (context is not None and context.connection is not connection):
+        raise ContextIntegrityError("tennis append requires its original held connection")
+
+
+def _append_identity(connection):
+    filename = next(row[2] for row in connection.execute("PRAGMA database_list") if row[1] == "main")
+    if not filename:
+        return None  # An in-memory/private copy is not the indexed source file.
+    stat = Path(filename).stat()
+    return stat.st_dev, stat.st_ino
+
+
+def _append_tail(connection):
+    row = connection.execute("SELECT rowid FROM main.context_observations ORDER BY rowid DESC LIMIT 1").fetchone()
+    return row[0] if row else None
+
+
+def _append_budget(context, started):
+    if context.elapsed_seconds + time.monotonic() - started >= MAX_APPEND_SECONDS:
+        raise IndexBudgetExceeded("additional append time")
+
+
+def _invalidate_append(connection, context):
+    context.invalid = True
+    connection.execute("UPDATE main.tennis_player_index_state SET status='invalid' WHERE id=1")
+
+
+def begin_index_append(connection) -> IndexAppendContext | None:
+    """Inspect, never initialize, under the caller's existing writer lock."""
+    started = time.monotonic()
+    _append_held(connection)
+    if not check_index_schema(connection):
+        return None
+    state = read_index_state(connection)
+    context = IndexAppendContext(connection, state, logical_bytes=state.logical_bytes,
+                                 covered_rowid=state.covered_rowid)
+    context.invalid = not (
+        state.status == "ready" and state.schema_version == INDEX_SCHEMA_VERSION
+        and state.projector_sha256 == PROJECTOR_SHA256
+        and state.db_identity == _append_identity(connection)
+        and state.source_generation == state.verified_source_generation
+        and state.index_generation == state.verified_index_generation
+        and state.rewrite_generation == state.verified_rewrite_generation
+        and 4096 <= state.logical_bytes <= MAX_APPEND_LOGICAL_BYTES
+        and state.covered_rowid == _append_tail(connection))
+    context.elapsed_seconds = time.monotonic() - started
+    if context.elapsed_seconds >= MAX_APPEND_SECONDS:
+        context.invalid = True
+    # An already building/invalid predecessor is owned by the explicit builder.
+    if context.invalid and state.status == "ready":
+        _invalidate_append(connection, context)
+    return context
+
+
+def _append_generations_match(state, context, source_delta):
+    before = context.before
+    return (state.schema_version == before.schema_version
+        and state.projector_sha256 == before.projector_sha256
+        and state.db_identity == before.db_identity
+        and state.source_generation == before.source_generation + source_delta
+        and state.index_generation == before.index_generation + context.expected_index_delta
+        and state.rewrite_generation == before.rewrite_generation
+        and state.verified_source_generation == before.verified_source_generation
+        and state.verified_index_generation == before.verified_index_generation
+        and state.verified_rewrite_generation == before.verified_rewrite_generation
+        and state.logical_bytes == context.logical_bytes
+        and state.covered_rowid == before.covered_rowid)
+
+
+def _upsert_append_membership(connection, member, logical_bytes):
+    old = connection.execute("SELECT * FROM main.tennis_player_events WHERE tour=? AND player_id=? AND event_key=?", member[:3]).fetchone()
+    if old is not None and old[3:] <= member[3:]:
+        return logical_bytes, 0
+    updated = logical_bytes + len(canonical_bytes(member)) - (len(canonical_bytes(old)) if old else 0)
+    if updated > MAX_APPEND_LOGICAL_BYTES:
+        raise IndexBudgetExceeded("additional append logical bytes")
+    connection.execute("""INSERT INTO main.tennis_player_events VALUES (?,?,?,?,?)
+        ON CONFLICT(tour,player_id,event_key) DO UPDATE SET
+        first_observed_at=excluded.first_observed_at,
+        first_receipt_digest=excluded.first_receipt_digest""", member)
+    return updated, 1
+
+
+def observe_index_append(connection, receipt: dict, *, context: IndexAppendContext) -> None:
+    """Admit actual new physical rows once; roll back only expected cache limits."""
+    _append_held(connection, context)
+    if context.invalid:
+        return
+    started = time.monotonic()
+    connection.execute("SAVEPOINT tennis_index_append")
+    try:
+        _append_budget(context, started)
+        # The held physical row, not a caller's flag, proves row admission.
+        from context_observations import _SELECT, _decode_receipt
+        stored = connection.execute(_SELECT + " WHERE r.digest=?", (receipt["digest"],)).fetchone()
+        if stored is None or _decode_receipt(stored) != receipt:
+            raise ContextIntegrityError("tennis append receipt differs from physical source")
+        rowid = connection.execute("SELECT rowid FROM main.context_observations WHERE digest=?", (receipt["digest"],)).fetchone()[0]
+        fresh = (context.before.covered_rowid is None or rowid > context.before.covered_rowid) and rowid not in context.admitted_rowids
+        delta = context.expected_source_delta + int(fresh)
+        state = read_index_state(connection)
+        if not _append_generations_match(state, context, delta):
+            _invalidate_append(connection, context)
+            return
+        if not fresh:
+            return
+        if (receipt["source"] == "espn" and receipt["sport"] == "tennis"
+                and receipt["kind"] in {"event_status", "workload"}
+                and receipt["source_schema"] not in {STATUS_SCHEMA, SOURCE_SCHEMA}):
+            _invalidate_append(connection, context)
+            return
+        logical, changed = context.logical_bytes, 0
+        for member in project_memberships(receipt):
+            _append_budget(context, started)
+            logical, added = _upsert_append_membership(connection, member, logical)
+            changed += added
+        connection.execute("UPDATE main.tennis_player_index_state SET logical_bytes=? WHERE id=1", (logical,))
+        _append_budget(context, started)
+        context.expected_source_delta = delta
+        context.expected_index_delta += changed
+        context.logical_bytes = logical
+        context.admitted_rowids.add(rowid)
+        context.covered_rowid = rowid if context.covered_rowid is None else max(context.covered_rowid, rowid)
+    except IndexBudgetExceeded:
+        connection.execute("ROLLBACK TO tennis_index_append")
+        _invalidate_append(connection, context)
+    finally:
+        connection.execute("RELEASE tennis_index_append")
+        context.elapsed_seconds += time.monotonic() - started
+
+
+def finish_index_append(connection, *, context: IndexAppendContext | None) -> None:
+    """Certify only this complete predecessor plus exactly admitted deltas."""
+    _append_held(connection, context)
+    if context is None or context.invalid:
+        return
+    started = time.monotonic()
+    connection.execute("SAVEPOINT tennis_index_append")
+    try:
+        _append_budget(context, started)
+        state = read_index_state(connection)
+        if (not _append_generations_match(state, context, context.expected_source_delta)
+                or context.before.db_identity != _append_identity(connection)
+                or context.covered_rowid != _append_tail(connection)):
+            _invalidate_append(connection, context)
+            return
+        connection.execute("""UPDATE main.tennis_player_index_state SET status='ready',
+            covered_rowid=?,verified_source_generation=source_generation,
+            verified_index_generation=index_generation,
+            verified_rewrite_generation=rewrite_generation WHERE id=1""", (context.covered_rowid,))
+        _append_budget(context, started)
+    except IndexBudgetExceeded:
+        connection.execute("ROLLBACK TO tennis_index_append")
+        _invalidate_append(connection, context)
+    finally:
+        connection.execute("RELEASE tennis_index_append")
+        context.elapsed_seconds += time.monotonic() - started

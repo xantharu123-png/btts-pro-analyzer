@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Callable
 import hashlib
 import sqlite3
+import context_tennis_index as _tennis_index
 
 from model_artifacts import _connect as _artifact_connect, _decode_object, canonical_bytes
 from context_models.contracts import (
@@ -143,6 +144,7 @@ def _append_observation_batch(path, records, max_new_payload_bytes=None):
     with closing(_connect(Path(path))) as connection:
         try:
             connection.execute("BEGIN IMMEDIATE")
+            index_context = _tennis_index.begin_index_append(connection)
             inserted_bytes = 0
             for content, observed, content_hash, receipt_hash, payload in prepared:
                 if connection.execute("SELECT 1 FROM context_contents WHERE content_digest=?", (content_hash,)).fetchone() is None:
@@ -170,6 +172,12 @@ def _append_observation_batch(path, records, max_new_payload_bytes=None):
                     **content, "digest": receipt_hash, "content_digest": content_hash, "observed_at": observed,
                 }:
                     raise ContextIntegrityError("context receipt identity collision")
+                if index_context is not None:
+                    _tennis_index.observe_index_append(connection, {
+                        **content, "digest": receipt_hash, "content_digest": content_hash,
+                        "observed_at": observed,
+                    }, context=index_context)
+            _tennis_index.finish_index_append(connection, context=index_context)
             connection.commit()
         except BaseException:
             connection.rollback()
