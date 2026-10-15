@@ -25,6 +25,7 @@ from context_observations import _SELECT, _decode_receipt
 from context_snapshots import _decode_snapshot
 from context_snapshot_storage import REFERENCE_SQL, BLOCK_SQL
 from context_runtime_transaction import TrackedConnection
+from context_tennis_index import INDEX_SCHEMA, check_index_schema
 from model_artifacts import (
     ArtifactIntegrityError, _decode_object, _load_artifact,
     _validate_stored_timestamp, canonical_bytes,
@@ -241,9 +242,14 @@ def _open_database(path, *, writable=False):
         connection.close()
 
 
-def _verify_schema(connection):
+def verify_context_schema_objects(connection) -> set[str]:
+    """Check the closed catalog only; no content, integrity or FK scans."""
+    has_tennis_index = check_index_schema(connection)
     seen = set()
     for kind, name, table, sql in connection.execute("SELECT type,name,tbl_name,sql FROM sqlite_master"):
+        if has_tennis_index and name in INDEX_SCHEMA:
+            seen.add(name)
+            continue
         if sql is None and kind == "index" and table in _SCHEMA and table != "active_manifest":
             if name != f"sqlite_autoindex_{table}_1":
                 raise ArtifactIntegrityError("unexpected context automatic index")
@@ -259,6 +265,11 @@ def _verify_schema(connection):
         raise ArtifactIntegrityError("incomplete context database schema")
     if connection.execute("PRAGMA user_version").fetchone() != (0,) or connection.execute("PRAGMA application_id").fetchone() != (0,):
         raise ArtifactIntegrityError("unknown context database schema version")
+    return seen
+
+
+def _verify_schema(connection):
+    seen = verify_context_schema_objects(connection)
     if connection.execute("PRAGMA integrity_check").fetchall() != [("ok",)]:
         raise ArtifactIntegrityError("context SQLite integrity check failed")
     if connection.execute("PRAGMA foreign_key_check").fetchall():
