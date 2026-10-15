@@ -50,6 +50,7 @@ def implementation_hashes():
         "context_runtime_tennis.py", "context_sources/tennis_status.py", "context_sources/tennis.py",
         "tennis/predict.py", "tennis/model_state.py", "tennis/elo.py", "tennis/serve_model.py",
         "tennis/data_loader.py", "tennis/tour_state.py", "tennis/state_codec.py",
+        "tennis/history_projection.py",
     }
     return {name: hashlib.sha256((root/name).read_bytes()).hexdigest() for name in sorted(names)}
 

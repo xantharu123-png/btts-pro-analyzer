@@ -1,5 +1,30 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Aktueller Einstieg 15.10.2026 – Batch-WIP nicht deployen
+
+Kanonisch weiterhin `.worktrees/audit-repairs-20261013`, nicht Root-WIP.
+Produktionsstand heute frisch `4ece002b69eb5c96897d3471cc7320654608a903`.
+Regulärer Tennis- und Wettfinderlauf erfolgreich, App/Caddy/Health gesund;
+Backup abgeschaltet, keine zusätzlichen Sport-/API-Scans gestartet.
+
+Task 23: freigegebener B1-Batch implementiert, erste 141 gezielte Tests grün;
+nach Review echte Zwei-Stichtag-Gegenprobe und Ein-JSON-Projektion ergänzt,
+neun fokussierte Tests grün; abschließend alle sieben betroffenen Module:
+144 bestanden/Exit 0 in 369,59 s, fünf eingefrorene Hashes danach identisch.
+Trotzdem realer identischer Vier-Fall-Gate zweimal
+nach 45 s ohne Ergebnis abgebrochen. **Nicht als gelöst freigeben/deployen.**
+Vorbereitung 0,449 s; globale Belegsuche bremst. Insgesamt 2.602.717 Belege,
+981.335 ATP-Belege; WTA-Zähler unbekannt. Empfangszeit ist Teil der gespeicherten
+Statusrevision, deshalb kollabiert Inhaltsgruppierung die Wiederholungen nicht.
+
+Keine weitere Zufallsabfrage oder stille Grenzerhöhung versuchen. Abgeleitete
+Spieler-Spiel-Zuordnung mit nachvollziehbarem vollständigem Aufbau wäre eine
+Änderung des Entwurfs und benötigt Freigabe; noch kein Index-/Schemaumbau.
+Aktueller Bericht `docs/audits/2026-10-15-tennis-batch-45s.md`, Brief/Report
+`task-23-tennis-batch-20261015-*.md` und oberster TODO-Abschnitt sind maßgeblich.
+Native FAIL-Logs außerhalb Git in `output/tennis-batch-20261015` erhalten.
+Verletzungs-/Wetter-/Müdigkeitswirkung und Qualitätsnachweis weiterhin offen.
+
 ## Aktueller Einstieg 14.10.2026 – QA04 fertig, Quellen-Release
 
 Kanonisch: `.worktrees/audit-repairs-20261013`, Branch

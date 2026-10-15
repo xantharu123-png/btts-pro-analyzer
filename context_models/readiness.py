@@ -143,48 +143,17 @@ def audit_tennis_readiness(path, *, as_of, sample_limit=25, seconds=120, progres
             return {**inventory, 'sample': [], 'sample_limited': bool(matched),
                 'sample_policy': 'inventory-only-no-feature-or-score-evaluation',
                 'elapsed_seconds': round(monotonic()-started, 3)}
-        # Index DISTINCT source content once, rather than parse an unchanged
-        # JSON body again for each of its many receipt revisions and each card.
-        players = {p for _, origin in sample for p in (origin['event']['home_id'], origin['event']['away_id'])}
-        player_events = {p:set() for p in players}
-        for key, schema, a, b, player, opponent in conn.execute("""
-            SELECT DISTINCT json_extract(payload,'$.event_key'),
-                json_extract(payload,'$.source_schema'),
-                json_extract(payload,'$.payload.participant_ids[0]'),
-                json_extract(payload,'$.payload.participant_ids[1]'),
-                json_extract(payload,'$.payload.player_id'),
-                json_extract(payload,'$.payload.opponent_id')
-            FROM context_contents
-            WHERE json_extract(payload,'$.source_schema') IN (?,?)
-            """, (STATUS_SCHEMA, SOURCE_SCHEMA)):
-            budget()
-            participants = (a, b) if schema == STATUS_SCHEMA else (player, opponent)
-            for player in players.intersection(participants):
-                player_events[player].add(key)
         results, feature_cohorts = [], {}
-        for ref, origin in sample:
+        from context_models.tennis_training import _TennisBatchBudget, iter_live_tennis_features
+        shared_budget = _TennisBatchBudget(seconds, started=started)
+        if len(sample) > 100:
+            raise ValueError('feature batch requires at most 100 events; use an explicit inventory range')
+        feature_rows = (iter_live_tennis_features(conn, tuple(origin for _, origin in sample), budget=shared_budget)
+                        if sample else ())
+        for owner, observations, features in feature_rows:
+            ref, origin = sample[len(results)]
             budget()
             event = origin['event']
-            keys = {event['event_key']} | player_events[event['home_id']] | player_events[event['away_id']]
-            def selected_rows():
-                for key in sorted(keys):
-                    for raw in conn.execute(_SELECT+" WHERE r.event_key=? AND r.observed_at<=? AND r.source='espn' AND r.kind IN ('event_status','workload') ORDER BY r.observed_at,r.digest",
-                            (key, origin['cutoff'])):
-                        budget()
-                        row = _decode_receipt(raw)
-                        row.update(evidence_class='prospective', effective_at=row['observed_at'], publication_resolution=None)
-                        if row['payload']['tour'] != event['tour']:
-                            raise ContextContractError('native event crosses tennis tours')
-                        yield row
-            # A content index is only a coarse query aid, not native evidence.
-            # Rows actually used above have all passed physical/source checks.
-            from tennis.history_projection import PreparedTennisHistory
-            # This existing owner validates EVERY selected native row once,
-            # retains all revisions and sorts the small clock/hash records.
-            owner = PreparedTennisHistory.from_selected_rows(selected_rows())
-            with owner.feature_scope(event) as observations:
-                features = tennis_features_v4(event, observations, original_base(origin),
-                    cutoff=datetime.fromisoformat(origin['cutoff']))
             cohort = feature_cohorts.setdefault(event['tour'], {
                 'evaluated_events': 0, 'available': Counter(), 'nonzero': Counter(),
                 'both_players_complete_sets_3d': 0, 'coverage': Counter(),
@@ -215,6 +184,7 @@ def audit_tennis_readiness(path, *, as_of, sample_limit=25, seconds=120, progres
                 'measured':measured, 'complete_observed_subset':complete})
             if progress:
                 progress({'phase':'features', 'completed':len(results), 'total':len(sample)})
+            del owner, observations, features
         return {**inventory, 'sample':results, 'feature_cohorts': feature_cohorts,
             'sample_limited':len(matched)>len(sample),
             **({'feature_inventory_range': {'start': range_start, 'stop': range_stop}} if all_features else {}),

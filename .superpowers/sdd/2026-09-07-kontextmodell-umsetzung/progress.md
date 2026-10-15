@@ -1,5 +1,55 @@
 # SDD ledger — plan: docs/superpowers/plans/2026-09-07-kontextmodell-umsetzung.md
 
+## Task 23, 15 October 2026: approved equivalent Tennis batch
+
+User approved the bounded short design; base4ece002. Existing linked worktree
+reused, inherited output/audit-repairs and RootWIP preserved. No new spec/model
+family/admission widening. Existing sources only; no extra scans/backups/copies.
+
+| Boundary | Producer / consumer | Preflight result |
+| --- | --- | --- |
+| Task23 own text | Batch equivalence / per-case cutoff | One retained reader; earliest real membership clock, never global max-cutoff admission |
+| Training / readiness | Native participant discovery / source features | Share actual called discovery; old coarse future-content lookup is not the oracle |
+| B1 / C | Existing query-only reader / optional private C history | Current training does not call C; keep C4GiB contract untouched |
+| Software / empirical model | Exact data/case equivalence / D1-D2 | No fitting or activation from engineering PASS; POINT guard stays |
+
+Task23: in progress. TDD implementer receives task-23 brief; controller owns
+full QA and same four-event native45s proof including preparation. No repeated
+CTE/NOTINDEXED experiment or automatic index build. Baseline four owning modules
+running in fresh offline directories before implementation.
+
+15Oct newest disposition: approved batch design implemented but native acceptance
+FAILED. Frozen01 141 owning tests PASS; independent review P2 multi-cutoff gap
+fixed with actual training admission/readiness [7,13], in-memory mutation2FAIL.
+Minimal projection02 one JSON extraction per eligible content, focused9PASS.
+Same frozen native four: 01 wall45.201842/CPU18.356038/RSS30336KiB, 03
+wall45.265937/CPU26.622401/RSS30464KiB, both zero completed cases/Exit1.
+Trace02 confirms original/state preparation0.449324s; SQL73 global discovery
+continues until deadline. Existing query plan table-scan/group/temp-B-tree and
+indexed content lookup; no outcomes/providers. Metadata all2602717/ATP981335,
+WTA count unfinished. Status reception clock is part of revision/valid_from,
+so distinct-content grouping does not deduplicate unchanged sporting status.
+No production publication, whole regression, schema/index build or activation.
+Derived participant-membership index is a NEW UNAPPROVED design direction;
+stop implementation at this architecture boundary, retain failures/WIP.
+Final source02 covering seven modules completed144PASS/Exit0 in369.59s,
+all5filehashes unchanged afterrun. P2 testgap andminorprovenance correction
+closed; P1 nativeperformance remainsOPEN. No fullsuite/releasePASS inferred.
+
+Baseline completed98PASS/Exit0 in406.49s, originalSource21+Root10hashes identical.
+New RED16FAIL/1PASS then18FAIL prove missingactualbatch and readinessfuture-key
+leak (10references instead of7); productionedits started only after baseline.
+Sharedretention accounting includes cumulative canonical output pluslookup and
+onepreparedhistory; lower-only512/2MiB/8MiB probeadmission preserves priorlimits.
+Source-proof closure extension approved: existingtennis/history_projection.py
+hash in evaluator; no grandfatheredreport/newfamily/activation. Fourcaseharness
+uses frozenoldasof+exactoriginals, realnewconsumer, network/writes/outcomesdenied.
+RegularVPSjobs15OctconfirmedTennis00:05–00:32:36 andWettfinder03:35–04:11:44,
+bothsuccess/Exit0 on4ece002. Artifactmetadataonly probe0.479s found8physical
+newPOINToriginals /5423Winneroriginals, no labels; notfeaturecohort/quality.
+Sourcefile7412985856bytes, available22464569344bytes, backupdisabled. First
+unprivilegeddfpermission failure preserved; actualownerretry readsuccess.
+
 ## Final complete QA04 gate, 14 October 2026
 
 Newest authoritative override: full QA04 completed, A/B Exit 0;

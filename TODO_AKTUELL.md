@@ -1,5 +1,51 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 15.10.2026 – Tennis-Batch: korrektheitsgeprüft, Leistungsziel nicht erreicht
+
+Dieser Abschnitt hat Vorrang vor den älteren Statusangaben. Kanonisch bleibt
+`.worktrees/audit-repairs-20261013`; GitHub `main` und VPS wurden heute auf
+`4ece002b69eb5c96897d3471cc7320654608a903` bestätigt. Kein neuer Produktionscode.
+
+- [x] Reguläre Läufe auf diesem Produktionsstand: Tennis 00:05–00:32:36,
+  Wettfinder 03:35–04:11:44, jeweils Erfolg/Exit 0; App/Caddy und Healthcheck
+  funktionieren. Tagesbackup bleibt abgeschaltet. Kein Zusatzscan/Backup.
+- [x] Tatsächliche Metadatenprüfung: acht neue
+  `tennis-point-joint-original-v1`-Publikationen und 5.423 ältere Winner-Originale.
+  Keine Ergebnislabels geöffnet; das ist kein ausreichender Trainingsbestand.
+- [x] Freigegebenen Batch-Entwurf implementiert: ein gehaltener B1-Leser,
+  gemeinsame Spielersuche, ursprüngliche Einzelstichtage und sämtliche
+  zugelassenen Korrekturen. Reale Readiness nutzt denselben Pfad. Zusätzliche
+  Regression belegt die zuvor mögliche Übernahme späterer Spielerzuordnungen.
+- [x] Gezielter erster Lauf 141 Tests bestanden. Nach unabhängigem Review zwei
+  echte unterschiedliche Batch-Stichtage zusätzlich geprüft; reine
+  Cutoff-Mutation führt reproduzierbar zu zwei Fehlern. Abfrageprojektion auf
+  einen JSON-Zugriff je Kandidat reduziert; neun fokussierte Tests bestanden.
+  Abschließender Lauf aller sieben betroffenen Module auf dem neuen Freeze:
+  **144 bestanden, null Fehler/Skips**, 369,59 s, Exit 0; alle fünf Dateihashes
+  danach identisch. Das ist keine vollständige Suite und kein Leistungs-PASS.
+- [ ] **Leistungsgate ausdrücklich fehlgeschlagen:** unveränderte vier echte
+  ATP-/WTA-Fälle, ursprüngliche Belege/Stichtage und insgesamt 45 Sekunden.
+  Erster Versuch 45,202 s, zweiter nach Projektion 45,266 s; jeweils null fertige
+  Fälle. Keine Grenzen erhöht und keine Vergangenheit abgeschnitten.
+- [x] Ursache eingegrenzt: Vorbereitung 0,449 s; danach die globale
+  Kontextsuche. 2.602.717 Kontextbelege insgesamt; ATP allein 981.335.
+  WTA-Zählung blieb innerhalb des begrenzten Diagnoselaufs unvollständig.
+  Statusrevision und Gültigkeitsbeginn enthalten den Empfangszeitpunkt:
+  gleiche sportliche Lage bedeutet daher nicht gleiche gespeicherte Inhalte.
+  Gruppieren der Inhaltskennungen beseitigt diese Lesemenge nicht.
+- [ ] Nächste fachliche Entscheidung: dauerhaft gespeicherte abgeleitete
+  Spieler-Spiel-Zuordnung statt erneuter globaler JSON-Suche. Noch **nicht**
+  freigegeben, spezifiziert oder implementiert. Kein stiller neuer Index,
+  keine Schemaänderung und keine Übernahme unvollständig geprüfter Zuordnungen.
+
+Die Batch-Änderungen sind **WIP, nicht releasefähig**. Keine neue Vollsuite
+gestartet, solange das entscheidende reale Leistungsgate rot ist; die frühere
+vollständige QA04 bleibt ein Nachweis nur ihres eigenen unveränderten Standes.
+Kein Deployment, keine Modellaktivierung und kein behaupteter Qualitätsgewinn.
+Verletzungs-, Wetter- und Müdigkeitswirkungen sind weiterhin nicht abgeschlossen.
+Details: `docs/audits/2026-10-15-tennis-batch-45s.md` und Task-23-Bericht im SDD.
+Geerbtes Root-WIP sowie ungetracktes `output/audit-repairs/` bleiben unberührt.
+
 ## 14.10.2026 – finaler lokaler Release-Nachweis
 
 Dieser Abschnitt ersetzt sämtliche nachfolgenden gleichdatierten Laufstatus.
