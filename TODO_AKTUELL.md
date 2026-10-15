@@ -10,8 +10,13 @@
   `26b8f64` und `0d2849e`. Reviewfund Content-REPLACE-Invalidierung geschlossen;
   finale gezielte Schema-/Transportprüfung 44 PASS. Früherer Nachbarlauf 108 PASS
   plus ein Windows-ACL-Fall, separat auf identischem Code erfolgreich geprüft.
-- [ ] Task 2 fortsetzbarer Aufbau beginnt; Tasks 3–6 beide Writer, tatsächlicher
-  Leser, Vollsuite und nativer Produktionsnachweis offen.
+- [x] Task 2 fortsetzbarer Aufbau/CLI geprüft: `83f6c72`/`e872e39`, finale
+  gezielte Prüfung 72 PASS; COMMIT-Restbudget und TEXT-Payload-Vorabprüfung korrigiert.
+- [x] Task 3 normaler Schreibweg atomar angebunden: `5cdcfe2`, 250 PASS,
+  unabhängiges Review ohne Befunde. Bekannter ungültiger Index wird nicht repariert/
+  freigegeben; Zusatzbudgetfehler bewahren gültige Originalbelege.
+- [ ] Task 4 private v2-Kopien/Inventur, Task 5 tatsächlicher Leser und Task 6
+  Vollsuite, nativer Leistungsnachweis und Produktionsumstellung weiterhin offen.
 
 Verbindlicher Wiederaufnahmeort:
 `.superpowers/sdd/2026-10-15-tennis-spielerindex-umsetzung/progress.md`.

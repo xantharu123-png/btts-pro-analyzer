@@ -8,7 +8,9 @@ Aktuelle Aufgaben-/Reviewposition ausschließlich im plan-eigenen Ledger
 `.superpowers/sdd/2026-10-15-tennis-spielerindex-umsetzung/progress.md` nachsehen;
 keine fertigen Aufgaben erneut starten. Task 1 Schema/Projektion ist mit
 `26b8f64`/`0d2849e` und sauberem Nachreview abgeschlossen; finale gezielte Prüfung
-44 PASS, keine Gesamtsuite daraus behaupten. Task 2 Aufbau folgt, Tasks 3–6 offen.
+44 PASS, keine Gesamtsuite daraus behaupten. Task 2 Aufbau/CLI (`83f6c72`/`e872e39`,
+72 PASS) und Task 3 normaler Append (`5cdcfe2`, 250 PASS) ebenfalls unabhängig
+geprüft. Weiter mit Task 4 v2, dann Task 5 Leser und Task 6 gesamte Abnahme.
 Vorher 14.160 Test-IDs gesammelt, alle alten 14.133 und
 27 Task-23-IDs erhalten. Das ist eine Collection, kein neuer vollständiger Testpass.
 Separater Benfica/Celtic-Audit liest gespeicherte Produktionsdaten ohne Scan.
