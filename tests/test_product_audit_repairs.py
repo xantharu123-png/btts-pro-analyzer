@@ -1,7 +1,7 @@
 """Product regressions from the real September 21 audit, not happy-path mocks."""
 from copy import deepcopy
 from dataclasses import replace
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
 import pytest
@@ -9,8 +9,8 @@ import pytest
 import challenge_15k
 from challenge_engine import MARKET_BY_KEY
 from daily3_selection import daily3_choices
-from test_challenge_15k import candidate
-from test_daily3_selection import NOW, football
+from test_challenge_15k import candidate, reference_quote_for
+from test_daily3_selection import NOW, _admitted, football
 
 
 def market(key, fixture=1):
@@ -25,8 +25,11 @@ def market(key, fixture=1):
 ])
 def test_15k_never_reintroduces_opposing_rows_or_ticket_candidates(monkeypatch, keys):
     rows = [market(k) for k in keys]
+    quoted_at = datetime.now(timezone.utc)
     snapshot = dict(shortlist=[], forecast_shortlist=rows, basis_forecasts=rows,
-                    price_candidates=rows, reference_quotes={})
+                    price_candidates=rows, reference_quotes={
+                        row.candidate_id: reference_quote_for(row, quoted_at).to_dict()
+                        for row in rows})
     original = deepcopy(snapshot)
     rendered = []
     builder = MagicMock(return_value=(None, {}, {}))
@@ -41,8 +44,8 @@ def test_15k_never_reintroduces_opposing_rows_or_ticket_candidates(monkeypatch, 
 
 
 def test_daily3_risk_priority_precedes_form_margin_and_pool_order():
-    higher_risk = football(1, probability=.74, variants=(.74, .70, .74), start_hours=6)
-    lower_risk = football(2, probability=.88, variants=(.88, .85, .88))
+    higher_risk = _admitted(football(1, probability=.74, variants=(.74, .70, .74), start_hours=6))
+    lower_risk = _admitted(football(2, probability=.88, variants=(.88, .85, .88)))
     for pool in ([higher_risk, lower_risk], [lower_risk, higher_risk]):
         choices = daily3_choices(pool, now=NOW)
         assert [c.signal.probability for c in choices] == [.88, .74]

@@ -37,9 +37,10 @@ PRODUCTION_MARKER_TARGET = "e0240ef8e69549f0d904602909a4eb66accc4a98"
 PRODUCTION_MARKER_SHA = "0768f7ca1ca4570827d4a9fafad0edf6b56959ca6f1be5843cbfa2d5e5fcb14d"
 
 
-def source_function(name, path=INSTALLER):
+def source_function(name, path=INSTALLER, *, source=None):
     assert path.is_file(), "missing Task3 updater-only repair installer"
-    source = path.read_text(encoding="utf-8")
+    if source is None:
+        source = path.read_text(encoding="utf-8")
     start = source.find(name + "() {")
     assert start >= 0, f"missing actual repair function: {name}"
     lines, delimiter = [], None
@@ -802,6 +803,43 @@ def test_frozen_reviewed_preflight_algorithms_are_copied_without_drift():
     # Deliberate supply-chain parity gate, not a substitute for behavior tests.
     updater = ROOT / "deploy/update_server.sh"
     raw = updater.read_bytes().replace(b"\r\n", b"\n")
+    # Keep the historical repair installer and all of its algorithm/helper
+    # pins frozen. Reconstruct only the explicitly reviewed quotes addition
+    # (aab9fb2) and exact inventory repair; behavioral coverage lives in the
+    # context-hook tests. Any unrelated updater change still breaks this pin.
+    for addition in (
+        b"    betboy-quotes.timer\n",
+        b"    betboy-quotes.service\n",
+        b"        deploy/systemd/betboy-quotes.service) printf '%s\\n' 025139c5a3d487a480d35e62487e14c07523d78a514d7364229c7bf93d5c912d ;;\n",
+        b"        deploy/systemd/betboy-quotes.timer) printf '%s\\n' 362b23c11d16489403002b079190591f65324214dbd1943bf714d5773771d188 ;;\n",
+    ):
+        assert raw.count(addition) == 1
+        raw = raw.replace(addition, b"")
+    reviewed_inventory = b'''    expected_units = {
+        "deploy/systemd/betboy-app.service",
+        "deploy/systemd/betboy-wettfinder.service",
+        "deploy/systemd/betboy-quotes.service",
+        "deploy/systemd/betboy-football-shadow.service",
+        "deploy/systemd/betboy-tennis.service",
+        "deploy/systemd/betboy-esports.service",
+        "deploy/systemd/betboy-redcard-settlement.service",
+        "deploy/systemd/betboy-redcard-history.service",
+    }
+    for tree, files in ((Path(target), targets), (Path(previous), predecessors)):
+        units = {n for n in files if n.startswith("deploy/systemd/betboy-") and n.endswith(".service") and not n.endswith("betboy-backup.service")}
+        need(units == expected_units, "unexpected runtime service inventory")
+        for unit in sorted(units):
+'''
+    frozen_inventory = b'''    for tree, files in ((Path(target), targets), (Path(previous), predecessors)):
+        units = [n for n in files if n.startswith("deploy/systemd/betboy-") and n.endswith(".service") and not n.endswith("betboy-backup.service")]
+        need(len(units) == 7, "unexpected runtime service inventory")
+        for unit in units:
+'''
+    assert raw.count(reviewed_inventory) == 1
+    raw = raw.replace(reviewed_inventory, frozen_inventory)
+    reviewed_timer_log = b'log "Stopping all ${#BETBOY_TIMERS[@]} BetBoy timers."'
+    assert raw.count(reviewed_timer_log) == 1
+    raw = raw.replace(reviewed_timer_log, b'log "Stopping all seven BetBoy timers."')
     assert hashlib.sha256(raw).hexdigest() == \
         "2c29dbdd628da306ee22fbb3c6091f974169a95fcb598d6fff04f4ccdb00b5f5"
     # The reviewed 60-minute worker unit changes exactly one byte allowlist
@@ -827,7 +865,7 @@ def test_frozen_reviewed_preflight_algorithms_are_copied_without_drift():
     assert b'"--sealed-file", "--deployment-check", "--database"' in raw
     assert b'value["historical_analysis_verified"] is False' in raw
     for name in SHARED_FUNCTIONS:
-        assert source_function(name) == source_function(name, updater).replace(
+        assert source_function(name) == source_function(name, updater, source=raw.decode("utf-8")).replace(
             new_helper.decode("ascii"), old_helper.decode("ascii")), name
 
 

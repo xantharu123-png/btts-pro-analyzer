@@ -649,6 +649,99 @@ def configuration_fixture(data, tmp_path, *, legacy=True, present=False, extra_p
     return arguments
 
 
+def test_reviewed_quotes_inventory_preserves_context_configuration(content_data, tmp_path):
+    # Omitting the approved quote worker from the root boundary must not make
+    # the real staged application/configuration proof unusable.
+    args = configuration_fixture(content_data, tmp_path, env=b"API_KEY=opaque\n")
+    value = content_data["configuration"](**args)
+    assert value["relative"] == "runtime_state/context_models.db"
+    assert value["env_hash"] == hashlib.sha256(b"API_KEY=opaque\n").hexdigest()
+
+
+@pytest.mark.parametrize("side", ["target", "previous"])
+@pytest.mark.parametrize("defect", ["missing", "extra", "substituted", "old-count-unknown"])
+def test_configuration_rejects_unreviewed_service_names_not_only_counts(content_data, tmp_path, side, defect):
+    args = configuration_fixture(content_data, tmp_path)
+    tree, manifest_path = args[side], args[side + "_manifest"]
+    manifest = json.loads(manifest_path.read_text())
+    quote = "deploy/systemd/betboy-quotes.service"
+    if defect != "extra":
+        (tree / quote).unlink()
+        del manifest["files"][quote]
+    if defect == "old-count-unknown":
+        name = "deploy/systemd/betboy-esports.service"
+        (tree / name).unlink()
+        del manifest["files"][name]
+    if defect != "missing":
+        name = "deploy/systemd/betboy-unreviewed.service"
+        raw = b"[Service]\nEnvironmentFile=-/etc/betboy/betboy.env\n"
+        (tree / name).write_bytes(raw)
+        manifest["files"][name] = {"mode": "100644", "sha256": hashlib.sha256(raw).hexdigest()}
+    manifest_path.write_text(json.dumps(manifest))
+    with pytest.raises(ValueError, match="unexpected runtime service inventory"):
+        content_data["configuration"](**args)
+
+
+@pytest.mark.parametrize("side", ["target", "previous"])
+@pytest.mark.parametrize("line", [b"EnvironmentFile=/unreviewed/env\n",
+    b"Environment=BETBOY_RUNTIME_STATE_DIR=/outside\n",
+    b"PassEnvironment=BETBOY_RUNTIME_STATE_DIR\n",
+    b"UnsetEnvironment=BETBOY_RUNTIME_STATE_DIR\n",
+    b"Environment=OTHER=x\\\nBETBOY_RUNTIME_STATE_DIR=/outside\n"])
+def test_quotes_worker_cannot_bypass_shared_context_environment_route(content_data, tmp_path, side, line):
+    args = configuration_fixture(content_data, tmp_path)
+    name = "deploy/systemd/betboy-quotes.service"
+    path, manifest_path = args[side] / name, args[side + "_manifest"]
+    raw = path.read_bytes() + line
+    path.write_bytes(raw)
+    manifest = json.loads(manifest_path.read_text())
+    manifest["files"][name]["sha256"] = hashlib.sha256(raw).hexdigest()
+    manifest_path.write_text(json.dumps(manifest))
+    with pytest.raises(ValueError, match="environment|multiline"):
+        content_data["configuration"](**args)
+
+
+def shell_runtime_arrays():
+    source = UPDATER.read_text(encoding="utf-8")
+    return "\n".join(re.search(r"readonly -a " + name + r"=\(\n.*?\n\)", source, re.S)[0]
+                     for name in ("BETBOY_TIMERS", "BETBOY_WORKERS"))
+
+
+@pytest.mark.parametrize("quotes_active", [False, True])
+def test_actual_worker_wait_does_not_ignore_a_raced_quotes_writer(quotes_active):
+    harness = "set -Eeuo pipefail\nWORKER_WAIT_SECONDS=0\n" + shell_runtime_arrays()
+    harness += "\nlog() { printf '%s\\n' \"$*\"; }\n"
+    harness += "systemctl() { [[ \"$*\" == 'is-active --quiet betboy-quotes.service' ]] && "
+    harness += ("return 0;" if quotes_active else "return 1;") + " return 1; }\n"
+    harness += shell_function("wait_for_workers") + "\nwait_for_workers\n"
+    result = run_bash_lf([bash()], input=harness, text=True, capture_output=True, timeout=15)
+    assert (result.returncode == 0) is (not quotes_active), result.stderr
+    if quotes_active:
+        assert "waiting for betboy-quotes.service" in result.stdout
+
+
+@pytest.mark.parametrize("quotes_still_active", [False, True])
+def test_actual_recovery_stops_exact_reviewed_units_and_refuses_live_quotes(quotes_still_active):
+    harness = "set -Eeuo pipefail\n" + shell_runtime_arrays()
+    harness += "\nlog() { printf 'log:%s\\n' \"$*\"; }\ncheck_no_betboy_processes() { return 0; }\n"
+    harness += "systemctl() { printf 'systemctl:%s\\n' \"$*\"; [[ \"$1\" == stop ]] && return 0; "
+    harness += "[[ \"$*\" == 'is-active --quiet betboy-quotes.service' ]] && "
+    harness += ("return 0;" if quotes_still_active else "return 1;") + " return 1; }\n"
+    harness += shell_function("stop_all_runtime_units") + "\nstop_all_runtime_units\n"
+    result = run_bash_lf([bash()], input=harness, text=True, capture_output=True, timeout=15)
+    assert (result.returncode == 0) is (not quotes_still_active), result.stderr
+    lines = result.stdout.splitlines()
+    assert [line for line in lines if line.startswith("systemctl:stop ")] == [
+        "systemctl:stop betboy-wettfinder.timer betboy-quotes.timer betboy-football-shadow.timer betboy-tennis.timer betboy-esports.timer betboy-redcard-settlement.timer betboy-redcard-history.timer betboy-backup.timer",
+        "systemctl:stop betboy-wettfinder.service betboy-quotes.service betboy-football-shadow.service betboy-tennis.service betboy-esports.service betboy-redcard-settlement.service betboy-redcard-history.service betboy-backup.service",
+        "systemctl:stop betboy-app.service",
+    ]
+    assert "systemctl:is-active --quiet betboy-quotes.timer" in lines
+    assert "systemctl:is-active --quiet betboy-quotes.service" in lines
+    if quotes_still_active:
+        assert "log:Recovery could not stop betboy-quotes.service." in lines
+
+
 @pytest.mark.parametrize("changed_resolver", [False, True])
 def test_previous_path_pin_accepts_only_reviewed_atomic_name_change(content_data, tmp_path, changed_resolver):
     current = (ROOT / "runtime_paths.py").read_text(encoding="utf-8")

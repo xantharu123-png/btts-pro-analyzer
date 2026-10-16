@@ -56,7 +56,7 @@ def _make_db(with_prediction: bool) -> Path:
                 " player_b, p_raw, p_cal, markets_json, gates_json, model_version,"
                 " policy_version, settled) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
-                    1.0,
+                    datetime.now(timezone.utc).timestamp(),
                     date.today().isoformat(),
                     "ATP",
                     "Test Open",
@@ -75,7 +75,35 @@ def _make_db(with_prediction: bool) -> Path:
                     0,
                 ),
             )
+            conn.execute("UPDATE predictions SET provider_event_id='test-native-1' WHERE id=1")
     return tmp
+
+
+def _render_with_quotes(path: Path, *, quote_odds: float | None = 1.80) -> None:
+    """Exercise the real stored-price reader with exact native event bindings."""
+    import tennis_tab
+    from market_consensus import _collect_tennis_event_prices
+
+    now = datetime.now(timezone.utc)
+    with sqlite3.connect(path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = [dict(row) for row in conn.execute("SELECT * FROM predictions")]
+    observations = []
+    for candidate in tennis_tab._tennis_search_candidates(rows, now=now):
+        if quote_odds is None:
+            continue
+        event = dict(id='test-odds-1', home_team=candidate['competitor_a'],
+            away_team=candidate['competitor_b'], commence_time=candidate['scheduled_start'],
+            bookmakers=[dict(key='test-book', title='Test Book', last_update=now.isoformat(),
+                markets=[dict(key='h2h', outcomes=[
+                    dict(name=candidate['competitor_a'], price=quote_odds),
+                    dict(name=candidate['competitor_b'], price=2.50)])])])
+        observations.extend(_collect_tennis_event_prices(event, [candidate], now=now))
+    tennis_tab.st.session_state['tennis_search_price_observations'] = observations
+    tennis_tab.st.session_state['_tennis_search_price_window'] = (tennis_tab._zurich_today(now), None)
+    # No local runtime file or provider supplies unrelated test prices.
+    with patch.object(tennis_tab, 'read_shared_quote_rows', return_value=[]):
+        tennis_tab.render_tennis_page()
 
 
 def _run_empty() -> None:
@@ -92,12 +120,12 @@ def _run_empty() -> None:
 def _run_price_check() -> None:
     import tennis_tab
     from tennis import shadow
-    from tests.test_tennis_tab import _make_db
+    from tests.test_tennis_tab import _make_db, _render_with_quotes
 
     tmp = _make_db(with_prediction=True)
     shadow.DB_PATH = tmp
     tennis_tab.DB_PATH = tmp
-    tennis_tab.render_tennis_page()
+    _render_with_quotes(tmp, quote_odds=tennis_tab.st.session_state.get('_test_quote_odds', 1.80))
 
 
 def _run_surface_evidence() -> None:
@@ -105,7 +133,7 @@ def _run_surface_evidence() -> None:
     import sqlite3
     import tennis_tab
     from tennis import shadow
-    from tests.test_tennis_tab import _make_db
+    from tests.test_tennis_tab import _make_db, _render_with_quotes
 
     tmp = _make_db(with_prediction=True)
     context = {
@@ -126,7 +154,7 @@ def _run_surface_evidence() -> None:
         )
     shadow.DB_PATH = tmp
     tennis_tab.DB_PATH = tmp
-    tennis_tab.render_tennis_page()
+    _render_with_quotes(tmp)
 
 
 def _run_closing_capture() -> None:
@@ -165,7 +193,7 @@ def _run_blocked_card() -> None:
 
     import tennis_tab
     from tennis import shadow
-    from tests.test_tennis_tab import _make_db
+    from tests.test_tennis_tab import _make_db, _render_with_quotes
 
     tmp = _make_db(with_prediction=True)
     gates = {
@@ -180,7 +208,7 @@ def _run_blocked_card() -> None:
         )
     shadow.DB_PATH = tmp
     tennis_tab.DB_PATH = tmp
-    tennis_tab.render_tennis_page()
+    _render_with_quotes(tmp)
 
 
 def test_empty_db_shows_friendly_empty_state():
@@ -200,6 +228,7 @@ def test_frozen_surface_evidence_is_visible_on_tennis_card():
 
 
 def test_tennis_model_card_never_requires_a_price_check():
+    # A current automatic quote permits the card without a manual price form.
     at = AppTest.from_function(_run_price_check)
     at.run(timeout=60)
     assert len(at.exception) == 0
@@ -209,6 +238,24 @@ def test_tennis_model_card_never_requires_a_price_check():
     assert any("Modellfavorit" in info.value for info in at.info)
     assert len(at.success) == 0
     assert len(at.error) == 0
+
+
+@pytest.mark.parametrize('odds', [None, 1.19])
+def test_real_tennis_card_hides_unknown_or_below_floor_offers(odds):
+    # Breaking native price binding or bypassing the public floor exposes this
+    # otherwise valid model. Its stored prediction must remain available.
+    at = AppTest.from_function(_run_price_check)
+    at.session_state['_test_quote_odds'] = odds
+    at.run(timeout=60)
+    assert len(at.exception) == 0
+    assert len(at.metric) == 0
+    assert len(at.number_input) == 0
+    assert any('Keine Tennis-Auswahl' in item.value for item in at.info)
+    visible = ' '.join(item.value for item in at.markdown)
+    assert 'Sieg Alpha' not in visible
+    import tennis_tab
+    with sqlite3.connect(tennis_tab.DB_PATH) as conn:
+        assert conn.execute('SELECT COUNT(*) FROM predictions').fetchone()[0] == 1
 
 
 def test_match_card_shows_plain_gates_and_markets():

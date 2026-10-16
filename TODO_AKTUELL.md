@@ -1,5 +1,118 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 16.10.2026 – erneuter Hockey-Auftrag / API-Jahresabo: laufende Arbeit
+
+Nutzer verlangt vollständigen Fünf-Ligen-Ausbau, historische Prüfung, Tests,
+Commit/main-Push/VPS-Deploy ohne Backups und plant zwölf Monate API-Zugang.
+
+- [x] Offizielle API-Hockey-v1.0.1-Felder geprüft:15 Endpunkte, **keine**
+  dokumentierten Spieler-/Aufstellungs-/Verletzungs-/Starttorhüter-Endpunkte.
+  `games/events` hat Ereignisnamen, keine vollständigen Spieler-Eiszeiten.
+  Ein Jahresabo ist kein Nachweis dieser fehlenden Funktionen; Nutzer vor Kauf
+  ausdrücklich darauf hingewiesen. Keine Bestellung/Accountänderung.
+- [x] Drei Alternativen anhand Primärquellen geprüft: kein vollständig belegter
+  All-5-Feed für Vorab-Goalies/Ausfälle. Sportradar Global unterscheidet `starter`
+  nicht von `played`; Goalserve nennt DEL/Schweiz ohne LiveStats/Lineups;
+  SportsDataIO-Injury-/Starterdokumentation betrifft NHL, nicht alle fünf.
+- [x] Nutzer bestätigt: API-Hockey-Abo **noch nicht aktiviert**. Empfehlung:
+  mit der Jahresbindung warten, weil sie die fehlenden Personalendpunkte nicht
+  ergänzt. Keine Buchung veranlasst; Quellenkorrektur ist davon unabhängig.
+- [x] Unabhängig sinnvolle Quellenkorrektur lokal committed **433bb86**:
+  Default native NHL plus NationalLeague/SHL/Liiga/DEL; Historie nur benötigte
+  native Liga/Saisonpaare; explizit leere/ungültige Scopes ohne Abrufausweitung;
+  fehlende Katalogziele intern teilweise statt falsches erfolgreiches Nullergebnis.
+- [x] Release-Review fand reproduzierten Mapping-Runner-Fehler: dessen Brücke
+  verlor `run.errors`. Korrektur lokal committed **1d3ca7a**, sechs neue echte
+  Verbraucherfälle: RED2FAIL/4PASS, GREEN6PASS. Abschließende angrenzende QA
+  **757PASS/1 bestehender Windows-Skip**. Insgesamt37 neue Fälle; kein alter
+  Test entfernt. No-Backup-Deploy-Allowlist und fehlersichere Git-Inventarprüfung
+  mit drei Offline-Gegentests geprüft. Unabhängiges begrenztes Re-Review PASS.
+- [x] Ganze QA`full-qa-02` auf1d3ca7a fertig: **14.299 PASS/98 bestehende
+  Skips/147 bestandene Untertests, aber102 FAIL**, beide Shards Exit1.
+  14.499 gesammelt, alle14.462 alten IDs erhalten. Kein grüner Vollnachweis.
+  Erste QA`full-qa-01` bleibt separat bewusst INCOMPLETE; alle Receipts erhalten.
+- [x] Fehlerursachen getrennt:43 Update-/Inventar-/Pin-Fälle nach Hinzunahme
+  des Quotendiensts;59 ältere Verbraucherfälle erwarteten unbepreiste Tipps
+  oder reichten vorhandene Preisbelege nicht an Karten weiter. Keine neue
+  Hockey-Modellrechnung dafür verantwortlich. Keine Preisregel zurückgenommen.
+- [x] Updatepfad jetzt mit exaktem Acht-Dienste-Inventar einschließlich Quotes;
+  unbekannte/fehlende/ersetzte Dienste abgewiesen. Historische Algorithmus-Pins
+  durch Rekonstruktion nur des geprüften Deltas erhalten, nicht blind erneuert.
+  **512 PASS/6 bestehende Plattform-Skips** in allen drei betroffenen Modulen.
+- [x] Verbraucherfixtures verwenden für Kontext-/Richtungsprüfungen echte exakt
+  gebundene aktuelle Testquoten. Alle bisherigen IDs/Kernassertionen behalten;
+  zwölf zusätzliche Gegenrichtungs- und zwei echte Tennis-Preisgrenzenfälle.
+  221 Kontext-/Preisprüfungen und137 weitere Verbraucher-/Preisprüfungen PASS.
+- [x] Unabhängiges Review dieses zusätzlichen Reparaturdeltas ohne offene
+  Critical/Important-Befunde. Ganze Offline-QA`full-qa-03` fertig:
+  **14.438 PASS/98 unveränderte Skips/147 bestandene Untertests, beide Exit0**.
+  14.536 gesammelt; keine der14.499 IDs aus QA02 entfernt; alle14.462 früheren
+  IDs erhalten.787 Quellstände durchgehend unverändert, keine neuen Skips.
+  Bestehender No-Backup-Helper erlaubt nur explizit geprüfte Pfade;
+  dessen zusätzliche Gate-Prüfung RED1/3PASS zu GREEN4PASS erhalten.
+- [ ] Jetzt Commit/main-Push und expliziten No-Backup-VPS-Deploy abschließen;
+  bis zum echten Produktionsnachweis VPS weiterhin084d8d3.
+- [ ] **Voller Hockey-Kontext nicht fertig:** reale Goalies/Ausfälle/Eiszeiten
+  sowie owning Trainings-/Replay-/Abnahmepfad fehlen weiterhin. Quellenfix und
+  historische Grundmodell-Stichprobe ersetzen das nicht. Keine Effekte erfinden.
+
+Details: [API-Abdeckung](docs/audits/2026-10-16-hockey-quellen-und-api-abo.md).
+Neuer Anbieter-Gegenvergleich: SportsDataIO NHL mit bestätigten Startern;
+BALLDONTLIE NHL GOAT USD39,99/Monat mit Verletzungen/TOI, aber ohne belegten
+bestätigten Starterfeed; Enetpulse Premium für vier der fünf Ligen, Schweizer
+National League nicht Premium. Kein vollständiger All-5-Ersatz verifiziert,
+keine Anmeldung/Probe mit Folgekosten/Bestellung ausgelöst.
+Arbeitsprotokoll/Brief/Implementerbericht unter
+`.superpowers/sdd/2026-09-07-kontext-c-weitere-sportarten/`.
+
+## 16.10.2026 – historische Hockey-Stichprobe auf neuen Nutzerwunsch
+
+- [x] Nutzer erlaubt ausdrücklich alte Daten2022/2023 für eine rückblickende
+  Stichprobe. Über vorhandenen Zugang sechs kontingentgesteuerte Abrufe:
+  3.239 Spiele der Saison2023/24, nur2.066.388Bytes lokal; keine Bilder.
+- [x] Vor Ergebnislauf eingefroren:20 Termine je Liga im Januar2024, getrennte
+  frühere Trainingssätze abNovember2023 und48h-Embargo. Unveränderte vorhandene
+  Poisson-/Gegnerstärke-/OT-Mathematik; keine rückdatierten Empfangszeiten.
+- [x] Ergebnis: **62/100 richtig**, immerHeimsieg51/100. NHL15/20,
+  NationalLeague13/20, SHL11/20, Liiga13/20, DEL10/20. DEL schlechter als
+  Heimsieg-Basis12/20; kleine Stichprobe nicht als Liga-Rangliste verkaufen.
+- [x] Festes Modell>=70%-Segment18/23richtig; keine nachträgliche neue Tippregel.
+  Brier0,229629vs0,251900; keine historischen Quoten und daher keine Rendite.
+- [x] Acht Offline-Schutztests inklusive realem Ziel-/Zukunfts-Leckagetest PASS.
+- [x] Unabhängige Gegenprüfung von100 Ziel-/Ergebnisbindungen, Quell-/Modellhashes,
+  früheren Trainingssätzen und Kennzahlen ohne kritischen Befund.
+- [ ] Vollständiger Fünf-Ligen-Kontextausbau bleibt offen: Historische
+  Grundmodell-Treffer prüfen keine echten Goalie-/Ausfall-/Müdigkeitseffekte.
+
+Keine Produktivmodelle, Historien oder Geldbuchungen geändert; normale sechs
+API-Budgetreservierungen, kein zusätzlicher automatischer Lauf/Deploy/Backup.
+Bericht: [Historische Stichprobe](docs/audits/2026-10-16-hockey-historische-stichprobe.md).
+
+## 16.10.2026 – ursprüngliche Hockey-Top-5-Ausgangsprüfung vor Quellenpatch
+
+NHL, National League, SHL, Liiga, DEL mit Gegnerstärke, Form, Torhütern,
+Ausfällen und Belastung; nur vorhandene/kostenlose Quellen, keine Backups.
+
+- [x] Code- und Quellenprüfung sowie frische Ausgangsregression:
+  1.046 PASS/ein bestehender Skip/71,56 s/Exit0. Keine neue Effektfreigabe.
+- [x] Produktionscache nur lesend gezählt: NHL1.528 Ereignisse2025/26 und151
+  für2026/27; keine API-Hockey-Ergebnisrevisionen in diesem Cache.
+- [x] Konto geprüft: API-Hockey Free100/Tag; aktueller Tagesplan funktioniert,
+  geprüfte Schweizer Saisonhistorie2026 wird mit `plan` verweigert.
+- [ ] Kostenlose aktuelle Historien-/Starter-/Ausfallabdeckung und zulässigen
+  privaten/öffentlichen Quellenumfang für alle fünf Ligen vervollständigen.
+  Technisch erreichbare offizielle Statistik ist keine pauschale Produktlizenz.
+- [ ] Echte Quellenadapter und vollständigen Hockey-Trainings-/Outcome-/Replay-/
+  Evaluationspfad implementieren; numerische Wirkungen zeitgetrennt abnehmen.
+  Gegnerbereinigung besteht bereits; Form/Goalies/Ausfälle/Belastung sind nicht
+  durch die jetzige Prüfung zusätzlich produktiv geworden.
+- [ ] Erst die abgenommene Implementierung committen, main pushen und ohne
+  Backup deployen. Kein neuer Hockey-Code oder Deploy in dieser Prüfung.
+
+Details und Quellen: [Top-5-Hockey-Prüfung](docs/audits/2026-10-16-hockey-top5-daten-und-modell.md).
+Damals geprüfter Produktstand `084d8d3`; keine zusätzlichen Dienste, bezahlten Zugänge,
+Sicherungen, Datenbankkopien oder Bereinigungen.
+
 ## 16.10.2026 – Quotenaktualisierung und verbindliche 1,20-Untergrenze
 
 Aktueller begrenzter Reparaturauftrag: testen, committen, main pushen und auf

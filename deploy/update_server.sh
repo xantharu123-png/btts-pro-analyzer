@@ -1450,10 +1450,20 @@ def configuration(app, env_path, target, previous, app_uid, app_gid, target_mani
              "previous runtime path contract is unsupported")
     # Existing unit hashes are checked by the installed updater. Additionally
     # bind their actual shared path records, never parse shell or source env.
+    expected_units = {
+        "deploy/systemd/betboy-app.service",
+        "deploy/systemd/betboy-wettfinder.service",
+        "deploy/systemd/betboy-quotes.service",
+        "deploy/systemd/betboy-football-shadow.service",
+        "deploy/systemd/betboy-tennis.service",
+        "deploy/systemd/betboy-esports.service",
+        "deploy/systemd/betboy-redcard-settlement.service",
+        "deploy/systemd/betboy-redcard-history.service",
+    }
     for tree, files in ((Path(target), targets), (Path(previous), predecessors)):
-        units = [n for n in files if n.startswith("deploy/systemd/betboy-") and n.endswith(".service") and not n.endswith("betboy-backup.service")]
-        need(len(units) == 7, "unexpected runtime service inventory")
-        for unit in units:
+        units = {n for n in files if n.startswith("deploy/systemd/betboy-") and n.endswith(".service") and not n.endswith("betboy-backup.service")}
+        need(units == expected_units, "unexpected runtime service inventory")
+        for unit in sorted(units):
             lines = configuration_lines(read_file(tree / unit, mode=0o640, gid=app_gid))
             need(not any(line.endswith("\\") for line in lines), "unreviewed multiline unit record")
             records = [(key.strip(" \t"), value.strip(" \t")) for line in lines if line and not line.startswith(("#", ";"))
@@ -3698,7 +3708,7 @@ snapshot_root_files
 UPDATE_STARTED=1
 ensure_backup_principal
 
-log "Stopping all seven BetBoy timers."
+log "Stopping all ${#BETBOY_TIMERS[@]} BetBoy timers."
 systemctl stop "${BETBOY_TIMERS[@]}"
 wait_for_workers || die "Timed out waiting for a raced BetBoy worker."
 

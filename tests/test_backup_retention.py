@@ -212,7 +212,11 @@ def test_maintenance_does_not_expand_the_pinned_application_worker_inventory():
     # Mirror the installed updater's context configuration classification.
     runtime_units = [path for path in (root / "deploy" / "systemd").glob("betboy-*.service")
                      if path.name != "betboy-backup.service"]
-    assert len(runtime_units) == 7
+    assert {path.name for path in runtime_units} == {
+        "betboy-app.service", "betboy-wettfinder.service", "betboy-quotes.service",
+        "betboy-football-shadow.service", "betboy-tennis.service", "betboy-esports.service",
+        "betboy-redcard-settlement.service", "betboy-redcard-history.service",
+    }
     assert all("EnvironmentFile=-/etc/betboy/betboy.env" in path.read_text() for path in runtime_units)
     assert not any("retention" in path.name for path in runtime_units)
 

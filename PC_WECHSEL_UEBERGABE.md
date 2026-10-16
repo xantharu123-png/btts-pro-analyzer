@@ -1,5 +1,68 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## 16.10.2026 – jetzt Quellenpatch lokal, kein voller Hockey-Release
+
+Nutzer erneuert All-5-Kontextauftrag plus Tests/Commit/main/VPS ohne Backup;
+plant12MonateAPI. API-Hockeyv1 hat keine Player/Injury/Lineup/StartingGoalie-
+Endpunkte; bezahltesAbo allein löst das nicht. Kaufwarnung und begrenzter
+Primärquellenvergleich dokumentiert in`2026-10-16-hockey-quellen-und-api-abo.md`.
+Nutzer bestätigt Abo noch nicht aktiviert; Empfehlung Jahresbindung abwarten.
+Lokal433bb86 mit echter Default5-/nativer LigaSaison-Historienbegrenzung.
+Mapping-Bridge-Fehler behoben mit1d3ca7a, sechs neue reale Verbraucherfälle;
+757PASS/1Skip/37neueFälle insgesamt. Begrenztes unabhängiges Re-Review PASS.
+Vollsuite`full-qa-02` fertig RED102 (14.299PASS/98Skips/147Untertests).
+Ursachen:43 Updater-Inventar-/Pin-Fälle nach Quotes-Erweiterung und59 ältere
+Verbraucher-Preisfixtures. Beide Ursachen begrenzt korrigiert; alte Test-IDs/
+Kernassertionen erhalten.512PASS/6Skips,221PASS,137PASS gezielt bestätigt.
+Zusätzlich23 Inventar-/Wartefälle,12 Gegenseitenfälle,2 Tennis-Preisgrenzenfälle.
+Neues unabhängiges Release-Review PASS für frische QA, keine Full-C3-Freigabe.
+`full-qa-03` komplett grün:14.438PASS/98unveränderteSkips/147Untertests;
+beideExit0,787Quellhashes unverändert,14.536gesammelt. Keine der14.499QA02-
+IDs entfernt, alle14.462früheren IDs erhalten. Jetzt Commit/Push/NoBackupDeploy.
+Erste Vollsuite`full-qa-01` bewusst INCOMPLETE unterbrochen für Fix;
+Receiptsnichtlöschen. Quellenpatch erst nach fertigerQA veröffentlichen.
+Bis zum folgenden echten Produktionsnachweis nochkeinPush/Deploy;VPS084d8d3.
+Vollständige Goalies/Ausfälle/Müdigkeitnichtfertig.
+RootarbeitetanQA/Release, Implementer`hockey_source_scope_impl` bleibt für Fix.
+WorktreeundignoriertesC3Arbeitsprotokollbehalten; nichtaltesRootcheckoutverwenden.
+VPS-App/Caddy gesund; bereits vorher bestehenderFootball-Shadow-Fehlstatus
+(Exit1) nicht durch diesen Release repariert oder als erfolgreich ausgegeben.
+Neue Anbietersuche: SportsDataIO(NHLConfirmedStarter/Injuries), BALLDONTLIE
+(NHLGOAT39,99USD/Monat, keinConfirmedStarter), Enetpulse(Premium4Ligen,
+SchweiznichtPremium). Kein verifizierter All-5-Komplettanbieter, nichts gebucht.
+
+## 16.10.2026 – zuletzt historische Hockey-Stichprobe tatsächlich gerechnet
+
+Nutzer erlaubt alte2022/2023Daten für historische Probe. Sechs Abrufe vorhandener
+API,3.239Spiele/2,07MB, keine Bilder. Saison2023/24, vorab20Januar2024-Ziele je
+Liga eingefroren; nur frühere Spiele abNov2023/48h-Abstand, unveränderte existente
+Modellmathematik. **62/100richtig vs51/100immerHeimsieg**; NHL15,Swiss13,SHL11,
+Liiga13,DEL10je20. >=70%-Modellklasse18/23, kein Renditenachweis/keine neue
+Tippregel. Acht Offline-Schutztests PASS; echte2026Empfangszeiten bleiben erhalten,
+kein vorgetäuschter kausaler Produktionsreplay. Torhüter/Verletzungen/Müdigkeit
+dadurch nicht umgesetzt. Keine Modell-/Historien-/Geld-/Deployment-/Backupänderung;
+nur bestehendes API-Kontingent hat sechs Anfragen verbucht. Unabhängige Prüfung
+von100 Fällen/Training/Bindungen/Kennzahlen ohne kritischen Befund.
+Bericht`docs/audits/2026-10-16-hockey-historische-stichprobe.md`, Daten/Analyse-
+Artefakte`C:/Projekt/BetBoy/output/hockey-top5-20261016/`.
+
+## 16.10.2026 – ursprüngliche Hockey-Ausgangsprüfung, vor Quellenpatch
+
+Nutzer beauftragt echten Ausbau für NHL/National League/SHL/Liiga/DEL mit
+Gegnerstärke, Form, Goalies, Ausfällen und Belastung, kostenlosen aktuellen
+Quellen, Tests und VPS-Deploy ohne Backup. Damals kein neuer Produktcode/Deploy.
+Damals geprüfter Produktstand `084d8d3`; kanonisches Worktree wie unten.
+Frische Baseline1.046PASS/1Skip, kein empirischer Effektbeleg.
+API-HockeyFree liefert Tagesplan, geprüfte Schweizer Saisonhistorie2026 jedoch
+`plan`-Fehler. Cache read-only:1.528NHL2025/26+151NHL2026/27, keineAPI-Hockey-
+Ergebnisrevisionen. Vier europäische Quellen teilweise technisch erreichbar,
+aber Prematch-Personalabdeckung und passende Nutzungsrechte nicht vollständig.
+Keinen Quellen-/Beobachtungszeitpunkt erfinden, keine Gebühren/Freigabeanfragen
+oder Zugangsumgehung eigenmächtig auslösen. Owning Hockey-Trainings-/Outcome-/
+Replay-/Evaluatorpfad fehlt trotz vorhandener synthetischer C3-Mathematik.
+Konkrete Belege/Nächste Schritte in
+`docs/audits/2026-10-16-hockey-top5-daten-und-modell.md` und TODO_AKTUELL.md.
+
 ## 16.10.2026 – jüngster aktiver Auftrag: Quoten und 1,20
 
 Kanonisch weiter `.worktrees/audit-repairs-20261013`, nicht das alte schmutzige

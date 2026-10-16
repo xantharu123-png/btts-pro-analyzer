@@ -9,6 +9,7 @@ from ev_signal_sources import ModelSignal
 from forecast_analysis import (
     forecast_highlight_reason, project_football_analysis, read_football_analysis,
 )
+from test_highlight_price_checks import _quote
 from wettfinder_surface import build_wettfinder_card, compose_wettfinder_catalog
 
 
@@ -60,21 +61,26 @@ def signal(value):
         analysis_evidence=read_football_analysis(value, now=NOW))
 
 
+def priced_signal(value):
+    current = signal(value)
+    return replace(current, reference_quote=_quote(current, fetched_at=NOW, odds=1.9).to_dict())
+
+
 @pytest.mark.parametrize('lineup', [{'status': 'blocked'},
                                   {'status': 'blocked', 'checked_at': 'invalid'}])
 def test_serialized_negative_lineup_survives_without_claiming_a_check_clock(lineup):
     value = row()
     value['analysis_evidence']['context']['lineups'] = lineup
     value['context'] = {}
-    current = signal(value)
-    from test_highlight_price_checks import _quote
-    current = replace(current, reference_quote=_quote(current, fetched_at=NOW).to_dict())
+    current = priced_signal(value)
     before = deepcopy(vars(current))
-    card = build_wettfinder_card(current, now=NOW)
+    card = build_wettfinder_card(current, current.reference_quote, now=NOW)
     catalog = compose_wettfinder_catalog([card])
     assert catalog.featured == ()
     assert [item.key for item in catalog.additional] == [current.key]
     assert card.model_probability == current.probability
+    assert card.reference_quote is not None and not card.quote_floor_excluded
+    assert card.reference_quote.best_odds == 1.9
     assert vars(current) == before
     assert current.analysis_evidence['context']['lineups'] == {'status': 'blocked'}
 
@@ -83,9 +89,11 @@ def test_serialized_pending_lineup_without_clock_is_not_a_blanket_top_block():
     value = row()
     value['analysis_evidence']['context']['lineups'] = {'status': 'pending'}
     value['context'] = {}
-    current = signal(value)
-    card = build_wettfinder_card(current, now=NOW)
+    current = priced_signal(value)
+    card = build_wettfinder_card(current, current.reference_quote, now=NOW)
     assert compose_wettfinder_catalog([card]).featured == (card,)
+    assert card.reference_quote is not None and not card.quote_floor_excluded
+    assert card.reference_quote.best_odds == 1.9
 
 
 @pytest.mark.parametrize("axis", ["h2h", "weather", "injuries"])
@@ -93,13 +101,16 @@ def test_missing_relevant_check_stays_in_catalog_but_is_not_highlighted(axis):
     value = row()
     value["context"].pop(axis)
     value["analysis_evidence"]["context"].pop(axis, None)
-    current = signal(value)
-    card = build_wettfinder_card(current, now=NOW)
+    current = priced_signal(value)
+    before = deepcopy(vars(current))
+    card = build_wettfinder_card(current, current.reference_quote, now=NOW)
     catalog = compose_wettfinder_catalog([card])
     assert catalog.featured == ()
     assert [item.key for item in catalog.additional] == ["81:DC_1X"]
     assert card.model_probability == .75
-    assert current.reference_quote is None
+    assert card.reference_quote is not None and not card.quote_floor_excluded
+    assert card.reference_quote.best_odds == 1.9
+    assert vars(current) == before
 
 
 @pytest.mark.parametrize("axis", ["h2h", "weather", "injuries"])
@@ -129,9 +140,19 @@ def test_current_checks_can_highlight_without_confirmed_lineups_or_bookmaker_pri
     current = signal(value)
     card = build_wettfinder_card(current, now=NOW)
     assert not forecast_highlight_reason(current, now=NOW)
-    assert [item.key for item in compose_wettfinder_catalog([card]).featured] == ["81:DC_1X"]
+    # Context qualification is price-blind; public placement still needs a real offer.
+    assert card.highlight_eligible and card.quote_floor_excluded
+    catalog = compose_wettfinder_catalog([card])
+    assert catalog.featured == () and catalog.additional == ()
     assert current.context_complete is False and current.reference_quote is None
     assert current.probability == .75
+
+    priced = priced_signal(value)
+    priced_card = build_wettfinder_card(priced, priced.reference_quote, now=NOW)
+    assert [item.key for item in compose_wettfinder_catalog([priced_card]).featured] == ["81:DC_1X"]
+    assert priced_card.reference_quote is not None and not priced_card.quote_floor_excluded
+    assert priced_card.reference_quote.best_odds == 1.9
+    assert priced.context_complete is False and priced.probability == current.probability
 
 
 def test_legacy_envelope_recovers_same_artifact_checks_without_renewing_clocks():

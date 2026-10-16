@@ -349,7 +349,10 @@ def test_shared_tip_ui_no_longer_depends_on_browser_import():
     app.run(timeout=30)
     assert len(app.exception) == 0
     assert len(app.text_input) == 0
-    assert any("Keine exakt passende Marktquote" in info.value for info in app.info)
+    # Missing public prices hide the proposal; importing a browser snapshot is
+    # still neither required nor used by this shared renderer.
+    assert any("Keine passende Quote ab 1,20." in item.value for item in app.caption)
+    assert len(app.metric) == 0
     assert all("KEINE WETTFREIGABE" not in info.value for info in app.info)
     visible_text = " ".join(
         element.value
