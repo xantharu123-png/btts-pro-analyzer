@@ -1,6 +1,6 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
-## 16.10.2026 – Index-Nativtest gescheitert; Sortier-QA02 vorbereitet
+## 16.10.2026 – Sortier-QA02 vollständig grün; Veröffentlichung folgt
 
 - [x] Indexcode `c110d8e` lokal vollständig geprüft:14.239 PASS/98 unveränderte
   Skips/147 Untertests, alle14.337IDs erhalten; Fast-Forward auf main/VPS.
@@ -32,11 +32,18 @@
   alle bisherigen IDs erhalten, alle Produktquellen byte-identisch zu0859468.
 - [x] Begrenztes unabhängiges Nachreview ohne Befunde; Produktquellen,
   Berechtigungen, Navigation und quotenunabhängige Sichtbarkeit unverändert.
-- [ ] Frische vollständige QA02 freigeben und prüfen; alle14.350IDs,
-  98Skip-Identitäten und66historischenReceipts erhalten. QA01 bleibt FAIL.
-  Vorher kein Main-/VPS-Release.
+- [x] QA02 am unveränderten `8c36095` vollständig PASS: **14.252 bestanden,
+  98 identische Skips, 147 bestandene Untertests**, beide tatsächlichen Exits0.
+  Alle14.350IDs genau einmal,771Quellhashes/RootWIP/118frühereReceipts unverändert.
+  Finale Reconciliation07:56:17UTC bestätigt; QA01 bleibt historischer FAIL.
 - [ ] Sortierpatch erst nach tatsächlichem Vollsuite-PASS auf main/VPS
   veröffentlichen und browserseitig prüfen. Noch nicht live; main/VPS c110d8e.
+- [ ] Separat neu geprüft16.10.09:32CEST: Fußball-Shadow Exit1/partial,
+  Fixture1622791 ohne frische Bet365-Quote mit Providerzeit; zusätzlich zwei
+  historische Abrechnungszeilen mit invalid_quote_provenance/malformed_settlement.
+  App/Caddy und beide Healthchecks ok; sieben Timer geplant, aber nicht alle
+  letzten Jobstatus grün. Keine Quoten/Abrechnungen nacherfinden, kein Reset/
+  Zusatzscan und keine Produktänderung während der Sortier-Vollprüfung.
 
 Keine neuen Sicherungen, Datenbankkopien, Bereinigungen, manuellen Sport-/API-
 Scans oder numerischen Effektfreigaben. [Index-Abnahme](docs/audits/2026-10-15-tennis-spielerindex-abnahme.md).
@@ -44,12 +51,13 @@ Die Benfica-Erstkarte war technische Marktfolge, keine begründete Hauptempfehlu
 die neue ausdrücklich gewünschte Wahrscheinlichkeitssortierung ist davon
 getrennt getestet. Marktbezogene Begründung/Modellqualität bleiben eigene Themen.
 
-Fortsetzung: Sortier-QA unter `C:/Projekt/BetBoy/output/probability-order-20261016/qa-final-01`,
+Fortsetzung: Sortier-QA unter `C:/Projekt/BetBoy/output/probability-order-20261016/qa-final-02`,
 Quelle `.worktrees/audit-repairs-20261013`, Branch `codex/audit-repairs-20261013`.
 Keine abgeschlossenen Indexaufgaben/Reviews neu starten; Task6 bleibt wegen des
-echten Eingabebudget-FAIL offen. QA01-Freeze ist vollständig erfasst und freigegeben;
-nur die genannten Adapter dürfen jetzt geändert werden. Neuer HEAD erst nach
-begrenztem Review für QA02 einfrieren. Kein Release aus dem fehlgeschlagenen Lauf.
+echten Eingabebudget-FAIL offen. Beide Freezes sind vollständig erfasst und beendet.
+Als Nächstes nur diese aktuellen Dokumente committen, geprüfte Produktbytes
+unverändert lassen, Main/VPS per Fast-Forward veröffentlichen und tatsächliche
+Browserdarstellung prüfen. Kein Index-Neuversuch oder numerischer Effekt-PASS daraus.
 
 ## 16.10.2026 00:11 – Prüfadapter korrigiert und unabhängig geprüft
 

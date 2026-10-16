@@ -24,8 +24,11 @@ Daily3 preserves original chronological execution authority.395focusedPASS,
 diagnoses: extracted navigation namespace lacks real ordering import; prematch
 test still requires deliberately removed old selector. Only these two testowners
 amended in7fea742,432frozenPASS/alloldIDs; all769othertrackedhashes including
-products unchanged. Scoped reviewclean. FreshwholeQA02 prepared/idlenotreleased,
-retains14,350IDs/98skipIDs/66priorreceipts; releaseexactnewdoccheckpointfirst.
+products unchanged. Scoped reviewclean. FreshwholeQA02 at8c36095 LOCALPASS:
+14,252passed/98identicalskips/147subtests; all14,350IDs exactlyonce/alloldIDs
+retained,771source/rootfreeze+118priorreceipts unchanged. Bothactualexits0,
+finalproof07:56:17UTC. Freezecomplete; onlyprosecheckpoint thenmain/VPS/UIproof,
+no furtherproduct/testchanges or index/native retries.
 QA01 remains FAIL, not yetmain/VPS. Sourceindex native proof remains bound
 to deployedc110d8e, not the later UI commit. Actual audit and TODO record both
 packages and their different gates without claiming better betting performance.

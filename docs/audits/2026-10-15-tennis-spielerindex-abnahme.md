@@ -24,8 +24,12 @@ Diese Prüfung betrifft nicht die später hinzugekommene Sortieränderung
 `0859468`. Deren separate QA01 endete mit14.250 PASS/2 FAIL/98 unveränderten
 Skips/147 Untertests; alle14.350IDs und Quell-/Root-Freeze erhalten. Zwei reine
 Prüfadapterlücken sind ohne Produktänderung mit7fea742 berichtigt,432betroffene
-Tests bestanden und unabhängig ohne Befunde geprüft. Neue Vollprüfung vorbereitet.
-QA01 bleibt als fehlgeschlagener Lauf erhalten; kein Sortier-Release daraus.
+Tests bestanden und unabhängig ohne Befunde geprüft. Neue VollprüfungQA02 am
+unveränderten8c36095 vollständig PASS:14.252bestanden/98identischeSkips/
+147Untertests; alle14.350IDs genau einmal,771Quellhashes/RootWIP und118frühere
+Receipts unverändert. BeideExits0, abschließende Prüfung07:56:17UTC. QA01 bleibt
+als fehlgeschlagener Lauf erhalten. Sortier-Veröffentlichung/UI-Nachweis folgen
+getrennt; dieserSoftwarepass beseitigt den Index-Eingabebudget-FAIL nicht.
 
 Unabhängiger rein lesender Receipt-/Raw-Git-Abgleich dokumentiert unter
 `C:/Projekt/BetBoy/output/tennis-player-index-20261015/runtime-evidence-review.md`.

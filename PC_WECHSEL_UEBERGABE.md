@@ -26,13 +26,22 @@ alter Prematch-Test verlangt den absichtlich entfernten Startzeitumschalter.
 Genau diese zwei Tests mit7fea742 korrigiert,432/432 betroffeneTests bestanden;
 alle Navigations-/Quotenassertionen und altenIDs erhalten. Produktquellen bleiben
 byte-identisch zu0859468. Begrenztes Nachreview ohne Befunde abgeschlossen;
-neue ganze QA02 ist mit allen14.350IDs/98Skips/66geschütztenReceipts vorbereitet,
-noch nicht freigegeben. Erst neuen Dokumentations-HEAD einfrieren und einmal starten.
-QA01 bleibt FAIL. Erst nach echtem vollständigem PASS veröffentlichen,
-VPS per Fast-Forward ziehen und UI prüfen; keine Sicherung oder Zusatzscan.
+neue ganze QA02 am unveränderten8c36095 vollständig PASS:14.252bestanden,
+98identischeSkips,147Untertests; alle14.350IDs genau einmal,771Quellhashes/
+RootWIP/118historischeReceipts unverändert. BeideExits0; finalePrüfung07:56:17UTC.
+QA01 bleibt FAIL. Freeze beendet. NächsterSchritt nurProsecheckpoint,Main/VPS
+Fast-Forward und echteBrowserprüfung; Produkt-/Testbytes identisch zum geprüften
+Stand lassen, keine Sicherung, kein Zusatzscan oder Index-Neuversuch.
 Workerberichte/Review/QA außerhalbGit unter `output/probability-order-20261016`.
 Index-native Belege unverändert unter `output/tennis-player-index-20261015`.
 Nicht erledigte Verletzungs-/Wetter-/Müdigkeitswirkung bleibt ehrlich offen.
+
+Frische Nur-Lese-VPS-Prüfung16.10.09:35CEST: weiterhinc110d8e, App/Caddy/
+Healthchecks ok,7Timer geplant, Backups inaktiv. Shadow zuletzt09:32 Exit1:
+fehlende frische Bet365-Providerzeitquote Fixture1622791 und2historische Zeilen
+mit unvollständiger Quoten-/Abrechnungsprovenienz. Das ist separat offen, keine
+behauptete grüne Gesamtlaufbilanz. Journale unter output/probability-order-20261016;
+kein neuer Scan, Historienreset oder nachträgliches Erfinden von Nachweisen.
 
 ## Aktueller Einstieg 16.10.2026 00:11 – QA03 als nächster Gate
 
