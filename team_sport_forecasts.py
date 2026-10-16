@@ -244,6 +244,10 @@ def team_sport_source_coverage(run, rows, *, now, target_date):
                      and s.starts_at.astimezone(ZoneInfo('Europe/Zurich')).date() == target_date]
         count = sum(row['sport'] == label for row in rows)
         reasons = []
+        operational_errors = sum(type(error) is str and error.partition(':')[0].strip() == sport
+                                 for error in getattr(run, 'errors', ()))
+        if operational_errors:
+            reasons.append('source_operational_error')
         for snapshot in snapshots:
             payload = snapshot.team_sport_forecast
             if payload is None:
@@ -258,6 +262,6 @@ def team_sport_source_coverage(run, rows, *, now, target_date):
             reasons.append('no_current_snapshot')
         result[sport] = dict(status='research_forecasts' if count else 'research_coverage_missing',
             candidate_count=count, published_model_selection_count=count, published_recommendation_count=0,
-            snapshot_count=len(snapshots), coverage_reasons=sorted(set(reasons)), operational_error_count=0,
+            snapshot_count=len(snapshots), coverage_reasons=sorted(set(reasons)), operational_error_count=operational_errors,
             reference_quote_count=0, price_checked_count=0)
     return result

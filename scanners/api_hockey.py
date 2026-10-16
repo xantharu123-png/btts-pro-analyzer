@@ -49,10 +49,44 @@ CANDIDATES = tuple(LeagueCandidate(name, country) for name, country in (
     ("Elite League", "United-Kingdom"), ("KHL", "Russia"), ("VHL", "Russia"),
 ))
 
+# The daily owner uses native NHL separately; other reviewed leagues remain
+# available to standalone scanners and explicit, catalogue-bound history scopes.
+DEFAULT_CANDIDATES = tuple(row for row in CANDIDATES if (row.name, row.country) in {
+    ("National League", "Switzerland"), ("SHL", "Sweden"),
+    ("Liiga", "Finland"), ("DEL", "Germany"),
+})
+
 
 def supported_competition(name):
     """Exact reviewed names only; event/team/league IDs must still be bound."""
     return type(name) is str and any(name == row.name for row in CANDIDATES)
+
+
+def _event_scope(events):
+    """Accept only explicit native identities, never coercing bools or IDs."""
+    if type(events) not in (list, tuple) or len(events) > MAX_ROWS:
+        raise ValueError("invalid history scope")
+    scope = {}
+    for row in events:
+        if (type(row) is not dict or (row.get("provider") or row.get("source")) != PROVIDER
+                or any(row.get(key) not in (None, PROVIDER) for key in ("provider", "source"))
+                or row.get("sport") != "ice_hockey" or row.get("source_contract") != SOURCE_CONTRACT):
+            raise ValueError("invalid history scope")
+        identity, season = _positive(row.get("league_id")), row.get("season")
+        if type(season) is not int or not 1000 <= season <= 9999:
+            raise ValueError("invalid history scope")
+        competition_id = row.get("competition_id")
+        if (type(competition_id) not in (str, int) or str(competition_id) != str(identity)
+                or not supported_competition(row.get("competition"))):
+            raise ValueError("invalid history scope")
+        if row.get("league", row["competition"]) != row["competition"]:
+            raise ValueError("invalid history scope")
+        binding = (row["competition"], row.get("country"))
+        pair = (identity, season)
+        if pair in scope and scope[pair] != binding:
+            raise ValueError("conflicting history scope")
+        scope[pair] = binding
+    return scope
 
 
 @dataclass(frozen=True)
@@ -343,6 +377,7 @@ class APIHockeyScanner:
             raise ValueError("invalid native NHL inclusion")
         self.api_key, self.governor, self.history_store = api_key, governor, history_store
         self.get, self.clock = get, clock or (lambda: datetime.now(timezone.utc))
+        self.include_nhl = include_nhl
         self.candidates = tuple(row for row in candidates if include_nhl or (row.name, row.country) != ("NHL", "USA"))
         self.max_history_requests = max_history_requests
         self.errors, self.last_history_report = {}, {}
@@ -415,6 +450,9 @@ class APIHockeyScanner:
             raise ValueError("invalid schedule window")
         try:
             leagues = _catalogue(self._catalogue(), start, end, self.candidates)
+            resolved = {(row.name, row.country) for row in leagues}
+            if any((row.name, row.country) not in resolved for row in self.candidates):
+                self.errors["schedule"] = "schedule_scope_missing"
             if not leagues:
                 return []
             output = []
@@ -427,14 +465,27 @@ class APIHockeyScanner:
             self.errors["schedule"] = type(exc).__name__
             return []
 
-    def get_completed_games(self, start, end, *, as_of=None):
+    def get_completed_games(self, start, end, *, as_of=None, events=None):
         history_window(start, end)
         self.errors.pop("history", None)
         store = self._store()
         store.validate_asof(as_of)
         calls, errors, complete, blocked, leagues, pending = 0, [], True, set(), (), 0
         try:
-            leagues = _catalogue(self._catalogue(), start, end, self.candidates)
+            scope = _event_scope(events) if events is not None else None
+            # An explicitly empty scope is a no-op, not standalone discovery.
+            if scope != {}:
+                candidates = tuple(row for row in CANDIDATES
+                    if self.include_nhl or (row.name, row.country) != ("NHL", "USA")) if scope is not None else self.candidates
+                leagues = _catalogue(self._catalogue(), start, end, candidates)
+                if scope is not None:
+                    leagues = tuple(league for league in leagues
+                        if (league.league_id, league.season) in scope
+                        and scope[league.league_id, league.season][0] == league.name
+                        and scope[league.league_id, league.season][1] in (None, league.country))
+                if not leagues or scope is not None and len(leagues) != len(scope):
+                    errors.append("history_scope_missing")
+                    complete = False
             for league in self._history_order(store, leagues):
                 key = f"league:{league.league_id}:season:{league.season}"
                 if store.due(PROVIDER, key, ttl=HISTORY_TTL):

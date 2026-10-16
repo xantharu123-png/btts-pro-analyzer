@@ -36,7 +36,7 @@ def fixture_sources(monkeypatch, *, nhl_events=None, api_events=None, api_error=
         calls.append((provider, 'schedule', start, end))
         return deepcopy(rows)
 
-    def completed(provider, rows, start, end, *, as_of):
+    def completed(provider, rows, start, end, *, as_of, events=None):
         calls.append((provider, 'history', start, end, as_of))
         return deepcopy(rows)
 

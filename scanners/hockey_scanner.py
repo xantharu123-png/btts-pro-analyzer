@@ -16,8 +16,8 @@ class HockeyScanner:
             nhl = BasketballScanner()
         if api is None:
             from config_loader import load_app_config
-            from scanners.api_hockey import APIHockeyScanner
-            api = APIHockeyScanner(load_app_config().api_football_key)
+            from scanners.api_hockey import APIHockeyScanner, DEFAULT_CANDIDATES
+            api = APIHockeyScanner(load_app_config().api_football_key, candidates=DEFAULT_CANDIDATES)
         self.nhl, self.api = nhl, api
         self.errors, self.history_coverage = {}, {}
 
@@ -41,22 +41,39 @@ class HockeyScanner:
                 self.errors[f"{provider}:schedule"] = type(exc).__name__
         return sorted(rows, key=lambda row: (row.get("start_time", ""), row.get("provider", ""), row.get("provider_event_id", "")))
 
-    def get_completed_games(self, start: date, end: date, *, as_of=None, events=()):
+    def get_completed_games(self, start: date, end: date, *, as_of=None, events=None):
         history_window(start, end)
         if as_of is not None and utc_time(as_of) is None:
             raise ValueError("History as_of must be timezone-aware")
         # Only providers needed by this batch load history. Old results become
         # available at their real first receipt, never at a guessed finish.
-        providers = {row.get("provider") or row.get("source") for row in events}
+        if events is not None and (type(events) not in (list, tuple)
+                                  or any(type(row) is not dict for row in events)):
+            raise ValueError("Invalid hockey event scope")
         self.errors, rows, coverage = {}, [], []
+        provider_events = {"NHL": [], "API-Hockey": []}
+        for row in events or ():
+            provider = row.get("provider") or row.get("source")
+            if (type(provider) is not str or provider not in provider_events
+                    or any(row.get(key) not in (None, provider) for key in ("provider", "source"))
+                    or row.get("sport") not in (None, "ice_hockey")
+                    or provider == "NHL" and row.get("source_contract") is not None):
+                self.errors["scope"] = "invalid_history_scope"
+                continue
+            provider_events[provider].append(row)
+        if self.errors:
+            coverage.append({"status": "partial"})
         for provider, scanner, method in (
             ("NHL", self.nhl, self.nhl.get_completed_nhl_games),
             ("API-Hockey", self.api, self.api.get_completed_games),
         ):
-            if providers and provider not in providers:
+            if events is not None and not provider_events[provider]:
                 continue
             try:
-                rows.extend(list(method(start, end, as_of=as_of)))
+                kwargs = {"as_of": as_of}
+                if provider == "API-Hockey":
+                    kwargs["events"] = None if events is None else provider_events[provider]
+                rows.extend(list(method(start, end, **kwargs)))
                 coverage.append(getattr(scanner, "history_coverage", {}))
                 self.errors.update(getattr(scanner, "errors", {}))
             except Exception as exc:
@@ -70,7 +87,7 @@ class HockeyScanner:
 
 
 def completed_hockey_loader(scanner, target_date):
-    def load(*, as_of, events=(), **_kwargs):
+    def load(*, as_of, events=None, **_kwargs):
         rows = scanner.get_completed_games(target_date - timedelta(days=365), target_date,
                                            as_of=as_of, events=events)
         load.coverage = scanner.history_coverage
