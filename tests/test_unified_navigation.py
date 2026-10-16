@@ -18,6 +18,7 @@ def _navigation_namespace(st, features):
     from account_identity import account_scope_ready
     from customer_access import PAGE_FEATURES
     from manual_search_filters import render_search_filters
+    from tip_display_order import ordered_event_rows
 
     names = {
         "PAGE_INFO", "MAIN_PAGES", "LEGACY_PAGE_ALIASES", "PAGE_SCAN_JOBS",
@@ -43,6 +44,7 @@ def _navigation_namespace(st, features):
         "escape": escape, "PAGE_FEATURES": PAGE_FEATURES,
         "account_scope_ready": account_scope_ready,
         "render_search_filters": render_search_filters,
+        "ordered_event_rows": ordered_event_rows,
         "_REQUIRED_ANALYZER_MODULE_VERSION": 1,
         "get_analyzer": lambda *_args: None,
         "bind_customer": lambda _st: True,

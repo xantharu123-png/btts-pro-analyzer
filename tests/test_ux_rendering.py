@@ -412,6 +412,7 @@ def _run_complete_model_zero() -> None:
 def test_zero_ready_keeps_best_price_independent_forecast_visible():
     at = AppTest.from_function(_run_zero_ready)
     at.run(timeout=60)
+    assert not at.exception
     assert len(at.warning) >= 1
     assert any("Keines der" in warning.value for warning in at.warning)
     # Die Quote darf eine gesperrte Modellprognose nicht unsichtbar machen.
@@ -422,9 +423,7 @@ def test_zero_ready_keeps_best_price_independent_forecast_visible():
     assert candidate_selectors[0].options == [
         "Alpha vs Beta | Beide Teams treffen: Ja"
     ]
-    order = at.selectbox(key="prematch_display_order")
-    assert order.options == ["Startzeit", "Wahrscheinlichkeit"]
-    assert order.value == "Startzeit"
+    assert not [widget for widget in at.selectbox if widget.key == "prematch_display_order"]
     assert any(
         "Prognosen bleiben sichtbar" in warning.value for warning in at.warning
     )
