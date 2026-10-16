@@ -16,6 +16,57 @@ def _render_pool(db_path, count, extreme_probability=False):
                   store_factory=lambda: Daily3Store(db_path, key=b'q'*32, clock=lambda: NOW))
 
 
+def _render_probability_sequence(db_path):
+    import streamlit as st
+    from pathlib import Path
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    from test_daily3_selection import NOW, football
+    from daily3_ui import render_daily3
+    from daily3_store import Daily3Store
+    st.session_state['_betboy_account_scope'] = 'a'*32
+    pool = [football(1, probability=.75, start_hours=3),
+            football(2, probability=.80, start_hours=6),
+            football(3, probability=.90, start_hours=9)]
+    with patch('tip_publication.DEFAULT_HISTORY_DB', Path(db_path).with_suffix('.tips.db')), \
+         patch('tip_publication.DEFAULT_FORECAST_DB', Path(db_path).with_suffix('.absent.db')), \
+         patch('consumer_tip_history._now', lambda: NOW):
+        render_daily3(st, now=NOW,
+            snapshot_loader=lambda **kw: SimpleNamespace(forecasts=pool, status=SimpleNamespace(generated_at=NOW)),
+            store_factory=lambda: Daily3Store(db_path, key=b'q'*32, clock=lambda: NOW))
+
+
+def test_probability_panels_preserve_chronological_slots_ready_role_reservation_and_budget(tmp_path):
+    from test_daily3_selection import NOW
+    from daily3_store import Daily3Store
+    from consumer_tip_history import read_tip_publications
+    db = tmp_path/'probability-day.db'
+    app = AppTest.from_function(_render_probability_sequence, args=(str(db),)).run(timeout=30)
+    assert not app.exception
+    cards = [item.value for item in app.markdown if 'data-key=' in item.value]
+    assert [next(game for game in (1, 2, 3) if f'Heimteam {game} vs ' in html) for html in cards] == [3, 2, 1]
+    slots = [item.value.split(' · ')[0] for item in app.caption if item.value.startswith('Wette ')]
+    assert slots == ['Wette 3', 'Wette 2', 'Wette 1']
+    _button(app, 'CHF 50 Tagesbudget bestätigen').click().run()
+    assert not app.exception
+    assert ':1:RESULT_HOME:' in _field(app, 'text_input', 'stake:').key
+    publications = read_tip_publications(db.with_suffix('.tips.db'), surface='daily3_plan')
+    ready = [(tip['candidate_id'], tip['featured_role']) for pub in publications for tip in pub['tips']
+             if tip['featured_role'] == 'daily3_ready']
+    assert ready == [('1:RESULT_HOME', 'daily3_ready')]
+    _field(app, 'text_input', 'stake:').set_value('10')
+    _field(app, 'text_input', 'odds:').set_value('1.5')
+    _field(app, 'checkbox', 'exact:').check()
+    _button(app, 'Einsatz vormerken').click().run()
+    assert not app.exception and not app.error
+    history = Daily3Store(db, key=b'q'*32, clock=lambda: NOW).history('a'*32)
+    bets = list(history['2030-01-01']['bets'].values())
+    assert len(bets) == 1 and bets[0]['snapshot']['signal_key'] == '1:RESULT_HOME'
+    assert bets[0]['status'] == 'reserved' and bets[0]['stake_cents'] == 1000
+    assert any(m.label == 'Verfügbar' and m.value == 'CHF 40.00' for m in app.metric)
+    assert not any(button.label == 'Einsatz vormerken' for button in app.button)
+
+
 def test_daily3_does_not_round_a_non_certain_model_to_one_hundred_percent(tmp_path):
     app = AppTest.from_function(_render_pool, args=(str(tmp_path/'day.db'), 1, True)).run(timeout=30)
     assert not app.exception

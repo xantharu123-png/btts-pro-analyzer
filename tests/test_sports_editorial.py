@@ -163,6 +163,23 @@ def test_empty_day_keeps_sports_and_both_picture_panels_without_fake_tips(monkey
     assert 'se-rail-choice' not in html and 'data-key=' not in html
 
 
+def test_daily3_rail_probability_presentation_keeps_original_sequence_numbers_and_choices(monkeypatch):
+    import app
+    from daily3_selection import daily3_choices
+    from test_daily3_selection import NOW, football
+    from test_workflow_integrity import _RecordingStreamlit
+    choices = daily3_choices([football(1, probability=.75, start_hours=3),
+        football(2, probability=.80, start_hours=6), football(3, probability=.90, start_hours=9)], now=NOW)
+    before = deepcopy(choices)
+    ui = _RecordingStreamlit()
+    monkeypatch.setattr(app, 'st', ui)
+    app._render_editorial_rail(choices, (), daily3_allowed=True, target_label='Heute')
+    html = [value for value, _kwargs, _context in ui.markdown_calls if 'se-choice-rank' in value]
+    assert [next(game for game in (1, 2, 3) if f'Heimteam {game} vs ' in row) for row in html] == [3, 2, 1]
+    assert [next(slot for slot in (1, 2, 3) if f'se-choice-rank">{slot}</span>' in row) for row in html] == [3, 2, 1]
+    assert choices == before and [c.signal.key for c in choices] == ['1:RESULT_HOME', '2:RESULT_HOME', '3:RESULT_HOME']
+
+
 def test_picture_rail_does_not_reintroduce_a_tennis_quote_below_the_known_floor(monkeypatch):
     import app
     from datetime import datetime

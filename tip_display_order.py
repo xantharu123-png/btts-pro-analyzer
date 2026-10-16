@@ -10,9 +10,12 @@ ORDER_OPTIONS = (START_TIME, PROBABILITY)
 
 
 def display_order_control(st, *, key, probability_available=True):
-    options = ORDER_OPTIONS if probability_available else (START_TIME,)
-    help_text = ('Startzeit: nächste Spiele zuerst. Wahrscheinlichkeit: höchste sichtbare Modellchance pro Spiel zuerst.'
-                 if probability_available else 'Nächste Spiele zuerst.')
+    # Model-backed surfaces have one presentation policy. In particular, an
+    # old Startzeit widget/session value cannot override it on a rerender.
+    if probability_available:
+        return PROBABILITY
+    options = (START_TIME,)
+    help_text = 'Nächste Spiele zuerst.'
     value = st.selectbox('Reihenfolge', options, index=0, key=key, help=help_text)
     return value if value in options else START_TIME
 
@@ -41,13 +44,14 @@ def recommendation_probability(candidate):
     return float(value) / 100
 
 
-def ordered_event_rows(rows, *, mode=START_TIME, event_key, starts_at, probability):
+def ordered_event_rows(rows, *, mode=PROBABILITY, event_key, starts_at, probability):
     """Keep every event adjacent, using original identities and actual clocks.
 
     Already selected objects are returned unchanged. Unknown starts/chances
     follow known ones; ties preserve their original order. Probability mode
     orders a game by its highest visible market chance, then its markets by
-    chance. Time mode preserves the selected primary market within each game.
+    chance. Equal chances use actual kickoff, then stable existing order.
+    Explicit time mode is for schedules without model probabilities.
     Quotes, quality badges and displayed team names are deliberately unused.
     """
     if mode not in ORDER_OPTIONS:
@@ -67,5 +71,6 @@ def ordered_event_rows(rows, *, mode=START_TIME, event_key, starts_at, probabili
     grouped = sorted(groups.values(), key=(lambda group: start(group)) if mode == START_TIME
                      else (lambda group: (-chance(group), start(group))))
     return tuple(row for group in grouped
-                 for row in (sorted(group, key=lambda item: -_chance(probability(item)))
+                 for row in (sorted(group, key=lambda item: (-_chance(probability(item)),
+                                                            _clock(starts_at(item)) or last))
                              if mode == PROBABILITY else group))

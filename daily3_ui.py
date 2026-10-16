@@ -14,6 +14,7 @@ from daily3_schedule import pending_ready_at, planning_allowance
 from daily3_store import Daily3Store, day_balance, expected_return_cents, payout_needs_confirmation
 from forecast_compact import render_compact_analysis_html
 from runtime_paths import RUNTIME_STATE_DIR
+from tip_display_order import ordered_event_rows
 from wettfinder_surface import build_wettfinder_card, format_probability
 
 _TZ = ZoneInfo('Europe/Zurich')
@@ -269,12 +270,17 @@ def render_daily3(st, *, snapshot_loader=None, store_factory=None, now=None):
                    and not pending and day_balance(day).available_cents > 0)
     with st.container(key='daily3_choices_layout'):
         choice_panels = st.columns(len(choices)) if choices else []
-    for index, choice in enumerate(choices):
+    # Sort only presentation. Original chronological slots still own the next
+    # reservation, validation and ready-role; later legs never gain authority.
+    display_choices = ordered_event_rows(enumerate(choices),
+        event_key=lambda item: item[1].event_id, starts_at=lambda item: item[1].start,
+        probability=lambda item: item[1].signal.probability)
+    for display_index, (index, choice) in enumerate(display_choices):
         snap = choice.snapshot()
         # Only a changed model selection invalidates an unsubmitted form.
         fingerprint = hashlib.sha256(json.dumps(snap, sort_keys=True).encode()).hexdigest()
         key = f'{scope}:{today}:{choice.signal.key}:{len(day["bets"]) if day else 0}:{fingerprint}'
-        with choice_panels[index].container(border=True):
+        with choice_panels[display_index].container(border=True):
             st.caption(f'Wette {used+index+1} · {choice.start.astimezone(_TZ):%H:%M} · Planungsabstand {int(planning_allowance(choice.sport).total_seconds()/3600)} Std.')
             from wettfinder_surface import render_editorial_card_html
             from wettfinder_identity import rendered_identity_card

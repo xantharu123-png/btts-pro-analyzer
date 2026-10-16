@@ -16,15 +16,91 @@ class Row:
     quote: object = None
 
 
-def ordered(rows, mode=START_TIME):
+def ordered(rows, mode=PROBABILITY):
     return ordered_event_rows(rows, mode=mode, event_key=lambda r: r.event,
                               starts_at=lambda r: r.start, probability=lambda r: r.chance)
 
 
+def test_model_default_uses_probability_without_an_explicit_mode():
+    rows = [Row('early', '2030-01-01T10:00:00Z', .70, 'early'),
+            Row('late', '2030-01-01T18:00:00Z', .90, 'late')]
+    result = ordered_event_rows(rows, event_key=lambda r: r.event,
+        starts_at=lambda r: r.start, probability=lambda r: r.chance)
+    assert result == (rows[1], rows[0])
+    assert result[0] is rows[1]
+
+
+def test_old_starttime_state_cannot_override_model_order_or_offer_a_time_toggle():
+    from test_workflow_integrity import _RecordingStreamlit
+    ui = _RecordingStreamlit({'view-order': START_TIME}, {'view-order': START_TIME})
+    assert display_order_control(ui, key='view-order') == PROBABILITY
+    assert not any(label == 'Reihenfolge' and START_TIME in options
+                   for label, options, _index, _key in ui.selectboxes)
+    assert ui.session_state == {'view-order': START_TIME}  # No model/account state rewrite.
+
+
+def test_equal_model_chances_use_actual_kickoff_then_stable_event_and_market_order():
+    rows = [Row('later', '2030-10-27T02:30:00+01:00', .8, 'later'),
+            Row('first', '2030-10-27T02:30:00+02:00', .8, 'first-late-clock'),
+            Row('second', '2030-10-27T00:30:00Z', .8, 'second'),
+            Row('first', '2030-10-27T00:00:00Z', .8, 'first-early-clock'),
+            Row('first', '2030-10-27T00:00:00Z', .8, 'first-stable'),
+            Row('invalid', None, float('nan'), 'invalid'),
+            Row('first', None, None, 'first-unknown')]
+    assert [row.selection for row in ordered(rows, PROBABILITY)] == [
+        'first-early-clock', 'first-stable', 'first-late-clock', 'first-unknown',
+        'second', 'later', 'invalid']
+
+
+def test_automatic_default_orders_real_cards_and_games_without_promoting_featured_quality(monkeypatch):
+    import app
+    from test_workflow_integrity import _RecordingStreamlit
+    from test_wettfinder_game_groups import card
+    from wettfinder_surface import WettfinderCatalog
+    low = replace(card(1), model_probability=.60)
+    high = replace(card(1, 'AWAY_OVER_2_5'), model_probability=.90)
+    middle = replace(card(2), model_probability=.80)
+    catalog = WettfinderCatalog((low,), (middle, high), ())
+    ui = _RecordingStreamlit()
+    monkeypatch.setattr(app, 'st', ui)
+    featured_calls = []
+    real_render = app.render_editorial_card_html
+    def render_with_membership(card, **kwargs):
+        featured_calls.append((card.key, kwargs['featured']))
+        return real_render(card, **kwargs)
+    monkeypatch.setattr(app, 'render_editorial_card_html', render_with_membership)
+    app._render_wettfinder_games(catalog, {c.key: (None, c) for c in (low, high, middle)}, sport_filter='Alle')
+    html = [value for value, _kwargs, _context in ui.markdown_calls if 'data-key=' in value]
+    assert [next(c.key for c in (low, high, middle) if f'data-key="{c.key}"' in value)
+            for value in html] == [high.key, low.key, middle.key]
+    assert featured_calls == [(high.key, False), (low.key, True), (middle.key, False)]
+    assert all('MODELL-AUSWAHL' not in value for value in html)  # Editorial cards add no quality badge.
+    assert catalog.featured == (low,) and catalog.additional == (middle, high)
+
+
+def test_automatic_group_rank_ignores_invalid_primary_chance_and_uses_known_event_clock(monkeypatch):
+    import app
+    from test_workflow_integrity import _RecordingStreamlit
+    from test_wettfinder_game_groups import card
+    from wettfinder_surface import WettfinderCatalog
+    invalid = replace(card(1), model_probability=float('nan'), scheduled_start=None)
+    high = replace(card(1, 'AWAY_OVER_2_5'), model_probability=.90,
+                   scheduled_start='2030-01-01T10:00:00Z')
+    late = replace(card(2), model_probability=.90, scheduled_start='2030-01-01T18:00:00Z')
+    ui = _RecordingStreamlit()
+    monkeypatch.setattr(app, 'st', ui)
+    app._render_wettfinder_games(WettfinderCatalog((invalid,), (late, high), ()),
+        {c.key: (None, c) for c in (invalid, high, late)}, sport_filter='Alle')
+    html = [value for value, _kwargs, _context in ui.markdown_calls if 'data-key=' in value]
+    assert [next(c.key for c in (invalid, high, late) if f'data-key="{c.key}"' in value)
+            for value in html] == [high.key, invalid.key, late.key]
+
+
 def test_default_is_ascending_actual_start_not_probability_or_feature_role():
+    # Legacy node ID retained; the approved model-backed default is now probability.
     rows = [Row('late', '2026-10-11T21:00:00+02:00', .99, 'late'),
             Row('early', '2026-10-11T14:00:00+02:00', .40, 'early')]
-    assert [r.event for r in ordered(rows)] == ['early', 'late']
+    assert [r.event for r in ordered(rows)] == ['late', 'early']
 
 
 def test_probability_order_keeps_whole_events_together_and_uses_best_visible_market():
@@ -32,21 +108,21 @@ def test_probability_order_keeps_whole_events_together_and_uses_best_visible_mar
             Row('b', '2026-10-11T15:00:00Z', .70, 'b1'),
             Row('a', '2026-10-11T14:00:00Z', .80, 'a2')]
     assert [r.selection for r in ordered(rows, PROBABILITY)] == ['a2', 'a1', 'b1']
-    assert [r.selection for r in ordered(rows)] == ['a1', 'a2', 'b1']
+    assert [r.selection for r in ordered(rows, START_TIME)] == ['a1', 'a2', 'b1']
     assert ordered(rows, PROBABILITY)[0] is rows[2]
 
 
 def test_utc_offset_and_dst_repeated_hour_compare_actual_instants():
     rows = [Row('second', '2026-10-25T02:30:00+01:00', .8, 'second'),
             Row('first', '2026-10-25T02:30:00+02:00', .7, 'first')]
-    assert [r.event for r in ordered(rows)] == ['first', 'second']
+    assert [r.event for r in ordered(rows, START_TIME)] == ['first', 'second']
 
 
 def test_missing_naive_and_invalid_clocks_are_last_never_guessed_from_display():
     valid = Row('valid', datetime(2026, 10, 11, tzinfo=timezone.utc), .5, 'valid')
     rows = [Row('unknown', None, .9, 'unknown'), Row('naive', '2026-10-11T08:00:00', .8, 'naive'),
             Row('display', '11.10. 08:00', .7, 'display'), valid]
-    assert ordered(rows)[0] is valid
+    assert ordered(rows, START_TIME)[0] is valid
     assert len(ordered(rows)) == 4
 
 
@@ -83,11 +159,10 @@ def test_prices_names_and_input_mutation_do_not_affect_order_or_values():
 
 
 def test_control_defaults_to_starttime_and_explicit_choice_is_only_display_state():
+    # Legacy node ID retained; model order is fixed, not an actionable selector.
     class UI:
         def selectbox(self, label, options, **kwargs):
-            assert label == 'Reihenfolge' and options == (START_TIME, PROBABILITY)
-            assert kwargs['key'] == 'view-order' and kwargs['index'] == 0
-            return PROBABILITY
+            pytest.fail('A model-backed surface must not offer a time override')
     assert display_order_control(UI(), key='view-order') == PROBABILITY
 
 
@@ -137,8 +212,8 @@ def test_riskobet_orders_the_combined_catalog_not_each_section_separately():
 
 
 @pytest.mark.parametrize('mode,first,table_order', [
-    (START_TIME, 'early', ['excluded', 'early', 'middle', 'late']),
-    (PROBABILITY, 'late', ['late', 'middle', 'early', 'excluded'])])
+    pytest.param(START_TIME, 'late', ['late', 'middle', 'early', 'excluded'], id='Startzeit-early-table_order0'),
+    pytest.param(PROBABILITY, 'late', ['late', 'middle', 'early', 'excluded'], id='Wahrscheinlichkeit-late-table_order1')])
 def test_prematch_real_renderer_sorts_percent_candidates_and_table_after_selection(monkeypatch, mode, first, table_order):
     import app
     import pandas as pd
@@ -195,7 +270,7 @@ def test_manual_esports_sort_uses_percent_and_keeps_selected_original_event(monk
     monkeypatch.setattr(app, 'esports_search_results', lambda *_args: results)
     monkeypatch.setattr(app, '_multi_sport_release_blockers', lambda *_args: ())
     monkeypatch.setattr(app, 'render_model_selection', lambda c: rendered.append(c.event_key))
-    for mode, expected in [(START_TIME, (1, 0)), (PROBABILITY, (0, 1))]:
+    for mode, expected in [(START_TIME, (0, 1)), (PROBABILITY, (0, 1))]:
         ui.widget_values['manual_esport_order'] = mode
         app.render_multi_sport('E-Sport', now.date(), now.date(), SearchFilters())
         assert ui.selectboxes[-1][1] == expected
@@ -228,7 +303,7 @@ def test_manual_hockey_schedule_default_is_chronological_without_fake_chance_cho
     assert [item['id'] for item in items] == [90, 70]
 
 
-@pytest.mark.parametrize('mode,expected', [(START_TIME, ['2:BTTS', '1:BTTS']),
+@pytest.mark.parametrize('mode,expected', [(START_TIME, ['1:BTTS', '2:BTTS']),
                                          (PROBABILITY, ['1:BTTS', '2:BTTS'])])
 def test_15k_actual_card_and_ticket_options_share_display_order_without_ledger_write(monkeypatch, mode, expected):
     import challenge_15k
@@ -246,3 +321,66 @@ def test_15k_actual_card_and_ticket_options_share_display_order_without_ledger_w
     assert [call.args[0].split(' · ')[0] for call in ui.expander.call_args_list] == [
         f'Home {key[0]} vs Away {key[0]}' for key in expected]
     assert not ledger.method_calls
+
+
+@pytest.mark.parametrize('market', ['BTTS', 'Noch ein Tor', 'Team trifft noch'])
+def test_live_real_candidates_and_overview_ignore_old_time_order_without_rescan(monkeypatch, market):
+    import app
+    from copy import deepcopy
+    from test_workflow_integrity import _RecordingStreamlit
+    now = datetime.now(timezone.utc)
+    analyses = [dict(fixture_id=game, home_team=label, away_team='Opponent',
+        scheduled_start=(now-timedelta(hours=hours)).isoformat(), minute=60, score='0-0',
+        btts_prob=p, btts_confidence='MEDIUM', live_data_quality='MEDIUM',
+        remaining_goals={'over_0_5_probability': p, 'home_scores_probability': p,
+                         'away_scores_probability': 10.})
+        for game, label, p, hours in [(1, 'Early', 70., 2), (2, 'Late', 90., 1)]]
+    before = deepcopy(analyses)
+    ui = _RecordingStreamlit({'live_football_snapshot': {
+        'version': app.LIVE_SNAPSHOT_VERSION, 'scanned_at': now.isoformat(), 'analyses': analyses}},
+        {'live_football_order': START_TIME})
+    tables, rendered = [], []
+    ui.dataframe = lambda rows, **_kwargs: tables.append(rows)
+    monkeypatch.setattr(app, 'st', ui)
+    monkeypatch.setattr(app, '_freemode_enabled', lambda: False)
+    monkeypatch.setattr(app.scan_jobs, 'get_job', lambda _key: {'state': 'idle'})
+    monkeypatch.setattr(app.scan_jobs, 'start_job', lambda *_a, **_k: pytest.fail('Sorting cannot scan'))
+    monkeypatch.setattr(app, 'render_model_selection', lambda c, **_k: rendered.append(c))
+    app._render_live_football(None, market)
+    assert [row['Spiel'] for row in tables[0]] == ['Late – Opponent', 'Early – Opponent']
+    assert len(rendered) == 1 and rendered[0].event_key == '2'
+    assert rendered[0].model_probability == 90. and rendered[0].risk_adjusted_probability is None
+    assert rendered[0].probability_haircut == 12. and rendered[0].evidence_stage == 'RESEARCH'
+    assert analyses == before
+
+
+def test_redcard_real_candidate_selector_ignores_old_time_order_without_rescan(monkeypatch):
+    import app
+    from copy import deepcopy
+    from types import SimpleNamespace
+    from test_workflow_integrity import _RecordingStreamlit
+    now = datetime.now(timezone.utc)
+    entries = [dict(home=label, away='Opponent', opponent='Opponent', score='0-0',
+        prediction_minute=60, fixture_red_card_count=1,
+        card={'card_id': label, 'minute': 40, 'team': label,
+              'match': {'fixture': {'date': (now-timedelta(hours=hours)).isoformat()}}},
+        prediction={'next_goal_by_opponent': p, 'next_goal_by_red_team': .05,
+                    'no_more_goals': 1-p-.05, 'data_quality': 'MEDIUM',
+                    'calibrated': True, 'actionable': True})
+        for label, p, hours in [('Early', .70, 2), ('Late', .90, 1)]]
+    before = deepcopy(entries)
+    ui = _RecordingStreamlit({'red_card_snapshot': {'version': app.RED_CARD_SNAPSHOT_VERSION,
+        'scope': 'Konfigurierte Ligen', 'scanned_at': now.isoformat(), 'cards': entries}},
+        {'live_redcard_order': START_TIME})
+    rendered = []
+    monkeypatch.setattr(app, 'st', ui)
+    monkeypatch.setattr(app, '_freemode_enabled', lambda: False)
+    monkeypatch.setattr(app, 'load_app_config', lambda _st: SimpleNamespace(api_football_key=''))
+    monkeypatch.setattr(app.scan_jobs, 'get_job', lambda _key: {'state': 'idle'})
+    monkeypatch.setattr(app.scan_jobs, 'start_job', lambda *_a, **_k: pytest.fail('Sorting cannot scan'))
+    monkeypatch.setattr('redcard_signal_log.log_signal', lambda _entry: None)  # Existing writer boundary only.
+    monkeypatch.setattr(app, 'render_model_selection', lambda c, **_k: rendered.append(c))
+    app._render_red_cards(SimpleNamespace(engine=SimpleNamespace(LEAGUES_CONFIG={'league': 39})))
+    assert len(rendered) == 1 and rendered[0].event_key == 'Late'
+    assert rendered[0].model_probability == 90. and rendered[0].risk_adjusted_probability == 75.
+    assert entries == before

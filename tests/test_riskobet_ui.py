@@ -890,6 +890,23 @@ def test_manual_quotes_above_floor_do_not_change_visibility_or_model_order(monke
     assert "Quote beobachtet" not in _all_text(repriced)
 
 
+def test_actual_riskobet_page_ignores_old_time_state_and_ranks_model_chance(monkeypatch):
+    early = _bundle('early-model', model_probability=.36)
+    late_snapshot, late_candidate = _bundle('late-model', model_probability=.70)
+    late_snapshot = replace(late_snapshot, starts_at=START+timedelta(hours=1))
+    late_candidate = replace(late_candidate, snapshot_id=late_snapshot.snapshot_id,
+                             starts_at=late_snapshot.starts_at)
+    view = _view(early, (late_snapshot, late_candidate))
+    before = deepcopy(view)
+    fake = RecordingStreamlit(session_state={'riskobet_order': 'Startzeit'},
+                             widget_values={'riskobet_order': 'Startzeit'})
+    monkeypatch.setattr(ui, 'st', fake)
+    monkeypatch.setattr(ui, 'load_riskobet_view', lambda _path=None: view)
+    ui.render_riskobet(now=MODELED)
+    assert _rendered_candidate_ids(fake) == [late_candidate.candidate_id, early[1].candidate_id]
+    assert view == before
+
+
 @pytest.mark.parametrize(
     ("probability", "stage", "expected"),
     (

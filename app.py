@@ -80,7 +80,7 @@ from config_loader import load_app_config
 from date_context import german_date_window, zurich_today
 from manual_search_filters import SearchFilters, render_search_filters
 from manual_search_results import esports_search_results
-from tip_display_order import START_TIME, display_order_control, ordered_event_rows, recommendation_probability
+from tip_display_order import PROBABILITY, display_order_control, ordered_event_rows, recommendation_probability
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES, ANALYZER_LEAGUE_IDS
 from multi_sport_recommendations import (
     EVIDENCE_RELEASED,
@@ -4674,18 +4674,23 @@ def _render_wettfinder_game(group, row_by_key, featured_keys, initially_open: bo
                     )
 
 
-def _render_wettfinder_games(catalog, row_by_key, *, sport_filter: str, sort_mode=START_TIME) -> None:
+def _render_wettfinder_games(catalog, row_by_key, *, sport_filter: str, sort_mode=PROBABILITY) -> None:
     featured_keys = {card.key for card in catalog.featured}
-    groups = ordered_event_rows(group_wettfinder_games(catalog), mode=sort_mode,
-        event_key=lambda group: group.fixture_identity,
-        starts_at=lambda group: group.cards[0].scheduled_start,
-        probability=lambda group: max((card.model_probability for card in group.cards
-            if card.model_probability is not None), default=None))
-    groups = tuple(replace(group, cards=ordered_event_rows(group.cards, mode=sort_mode,
-        event_key=lambda card: group.fixture_identity, starts_at=lambda card: card.scheduled_start,
-        probability=lambda card: card.model_probability)) for group in groups)
-    # A highlighted later game must not jump ahead of the user's chronological
-    # order. Highlights stay attached to cards; opening defaults follow the
+    original_groups = group_wettfinder_games(catalog)
+    ordered_cards = ordered_event_rows(
+        ((group.fixture_identity, card) for group in original_groups for card in group.cards),
+        mode=sort_mode, event_key=lambda item: item[0],
+        starts_at=lambda item: item[1].scheduled_start, probability=lambda item: item[1].model_probability)
+    # One shared pass ranks both games and markets, including invalid values
+    # and clocks, without trusting an unchecked max or only the first card.
+    cards_by_group = {}
+    for identity, card in ordered_cards:
+        cards_by_group.setdefault(identity, []).append(card)
+    original_by_identity = {group.fixture_identity: group for group in original_groups}
+    groups = tuple(replace(original_by_identity[identity], cards=tuple(cards))
+                   for identity, cards in cards_by_group.items())
+    # Highlight membership is independent of model-probability order.
+    # Highlights stay attached to cards; opening defaults follow the
     # visible page, while clicked preferences stay attached to fixture keys.
     if groups:
         with st.container(key='wettfinder_v2_additional'):
@@ -4774,7 +4779,10 @@ def _render_editorial_rail(choices, tennis_cards, *, daily3_allowed, target_labe
             st.image(str(assets / 'stadium-cover.png'), width='stretch', output_format='JPEG')
             st.markdown('<div class="se-cover-content"><span class="se-cover-tag">DAILY3</span>'
                 '<h2>Deine Tagesauswahl.</h2><p>CHF 50 Tagesbudget<br>Bis zu drei Einzelwetten.</p></div>', unsafe_allow_html=True)
-        for index, choice in enumerate(choices, 1):
+        display_choices = ordered_event_rows(enumerate(choices, 1),
+            event_key=lambda item: item[1].event_id, starts_at=lambda item: item[1].start,
+            probability=lambda item: item[1].signal.probability)
+        for index, choice in display_choices:
             signal = choice.signal
             st.markdown('<div class="se-rail-choice"><span class="se-choice-rank">' + str(index)
                 + '</span><div><strong>' + escape(signal.event_label) + '</strong><span>'

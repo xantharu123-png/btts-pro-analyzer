@@ -79,6 +79,18 @@ def _render(monkeypatch, rows, *, quotes=None, job_result=None):
     return render, surface, snapshot
 
 
+def test_real_manual_football_orders_all_visible_markets_by_game_max_without_reselection(monkeypatch):
+    first = _row('RESULT_HOME', fixture=1, complete=True, probability=.60)
+    high = _row('TOTAL_OVER_1_5', fixture=1, probability=.90)
+    middle = _row('BTTS_YES', fixture=2, probability=.80)
+    rows = [first, middle, high]
+    before = deepcopy(rows)
+    render, surface, snapshot = _render(monkeypatch, rows)
+    surface.session_state['manual_football_order'] = 'Startzeit'
+    assert render(SearchFilters()) == ['1:TOTAL_OVER_1_5', '1:RESULT_HOME', '2:BTTS_YES']
+    assert rows == before and snapshot['model_shortlist'] is rows
+
+
 def test_probability_filter_can_find_a_cached_candidate_after_25(monkeypatch):
     rows = [_row("BTTS_YES", fixture=i, probability=.90) for i in range(1, 31)]
     rows[-1].probability = .61
