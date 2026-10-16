@@ -4326,7 +4326,10 @@ def run_wettfinder(
             if isinstance(risk_run, Mapping):
                 from types import SimpleNamespace
                 from riskobet_automation import snapshot_from_dict
-                bridge_run = SimpleNamespace(snapshots=tuple(snapshot_from_dict(row) for row in risk_run.get('snapshots', ())))
+                bridge_errors = risk_run.get('errors', ())
+                bridge_run = SimpleNamespace(
+                    snapshots=tuple(snapshot_from_dict(row) for row in risk_run.get('snapshots', ())),
+                    errors=tuple(bridge_errors) if isinstance(bridge_errors, (list, tuple)) else ())
             else:
                 bridge_run = risk_run
             team_rows = team_sport_forecast_rows(bridge_run, now=current, target_date=target)

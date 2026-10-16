@@ -145,6 +145,51 @@ def test_normal_artifact_reader_card_and_strict_isolation(tmp_path):
         replace(signals[0], team_sport_snapshot=['bad'])
 
 
+@pytest.mark.parametrize('error_sport', ['ice_hockey', 'basketball', 'football'])
+def test_mapping_runner_preserves_owned_source_errors_and_typed_forecast_parity(tmp_path, error_sport):
+    import json
+    from config_loader import AppConfig
+    from riskobet_domain import RiskRunSnapshot, RunStatus
+    from wettfinder_automation import run_wettfinder
+    snapshots = (_snapshot('basketball'), _snapshot('ice_hockey'))
+    run = RiskRunSnapshot(started_at=NOW, completed_at=NOW, status=RunStatus.PARTIAL,
+        snapshots=snapshots, errors=(f'{error_sport}: source_partial https://private.invalid/?key=secret',))
+    documents = []
+    for name, runner_result in (('typed', run), ('mapping', run.to_dict())):
+        document = run_wettfinder(now=NOW, state_path=tmp_path/f'{name}.json', config=AppConfig(),
+            tennis_loader=lambda **kw: [], esports_loader=lambda **kw: [],
+            riskobet_runner=lambda **kw: runner_result)
+        assert document['riskobet']['status'] == 'partial'
+        assert document['riskobet']['error_count'] == 1
+        assert len(document['model_candidates']) == 4
+        for sport in ('basketball', 'ice_hockey'):
+            coverage = document['sources'][sport]
+            assert coverage['published_model_selection_count'] == 2
+            assert coverage['operational_error_count'] == int(sport == error_sport)
+            assert ('source_operational_error' in coverage['coverage_reasons']) == (sport == error_sport)
+        assert 'private.invalid' not in json.dumps(document) and 'secret' not in json.dumps(document)
+        documents.append(document)
+    assert documents[0]['model_candidates'] == documents[1]['model_candidates']
+    for sport in ('basketball', 'ice_hockey'):
+        assert documents[0]['sources'][sport] == documents[1]['sources'][sport]
+
+
+@pytest.mark.parametrize('errors', [None, 'ice_hockey: source_partial', {'ice_hockey': 'source_partial'}])
+def test_mapping_runner_nonsequence_errors_do_not_break_valid_forecast_rows(tmp_path, errors):
+    from config_loader import AppConfig
+    from riskobet_domain import RiskRunSnapshot, RunStatus
+    from wettfinder_automation import run_wettfinder
+    run = RiskRunSnapshot(started_at=NOW, completed_at=NOW, status=RunStatus.COMPLETE,
+        snapshots=(_snapshot('basketball'), _snapshot('ice_hockey'))).to_dict()
+    run['errors'] = errors
+    document = run_wettfinder(now=NOW, state_path=tmp_path/'mapping.json', config=AppConfig(),
+        tennis_loader=lambda **kw: [], esports_loader=lambda **kw: [], riskobet_runner=lambda **kw: run)
+    assert len(document['model_candidates']) == 4
+    for sport in ('basketball', 'ice_hockey'):
+        assert document['sources'][sport]['operational_error_count'] == 0
+        assert document['sources'][sport]['published_model_selection_count'] == 2
+
+
 @pytest.mark.parametrize('change', [
     {'schema': 'future-v2'}, {'p_home': True}, {'p_away': None}, {'p_away': .2},
     {'p_home': float('nan')}, {'training_games': True}, {'home_games': 1000},
