@@ -1,6 +1,6 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
-## 16.10.2026 – laufender NHL-Erfassungsanschluss, noch kein vollständiges Personalmodell
+## 16.10.2026 – NHL-Erfassungsanschluss live, noch kein vollständiges Personalmodell
 
 Kanonisch `.worktrees/audit-repairs-20261013`, Ausgangscommit `cc93663`.
 Aktueller Nutzerauftrag: NHL zuerst, Tests/Commit/main/VPS, **kein Backup**.
@@ -30,7 +30,23 @@ Aktueller Nutzerauftrag: NHL zuerst, Tests/Commit/main/VPS, **kein Backup**.
 - [x] Unabhängige Produkt-/Deploy-Code-Prüfung PASS. Drei fehleroffene Git-
   Inventarabfragen im externen No-Backup-Helfer RED6→GREEN10 korrigiert;
   Dokumenten-Pull separat drei Offline-Prüfungen PASS, ebenfalls reviewed.
-- [ ] Commit/main-Push und tatsächlicher No-Backup-VPS-Nachweis stehen noch aus.
+- [x] Code **bd035b71cf02368b21b72bd4ef2e765329769e8e** committed, auf GitHub
+  main gepusht und auf dem VPS per Fast-Forward gezogen. Offline-Smoke PASS,
+  App-PID1198478→1200874; App/Caddy aktiv, beide Healthchecks `ok`.
+- [x] Erster Deploy stoppte nach dem Git-Pull vor dem App-Neustart: Der externe
+  Smoke-Helfer übergab Inhaltsdaten statt eines vollständigen Empfangsbelegs.
+  Korrigiert mit der echten Fixture-Empfangszeit, kein Produktcodefehler/-umbau.
+  Regression RED→GREEN und begrenzte Resume-Prüfung unabhängig PASS;18 Helfer-
+  Tests nativ PASS. Originaler FAIL und erfolgreicher Resume bleiben erhalten:
+  `deploy-nhl-01.log` / `deploy-nhl-02.log` im unten genannten Ausgabepfad.
+- [x] Wettfinder-/RisikoBet-Snapshotfingerprints vor/nach Neustart unverändert.
+  Kein neuer Sportscan, Backup, DB-Kopie, Migration, Cleanup oder Paketinstallation.
+  Backup-Timer disabled/inactive; acht bestehende andere Timer geplant. Acht alte
+  fehlgeschlagene September-Prüfdienste bleiben als historische Belege erhalten;
+  sie sind keine neuen NHL-Laufabbrüche und wurden nicht zurückgesetzt.
+- [ ] Erster tatsächlicher regulärer NHL-Erfassungslauf nach Veröffentlichung:
+  **17.10.2026 03:35 Europe/Zurich**. Deploy-Smoke ist kein Produktions-Sportlauf;
+  dessen Quellenzähler und Ergebnis sind noch nicht nachgewiesen. Nicht extra starten.
 - [ ] **Voller NHL-Modelleffekt weiterhin offen:** Vorab-Ausfall-/Starterquelle,
   owning Training/Fallbau/Replay/Verlustprüfung und D1/D2-Abnahme fehlen.
   Ganze Spiel-Eiszeiten sind keine vollständigen Manpower-Intervalle. Historischer

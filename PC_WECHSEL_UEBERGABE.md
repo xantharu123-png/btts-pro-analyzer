@@ -18,9 +18,18 @@ ganzen Module und drei zusätzliche Hardlink-Skips mit gleichem Code nativ
 nachgeprüft:1.465PASS/21Skips/85Untertests/Exit0. Zweistufiges Gesamtaggregat
 14.582PASS/98 identische Baseline-Skips,797 unveränderte Quell-/Fixture-Hashes,
 alle12 Abdeckungsguards wahr. Keine Tests/Assertions/Preisregeln gelockert.
-Veröffentlichung noch nicht bestätigt. Belege full-qa-01 und native-recheck-01
-unter untenstehendem Ausgabepfad; keinen neuen Scan/Backup starten.
-Uncommittete neue Source-/Testdateien gehören zu diesem Auftrag, nicht entfernen.
+Code **bd035b71cf02368b21b72bd4ef2e765329769e8e** auf main gepusht/VPS live.
+Offline-Smoke PASS; AppPID1198478→1200874, App/Caddy und beide Healthchecks ok.
+Erster Deploy nach Git-Pull vor Neustart am externen Smoke-Belegaufbau gestoppt;
+reale Fixture-Empfangszeit ergänzt, Regression/Resume unabhängig PASS,18 Helfer-
+Tests nativ PASS. FAIL01 und PASS02 erhalten; Produktcode unverändert geprüft.
+Wettfinder-/RisikoBet-Snapshots exakt gleich; kein Scan/Backup/Migration/Cleanup.
+Erster echter Erfassungslauf erst regulär17.10.03:35Zurich, noch nicht belegt.
+Acht alte fehlgeschlagene September-Prüfdienste bewusst nicht zurückgesetzt;
+App/Caddy aktiv, acht andere Timer geplant, Backup-Timer disabled/inactive.
+Belege full-qa-01 und native-recheck-01 unter untenstehendem Ausgabepfad;
+keinen neuen Scan/Backup starten. Source/Test/Fixture vollständig committed;
+bekanntes ungetracktes output/audit-repairs/ und C3-Arbeitsprotokoll behalten.
 Zwei frühere lokale Fixture-Reservierungen in ignorierter Worktree-Request-DB
 offengelegt, nicht bereinigt; keine Resultat-/VPS-/Geldänderung daraus.
 Voller numerischer Personal-/Belastungseffekt ist nicht fertig: aktuelle Vorab-

@@ -102,6 +102,30 @@ Die vollständige Prüfung ist **zweistufig**, kein grüner erster Durchlauf:
   Skip jetzt tatsächlich PASS; gesamte Abdeckung **14.582PASS/98 unveränderte
   Skips**, kein Fall verloren,797 Quell-/Fixture-Hashes unverändert.
 
-Code-Commit und VPS-Nachweis folgen erst nach tatsächlicher Veröffentlichung.
+## Tatsächliche Veröffentlichung
+
+Code **bd035b71cf02368b21b72bd4ef2e765329769e8e** auf GitHub main und VPS.
+Erster Versuch `deploy-nhl-01.log` stoppte nach erfolgreichem Fast-Forward vor
+dem Neustart: Der externe Smoke validierte normalisierten Inhalt ohne den
+erforderlichen `observed_at`-Empfangsbeleg. Der Produktcode wies das korrekt ab.
+Regression aus dem echten Smoke-Block RED→GREEN; Fix verwendet ausschließlich
+die vorhandenen echten Fixture-Zeitstempel. Die eng begrenzte Resume-Funktion
+fordert den bereits gepullten exakten Zielcommit und erhält Baseline-Ancestry,
+Diff-Allowlist, Job-/Timer-/Statusprüfungen. Unabhängiges Re-Review PASS.
+18 unveränderte Helfertests außerhalb der Windows-Sandbox PASS; ihr zusätzlicher
+Sandbox-Versuch scheiterte beim Bash-Start an Windows-Named-Object-Berechtigungen.
+Keine Produktänderung oder Testlockerung dafür.
+
+`deploy-nhl-02.log`: Exit0, Offline-Smoke `ok`, AppPID1198478→1200874,
+App/Caddy aktiv und lokaler/öffentlicher Healthcheck `ok`. Wettfinder- und
+RisikoBet-Snapshotfingerprints vor/nach Neustart identisch. Kein Backup,
+Sportscan, Datenbankkopie/-migration, Cleanup oder Paketinstallation.
+Backup-Timer disabled/inactive; acht bestehende andere Timer geplant. Acht alte
+fehlgeschlagene September-Prüfdienste bleiben unberührt als historische Belege.
+
+**Ausstehender Betriebsnachweis:** Erster regulärer NHL-Erfassungslauf nach dem
+Deploy ist17.10.2026 03:35 Europe/Zurich. Seine Quellenzähler sind noch nicht
+bekannt. Kein manueller zusätzlicher Lauf gestartet; keine Vollmodellfreigabe.
+Die abschließende Übergabe ist ein separater reiner Docs-Commit ohne App-Neustart.
 Alle Zwischenstände/Fehlversuche unter
-`C:/Projekt/BetBoy/output/nhl-context-20261016/`; kein neuer Sportscan oder Backup.
+`C:/Projekt/BetBoy/output/nhl-context-20261016/` bleiben erhalten.
