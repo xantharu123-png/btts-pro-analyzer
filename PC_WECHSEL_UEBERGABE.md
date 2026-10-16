@@ -1,5 +1,16 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## 16.10.2026 – jüngste Nutzerentscheidung zu API-Schlüsseln
+
+Schlüsselrotation ausdrücklich nur als offenes To-do führen und vorerst
+zurückstellen; App laut Nutzer momentan ausschließlich persönlich genutzt.
+Die private Ersatzdatei enthält noch die drei historischen Werte, keine
+verifizierten neuen Schlüssel. Nichts davon übertragen oder als rotiert melden.
+Das Kontingent-/Missbrauchsrisiko bleibt unabhängig von der App-Nutzerzahl bestehen.
+Weitere Marktvergleichsarbeit nicht auf die Rotation warten lassen; keine
+Schlüssel-, Abo-, Zugriffs- oder Serveränderung durch diese Dokumentationsaufgabe.
+Produktcode unverändert; VPS zuletzt in diesem Chat auf `aaafba5` geprüft.
+
 ## Einstieg16.10.2026 – aktuelle reale Position
 
 Kanonisch `.worktrees/audit-repairs-20261013`, Branch `codex/audit-repairs-20261013`.

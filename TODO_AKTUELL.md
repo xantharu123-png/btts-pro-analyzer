@@ -1,5 +1,22 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 16.10.2026 – API-Schlüsselrotation auf Nutzerwunsch zurückgestellt
+
+- [ ] Die drei historisch veröffentlichten Schlüssel bei API-Football,
+  football-data.org und OpenWeather erneuern, aktive lokale/VPS-Konfigurationen
+  auf die Ersatzschlüssel umstellen und alte Schlüssel beim Anbieter widerrufen.
+  **Vorerst ausdrücklich zurückgestellt:** BetBoy wird nach Nutzerangabe aktuell
+  nur persönlich verwendet. Nicht als erledigt oder sicher markiert; die Rotation
+  soll die weitere Arbeit am Marktvergleich jetzt nicht blockieren.
+- Die private Ersatzdatei wurde geprüft: alle drei Felder sind gefüllt, enthalten
+  aber noch dieselben Werte wie die historischen Git-Versionen. Keine Werte in
+  diese Dokumentation übernehmen; nichts davon wurde neu auf den VPS übertragen.
+- Rest-Risiko: Persönliche App-Nutzung verhindert nicht, dass veröffentlichte
+  Schlüssel von Dritten zum Verbrauch des API-Kontingents verwendet werden.
+- Keine Schlüssel, Anbieter-Abos, Zugriffsregeln oder Serverkonfigurationen
+  geändert. Marktvergleich bleibt beauftragt; keine neue Quoten-/Tippsperre aus
+  dieser Zurückstellung ableiten. Vor einem Kundenzugang erneut aufgreifen.
+
 ## 16.10.2026 – Wahrscheinlichkeitssortierung geprüft und live
 
 - [x] Indexcode `c110d8e` lokal vollständig geprüft:14.239 PASS/98 unveränderte
