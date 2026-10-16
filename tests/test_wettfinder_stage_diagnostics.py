@@ -126,7 +126,8 @@ def test_production_stages_preserve_document_order_and_private_callbacks(tmp_pat
         assert db_path == private_tennis and as_of == now
         return {'status': 'completed', 'errors': []}
 
-    def sources(_football_state, *, now, target_date, research_due):
+    def sources(_football_state, *, now, target_date, research_due,
+                nhl_capture_path=None, nhl_capture_report=None):
         calls.append('riskobet_sources')
         assert target_date == now.date() and research_due is True
         data = {sport: () for sport in ('football', 'tennis', 'basketball', 'ice_hockey', 'esports')}

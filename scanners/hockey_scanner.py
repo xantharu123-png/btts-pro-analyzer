@@ -21,9 +21,13 @@ class HockeyScanner:
         self.nhl, self.api = nhl, api
         self.errors, self.history_coverage = {}, {}
 
-    def get_upcoming_games(self, start: date, end: date):
+    def get_upcoming_games(self, start: date, end: date, *, nhl_end: date | None = None):
         history_window(start, end)
         if (end - start).days > 14:
+            raise ValueError("Schedule window must span zero to fourteen days")
+        native_end = end if nhl_end is None else nhl_end
+        history_window(start, native_end)
+        if (native_end - start).days > 14:
             raise ValueError("Schedule window must span zero to fourteen days")
         self.errors, rows = {}, []
         for provider, scanner, method in (
@@ -31,7 +35,7 @@ class HockeyScanner:
             ("API-Hockey", self.api, self.api.get_upcoming_games),
         ):
             try:
-                extra = list(method(start, end))
+                extra = list(method(start, native_end if provider == "NHL" else end))
                 # NHL stays on its existing free native source. Never count a
                 # second provider's copy as independent evidence.
                 rows.extend(row for row in extra if provider == "NHL"
@@ -86,10 +90,18 @@ class HockeyScanner:
         return rows
 
 
-def completed_hockey_loader(scanner, target_date):
+def completed_hockey_loader(scanner, target_date, *, collector=None):
     def load(*, as_of, events=None, **_kwargs):
         rows = scanner.get_completed_games(target_date - timedelta(days=365), target_date,
                                            as_of=as_of, events=events)
         load.coverage = scanner.history_coverage
+        if collector is not None:
+            try:
+                collector(events=events, completed_rows=rows)
+            except Exception:
+                # Optional source intake never erases valid baseline results or
+                # changes their result-status coverage. Admin reporting is owned
+                # by the collector closure, not public forecast prose.
+                pass
         return rows
     return load

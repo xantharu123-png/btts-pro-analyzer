@@ -1,6 +1,6 @@
 """Immutable same-call research forecasts; no provider or model execution."""
 from dataclasses import dataclass, fields
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import math
 import re
 from types import MappingProxyType
@@ -175,12 +175,30 @@ class TeamSportForecast:
             raise ValueError('forecast is not bound to snapshot')
 
 
+def automatic_team_sport_day(*, starts_at, now, target_date, sport, provider):
+    """Calendar eligibility plus native NHL's current-day elapsed 24h horizon.
+
+    Consumers must supply the canonical sport/provider from validated bound
+    evidence, never display labels or team abbreviations. UTC conversion makes
+    the rolling exception invariant across Zurich's DST clock changes.
+    """
+    starts_at, now = _clock(starts_at), _clock(now)
+    if starts_at <= now:
+        return False
+    if starts_at.astimezone(ZoneInfo('Europe/Zurich')).date() == target_date:
+        return True
+    return (sport == 'ice_hockey' and provider == 'NHL'
+            and target_date == now.astimezone(ZoneInfo('Europe/Zurich')).date()
+            and starts_at <= now + timedelta(hours=24))
+
+
 def team_sport_forecast_rows(run, *, now, target_date):
     now = _clock(now)
     result = []
     for snapshot in run.snapshots:
         payload = snapshot.team_sport_forecast
-        if payload is None or snapshot.starts_at <= now or snapshot.starts_at.astimezone(ZoneInfo('Europe/Zurich')).date() != target_date:
+        if payload is None or not automatic_team_sport_day(starts_at=snapshot.starts_at,
+                now=now, target_date=target_date, sport=snapshot.sport, provider=payload.provider):
             continue
         if snapshot.modeled_at > now or payload.source_observed_at > now or not snapshot.factors or any(f.fresh_until < now for f in snapshot.factors):
             continue
@@ -238,10 +256,12 @@ def research_signal_row(signal):
 
 
 def team_sport_source_coverage(run, rows, *, now, target_date):
+    now = _clock(now)
     result = {}
     for sport, label in SPORT_NAMES.items():
-        snapshots = [s for s in run.snapshots if s.sport == sport and s.starts_at > now
-                     and s.starts_at.astimezone(ZoneInfo('Europe/Zurich')).date() == target_date]
+        snapshots = [s for s in run.snapshots if s.sport == sport
+                     and automatic_team_sport_day(starts_at=s.starts_at, now=now, target_date=target_date,
+                         sport=s.sport, provider=s.team_sport_forecast.provider if s.team_sport_forecast else None)]
         count = sum(row['sport'] == label for row in rows)
         reasons = []
         operational_errors = sum(type(error) is str and error.partition(':')[0].strip() == sport

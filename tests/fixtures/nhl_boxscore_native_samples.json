@@ -1,0 +1,37 @@
+{
+  "evidence": {
+    "completed_url": "https://api-web.nhle.com/v1/gamecenter/2025020001/boxscore",
+    "completed_observed_at": "2026-10-16T20:03:11.738473+00:00",
+    "completed_body_bytes": 13529,
+    "completed_projection": "One actual forward, defense and goalie per side; sampled, NOT complete roster coverage. Name/media fields removed.",
+    "future_url": "https://api-web.nhle.com/v1/gamecenter/2026020119/boxscore",
+    "future_observed_at": "2026-10-16T20:03:23.875112+00:00",
+    "future_body_bytes": 1343
+  },
+  "completed": {
+    "id": 2025020001, "season": 20252026, "gameType": 2,
+    "startTimeUTC": "2025-10-07T21:00:00Z", "gameState": "OFF", "gameScheduleState": "OK",
+    "homeTeam": {"id": 13, "score": 3, "abbrev": "FLA"},
+    "awayTeam": {"id": 16, "score": 2, "abbrev": "CHI"},
+    "gameOutcome": {"lastPeriodType": "REG"},
+    "periodDescriptor": {"number": 3, "periodType": "REG", "maxRegulationPeriods": 3},
+    "clock": {"timeRemaining": "00:00", "secondsRemaining": 0, "running": false, "inIntermission": false},
+    "playerByGameStats": {
+      "awayTeam": {
+        "forwards": [{"playerId": 8477987, "position": "C", "goals": 0, "assists": 0, "points": 0, "plusMinus": 0, "pim": 0, "hits": 3, "powerPlayGoals": 0, "sog": 1, "faceoffWinningPctg": 0.0, "toi": "16:00", "blockedShots": 0, "shifts": 23, "giveaways": 0, "takeaways": 0}],
+        "defense": [{"playerId": 8476473, "position": "D", "goals": 0, "assists": 0, "points": 0, "plusMinus": -1, "pim": 0, "hits": 0, "powerPlayGoals": 0, "sog": 2, "faceoffWinningPctg": 0.0, "toi": "18:33", "blockedShots": 3, "shifts": 25, "giveaways": 3, "takeaways": 0}],
+        "goalies": [{"playerId": 8481519, "position": "G", "evenStrengthShotsAgainst": "29/31", "powerPlayShotsAgainst": "4/5", "shorthandedShotsAgainst": "1/1", "saveShotsAgainst": "34/37", "savePctg": 0.918919, "evenStrengthGoalsAgainst": 2, "powerPlayGoalsAgainst": 1, "shorthandedGoalsAgainst": 0, "pim": 0, "goalsAgainst": 3, "toi": "59:04", "starter": true, "decision": "L", "shotsAgainst": 37, "saves": 34}]
+      },
+      "homeTeam": {
+        "forwards": [{"playerId": 8477935, "position": "C", "goals": 0, "assists": 0, "points": 0, "plusMinus": -1, "pim": 0, "hits": 1, "powerPlayGoals": 0, "sog": 4, "faceoffWinningPctg": 0.555556, "toi": "19:15", "blockedShots": 0, "shifts": 26, "giveaways": 0, "takeaways": 1}],
+        "defense": [{"playerId": 8473507, "position": "D", "goals": 0, "assists": 0, "points": 0, "plusMinus": -1, "pim": 0, "hits": 0, "powerPlayGoals": 0, "sog": 1, "faceoffWinningPctg": 0.0, "toi": "13:59", "blockedShots": 0, "shifts": 24, "giveaways": 2, "takeaways": 0}],
+        "goalies": [{"playerId": 8480193, "position": "G", "evenStrengthShotsAgainst": "0/0", "powerPlayShotsAgainst": "0/0", "shorthandedShotsAgainst": "0/0", "saveShotsAgainst": "0/0", "evenStrengthGoalsAgainst": 0, "powerPlayGoalsAgainst": 0, "shorthandedGoalsAgainst": 0, "pim": 0, "goalsAgainst": 0, "toi": "00:00", "starter": false, "shotsAgainst": 0, "saves": 0}]
+      }
+    }
+  },
+  "future": {
+    "id": 2026020119, "season": 20262027, "gameType": 2,
+    "startTimeUTC": "2026-10-17T01:00:00Z", "gameState": "FUT", "gameScheduleState": "OK",
+    "homeTeam": {"id": 21, "abbrev": "COL"}, "awayTeam": {"id": 5, "abbrev": "PIT"}
+  }
+}

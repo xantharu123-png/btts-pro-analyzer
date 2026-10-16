@@ -739,7 +739,7 @@ def _ranked_candidates(
     preserve_order: bool = False,
 ) -> list[dict[str, Any]]:
     """Validate and rank candidates for exactly one Zurich match day."""
-    from team_sport_forecasts import SOURCE as TEAM_SOURCE, valid_research_row
+    from team_sport_forecasts import SOURCE as TEAM_SOURCE, automatic_team_sport_day, valid_research_row
     current = _utc(now)
     target = target_date or target_search_date(current)
     stage_rank = {"RELEASED": 2, "SHADOW": 1, "RESEARCH": 0}
@@ -748,7 +748,9 @@ def _ranked_candidates(
         if not isinstance(row, dict) or row.get("status") != "PRICE_REQUIRED":
             continue
         if row.get('source') == TEAM_SOURCE:
-            if valid_research_row(row, now=current) and _parse_iso(row['scheduled_start']).astimezone(ZURICH_TZ).date() == target:
+            if valid_research_row(row, now=current) and automatic_team_sport_day(
+                    starts_at=_parse_iso(row['scheduled_start']), now=current, target_date=target,
+                    sport=row['team_sport_snapshot']['sport'], provider=row['fixture_source']):
                 valid.append(dict(row))
             continue
         evidence_stage = str(row.get("evidence_stage") or "")
@@ -2921,6 +2923,7 @@ def _riskobet_research_batch(
         Callable[..., Iterable[Mapping[str, object]]]
     ] = None,
     clock: Optional[Callable[[], datetime]] = None,
+    event_day_filter=None,
 ) -> RiskSourceBatch:
     """Adapt scheduled research events independently and without invented p."""
 
@@ -2940,6 +2943,8 @@ def _riskobet_research_batch(
             or prepared.get("scheduled_at")
         )
         if start is None or start <= source_time:
+            continue
+        if event_day_filter is not None and not event_day_filter(prepared, start, source_time):
             continue
         if (
             prepared.get("source_observed_at") in (None, "")
@@ -3035,13 +3040,31 @@ def _default_ice_hockey_risk_source(
     history_loader: Optional[
         Callable[..., Iterable[Mapping[str, object]]]
     ] = None,
-    *, clock: Optional[Callable[[], datetime]] = None,
+    *, clock: Optional[Callable[[], datetime]] = None, context_collector=None,
+    include_overnight_nhl: bool = False,
 ) -> RiskSourceBatch:
     from scanners.hockey_scanner import HockeyScanner, completed_hockey_loader
 
     scanner = HockeyScanner()
-    events = scanner.get_upcoming_games(target_date, target_date)
-    resolved_history_loader = history_loader or completed_hockey_loader(scanner, target_date)
+    event_day_filter = None
+    schedule_kwargs = {}
+    if include_overnight_nhl:
+        from team_sport_forecasts import automatic_team_sport_day, _clock
+        decision = _clock(clock() if clock is not None else now)
+        if target_date == decision.astimezone(ZURICH_TZ).date():
+            schedule_kwargs['nhl_end'] = (decision + timedelta(hours=24)).astimezone(ZURICH_TZ).date()
+
+        def event_day_filter(event, start, source_time):
+            provider = event.get('provider') or event.get('source')
+            native = (provider == 'NHL' and event.get('source') in (None, 'NHL')
+                      and event.get('sport') in (None, 'ice_hockey')
+                      and event.get('source_contract') is None)
+            return automatic_team_sport_day(starts_at=start, now=source_time, target_date=target_date,
+                sport='ice_hockey', provider='NHL' if native else None)
+
+    events = scanner.get_upcoming_games(target_date, target_date, **schedule_kwargs)
+    resolved_history_loader = history_loader or completed_hockey_loader(
+        scanner, target_date, collector=context_collector)
     return _riskobet_research_batch(
         "ice_hockey",
         events,
@@ -3050,6 +3073,7 @@ def _default_ice_hockey_risk_source(
         source_errors=scanner.errors.values(),
         history_loader=resolved_history_loader,
         clock=clock,
+        event_day_filter=event_day_filter,
     )
 
 
@@ -3094,8 +3118,20 @@ def _riskobet_default_sources(
         Mapping[str, Callable[..., Iterable[Mapping[str, object]]]]
     ] = None,
     clock: Optional[Callable[[], datetime]] = None,
+    nhl_capture_path=None,
+    nhl_capture_report=None,
 ) -> tuple[dict[str, object], dict[str, bool]]:
     research_history_loaders = dict(history_loaders or {})
+    nhl_collector = None
+    if nhl_capture_path is not None and nhl_capture_report is not None:
+        from context_sources.nhl_capture import daily_nhl_collector, empty_capture_report
+        nhl_capture_report.clear()
+        nhl_capture_report.update(empty_capture_report(
+            "not_due" if not research_due else "custom_history_loader" if
+            "ice_hockey" in research_history_loaders else "no_eligible_games"))
+        if research_due and "ice_hockey" not in research_history_loaders:
+            nhl_collector = daily_nhl_collector(path=nhl_capture_path,
+                                               report=nhl_capture_report, clock=clock)
     next_day = target_date + timedelta(days=1)
     window_end = datetime.combine(
         next_day,
@@ -3140,6 +3176,8 @@ def _riskobet_default_sources(
                     now,
                     research_history_loaders.get("ice_hockey"),
                     clock=clock,
+                    context_collector=nhl_collector,
+                    include_overnight_nhl=True,
                 ),
                 "cricket": lambda: _default_cricket_risk_source(
                     target_date,
@@ -4209,10 +4247,15 @@ def run_wettfinder(
     }
     if enable_riskobet:
         if production_state and riskobet_sources is None:
+            from runtime_paths import CONTEXT_MODEL_DB_PATH
+            from context_sources.nhl_capture import empty_capture_report
+            document["nhl_context_capture"] = empty_capture_report()
             default_source_kwargs: dict[str, object] = {
                 "now": current,
                 "target_date": target,
                 "research_due": research_discovery_due,
+                "nhl_capture_path": CONTEXT_MODEL_DB_PATH,
+                "nhl_capture_report": document["nhl_context_capture"],
             }
             if not fixed_now:
                 default_source_kwargs["clock"] = runtime_clock

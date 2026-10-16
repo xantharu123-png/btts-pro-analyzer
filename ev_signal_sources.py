@@ -1173,7 +1173,9 @@ def _load_automated_wettfinder_document(
         if row.get('source') == TEAM_RESEARCH_SOURCE:
             if not valid_research_row(row, now=generated):
                 return None
-            if _parse_iso(row['scheduled_start']).astimezone(ZURICH_TZ).date() != target:
+            from team_sport_forecasts import automatic_team_sport_day
+            if not automatic_team_sport_day(starts_at=_parse_iso(row['scheduled_start']), now=generated,
+                    target_date=target, sport=row['team_sport_snapshot']['sport'], provider=row['fixture_source']):
                 return None
             scheduled_by_key[row['key']] = _parse_iso(row['scheduled_start'])
             continue

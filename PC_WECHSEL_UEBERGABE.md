@@ -1,5 +1,35 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## 16.10.2026 – NHL zuerst: native Erfassung, Vollmodell noch offen
+
+Aktiv weiter im isolierten `.worktrees/audit-repairs-20261013`, Basis `cc93663`;
+Nutzer erlaubt Tests/main-Push/VPS ausdrücklich ohne neues Backup.
+`context_sources/nhl.py` liest echte native Boxscores mit Goalie-Starts/Saves,
+Spieler-TOI/Schichten und echten Empfangszeiten. `nhl_capture.py` verbindet den
+fälligen Tageslauf mit B1/der vorhandenen Request-DB; höchstens32/UTC-Tag und1MiB
+neue Belege pro Aufruf. Keine neue DB, kein Kartenabruf/zusätzlicher Sportscan.
+Source-Review PASS; täglicher Anschluss nach UTC-Fix ebenfalls unabhängig PASS;
+438 fokussierte/angrenzende Tests grün. NHL-Nachtfenster durch tatsächlichen
+gespeicherten Leser korrigiert,23 neue Fälle/503 angrenzende Tests PASS.
+Unabhängiges Produkt- und No-Backup-Deploy-Code-Review PASS; Git-Abfragefehler
+im Hilfsskript mit RED6→GREEN10 gehärtet. Voll-QA01 offline:14.680
+Tests/all14.536 alten IDs fertig. Initiale Sandbox-FAILs behalten; alle betroffenen
+ganzen Module und drei zusätzliche Hardlink-Skips mit gleichem Code nativ
+nachgeprüft:1.465PASS/21Skips/85Untertests/Exit0. Zweistufiges Gesamtaggregat
+14.582PASS/98 identische Baseline-Skips,797 unveränderte Quell-/Fixture-Hashes,
+alle12 Abdeckungsguards wahr. Keine Tests/Assertions/Preisregeln gelockert.
+Veröffentlichung noch nicht bestätigt. Belege full-qa-01 und native-recheck-01
+unter untenstehendem Ausgabepfad; keinen neuen Scan/Backup starten.
+Uncommittete neue Source-/Testdateien gehören zu diesem Auftrag, nicht entfernen.
+Zwei frühere lokale Fixture-Reservierungen in ignorierter Worktree-Request-DB
+offengelegt, nicht bereinigt; keine Resultat-/VPS-/Geldänderung daraus.
+Voller numerischer Personal-/Belastungseffekt ist nicht fertig: aktuelle Vorab-
+Ausfall-/Starterquelle und owning Hockey-Training/Replay/D1/D2 fehlen. Historische
+Ganzspiel-TOI nicht als Regulation-Manpower umetikettieren. Keine Wahrscheinlichkeiten
+erfinden und diese Erfassung nicht als bessere Wettqualität verkaufen.
+Aktueller Bericht `docs/audits/2026-10-16-nhl-source-intake.md`, Arbeitsbelege
+`C:/Projekt/BetBoy/output/nhl-context-20261016/`, C3-SDD bleibt erhalten.
+
 ## 16.10.2026 – Quellen-/QA-Patch live; voller Hockey-Kontext weiterhin offen
 
 Nutzer erneuert All-5-Kontextauftrag plus Tests/Commit/main/VPS ohne Backup;

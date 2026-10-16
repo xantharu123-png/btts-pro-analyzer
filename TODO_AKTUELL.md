@@ -1,5 +1,47 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 16.10.2026 – laufender NHL-Erfassungsanschluss, noch kein vollständiges Personalmodell
+
+Kanonisch `.worktrees/audit-repairs-20261013`, Ausgangscommit `cc93663`.
+Aktueller Nutzerauftrag: NHL zuerst, Tests/Commit/main/VPS, **kein Backup**.
+
+- [x] Echter nativer NHL-Boxscore-Adapter und platzsparender bestehender
+  B1-Speicher: native IDs, historische Goalie-Starts/Saves/Schüsse, Eiszeiten,
+  Schichten, echte Empfangszeit, REG/OT/SO-Unterscheidung. Kein neuer Datenspeicher.
+- [x] Zwei begrenzte echte kostenlose Quellenproben; kleine ausdrücklich
+  unvollständige echte Testfixture eingecheckt, keine API-Football-Anfragen.
+- [x] Opt-in an den fälligen Produktions-Tageslauf; dieselben entdeckten Spiele
+  und geladenen Resultate, maximal32 native Abrufe/UTC-Tag und1MiB neue Belege
+  je Aufruf. Keine Karten-/Importabfrage, keine zweite Sportsuche.
+- [x] Erste unabhängige Source-Prüfung PASS; OT-Restzeitgrenze300Sekunden in
+  der regulären Saison korrigiert, Playoffs bleiben getrennt.
+- [x] Zweite unabhängige Prüfung: UTC-Tageslimit bei nicht-UTC-Testuhr korrigiert,
+  echtes Speicher-RED2→GREEN2;438 Anschluss-/Nachbartests grün, Re-Review PASS.
+- [x] NHL-Nachtfenster korrigiert:03:35-Tageslauf berücksichtigt native nächste
+  Nacht bis24 verstrichene Stunden. Durch Suche/Modell/Katalog/gespeicherten Leser
+  geprüft; andere Sportarten/manuelle Tagesgrenzen unverändert.23 neue Fälle,
+ 503 angrenzende Tests grün. Unabhängiges Produkt-Code-Review PASS.
+- [x] Zweistufige vollständige Offline-Prüfung:14.680 Fälle, alle14.536 früheren
+  IDs erhalten. Initiale Windows-Sandbox-FAILs unverändert dokumentiert; ganze
+  betroffene Module plus drei zusätzliche Hardlink-Skips nativ mit identischem
+  Code nachgeprüft:1.465PASS/21 bestehende Skips/85 Untertests/Exit0.
+  Aggregat **14.582PASS/98 unveränderte Skips**, alle12 Abdeckungsprüfungen wahr,
+  797 Quell-/Fixture-Hashes unverändert. Kein Test/keine Assertion entfernt.
+- [x] Unabhängige Produkt-/Deploy-Code-Prüfung PASS. Drei fehleroffene Git-
+  Inventarabfragen im externen No-Backup-Helfer RED6→GREEN10 korrigiert;
+  Dokumenten-Pull separat drei Offline-Prüfungen PASS, ebenfalls reviewed.
+- [ ] Commit/main-Push und tatsächlicher No-Backup-VPS-Nachweis stehen noch aus.
+- [ ] **Voller NHL-Modelleffekt weiterhin offen:** Vorab-Ausfall-/Starterquelle,
+  owning Training/Fallbau/Replay/Verlustprüfung und D1/D2-Abnahme fehlen.
+  Ganze Spiel-Eiszeiten sind keine vollständigen Manpower-Intervalle. Historischer
+  Starter ist kein bestätigter nächster Starter. Kein erfundener Müdigkeitsabschlag.
+
+Eine frühe isolierte QA schrieb zwei synthetische `NHL-context`-Abrufreservierungen
+in die ignorierte lokale Worktree-Historien-DB. Keine Ergebnisrevision, B1-Daten,
+VPS- oder Geldänderung. Ursache explizite Pfadbindung korrigiert; lokale Belege
+bewusst nicht gelöscht. Details und Prüfverweise:
+[NHL-Erfassungsbericht](docs/audits/2026-10-16-nhl-source-intake.md).
+
 ## 16.10.2026 – Quellen-/QA-Reparaturen live; voller Hockey-Kontext bleibt offen
 
 Nutzer verlangt vollständigen Fünf-Ligen-Ausbau, historische Prüfung, Tests,

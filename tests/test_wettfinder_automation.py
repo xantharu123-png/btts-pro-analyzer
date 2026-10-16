@@ -4614,7 +4614,8 @@ def test_failed_research_attempt_is_retried_without_new_football_discovery(
     )
     captured = {}
 
-    def safe_sources(_football_state, *, now, target_date, research_due):
+    def safe_sources(_football_state, *, now, target_date, research_due,
+                     nhl_capture_path=None, nhl_capture_report=None):
         captured["research_due"] = research_due
         sources = {
             sport: ()
