@@ -32,15 +32,31 @@ ersetzt frühere Anforderungen, unbepreiste Modell-Auswahlen öffentlich zu zeig
   32 bestandene Untertests, Exit0. Alle14.350 alten Test-IDs erhalten,
   jetzt14.462 gesammelt;786 relevante Quellhashes während QA unverändert.
   Komplette14K-Vollsuite für diesen Patch nicht erneut ausgeführt.
-- [ ] Commit/Push und echte VPS-Abnahme. Frühere fehlgeschlagene Prüfläufe
-  werden nicht als Vollpass umgedeutet.
+- [x] Codecommit`aab9fb2` auf main gepusht und per Fast-Forward auf VPS live.
+  Reiner Preisjob16:55:49–16:56:00CEST abgeschlossen, Exit0:123 Quoten,
+  0 Abruf-/Betriebsfehler.32 Fußball-Preisfixtures,2 Tennis ohne passende
+  Angebote,14 Team-Sport-Zielzeilen; kein fälliger E-Sport-Bestand.
+- [x] Echte Abnahme:118 unveränderte gespeicherte Modelle,54 öffentliche
+  Wettfinder-Auswahlen, kleinste echte Quote1,20. Dinamo HOME_OVER_0_5 mit
+  Bestquote1,11/drei Anbietern gespeichert und öffentlich verborgen.
+  Beide Vorher-Fingerprints von Modell und RisikoBet ausdrücklich gegen
+  Nachher geprüft:identisch. Keine Modellzeit oder Wahrscheinlichkeit erneuert.
+- [x] Weitere echte Verbraucherprüfung:Daily3 eine Auswahl mit1,58; RisikoBet
+  36 Szenarien mit kleinster tatsächlich gebundener Quote1,42. Interner Browser
+  nach Reload:Wettfinder1,22, Daily3 1,58,15K1,32/1,21/1,28; RisikoBet lädt.
+  Keine Geld-, Reserve-, Speicher- oder Abrechnungsaktion betätigt.
+- [x] App/Caddy aktiv, beide Healthchecks ok; Quoten-Timer aktiv/aktiviert,
+  nächster Termin18:15CEST, danachalle3h. Backup-Timer weiter deaktiviert;
+  kein neues Backup, keine neue Datenbank und keine Bereinigung erstellt.
+  Historische Fehlreceipts und bekannte separate Shadow-Probleme nicht gelöscht
+  oder als gelöst umgedeutet.
 
 Konkreter Originalfall: Dinamo Bucuresti – FC Botosani, Fixture1565271,
 HOME_OVER_0_5. Ein gezielter vorhandener API-Football-Abruf lieferte tatsächlich
 1,07–1,11 bei drei Anbietern, nicht die nutzerseitig genannten1,01. Alle liegen
 unter1,20. Die Originalantwort vom Morgen wurde nicht archiviert; ihre damalige
 fehlende Speicherung kann daher nicht nachträglich exakt rekonstruiert werden.
-Der neue Produktionsnachweis folgt nach dem reinen Preisrefresh.
+Der abgeschlossene reine Preisrefresh bestätigt Bestquote1,11 und Ausblendung.
 
 Abgrenzung: Verletzungs-/Müdigkeits-/Wetterqualität und Marktvergleich sind damit
 nicht nachgewiesen; Schlüsselrotation bleibt ausdrücklich zurückgestellt.

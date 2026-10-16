@@ -13,12 +13,19 @@ Sitzungen verdrängen. Quotenjob alle3h, keine neue Modell-/Sportsuche.
 Produktreview abgeschlossen; finale betroffene QA2.493 PASS/7 bestehende Skips/
 32 Untertests/Exit0. Alle14.350 alten IDs erhalten, jetzt14.462 gesammelt;
 786 Quellhashes eingefroren. Keine erneute komplette14K-Vollsuite.
-Commit/Deploy noch ausstehend.
+Codecommit`aab9fb2` auf main/VPS live. Reiner Quotenjob16:56CEST Exit0,
+123 Quoten/0 Fehler; kein Sportscan/Backup. Dinamo exakt1,11 gespeichert und
+verborgen,54 öffentliche Wettfinder-Auswahlen alle>=1,20. Daily3 aktuell1,58;
+36 RisikoBet-Szenarien alle>=1,42. Vorher-/Nachher-Modell- und RisikoBet-
+Fingerprints ausdrücklich identisch. App/Caddy/Healthchecks ok, Quoten-Timer
+alle3h aktiv, nächste18:15CEST. Browser frisch geprüft; keine Geldaktion.
 Aktuelle Test-/Prüfbelege außerhalb Git unter
 `C:/Projekt/BetBoy/output/quote-refresh-20261016`; frühere FAIL-Receipts erhalten.
-No-Backup-Deploypfad dort `deploy.sh`, **nicht** den bestehenden
-backupfähigen Standard-Updater aufrufen. Nach Preisjobfinish exakte Dinamoquote
-und unveränderte Modell-/RisikoBet-Fingerprints prüfen, dann interner Browser.
+Verwendeter No-Backup-Deploypfad dort`deploy.sh`, **nicht** den bestehenden
+backupfähigen Standard-Updater aufrufen. Produktionsbelege`deploy-01.log`,
+`runtime-proof-02.json`, `consumer-proof-01.json`; erster Read-only-Prüfaufruf
+scheiterte nur am absichtlich fehlenden ubuntu-Verzeichnisrecht, Wiederholung
+als App-Benutzer erfolgreich. Keine Behauptung einer vollständigen14K-Neuprüfung.
 Alle offenen fachlichen Aufgaben und zurückgestellte Schlüsselrotation bleiben.
 
 ## 16.10.2026 – jüngste Nutzerentscheidung zu API-Schlüsseln
