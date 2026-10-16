@@ -1,5 +1,56 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 16.10.2026 – Index-Nativtest gescheitert; Sortier-QA02 vorbereitet
+
+- [x] Indexcode `c110d8e` lokal vollständig geprüft:14.239 PASS/98 unveränderte
+  Skips/147 Untertests, alle14.337IDs erhalten; Fast-Forward auf main/VPS.
+  Nur kompatible Vorbereitung, kein abgeschlossener Index-Release.
+- [x] Index vollständig aufgebaut:2.616.120Belege, ready,1.256.552 logische
+  Bytes/1.429.504 physische Tabellenseitenbytes. Originaldaten geschützt.
+- [ ] **Nativer Vier-Fall-Nachweis FAIL0/4/Exit1:** gewählter historischer
+  Payloadumfang11.589.186Bytes überschreitet2MiB/Fall und8MiB gesamt.
+  Keine Quelle/Fälle/Belegrevisionen/Grenzen still ändern. Native Testdauer
+  2,410s ist kein erfolgreicher Merkmalsnachweis.
+- [x] Vorgesehener Fehlerfall ausgeführt: Index ausdrücklich deaktiviert,
+  kompatibler Code behalten; keine alte schemaunverträgliche Version einspielen.
+  Originalzahlen seit Resume unverändert; alle79 alten Finanzdateien unverändert,
+  zusätzlich eine neue Sitzungsdatei separat ausgewiesen. Beide Healthchecks ok.
+- [x] Neu ausdrücklich freigegeben: Modelltipps innerhalb eines Spiels und
+  Spielblöcke überall nach Modellwahrscheinlichkeit absteigend; bei Gleichstand
+  echte Startzeit/stabile Ordnung. Keine Quoten-/Modell-/Auswahländerung.
+- [x] Sortierpatch `0859468` auf Arbeitsbranch committed/gepusht,395 gezielte
+  Tests/13 neue IDs, unabhängiges Review ohne Befunde. Daily3-Anzeige sortiert,
+  echte zeitliche Einsatzfolge und nächste ausführbare Auswahl unverändert.
+- [x] Ganze Sortier-QA01 tatsächlich beendet: **14.250 PASS, 2 FAIL,
+  98 unveränderte Skips, 147 Untertests**. Alle 14.350 IDs genau einmal,
+  771 Quellhashes, Root-WIP und 45 frühere Receipts unverändert. Kein Vollpass.
+- [x] Zwei unabhängig eingegrenzte Prüfadapter mit `7fea742` korrigiert: Der isolierte
+  Navigations-Namespace muss die real vorhandene Sortierfunktion importieren;
+  der Prematch-Test darf den bewusst entfernten Startzeitumschalter nicht mehr
+  verlangen. Nur zwei Testdateien, keine Produktänderung oder gelockerten
+  Navigations-/Quoten-/Berechtigungsassertionen. 432/432 betroffene Tests und
+  alle bisherigen IDs erhalten, alle Produktquellen byte-identisch zu0859468.
+- [x] Begrenztes unabhängiges Nachreview ohne Befunde; Produktquellen,
+  Berechtigungen, Navigation und quotenunabhängige Sichtbarkeit unverändert.
+- [ ] Frische vollständige QA02 freigeben und prüfen; alle14.350IDs,
+  98Skip-Identitäten und66historischenReceipts erhalten. QA01 bleibt FAIL.
+  Vorher kein Main-/VPS-Release.
+- [ ] Sortierpatch erst nach tatsächlichem Vollsuite-PASS auf main/VPS
+  veröffentlichen und browserseitig prüfen. Noch nicht live; main/VPS c110d8e.
+
+Keine neuen Sicherungen, Datenbankkopien, Bereinigungen, manuellen Sport-/API-
+Scans oder numerischen Effektfreigaben. [Index-Abnahme](docs/audits/2026-10-15-tennis-spielerindex-abnahme.md).
+Die Benfica-Erstkarte war technische Marktfolge, keine begründete Hauptempfehlung;
+die neue ausdrücklich gewünschte Wahrscheinlichkeitssortierung ist davon
+getrennt getestet. Marktbezogene Begründung/Modellqualität bleiben eigene Themen.
+
+Fortsetzung: Sortier-QA unter `C:/Projekt/BetBoy/output/probability-order-20261016/qa-final-01`,
+Quelle `.worktrees/audit-repairs-20261013`, Branch `codex/audit-repairs-20261013`.
+Keine abgeschlossenen Indexaufgaben/Reviews neu starten; Task6 bleibt wegen des
+echten Eingabebudget-FAIL offen. QA01-Freeze ist vollständig erfasst und freigegeben;
+nur die genannten Adapter dürfen jetzt geändert werden. Neuer HEAD erst nach
+begrenztem Review für QA02 einfrieren. Kein Release aus dem fehlgeschlagenen Lauf.
+
 ## 16.10.2026 00:11 – Prüfadapter korrigiert und unabhängig geprüft
 
 - [x] `e717936`: ausschließlich Prüfadapter, zwei exakte historische DATA-

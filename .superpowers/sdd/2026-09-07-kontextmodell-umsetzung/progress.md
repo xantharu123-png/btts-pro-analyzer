@@ -1,5 +1,35 @@
 # SDD ledger — plan: docs/superpowers/plans/2026-09-07-kontextmodell-umsetzung.md
 
+## 16 October2026: index preparation live, native input gate FAIL; UI order separate
+
+Approved six-task index plan's Tasks1–5/source review complete; wholeQA03 at
+c110d8e PASS14,239/98unchangedskips/147subtests. Compatible main/VPS preparation
+deployed without backup/API/scan. Full derived index built through2,616,120source
+rows, logical1,256,552bytes/physicaltablepages1,429,504bytes. Actual unchanged
+four-original native test FAIL0/4/exit1: selected historicalpayload11,589,186bytes
+exceeds2MiBpercase/8MiBbatch, before receiptbody admission. CPU/RSS/time fast
+does not convert the failure into qualification. Explicit disable completed;
+compatible code retained, originals and79 preexistingfinancialfiles unchanged.
+One new77,824-byte sessionfile separately recorded; totalinventorynotidentical.
+Task6/indexrelease and numericaleffects remain OPEN; do not restart completed
+Tasks1–5 or silently widen limits/drop revisions/change fixed cases.
+
+Independent additional user-approved bounded UI package0859468 changes only
+display ordering in3sourceowners plus7tests. Probability descending per game
+and gameblock, stableUTCties, no model/price/selection/money policy change.
+Daily3 preserves original chronological execution authority.395focusedPASS,
+13newIDs retained, independentreviewclean. WholeQA01 at0859468 completed
+14,250PASS/2FAIL/98unchangedskips/147subtests; all14,350IDs exactlyonce,
+771sourcehashes/rootWIP/45priorreceipts unchanged. Two independent test-adapter
+diagnoses: extracted navigation namespace lacks real ordering import; prematch
+test still requires deliberately removed old selector. Only these two testowners
+amended in7fea742,432frozenPASS/alloldIDs; all769othertrackedhashes including
+products unchanged. Scoped reviewclean. FreshwholeQA02 prepared/idlenotreleased,
+retains14,350IDs/98skipIDs/66priorreceipts; releaseexactnewdoccheckpointfirst.
+QA01 remains FAIL, not yetmain/VPS. Sourceindex native proof remains bound
+to deployedc110d8e, not the later UI commit. Actual audit and TODO record both
+packages and their different gates without claiming better betting performance.
+
 ## 15 October 2026: written spec approved; implementation plan for review
 
 Human explicitly: "Spezifikation freigegeben, weiter mit dem Umsetzungsplan."

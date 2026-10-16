@@ -1,5 +1,39 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## Einstieg16.10.2026 – aktuelle reale Position
+
+Kanonisch `.worktrees/audit-repairs-20261013`, Branch `codex/audit-repairs-20261013`.
+Indexcode `c110d8e` ganzeQA03 grün14.239/98Skips/147Untertests, auf main/VPS.
+Aufbau vollständig2.616.120Belege, aber unveränderter echter Vier-Fall-Test
+FAIL0/4:11.589.186Payloadbytes über2MiB/Fall und8MiB gesamt. Sofortiger
+vorgesehener `disable` erfolgreich; kompatiblen Code behalten, Index invalid,
+kein Altbinary-Rollback, keine Limits/Fälle/Revisionen umdeuten. Abnahmebericht
+`docs/audits/2026-10-15-tennis-spielerindex-abnahme.md`; Task6 bleibt offen.
+Alle79 vorher erfassten Finanzdateien unverändert, Nachherinventar80 wegen
+zusätzlicher separat ausgewiesener Sitzung. App/Caddy/Healthchecks funktionieren.
+
+Neu freigegebene begrenzte Sortierung separat: überall Modellwahrscheinlichkeit
+absteigend je Markt und Spielblock. Daily3 nur Darstellung, Einsatzfolge und
+ursprüngliche nächste Wette bleiben zeitgebunden. Sourcecommit0859468 auf
+Arbeitsbranch,395gezielteTests/13neueIDs, Review sauber. **Nicht auf main/VPS.**
+Vollständige Zwei-Shard-QA01 liegt unter
+`C:/Projekt/BetBoy/output/probability-order-20261016/qa-final-01` am unveränderten
+HEAD0859468: **14.250 PASS/2 FAIL/98 gleiche Skips/147 Untertests**;
+alle14.350IDs genau einmal,771Quellhashes/RootWIP/45alteReceipts unverändert.
+Freeze beendet. Zwei reine Prüfadapterlücken unabhängig diagnostiziert:
+isolierter Navigationsnamespace ohne realen ordered_event_rows-Import und
+alter Prematch-Test verlangt den absichtlich entfernten Startzeitumschalter.
+Genau diese zwei Tests mit7fea742 korrigiert,432/432 betroffeneTests bestanden;
+alle Navigations-/Quotenassertionen und altenIDs erhalten. Produktquellen bleiben
+byte-identisch zu0859468. Begrenztes Nachreview ohne Befunde abgeschlossen;
+neue ganze QA02 ist mit allen14.350IDs/98Skips/66geschütztenReceipts vorbereitet,
+noch nicht freigegeben. Erst neuen Dokumentations-HEAD einfrieren und einmal starten.
+QA01 bleibt FAIL. Erst nach echtem vollständigem PASS veröffentlichen,
+VPS per Fast-Forward ziehen und UI prüfen; keine Sicherung oder Zusatzscan.
+Workerberichte/Review/QA außerhalbGit unter `output/probability-order-20261016`.
+Index-native Belege unverändert unter `output/tennis-player-index-20261015`.
+Nicht erledigte Verletzungs-/Wetter-/Müdigkeitswirkung bleibt ehrlich offen.
+
 ## Aktueller Einstieg 16.10.2026 00:11 – QA03 als nächster Gate
 
 Kanonischer Branch unverändert `codex/audit-repairs-20261013`. Die drei QA02-
