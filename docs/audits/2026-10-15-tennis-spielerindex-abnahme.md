@@ -28,8 +28,24 @@ Tests bestanden und unabhängig ohne Befunde geprüft. Neue VollprüfungQA02 am
 unveränderten8c36095 vollständig PASS:14.252bestanden/98identischeSkips/
 147Untertests; alle14.350IDs genau einmal,771Quellhashes/RootWIP und118frühere
 Receipts unverändert. BeideExits0, abschließende Prüfung07:56:17UTC. QA01 bleibt
-als fehlgeschlagener Lauf erhalten. Sortier-Veröffentlichung/UI-Nachweis folgen
-getrennt; dieserSoftwarepass beseitigt den Index-Eingabebudget-FAIL nicht.
+als fehlgeschlagener Lauf erhalten. DieserSoftwarepass beseitigt den separaten
+Index-Eingabebudget-FAIL nicht.
+
+Die getrennte Sortierung ist anschließend als Produktivstand38f73ed auf main
+und VPS veröffentlicht worden: Fast-Forward, nur App-Neustart1159516→1175628,
+gespeicherte Modell-JSONs unverändert, Index weiterhin invalid/deaktiviert,
+siebenTimeraktiv+aktiviert,Backup-Timerdeaktiviert, beideHealthchecksok.
+Interner Browser bei1240×884: erste3Spielmaxima85,7/84,1/81,3%, darin22Märkte
+jeweilsabsteigend; alterReihenfolgeumschalterfehlt, Spielblockzu/auf und
+Daily3ausSeitenkarte→korrekterBereich→zurück bestanden, null neueKonsolenfehler/
+-warnungen. Daily3zeigt1Karte; Mehrkarten-/Einsatzautorität nurdurchSoftwaretests
+belegt. Kein Live-Mobilnachweis und nicht alle eingeklapptenSpiele geöffnet.
+Artefakte: output/probability-order-20261016/browser-*. Keine Wett-/Budgetaktion.
+
+Frische getrennte Serverprüfung zeigt außerdem Shadow Exit1/partial wegen einer
+fehlenden aktuellen Bet365-Providerzeitquote und zweier historisch unvollständig
+belegter Abrechnungszeilen. Kein erfundener CLV-/Renditenachweis und keine
+pauschale Behauptung fehlerfreier siebenJobs. Diese Datenfrage bleibt offen.
 
 Unabhängiger rein lesender Receipt-/Raw-Git-Abgleich dokumentiert unter
 `C:/Projekt/BetBoy/output/tennis-player-index-20261015/runtime-evidence-review.md`.
@@ -128,8 +144,10 @@ Sitzungsdatei; Gesamtinventar80 statt79, also **nicht** das ganze Inventar
 byte-identisch. Keine bestehende Buchung wurde daraus als verändert abgeleitet.
 Die genaue Ursache dieser zusätzlichen App-Sitzungsdatei wurde nicht gemessen.
 
-App/Caddy aktiv, sieben reguläre Jobs zuletzt Exit0 und Timer geplant,
-Backupdienst/-timer inaktiv, beide Healthchecks `ok`. Kein manueller Zusatzscan.
+Beim frühen Snapshot unmittelbar nach der Index-Abschaltung waren App/Caddy
+aktiv, die sieben Jobs zuletzt Exit0 und Timer geplant, Backups inaktiv sowie
+beide Healthchecks `ok`. Das ist ausdrücklich kein aktueller Gesamtlaufstatus:
+Der später oben dokumentierte Shadow-Fehler bleibt offen. Kein manueller Zusatzscan.
 
 ## Offen / nächster fachlicher Schritt
 

@@ -29,8 +29,16 @@ products unchanged. Scoped reviewclean. FreshwholeQA02 at8c36095 LOCALPASS:
 retained,771source/rootfreeze+118priorreceipts unchanged. Bothactualexits0,
 finalproof07:56:17UTC. Freezecomplete; onlyprosecheckpoint thenmain/VPS/UIproof,
 no furtherproduct/testchanges or index/native retries.
-QA01 remains FAIL, not yetmain/VPS. Sourceindex native proof remains bound
-to deployedc110d8e, not the later UI commit. Actual audit and TODO record both
+QA01 remains FAIL. UIproductrelease38f73ed pushedmain/VPS FastForward,
+apponlyrestart1159516→1175628,modelJSONs unchanged,indexdisabled,7timersactive/
+enabled,backupdisabled,bothhealthok. IABfirst3maxima85.7/84.1/81.3with22visible
+marketsdescending;oldselectorabsent,collapse/reopen+Daily3railnavigationPASS,
+zero new consoleerrors/warnings. SingleDaily3livecard only; multicardauthority
+is softwareproof, not inventedlivedata. No mobile/allcollapsedgamesclaim.
+IndependentShadowlastExit1/partial withmissingBet365providerclockand2historic
+invalidrows staysseparatelyopen. FinalfourMarkdown-onlysyncwithoutapprestart;
+actualHEAD/PIDrecordedinseparatecloseoutreceipt.
+Sourceindex native proof remains bound to c110d8e archive, not later UI. Audit/TODO record both
 packages and their different gates without claiming better betting performance.
 
 ## 15 October 2026: written spec approved; implementation plan for review

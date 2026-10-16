@@ -15,7 +15,8 @@ zusätzlicher separat ausgewiesener Sitzung. App/Caddy/Healthchecks funktioniere
 Neu freigegebene begrenzte Sortierung separat: überall Modellwahrscheinlichkeit
 absteigend je Markt und Spielblock. Daily3 nur Darstellung, Einsatzfolge und
 ursprüngliche nächste Wette bleiben zeitgebunden. Sourcecommit0859468 auf
-Arbeitsbranch,395gezielteTests/13neueIDs, Review sauber. **Nicht auf main/VPS.**
+Arbeitsbranch,395gezielteTests/13neueIDs, Review sauber. **Als Produktivstand
+38f73ed auf main/VPS live**, nach vollständiger QA02 und nur App-Neustart.
 Vollständige Zwei-Shard-QA01 liegt unter
 `C:/Projekt/BetBoy/output/probability-order-20261016/qa-final-01` am unveränderten
 HEAD0859468: **14.250 PASS/2 FAIL/98 gleiche Skips/147 Untertests**;
@@ -29,9 +30,17 @@ byte-identisch zu0859468. Begrenztes Nachreview ohne Befunde abgeschlossen;
 neue ganze QA02 am unveränderten8c36095 vollständig PASS:14.252bestanden,
 98identischeSkips,147Untertests; alle14.350IDs genau einmal,771Quellhashes/
 RootWIP/118historischeReceipts unverändert. BeideExits0; finalePrüfung07:56:17UTC.
-QA01 bleibt FAIL. Freeze beendet. NächsterSchritt nurProsecheckpoint,Main/VPS
-Fast-Forward und echteBrowserprüfung; Produkt-/Testbytes identisch zum geprüften
-Stand lassen, keine Sicherung, kein Zusatzscan oder Index-Neuversuch.
+QA01 bleibt FAIL. Freeze beendet. Produktbereitstellung38f73ed abgeschlossen:
+PID1159516→1175628, Modell-JSONs byte-identisch, Index bleibt deaktiviert,
+App/Caddy/7Timer aktiv+aktiviert, Backups deaktiviert, beideHealthchecksok.
+Echter internerBrowser: erste3Maxima85,7/84,1/81,3%,22sichtbareMärkte absteigend,
+kein alterSortierumschalter; Spielblockzu/auf und Daily3rail→richtigeSeite→zurück
+funktionieren,0neueKonsolenfehler/-warnungen. Daily3nur1Livekarte, Mehrkarten-
+Ausführung/Ordnung softwareseitig geprüft; keineBudget-/Wettaktion ausgelöst.
+Kein neuerLiveMobiltest oder Prüfung jedes eingeklapptenSpiels behauptet.
+AbschließendeSynchronisierung nurvierMarkdowns perFastForward ohneNeustart;
+finalerHEAD/App-PID im separatenAbschluss-Receipt. Produktbytes identisch zum
+geprüften8c36095, keineSicherung/Scan/Index-Neuversuche.
 Workerberichte/Review/QA außerhalbGit unter `output/probability-order-20261016`.
 Index-native Belege unverändert unter `output/tennis-player-index-20261015`.
 Nicht erledigte Verletzungs-/Wetter-/Müdigkeitswirkung bleibt ehrlich offen.

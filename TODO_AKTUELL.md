@@ -1,6 +1,6 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
-## 16.10.2026 – Sortier-QA02 vollständig grün; Veröffentlichung folgt
+## 16.10.2026 – Wahrscheinlichkeitssortierung geprüft und live
 
 - [x] Indexcode `c110d8e` lokal vollständig geprüft:14.239 PASS/98 unveränderte
   Skips/147 Untertests, alle14.337IDs erhalten; Fast-Forward auf main/VPS.
@@ -36,8 +36,18 @@
   98 identische Skips, 147 bestandene Untertests**, beide tatsächlichen Exits0.
   Alle14.350IDs genau einmal,771Quellhashes/RootWIP/118frühereReceipts unverändert.
   Finale Reconciliation07:56:17UTC bestätigt; QA01 bleibt historischer FAIL.
-- [ ] Sortierpatch erst nach tatsächlichem Vollsuite-PASS auf main/VPS
-  veröffentlichen und browserseitig prüfen. Noch nicht live; main/VPS c110d8e.
+- [x] Produktivstand `38f73ed` nach Vollsuite-PASS auf main gepusht und per
+  Fast-Forward auf VPS live; nur App-Neustart PID1159516→1175628. Offlineimport,
+  numerische Quellenfamilie und weiterhin deaktivierter Index bestätigt;
+  gespeicherte Wettfinder-/RisikoBet-Modell-JSONs byte-identisch.
+- [x] App/Caddy und sieben Timer aktiv und aktiviert, Backup-Timer deaktiviert,
+  beide Healthchecks ok. Das ist keine Behauptung fehlerfreier Shadow-Daten.
+- [x] Interner Browser: frischer Reload, erste3 Spielmaxima85,7/84,1/81,3%,
+  alle22 darin sichtbaren Märkte absteigend; alter Reihenfolgeumschalter weg,
+  Spielblock geschlossen/geöffnet, Daily3 aus Seitenkarte geöffnet und zurück.
+  Null neue Konsolenwarnungen/-fehler. Daily3 hatte nur1Livekarte; Mehrkarten-
+  Ordnung und unveränderte Einsatzautorität sind softwareseitig geprüft.
+  Kein Live-Mobilnachweis, nicht sämtliche eingeklappten Spiele einzeln geöffnet.
 - [ ] Separat neu geprüft16.10.09:32CEST: Fußball-Shadow Exit1/partial,
   Fixture1622791 ohne frische Bet365-Quote mit Providerzeit; zusätzlich zwei
   historische Abrechnungszeilen mit invalid_quote_provenance/malformed_settlement.
@@ -55,9 +65,12 @@ Fortsetzung: Sortier-QA unter `C:/Projekt/BetBoy/output/probability-order-202610
 Quelle `.worktrees/audit-repairs-20261013`, Branch `codex/audit-repairs-20261013`.
 Keine abgeschlossenen Indexaufgaben/Reviews neu starten; Task6 bleibt wegen des
 echten Eingabebudget-FAIL offen. Beide Freezes sind vollständig erfasst und beendet.
-Als Nächstes nur diese aktuellen Dokumente committen, geprüfte Produktbytes
-unverändert lassen, Main/VPS per Fast-Forward veröffentlichen und tatsächliche
-Browserdarstellung prüfen. Kein Index-Neuversuch oder numerischer Effekt-PASS daraus.
+Abschließende Synchronisierung ausschließlich dieser vier Markdown-Dokumente
+per Fast-Forward, ohne App-Neustart oder Produktänderung; finaler HEAD und
+unveränderte App-PID werden im separaten Abschluss-Receipt festgehalten.
+Produktbytes entsprechen weiterhin der geprüften QA02-Quelle8c36095. Kein
+Index-Neuversuch oder numerischer Effekt-PASS daraus. Vollständige Belege unter
+output/probability-order-20261016.
 
 ## 16.10.2026 00:11 – Prüfadapter korrigiert und unabhängig geprüft
 
