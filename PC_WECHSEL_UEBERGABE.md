@@ -1,6 +1,6 @@
 # BetBoy - Übergabe auf einen neuen PC
 
-## 16.10.2026 – jetzt Quellenpatch lokal, kein voller Hockey-Release
+## 16.10.2026 – Quellen-/QA-Patch live; voller Hockey-Kontext weiterhin offen
 
 Nutzer erneuert All-5-Kontextauftrag plus Tests/Commit/main/VPS ohne Backup;
 plant12MonateAPI. API-Hockeyv1 hat keine Player/Injury/Lineup/StartingGoalie-
@@ -18,15 +18,24 @@ Zusätzlich23 Inventar-/Wartefälle,12 Gegenseitenfälle,2 Tennis-Preisgrenzenf�
 Neues unabhängiges Release-Review PASS für frische QA, keine Full-C3-Freigabe.
 `full-qa-03` komplett grün:14.438PASS/98unveränderteSkips/147Untertests;
 beideExit0,787Quellhashes unverändert,14.536gesammelt. Keine der14.499QA02-
-IDs entfernt, alle14.462früheren IDs erhalten. Jetzt Commit/Push/NoBackupDeploy.
+IDs entfernt, alle14.462früheren IDs erhalten.
 Erste Vollsuite`full-qa-01` bewusst INCOMPLETE unterbrochen für Fix;
 Receiptsnichtlöschen. Quellenpatch erst nach fertigerQA veröffentlichen.
-Bis zum folgenden echten Produktionsnachweis nochkeinPush/Deploy;VPS084d8d3.
+Code42a5ae3cdedea0766440c9ce81c6dd62b59ee615 aufmaingepusht/VPSFFlive.
+Offline-ImportPASS, AppPID1189206→1198478; App/CaddyundbeideHealthchecksok.
+Wettfinder-/RisikoBet-JSON vor/nachNeustart exaktgleich. KeinBackup/Scan/DB-
+Kopie/Cleanup/Paketinstallation. SeparaterreinerDocs-Commit brauchtkeinenNeustart.
+ErsterDeploy nachGitFF imSmoke mit falschemCWD angehalten; Appprüf-CWDfix,
+Resume nuraufexaktemZiel mit allenübrigenGuards, Exit0. FAIL-Receipt01und
+PASS-Receipt02 behalten, nichtalsAppbugodergrünerErstversuchumdeuten.
 Vollständige Goalies/Ausfälle/Müdigkeitnichtfertig.
-RootarbeitetanQA/Release, Implementer`hockey_source_scope_impl` bleibt für Fix.
+Quellen-/QA-Reparatur abgeschlossen, keine TestsmehrimHintergrund. Nächster
+fachlicherSchritt ist qualifiziertePersonalquelle/owningC3-Pfad, nichtnochmals
+dieselbeQuellenreparatur oderungeprüfteEffektaktivierung.
 WorktreeundignoriertesC3Arbeitsprotokollbehalten; nichtaltesRootcheckoutverwenden.
-VPS-App/Caddy gesund; bereits vorher bestehenderFootball-Shadow-Fehlstatus
-(Exit1) nicht durch diesen Release repariert oder als erfolgreich ausgegeben.
+VPS-App/Caddy gesund; anfänglicherFootball-Shadow-Fehlstatus(Exit1) imregulären
+21:22-Lauf vorDeploy wiedersuccess/inactive; nichtdiesemPatchzuschreiben.
+Backupweiterdisabled/inactive,22GBfrei; keineBereinigungnötig.
 Neue Anbietersuche: SportsDataIO(NHLConfirmedStarter/Injuries), BALLDONTLIE
 (NHLGOAT39,99USD/Monat, keinConfirmedStarter), Enetpulse(Premium4Ligen,
 SchweiznichtPremium). Kein verifizierter All-5-Komplettanbieter, nichts gebucht.

@@ -1,6 +1,6 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
-## 16.10.2026 – erneuter Hockey-Auftrag / API-Jahresabo: laufende Arbeit
+## 16.10.2026 – Quellen-/QA-Reparaturen live; voller Hockey-Kontext bleibt offen
 
 Nutzer verlangt vollständigen Fünf-Ligen-Ausbau, historische Prüfung, Tests,
 Commit/main-Push/VPS-Deploy ohne Backups und plant zwölf Monate API-Zugang.
@@ -50,8 +50,27 @@ Commit/main-Push/VPS-Deploy ohne Backups und plant zwölf Monate API-Zugang.
   IDs erhalten.787 Quellstände durchgehend unverändert, keine neuen Skips.
   Bestehender No-Backup-Helper erlaubt nur explizit geprüfte Pfade;
   dessen zusätzliche Gate-Prüfung RED1/3PASS zu GREEN4PASS erhalten.
-- [ ] Jetzt Commit/main-Push und expliziten No-Backup-VPS-Deploy abschließen;
-  bis zum echten Produktionsnachweis VPS weiterhin084d8d3.
+- [x] Codecommit **42a5ae3cdedea0766440c9ce81c6dd62b59ee615** samt433bb86/
+  1d3ca7a auf GitHub main gepusht und VPS per Fast-Forward gezogen.
+  Offline-Import mit nativer NHL plus genau vier API-Ligen erfolgreich;
+  App-PID1189206→1198478, App/Caddy aktiv, interner/öffentlicher Healthcheck ok.
+  Wettfinder-/RisikoBet-Fingerprints vor/nach Neustart exakt identisch.
+  Keine Modell-/Preis-/Geldwerte geändert, kein zusätzlicher Sportscan, kein
+  Backup, keine Datenbankkopie, keine Bereinigung oder Paketinstallation.
+- [x] Erster Deploy hielt nach erfolgreichem Git-Pull vor dem Neustart an:
+  Smoke-Prozess erbte ein für betboy nicht lesbares Ubuntu-Arbeitsverzeichnis.
+  Prüf-Arbeitsverzeichnis explizit auf App gesetzt; Fortsetzung erlaubte nur
+  den bereits gepullten exakten Zielcommit, behielt alle übrigen Grenzen und
+  endete Exit0. Beide Receipts bleiben erhalten:deploy-source-01.log (FAIL),
+  deploy-source-02.log (PASS) außerhalb Git. Zusätzlicher harmloser Einzeilen-
+  Diagnoseaufruf scheiterte an Shell-Quoting; keine Produktivwirkung daraus.
+- [x] Der zuvor separat beobachtete Football-Shadow-Fehlstatus war schon im
+  regulären Lauf21:22CEST vor diesem Deploy wieder success/inactive. Diesen
+  Erfolg nicht der Hockey-Korrektur zuschreiben; kein Shadow-Lauf gestartet.
+  Backup-Timer weiter disabled/inactive, rund22GB frei; keine Bereinigung nötig.
+- Diese abschließende Dokumentation ist ein separater reiner Docs-Commit:
+  für deren Pull kein App-Neustart nötig. Produktquellen bleiben exakt auf
+  dem vollständig getesteten Code von42a5ae3; keine Tests mehr im Hintergrund.
 - [ ] **Voller Hockey-Kontext nicht fertig:** reale Goalies/Ausfälle/Eiszeiten
   sowie owning Trainings-/Replay-/Abnahmepfad fehlen weiterhin. Quellenfix und
   historische Grundmodell-Stichprobe ersetzen das nicht. Keine Effekte erfinden.
