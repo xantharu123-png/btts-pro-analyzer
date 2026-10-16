@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo
 import streamlit as st
 
 from account_identity import storage_scope
+from quote_publication import publication_allowed, publication_quote
 from betting_math import (
     EXTREME_SHORT_ODDS_CUTOFF,
     MINIMUM_RECOMMENDED_DECIMAL_ODDS,
@@ -871,10 +872,21 @@ def render_model_selection(
     *,
     presentation: str = "full",
     save_source: str = "Manuelle Suche",
+    reference_quote=None,
+    reference_binding_candidate=None,
+    now=None,
+    analysis_only: bool = False,
 ) -> None:
-    """Show a statistical selection without fetching or evaluating an offer."""
+    """Show admitted public tips, or explicitly non-actionable live analysis."""
     if presentation not in {"full", "compact", "fixture_first"}:
         raise ValueError("unsupported model presentation")
+    admitted = not analysis_only and publication_allowed(
+        reference_quote, candidate=reference_binding_candidate, now=now)
+    if not admitted and not analysis_only:
+        st.info("Keine passende Quote ab 1,20.")
+        return
+    if analysis_only:
+        st.caption("Live-Analyse · keine passende Live-Quote.")
     if presentation != "compact":
         st.subheader(candidate.event_label)
         st.write(f"{candidate.market} · {candidate.selection or 'keine Auswahl'}")
@@ -888,7 +900,8 @@ def render_model_selection(
     st.caption(f"Deine Mindestquote für eine tatsächliche Wette: {minimum}")
     identity = hashlib.sha256(json.dumps((candidate.sport, candidate.event_key,
         candidate.market, candidate.selection), ensure_ascii=False).encode("utf-8")).hexdigest()
-    render_tip_bookmark(candidate, key=f"model_selection_{identity}", source=save_source)
+    if admitted:
+        render_tip_bookmark(candidate, key=f"model_selection_{identity}", source=save_source)
 
 
 def render_tip_bookmark(candidate: RecommendationCandidate, *, key: str, source: str) -> None:
@@ -929,6 +942,8 @@ def render_price_decision(
         raise ValueError("presentation must be 'full', 'compact' or 'fixture_first'")
     if manual_surface not in {"expander", "popover"}:
         raise ValueError("manual_surface must be 'expander' or 'popover'")
+    if precomputed_reference_evaluation is not None:
+        _validate_precomputed_reference_evaluation(precomputed_reference_evaluation, candidate)
     selection = candidate.selection or "keine Auswahl"
     # Apply the same presentation floor in all callers (Live, sport pages,
     # manual search). Keep the correction input reachable, but no proposal card.
@@ -936,12 +951,22 @@ def render_price_decision(
         reference_quote, candidate=reference_binding_candidate)
     manual_low = (st.session_state.get(f'bet_confirmed_{key}') is True
                   and odds_below_publication_floor(_decimal_input(st.session_state.get(f'bet_odds_{key}'))))
-    if known_low or manual_low:
-        st.caption(f'{candidate.market}: {selection} · Quote unter 1,20.')
+    price_now = (precomputed_reference_evaluation.evaluated_at
+                 if isinstance(precomputed_reference_evaluation, ReferencePriceEvaluation) else None)
+    admitted_quote = publication_quote(reference_quote, candidate=reference_binding_candidate, now=price_now)
+    if admitted_quote is None or known_low or manual_low:
+        st.caption('Quote unter 1,20.' if known_low or manual_low else
+                   'Keine passende Quote ab 1,20.')
         if allow_manual_check:
             return _render_manual_check(candidate, key=key, bankroll_key=bankroll_key,
                 price_source=price_source, save_source=save_source, manual_surface=manual_surface)
         return None
+    reference_quote = admitted_quote
+    if (precomputed_reference_evaluation is not None
+            and precomputed_reference_evaluation.quote != admitted_quote):
+        # A positively admitted subset can exclude a provider-tolerated future
+        # point. Do not restore that point via a prior display/decision object.
+        precomputed_reference_evaluation = None
     if presentation == "full":
         st.subheader(f"{candidate.market}: {selection}")
         st.caption(candidate.event_label)
@@ -999,6 +1024,7 @@ def render_price_decision(
             reference_quote,
             bankroll=bankroll,
             reference_binding_candidate=reference_binding_candidate,
+            now=price_now,
         )
         if precomputed_reference_evaluation is None
         else _validate_precomputed_reference_evaluation(

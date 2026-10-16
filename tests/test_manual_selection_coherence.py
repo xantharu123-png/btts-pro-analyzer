@@ -191,6 +191,9 @@ def test_actual_manual_surface_filters_before_every_group_and_counts_survivors(
             {'value': 'Home' if short_key == 'RESULT_HOME' else 'Away', 'odd': '1.12'}]}]
     quotes = parse_fixture_consensus(payload, [low_row], fetched_at=now)
     assert low_row.candidate_id in quotes
+    from test_manual_football_filters import _quote
+    quotes.update({row.candidate_id: _quote(row, 2.0, now)
+                   for row in all_rows if row is not low_row})
     snapshot['reference_quotes'] = serialize_consensus_map(quotes)
     original_snapshot = deepcopy(snapshot)
     surface = _Surface(snapshot)

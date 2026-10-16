@@ -26,6 +26,7 @@ from challenge_store import FINANCIAL_ZERO_HASH, _legacy_financial_record_hash
 
 EXPECTED_TIMERS = (
     "betboy-wettfinder.timer",
+    "betboy-quotes.timer",
     "betboy-football-shadow.timer",
     "betboy-tennis.timer",
     "betboy-esports.timer",
@@ -2077,7 +2078,10 @@ def test_every_root_installed_betboy_service_drops_privileges():
         conditions = [
             line for line in service.splitlines() if line.startswith("ExecCondition=")
         ]
-        assert len(conditions) == 1
+        assert len(conditions) == (2 if name == 'betboy-quotes.service' else 1)
+        if name == 'betboy-quotes.service':
+            assert '/usr/bin/python3 -I -c' in conditions[1]
+            assert 'betboy-wettfinder.service' in conditions[1]
         assert "betboy-challenge-migration-marker.py" in conditions[0]
         assert conditions[0].endswith(" require-complete")
         expected_marker = (

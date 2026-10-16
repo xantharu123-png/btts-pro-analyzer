@@ -839,17 +839,18 @@ def test_shared_latest_artifact_gives_daily3_fresh_models_after_overnight_discov
     assert price_checks[-1] == (old_row["key"],)
     old["generated_at"] = midday.isoformat()
     wettfinder_automation.write_state(old, path)
-    old_choices = daily3_choices(automated_wettfinder_forecasts(path, now=midday), now=midday)
-    assert len(old_choices) == 1
-    assert datetime.fromisoformat(old_choices[0].signal.modeled_at) == midnight
-    assert old_choices[0].signal.price_checked_at == morning_context_check.isoformat()
+    old_models = automated_wettfinder_forecasts(path, now=midday)
+    assert len(old_models) == 1
+    assert datetime.fromisoformat(old_models[0].modeled_at) == midnight
+    assert old_models[0].price_checked_at == morning_context_check.isoformat()
+    assert daily3_choices(old_models, now=midday) == ()  # A check without an offer is background-only.
     run_wettfinder(now=midday, **common)
     actual = automated_wettfinder_forecasts(path, now=midday)
     assert len(actual) == 1
     assert datetime.fromisoformat(actual[0].modeled_at) == midday
     assert actual[0].price_checked_at == midday.isoformat()
     assert actual[0].reference_quote is None
-    assert len(daily3_choices(actual, now=midday)) == 1  # An attempted check need not find a quote.
+    assert daily3_choices(actual, now=midday) == ()
     assert len(scans) == 1
 
 
@@ -3596,6 +3597,7 @@ def test_normal_missing_market_coverage_is_not_an_operational_failure(tmp_path):
 def test_main_returns_nonzero_for_persisted_operational_failure(
     monkeypatch,
     capsys,
+    tmp_path,
 ):
     document = {
         "run_status": "degraded",
@@ -3619,7 +3621,7 @@ def test_main_returns_nonzero_for_persisted_operational_failure(
         lambda **_kwargs: document,
     )
 
-    assert wettfinder_automation.main(["--state-path", "ignored.json"]) == 1
+    assert wettfinder_automation.main(["--state-path", str(tmp_path / "ignored.json")]) == 1
     assert '"status": "degraded"' in capsys.readouterr().out
 
 

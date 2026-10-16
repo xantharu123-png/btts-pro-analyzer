@@ -171,6 +171,7 @@ class RiskBetPriceOverlay:
     fetched_at: Optional[str] = None
     checked_at: Optional[str] = None
     price_check_current: bool = False
+    publication_eligible: bool = False
 
     def __post_init__(self) -> None:
         candidate_id = str(self.candidate_id or "").strip()
@@ -183,6 +184,8 @@ class RiskBetPriceOverlay:
             raise ValueError('below_floor must be boolean')
         if not isinstance(self.price_check_current, bool):
             raise ValueError('price_check_current must be boolean')
+        if not isinstance(self.publication_eligible, bool):
+            raise ValueError('publication_eligible must be boolean')
         if self.observed_odds is not None:
             if (
                 isinstance(self.observed_odds, bool)
@@ -366,6 +369,7 @@ def _normalise_price(
             fetched_at=price.get('fetched_at'),
             checked_at=price.get('checked_at'),
             price_check_current=price.get('price_check_current') is True,
+            publication_eligible=price.get('publication_eligible') is True,
         )
     else:
         raise TypeError("price must be a RiskBetPriceOverlay or mapping")
@@ -547,7 +551,7 @@ def build_riskobet_card(
             else None
         ),
         simple_market=_is_simple_market(market_key, selection),
-        quote_floor_excluded=(overlay.below_floor or (
+        quote_floor_excluded=(not overlay.publication_eligible or overlay.below_floor or (
             overlay.status in {'AVAILABLE', 'PLAYABLE', 'TOO_LOW', 'BORDERLINE', 'THIN'}
             and odds_below_publication_floor(overlay.observed_odds))),
         snapshot_id=str(getattr(candidate, "snapshot_id", "") or ""),

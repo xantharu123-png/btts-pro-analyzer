@@ -6,12 +6,14 @@ def _render_pool(db_path, count, extreme_probability=False):
     import streamlit as st
     from types import SimpleNamespace
     from test_daily3_selection import NOW, football
+    from test_publication_odds_floor import priced
     from daily3_ui import render_daily3
     from daily3_store import Daily3Store
     st.session_state['_betboy_account_scope'] = 'a'*32
     pool = [football(1), football(2, 'BTTS_YES', start_hours=6), football(3, 'HOME_OVER_0_5', start_hours=9)][:count]
     if extreme_probability:
         pool = [football(1, probability=0.999999)]
+    pool = [priced(signal, (1.8,)*3) for signal in pool]
     render_daily3(st, now=NOW, snapshot_loader=lambda **kw: SimpleNamespace(forecasts=pool),
                   store_factory=lambda: Daily3Store(db_path, key=b'q'*32, clock=lambda: NOW))
 
@@ -22,12 +24,14 @@ def _render_probability_sequence(db_path):
     from types import SimpleNamespace
     from unittest.mock import patch
     from test_daily3_selection import NOW, football
+    from test_publication_odds_floor import priced
     from daily3_ui import render_daily3
     from daily3_store import Daily3Store
     st.session_state['_betboy_account_scope'] = 'a'*32
     pool = [football(1, probability=.75, start_hours=3),
             football(2, probability=.80, start_hours=6),
             football(3, probability=.90, start_hours=9)]
+    pool = [priced(signal, (1.8,)*3) for signal in pool]
     with patch('tip_publication.DEFAULT_HISTORY_DB', Path(db_path).with_suffix('.tips.db')), \
          patch('tip_publication.DEFAULT_FORECAST_DB', Path(db_path).with_suffix('.absent.db')), \
          patch('consumer_tip_history._now', lambda: NOW):
@@ -109,6 +113,7 @@ def _render(db_path, missing_identity=False, price_state=None):
     from datetime import timedelta
     from types import SimpleNamespace
     from test_daily3_selection import NOW, football
+    from test_publication_odds_floor import priced
     from daily3_ui import render_daily3
     from daily3_store import Daily3Store
     from market_consensus import MarketConsensus, QuotePoint, REFERENCE_SOURCE
@@ -119,7 +124,7 @@ def _render(db_path, missing_identity=False, price_state=None):
     def loader(**kwargs):
         st.session_state['snapshot_loads'] = st.session_state.get('snapshot_loads', 0)+1
         probability = .8 if st.session_state.get('changed_model') else .75
-        signal = football(probability=probability)
+        signal = priced(football(probability=probability), (1.8,)*3)
         if price_state in ('too_low', 'stale'):
             observed_at = NOW - timedelta(hours=2) if price_state == 'stale' else NOW
             offer = 1.50 if price_state == 'stale' else 1.12
@@ -253,7 +258,7 @@ def test_missing_or_stale_quote_status_does_not_enter_model_selection_ui(tmp_pat
         assert not app.exception
         assert app.session_state['fixture_price_code'] == expected_code
         assert not any('Quote fehlt' in item.value or 'Veraltet' in item.value for item in app.info)
-        assert any('Heimteam 1' in item.value and 'se-match' in item.value for item in app.markdown)
+        assert any('Heimteam 1' in item.value and 'se-match' in item.value for item in app.markdown) is (price_state == 'stale')
 
 
 def test_changed_analysis_invalidates_only_unsubmitted_confirmation(tmp_path):

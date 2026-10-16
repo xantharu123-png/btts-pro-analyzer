@@ -11,7 +11,13 @@ from daily3_schedule import fits_daily3_window, pending_ready_at, planning_allow
 from daily3_selection import daily3_choices
 from daily3_store import Daily3Store, day_balance
 import daily3_store as store_module
-from test_daily3_selection import football
+from test_daily3_selection import football as _football
+from test_publication_odds_floor import priced
+
+
+def football(*args, **kwargs):
+    signal = _football(*args, **kwargs)
+    return priced(signal, (1.8,) * 3, now=datetime.fromisoformat(signal.modeled_at))
 
 
 ZURICH = ZoneInfo('Europe/Zurich')

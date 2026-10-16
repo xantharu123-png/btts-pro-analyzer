@@ -1,4 +1,4 @@
-"""Known offers below 1.20 hide proposals, never alter the underlying model."""
+"""Only proved offers from 1.20 are public; underlying models stay unchanged."""
 from dataclasses import replace
 from datetime import datetime, timedelta
 
@@ -13,10 +13,10 @@ from test_wettfinder_surface import _quote
 from wettfinder_surface import build_wettfinder_card, compose_wettfinder_catalog, render_top_card_html
 
 
-def priced(signal, odds=(1.12, 1.12, 1.12)):
+def priced(signal, odds=(1.12, 1.12, 1.12), *, now=NOW):
     bet_name, value_name = exact_market_target(signal.market_key)
-    quote = replace(_quote(signal, odds, fetched_at=NOW), bet_name=bet_name, value_name=value_name)
-    quote = wettfinder_consensus(quote, now=NOW)
+    quote = replace(_quote(signal, odds, fetched_at=now), bet_name=bet_name, value_name=value_name)
+    quote = wettfinder_consensus(quote, now=now)
     return replace(signal, reference_quote=quote.to_dict(), minimum_odds=2.0)
 
 
@@ -106,8 +106,11 @@ def test_unknown_stale_or_foreign_quote_is_not_misrepresented_as_below_floor(cha
             replace(signal, reference_quote=raw)
         return
     signal = replace(signal, reference_quote=raw)
-    assert visible([signal])
-    assert daily3_choices([signal], now=NOW)
+    # Unknown is still not falsely classified as a cheap quote. It simply
+    # cannot prove admission to a public tip under the current requirement.
+    assert not quote_below_publication_floor(raw, candidate=signal, now=NOW)
+    assert not visible([signal])
+    assert not daily3_choices([signal], now=NOW)
 
 
 def test_quote_cannot_switch_to_opposing_outcome_or_limit_pool():
@@ -135,14 +138,14 @@ def test_stale_or_unidentified_high_offer_does_not_override_current_low_offer(pr
 
 def test_same_team_market_stays_available_when_quote_unknown_or_at_floor():
     signal = football(key='AWAY_UNDER_2_5', probability=.896)
-    assert visible([signal])
+    assert not visible([signal])  # No blanket team-market ban; an actual offer is required.
     assert visible([priced(signal, (1.20,))])
     assert not visible([priced(signal, (1.12,))])
 
 
 def test_above_floor_price_changes_neither_order_nor_highlights():
     rows = [football(i) for i in range(1, 7)]
-    baseline = visible(rows)
+    baseline = visible([priced(s, (2.0,)) for s in rows])
     changed = visible([priced(s, (1.20 + i,)) for i, s in enumerate(rows)])
     assert [c.key for c in baseline] == [c.key for c in changed]
 

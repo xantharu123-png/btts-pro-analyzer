@@ -100,7 +100,7 @@ def test_conflicting_duplicate_and_expired_match_fail_unknown_not_convenient_pri
     assert not shared_price_overlays([candidate], [low], now=candidate.starts_at)
     assert not shared_price_overlays([candidate], [], now=NOW)
     card = build_riskobet_card(candidate)
-    assert card.observed_odds is None and compose_riskobet_catalog([card]).cards
+    assert card.observed_odds is None and not compose_riskobet_catalog([card]).cards
 
 
 def test_load_reuses_stored_tennis_rows_without_fetching_or_changing_publication(tmp_path, monkeypatch):

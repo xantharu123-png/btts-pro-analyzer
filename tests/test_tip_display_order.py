@@ -218,6 +218,8 @@ def test_prematch_real_renderer_sorts_percent_candidates_and_table_after_selecti
     import app
     import pandas as pd
     from types import SimpleNamespace
+    from quote_publication import publication_allowed
+    from test_challenge_15k import candidate as native_candidate, reference_quote_for
     from test_workflow_integrity import _RecordingStreamlit
     ui = _RecordingStreamlit(widget_values={'prematch_display_order': mode})
     ui.success = lambda _message: None
@@ -228,13 +230,25 @@ def test_prematch_real_renderer_sorts_percent_candidates_and_table_after_selecti
     monkeypatch.setattr(app, 'prematch_btts_candidate', lambda row, **_kwargs: SimpleNamespace(
         model_ready=True, event_key=row['event'], event_label=row['event'], selection='Ja', market='BTTS',
         risk_adjusted_probability=row['BTTS_num'], model_probability=row['BTTS_num']))
-    def record_selection(candidate, *, save_source):
+    def record_selection(candidate, *, save_source, reference_quote, reference_binding_candidate, now):
+        assert publication_allowed(reference_quote, candidate=reference_binding_candidate, now=now)
         rendered.append(candidate.event_key)
         rendered_sources.append(save_source)
     monkeypatch.setattr(app, 'render_model_selection', record_selection)
-    rows = pd.DataFrame([dict(event=event, BTTS_num=p, Quality_num=90,
-        _fixture_date=f'2026-10-11T{hour:02d}:00:00Z') for event, p, hour in
-        [('late', 90., 20), ('early', 70., 12), ('middle', 80., 15), ('excluded', 60., 10)]])
+    now = datetime.now(timezone.utc)
+    records, cached = [], []
+    for index, (event, p, hour) in enumerate(
+        [('late', 90., 20), ('early', 70., 12), ('middle', 80., 15), ('excluded', 60., 10)], 1):
+        item = native_candidate(f'{index}:BTTS_YES', index, p/100,
+            kickoff=(now+timedelta(days=1)).replace(hour=hour, minute=0, second=0, microsecond=0))
+        records.append(dict(event=event, BTTS_num=p, Quality_num=90, _fixture_id=index,
+                            _fixture_date=item.kickoff, Home=item.home_team, Away=item.away_team))
+        cached.append(dict(candidate_id=item.candidate_id, fixture_id=index,
+            scheduled_start=item.kickoff, market_key='BTTS_YES', selection='Ja', sport='Fußball',
+            source='football_challenge', home_team=item.home_team, away_team=item.away_team,
+            reference_quote=reference_quote_for(item, now).to_dict()))
+    monkeypatch.setattr(app, 'automated_wettfinder_snapshot', lambda **_: SimpleNamespace(forecasts=tuple(cached)))
+    rows = pd.DataFrame(records)
     before = rows.copy(deep=True)
     app._render_prematch_results(rows, 58, 70, scanned_at=None, validated_model_available=True)
     # The earliest low-ranked game is visible in the all-games table, but the
@@ -250,26 +264,46 @@ def test_manual_esports_sort_uses_percent_and_keeps_selected_original_event(monk
     from types import SimpleNamespace
     from manual_search_filters import SearchFilters
     from multi_sport_recommendations import RecommendationCandidate
+    from market_consensus import ESPORTS_PRICE_SOURCE
+    from quote_publication import publication_allowed
+    from test_wettfinder_surface import _quote
     from test_workflow_integrity import _RecordingStreamlit
     now = datetime.now(timezone.utc)
-    items = [dict(id=90, source='pandascore', status='upcoming', begin_at='2026-10-11T20:00:00Z'),
-             dict(id=70, source='pandascore', status='upcoming', begin_at='2026-10-11T12:00:00Z')]
+    tomorrow = now + timedelta(days=1)
+    items = [dict(id=90, source='pandascore', status='upcoming', begin_at=tomorrow.replace(hour=20).isoformat()),
+             dict(id=70, source='pandascore', status='upcoming', begin_at=tomorrow.replace(hour=12).isoformat())]
     def candidate(item):
         return RecommendationCandidate(str(item['id']), 'E-Sport', str(item['id']), 'Sieger', 'Team',
             None, float(item['id']), float(item['id']), None, None, None, 'existing', None, ())
-    results = [SimpleNamespace(item=item, candidate=candidate(item), quote=None) for item in items]
+    results = []
+    for item in items:
+        binding = dict(candidate_id=str(item['id']), fixture_id=None, market_key='H2H', sport='E-Sport',
+            source='esports_shadow', fixture_source='pandascore', provider_event_id=str(item['id']),
+            scheduled_start=item['begin_at'], competitor_a='Team', competitor_b=f"Opponent {item['id']}",
+            selected_competitor='Team', competition='CS2', home_team='Team', away_team=f"Opponent {item['id']}")
+        quote = _quote(SimpleNamespace(**binding), (1.8,), fetched_at=now)
+        quote = replace(quote, source=ESPORTS_PRICE_SOURCE, bet_name='Series Winner', value_name='Team',
+            provider_event_id=f"quote-{item['id']}", origin_provider='pandascore',
+            origin_event_id=str(item['id']), event_discipline=17,
+            points=tuple(replace(point, bookmaker_id='oddspapi:test') for point in quote.points))
+        results.append(SimpleNamespace(item=item, candidate=candidate(item), quote=quote, binding=binding))
     scope = app._multi_sport_scope_key('E-Sport', 'Alle Spiele', now.date(), now.date())
     ui = _RecordingStreamlit({'multi_sport_snapshots': {scope: {'items': items,
         'scanned_at': now.isoformat(), 'credentials_available': True}}},
         widget_values={f'multi_sport_event_{scope}': 0})
     rendered = []
+    ui.metric = lambda *_args, **_kwargs: None
     monkeypatch.setattr(app, 'st', ui)
     monkeypatch.setattr(app, '_job_key', lambda _name: 'offline')
     monkeypatch.setattr(app.scan_jobs, 'get_job', lambda _key: {'state': 'idle'})
     monkeypatch.setattr(app.scan_jobs, 'start_job', lambda *_args, **_kwargs: pytest.fail('display cannot scan'))
     monkeypatch.setattr(app, 'esports_search_results', lambda *_args: results)
     monkeypatch.setattr(app, '_multi_sport_release_blockers', lambda *_args: ())
-    monkeypatch.setattr(app, 'render_model_selection', lambda c: rendered.append(c.event_key))
+    def record_selection(candidate, *, reference_quote, reference_binding_candidate, analysis_only):
+        assert not analysis_only
+        assert publication_allowed(reference_quote, candidate=reference_binding_candidate, now=now)
+        rendered.append(candidate.event_key)
+    monkeypatch.setattr(app, 'render_model_selection', record_selection)
     for mode, expected in [(START_TIME, (0, 1)), (PROBABILITY, (0, 1))]:
         ui.widget_values['manual_esport_order'] = mode
         app.render_multi_sport('E-Sport', now.date(), now.date(), SearchFilters())
@@ -280,6 +314,7 @@ def test_manual_esports_sort_uses_percent_and_keeps_selected_original_event(monk
 
 def test_manual_hockey_schedule_default_is_chronological_without_fake_chance_choice(monkeypatch):
     import app
+    import bet_finder_ui
     from types import SimpleNamespace
     from test_workflow_integrity import _RecordingStreamlit
     now = datetime.now(timezone.utc)
@@ -287,7 +322,7 @@ def test_manual_hockey_schedule_default_is_chronological_without_fake_chance_cho
              dict(id=70, source='nhl', status='upcoming', start_time='2026-10-11T12:00:00Z')]
     scope = app._multi_sport_scope_key('Eishockey', None, now.date(), now.date())
     ui = _RecordingStreamlit({'multi_sport_snapshots': {scope: {'items': items, 'scanned_at': now.isoformat()}}})
-    rendered = []
+    original = [dict(item) for item in items]
     monkeypatch.setattr(app, 'st', ui)
     monkeypatch.setattr(app, '_job_key', lambda _name: 'offline')
     monkeypatch.setattr(app.scan_jobs, 'get_job', lambda _key: {'state': 'idle'})
@@ -295,12 +330,13 @@ def test_manual_hockey_schedule_default_is_chronological_without_fake_chance_cho
     monkeypatch.setattr(app, 'build_candidate', lambda sport, item, **_kwargs: SimpleNamespace(
         event_key=str(item['id']), expected_total=None))
     monkeypatch.setattr(app, '_multi_sport_release_blockers', lambda *_args: ())
-    monkeypatch.setattr(app, 'render_model_selection', lambda c: rendered.append(c.event_key))
+    monkeypatch.setattr(bet_finder_ui, 'st', ui)
+    monkeypatch.setattr(app, 'render_model_selection', bet_finder_ui.render_model_selection)
     app.render_multi_sport('Eishockey', now.date(), now.date())
     assert ui.selectboxes[0][1] == (START_TIME,)
     assert ui.selectboxes[1][1] == (1, 0)
-    assert rendered == ['70']
-    assert [item['id'] for item in items] == [90, 70]
+    assert ('info', 'Keine passende Quote ab 1,20.') in ui.messages
+    assert items == original  # An unpriced timetable remains intact, not a public tip.
 
 
 @pytest.mark.parametrize('mode,expected', [(START_TIME, ['1:BTTS', '2:BTTS']),
@@ -308,7 +344,7 @@ def test_manual_hockey_schedule_default_is_chronological_without_fake_chance_cho
 def test_15k_actual_card_and_ticket_options_share_display_order_without_ledger_write(monkeypatch, mode, expected):
     import challenge_15k
     from unittest.mock import Mock, MagicMock
-    from test_challenge_15k import stress_safe_ticket_candidates
+    from test_challenge_15k import reference_quote_for, stress_safe_ticket_candidates
     first, second = stress_safe_ticket_candidates()
     first.kickoff = (datetime.now(timezone.utc).replace(microsecond=0) + timedelta(days=2)).isoformat()
     second.kickoff = (datetime.now(timezone.utc).replace(microsecond=0) + timedelta(days=1)).isoformat()
@@ -316,7 +352,10 @@ def test_15k_actual_card_and_ticket_options_share_display_order_without_ledger_w
     ui.selectbox.return_value = mode
     ui.multiselect.return_value = []
     monkeypatch.setattr(challenge_15k, 'st', ui)
-    challenge_15k._render_model_challenge({'challenge_model_candidates': [first, second]}, ledger, {})
+    now = datetime.now(timezone.utc)
+    challenge_15k._render_model_challenge({'challenge_model_candidates': [first, second],
+        'reference_quotes': {item.candidate_id: reference_quote_for(item, now).to_dict()
+                             for item in (first, second)}}, ledger, {})
     assert ui.multiselect.call_args.kwargs['options'] == expected
     assert [call.args[0].split(' · ')[0] for call in ui.expander.call_args_list] == [
         f'Home {key[0]} vs Away {key[0]}' for key in expected]

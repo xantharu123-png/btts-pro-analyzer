@@ -1,5 +1,26 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## 16.10.2026 – jüngster aktiver Auftrag: Quoten und 1,20
+
+Kanonisch weiter `.worktrees/audit-repairs-20261013`, nicht das alte schmutzige
+Hauptcheckout. Nutzer autorisiert Reparatur, Tests, Commit, main-Push und
+VPS-Deploy ausdrücklich ohne neue Sicherung. Öffentliche Tipps brauchen jetzt
+überall echte exakt gebundene Quote>=1,20; früheres „fehlende Quote sichtbar“ ist
+überholt. Modellbestand, Modellrichtung, Wahrscheinlichkeit und Reihenfolge
+bleiben preisunabhängig. Neue billige Preise müssen auch alte manuelle/15K-
+Sitzungen verdrängen. Quotenjob alle3h, keine neue Modell-/Sportsuche.
+
+Produktreview abgeschlossen; finale betroffene QA2.493 PASS/7 bestehende Skips/
+32 Untertests/Exit0. Alle14.350 alten IDs erhalten, jetzt14.462 gesammelt;
+786 Quellhashes eingefroren. Keine erneute komplette14K-Vollsuite.
+Commit/Deploy noch ausstehend.
+Aktuelle Test-/Prüfbelege außerhalb Git unter
+`C:/Projekt/BetBoy/output/quote-refresh-20261016`; frühere FAIL-Receipts erhalten.
+No-Backup-Deploypfad dort `deploy.sh`, **nicht** den bestehenden
+backupfähigen Standard-Updater aufrufen. Nach Preisjobfinish exakte Dinamoquote
+und unveränderte Modell-/RisikoBet-Fingerprints prüfen, dann interner Browser.
+Alle offenen fachlichen Aufgaben und zurückgestellte Schlüsselrotation bleiben.
+
 ## 16.10.2026 – jüngste Nutzerentscheidung zu API-Schlüsseln
 
 Schlüsselrotation ausdrücklich nur als offenes To-do führen und vorerst

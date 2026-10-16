@@ -37,6 +37,7 @@ from bet_finder_candidates import build_probability_candidate
 from bet_finder_ui import render_tip_bookmark
 from config_loader import load_app_config
 from manual_search_filters import SearchFilters
+from quote_publication import latest_reference_quotes, read_shared_quote_rows
 from riskobet_domain import stable_event_key
 from riskobet_prices import load_shared_price_overlays, tennis_price_overlays
 from betting_math import (
@@ -183,14 +184,18 @@ def _current_search_prices(rows: list[dict], *, now: datetime,
     if price_observations is None:
         overlays = load_shared_price_overlays(bindings, now=now) if bindings else {}
     else:
-        # Empty/failed checks and conflicting fresh facts cannot cherry-pick
-        # a different old snapshot offer. No clock is renewed during rendering.
-        overlays = tennis_price_overlays(bindings, [], now=now, price_observations=price_observations)
+        # The browser's explicit-search receipt must not freeze prices after a
+        # quote-only shared refresh. Select newest real proof before the floor.
+        quotes = latest_reference_quotes(candidates, {},
+            shared_rows=[*price_observations, *read_shared_quote_rows()], now=now)
+        priced = [dict(candidate, reference_quote=quotes[candidate['candidate_id']].to_dict())
+                  for candidate in candidates if candidate['candidate_id'] in quotes]
+        overlays = tennis_price_overlays(bindings, priced, now=now)
     prices = {}
     for key, price in overlays.items():
         fetched, observed = _clock(price.fetched_at), _clock(price.observed_at)
         # A later failed check cannot renew or legitimize the offer's clocks.
-        if (key in row_ids and price.observed_odds is not None
+        if (key in row_ids and price.publication_eligible and price.observed_odds is not None
                 and fetched is not None and observed is not None and observed <= fetched
                 and timedelta(0) <= now-fetched <= timedelta(hours=24)
                 and timedelta(0) <= now-observed <= timedelta(hours=24)):
@@ -1091,6 +1096,7 @@ def render_tennis_finder(
     filters = search_filters or SearchFilters()
     matching_rows = [row for row in rows
                      if _favorite_probability(row) is not None
+                     and row['id'] in prices
                      and filters.matches(probability=_favorite_probability(row),
                          quote=prices[row['id']].observed_odds if row['id'] in prices else None,
                          market_kind='match_winner')]

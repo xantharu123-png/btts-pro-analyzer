@@ -28,7 +28,10 @@ MODELED = START - timedelta(hours=2)
 @pytest.fixture(autouse=True)
 def _offline_price_and_publication_boundaries(monkeypatch):
     # Rendering test views must not read production prices or append publication receipts.
-    monkeypatch.setattr(ui, "load_shared_price_overlays", lambda *_args, **_kwargs: {})
+    # Layout tests enter at the already-validated overlay contract. Native
+    # event/market/book/clock validation runs in the price-source tests; no
+    # publication or selection gate is replaced here.
+    monkeypatch.setattr(ui, "load_shared_price_overlays", _checked_price_overlays)
     monkeypatch.setattr("tip_publication.record_riskobet_catalog", lambda *_args, **_kwargs: None)
 
 
@@ -263,11 +266,28 @@ def _view(*bundles, status="COMPLETE") -> ui.RiskBetView:
 
 
 def _checked_price_overlays(candidates, snapshots, *, now):
-    # Explicit positive fixtures: original synthetic no-quote attempts, not a current-clock renewal.
+    # Explicit observed-offer contract, not a successful no-quote attempt.
+    # Keep the fixture's original clock instead of renewing it on a UI rerun.
     original = {snapshot.snapshot_id: snapshot for snapshot in snapshots}
     return {candidate.candidate_id: RiskBetPriceOverlay(candidate_id=candidate.candidate_id,
-        checked_at=original[candidate.snapshot_id].modeled_at.isoformat(), price_check_current=True)
+        status='AVAILABLE', observed_odds=1.50, bookmaker='Synthetic verified offer',
+        observed_at=original[candidate.snapshot_id].modeled_at.isoformat(),
+        fetched_at=original[candidate.snapshot_id].modeled_at.isoformat(),
+        checked_at=original[candidate.snapshot_id].modeled_at.isoformat(),
+        price_check_current=True, publication_eligible=True)
         for candidate in candidates}
+
+
+def test_unpriced_model_is_retained_but_not_rendered_as_a_public_tip(monkeypatch):
+    view = _view(_bundle('unknown-price'))
+    before = deepcopy(view)
+    fake = RecordingStreamlit()
+    monkeypatch.setattr(ui, 'st', fake)
+    monkeypatch.setattr(ui, 'load_riskobet_view', lambda _path=None: view)
+    monkeypatch.setattr(ui, 'load_shared_price_overlays', lambda *_a, **_kw: {})
+    ui.render_riskobet(now=MODELED)
+    assert _rendered_candidate_ids(fake) == []
+    assert view == before and len(view.candidates) == 1
 
 
 def _all_text(fake: RecordingStreamlit) -> str:

@@ -7,6 +7,7 @@ from zlib import crc32
 
 import pytest
 import wettfinder_surface as surface
+from challenge_engine import MARKET_BY_KEY
 from ev_signal_sources import ModelSignal
 from forecast_analysis import project_football_analysis
 from highlight_fixtures import football_checks
@@ -14,7 +15,10 @@ from market_consensus import (
     MarketConsensus,
     QuotePoint,
     REFERENCE_SOURCE,
+    ODDS_API_REFERENCE_SOURCE,
+    ESPORTS_PRICE_SOURCE,
     WETTFINDER_FETCH_MAX_AGE,
+    exact_market_target,
     wettfinder_consensus,
 )
 
@@ -139,6 +143,32 @@ def _quote(
 
 def _card(signal: ModelSignal, quote: MarketConsensus | None = None):
     return surface.build_wettfinder_card(signal, quote, now=NOW)
+
+
+def _admitted_card(signal: ModelSignal):
+    """Real, exact-bound quote fixture for catalog ordering/coherence tests."""
+    quote = _quote(signal, (1.8,)*3)
+    if signal.sport == 'Fussball':
+        bet_name, value_name = exact_market_target(signal.market_key)
+        quote = replace(quote, bet_name=bet_name, value_name=value_name)
+    elif signal.sport == 'Tennis':
+        quote = replace(quote, source=ODDS_API_REFERENCE_SOURCE, bet_name='h2h',
+            value_name=signal.selected_competitor, provider_event_id=f'quote-{signal.key}',
+            event_home=signal.competitor_a, event_away=signal.competitor_b,
+            points=tuple(replace(point, bookmaker_id=f'odds-api:{index}')
+                         for index, point in enumerate(quote.points)))
+    else:
+        assert signal.sport == 'E-Sport'
+        signal = replace(signal, source='esports_shadow', fixture_source='pandascore', competition='CS2')
+        quote = replace(quote, source=ESPORTS_PRICE_SOURCE, bet_name='Series Winner',
+            value_name=signal.selected_competitor, provider_event_id=f'quote-{signal.key}',
+            event_home=signal.competitor_a, event_away=signal.competitor_b,
+            origin_provider=signal.fixture_source, origin_event_id=signal.provider_event_id,
+            event_discipline=17, points=tuple(replace(point, bookmaker_id=f'oddspapi:{index}')
+                                            for index, point in enumerate(quote.points)))
+    from quote_publication import publication_allowed
+    assert publication_allowed(quote, candidate=signal, now=NOW)
+    return _card(signal, quote)
 
 
 def _overlay(
@@ -335,6 +365,9 @@ def test_price_states_keep_last_observation_distinct_from_current_prices():
         assert card.price_code == expected_code
         assert card.price_label == label
         assert card.observed_odds == visible_odds
+        if expected_code == 'UNAVAILABLE':
+            catalog = surface.compose_wettfinder_catalog([card])
+            assert not catalog.featured and not catalog.additional
 
 
 def test_too_low_price_uses_only_the_current_consensus_points():
@@ -427,6 +460,8 @@ def test_same_key_and_market_but_wrong_fixture_cannot_become_confirmed_tip():
 
     assert card.price_code == "UNAVAILABLE"
     assert card.observed_odds is None
+    catalog = surface.compose_wettfinder_catalog([card])
+    assert not catalog.featured and not catalog.additional
     assert card.confirmed_tip is False
 
 
@@ -645,7 +680,7 @@ def test_compact_row_is_semantic_flat_and_keeps_the_same_decision_fields():
 
 
 def test_catalog_round_robins_sports_uses_no_price_order_and_keeps_fixture_rows_adjacent():
-    football_broad = _card(
+    football_broad = _admitted_card(
         _signal(
             "football-broad",
             event="Alpha vs Beta",
@@ -654,7 +689,7 @@ def test_catalog_round_robins_sports_uses_no_price_order_and_keeps_fixture_rows_
             market_key="HOME_OVER_0_5",
         )
     )
-    tennis = _card(
+    tennis = _admitted_card(
         _signal(
             "tennis-h2h",
             sport="Tennis",
@@ -664,16 +699,16 @@ def test_catalog_round_robins_sports_uses_no_price_order_and_keeps_fixture_rows_
             market_key="H2H",
         )
     )
-    football_useful = _card(
+    football_useful = _admitted_card(
         _signal(
             "football-useful",
             event="Gamma vs Delta",
-            market="Resultat & Gesamttore",
-            selection="1X und Unter 3,5",
-            market_key="RESULT_TOTAL_1X_UNDER_3_5",
+            market="Doppelte Chance",
+            selection="1X",
+            market_key="DC_1X",
         )
     )
-    same_fixture_one = _card(
+    same_fixture_one = _admitted_card(
         _signal(
             "same-fixture-one",
             event="Epsilon vs Zeta",
@@ -682,7 +717,7 @@ def test_catalog_round_robins_sports_uses_no_price_order_and_keeps_fixture_rows_
             market_key="BTTS_YES",
         )
     )
-    unrelated = _card(
+    unrelated = _admitted_card(
         _signal(
             "unrelated",
             event="Eta vs Theta",
@@ -691,7 +726,7 @@ def test_catalog_round_robins_sports_uses_no_price_order_and_keeps_fixture_rows_
             market_key="RESULT_HOME",
         )
     )
-    same_fixture_two = _card(
+    same_fixture_two = _admitted_card(
         _signal(
             "same-fixture-two",
             event="Epsilon vs Zeta",
@@ -700,7 +735,7 @@ def test_catalog_round_robins_sports_uses_no_price_order_and_keeps_fixture_rows_
             market_key="TOTAL_OVER_2_5",
         )
     )
-    same_fixture_three = _card(
+    same_fixture_three = _admitted_card(
         _signal(
             "same-fixture-three",
             event="Epsilon vs Zeta",
@@ -742,7 +777,7 @@ def test_catalog_round_robins_sports_uses_no_price_order_and_keeps_fixture_rows_
 
 def test_repeated_broad_team_totals_stay_visible_without_monopolizing_featured_cards():
     broad = [
-        _card(
+        _admitted_card(
             _signal(
                 f"broad-{index}",
                 event=f"Team {index} vs Gegner {index}",
@@ -754,16 +789,16 @@ def test_repeated_broad_team_totals_stay_visible_without_monopolizing_featured_c
         for index in range(1, 4)
     ]
     useful = [
-        _card(
+        _admitted_card(
             _signal(
                 "useful-result",
                 event="Omega vs Sigma",
-                market="Resultat & Gesamttore",
-                selection="1X und Unter 3,5",
-                market_key="RESULT_TOTAL_1X_UNDER_3_5",
+                market="Doppelte Chance",
+                selection="1X",
+                market_key="DC_1X",
             )
         ),
-        _card(
+        _admitted_card(
             _signal(
                 "useful-btts",
                 event="Iota vs Kappa",
@@ -786,11 +821,11 @@ def test_repeated_broad_team_totals_stay_visible_without_monopolizing_featured_c
 
 @pytest.mark.parametrize("opposite", ["RESULT_AWAY", "DC_X2"])
 def test_same_event_opposition_cannot_escape_into_additional_cards(opposite):
-    home = _card(replace(_signal(
+    home = _admitted_card(replace(_signal(
         "porto-home", event="Porto vs City", market="Endergebnis",
         market_key="RESULT_HOME", selection="Heimsieg",
     ), fixture_id=1635654, probability=.46361))
-    away = _card(replace(_signal(
+    away = _admitted_card(replace(_signal(
         "porto-opposite", event="Porto vs City", market="Endergebnis",
         market_key=opposite, selection="Auswärtssieg" if opposite == "RESULT_AWAY" else "X2",
     ), fixture_id=1635654, probability=.211739))
@@ -801,15 +836,15 @@ def test_same_event_opposition_cannot_escape_into_additional_cards(opposite):
 
 
 def test_conflicts_are_resolved_before_pagination_and_independent_of_prices():
-    unrelated = [_card(replace(_signal(
+    unrelated = [_admitted_card(replace(_signal(
         f"separate-{index}", event=f"A{index} vs B{index}",
         market="Endergebnis", market_key="RESULT_HOME", selection="Heimsieg",
     ), fixture_id=1000 + index)) for index in range(45)]
-    home = _card(replace(_signal(
+    home = _admitted_card(replace(_signal(
         "late-home", event="Porto vs City", market="Endergebnis",
         market_key="RESULT_HOME", selection="Heimsieg",
     ), fixture_id=1635654))
-    away = _card(replace(_signal(
+    away = _admitted_card(replace(_signal(
         "late-away", event="Porto vs City", market="Endergebnis",
         market_key="RESULT_AWAY", selection="Auswärtssieg",
     ), fixture_id=1635654))
@@ -829,8 +864,8 @@ def test_conflicts_are_resolved_before_pagination_and_independent_of_prices():
 
 def test_compatible_cross_market_forecasts_stay_visible_but_collective_conflicts_do_not():
     def outcome(key):
-        return _card(replace(_signal(
-            key, market="Auswahl", market_key=key, selection=key,
+        return _admitted_card(replace(_signal(
+            key, market="Auswahl", market_key=key, selection=MARKET_BY_KEY[key].selection,
         ), fixture_id=1635654))
     btts, home_under, total_over = map(outcome, ["BTTS_YES", "HOME_UNDER_1_5", "TOTAL_OVER_2_5"])
     away_under = outcome("AWAY_UNDER_1_5")
@@ -852,7 +887,7 @@ def test_event_identity_is_native_and_does_not_merge_same_named_distinct_fixture
                               fixture_id=102, market_key="RESULT_AWAY", selection="Auswärtssieg")
     renamed_same_event = replace(first_signal, key="renamed-event", candidate_id="renamed-event",
                                  event_label="Changed display spelling", market_key="RESULT_AWAY", selection="Auswärtssieg")
-    cards = [_card(signal) for signal in (first_signal, separate_signal, renamed_same_event)]
+    cards = [_admitted_card(signal) for signal in (first_signal, separate_signal, renamed_same_event)]
     catalog = surface.compose_wettfinder_catalog(cards)
     assert {card.key for card in catalog.featured + catalog.additional} == {"first-event", "second-event"}
 
@@ -863,7 +898,7 @@ def test_card_keeps_native_team_roles_when_display_names_change():
     ), fixture_id=1635654, home_team_id=1, away_team_id=2, home_team="Alpha", away_team="Zulu")
     renamed = replace(first, key="team-under", candidate_id="team-under", market_key="HOME_UNDER_1_5",
                       selection="Unter 1.5", home_team="Zulu", away_team="Alpha")
-    cards = [_card(first), _card(renamed)]
+    cards = [_admitted_card(first), _admitted_card(renamed)]
     assert [(card.home_team_id, card.away_team_id) for card in cards] == [(1, 2), (1, 2)]
     catalog = surface.compose_wettfinder_catalog(cards)
     assert [card.key for card in catalog.featured + catalog.additional] == [first.key]
@@ -871,19 +906,19 @@ def test_card_keeps_native_team_roles_when_display_names_change():
 
 def test_sixteenth_different_market_survives_repeated_markets_and_90_event_catalog():
     cards = [
-        _card(_signal(
+        _admitted_card(_signal(
             f"basic-{index}", event=f"Home {index} vs Away {index}",
             market="Team 1 Gesamttore", selection="Über 0.5",
             market_key="HOME_OVER_0_5",
         ))
         for index in range(1, 16)
     ]
-    cards.append(_card(_signal(
+    cards.append(_admitted_card(_signal(
         "btts-at-sixteen", event="Home 16 vs Away 16",
         market="Beide Teams treffen", selection="Ja", market_key="BTTS_YES",
     )))
     cards.extend(
-        _card(_signal(
+        _admitted_card(_signal(
             f"later-{index}", event=f"Home {index} vs Away {index}",
             market="Beide Teams treffen", selection="Ja", market_key="BTTS_YES",
         ))
@@ -938,18 +973,18 @@ def test_production_renderer_pages_20_complete_games_without_splitting_markets(m
 def test_market_key_drives_basis_treatment_for_corners_and_yellow_markets():
     basic_keys = ("HOME_CORNERS_OVER_2_5", "YELLOW_UNDER_4_5")
     basic = [
-        _card(
+        _admitted_card(
             _signal(
                 key,
                 event=f"{key} Event",
                 market="Nichtssagender Markttext",
-                selection="Nichtssagende Auswahl",
+                selection=MARKET_BY_KEY[key].selection,
                 market_key=key,
             )
         )
         for key in basic_keys
     ]
-    useful = _card(
+    useful = _admitted_card(
         _signal(
             "useful-btts-market-key",
             event="Useful vs Market",
@@ -967,7 +1002,7 @@ def test_market_key_drives_basis_treatment_for_corners_and_yellow_markets():
 
 
 def test_same_market_family_can_feature_once_per_sport():
-    tennis = _card(
+    tennis = _admitted_card(
         _signal(
             "tennis-winner",
             sport="Tennis",
@@ -977,7 +1012,7 @@ def test_same_market_family_can_feature_once_per_sport():
             market_key="H2H",
         )
     )
-    esports = _card(
+    esports = _admitted_card(
         _signal(
             "esports-winner",
             sport="E-Sport",

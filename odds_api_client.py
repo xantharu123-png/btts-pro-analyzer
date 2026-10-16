@@ -103,7 +103,11 @@ class OddsAPIClient:
             for governor, reservation in reservations:
                 governor.complete(reservation, error=type(exc).__name__, now=current)
             # Request exceptions can contain the URL and therefore the key.
-            raise APIBudgetUnavailable(f"Odds API transport failed: {type(exc).__name__}") from None
+            failure = APIBudgetUnavailable(f"Odds API transport failed: {type(exc).__name__}")
+            # Preserve only the bounded transport category across the sanitized
+            # exception boundary; neither the original exception nor its URL.
+            failure.transport_error_type = "TIMEOUT" if isinstance(exc, requests.Timeout) else "REQUEST_ERROR"
+            raise failure from None
         headers = getattr(response, "headers", {})
         remaining = _header_count(headers, "x-requests-remaining")
         used = _header_count(headers, "x-requests-used")

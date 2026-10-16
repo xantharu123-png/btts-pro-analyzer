@@ -7,7 +7,7 @@ import pytest
 from daily3_selection import daily3_choices
 from forecast_analysis import build_forecast_analysis
 from forecast_selection import select_consumer_forecasts
-from test_daily3_selection import NOW, football, tennis
+from test_daily3_selection import NOW, _admitted, football, tennis
 from wettfinder_surface import build_wettfinder_card, compose_wettfinder_catalog, render_compact_row_html
 
 
@@ -20,11 +20,32 @@ def esports(*, age=0):
 
 
 def cards(rows):
-    return [build_wettfinder_card(s, now=NOW) for s in rows]
+    return [build_wettfinder_card(s, s.reference_quote, now=NOW) for s in rows]
+
+
+def _priced_football(*args, **kwargs):
+    from market_consensus import exact_market_target
+    signal = football(*args, **kwargs)
+    return _admitted(signal) if exact_market_target(signal.market_key) else signal
+
+
+def _priced_esports(signal):
+    from market_consensus import ESPORTS_PRICE_SOURCE
+    from test_wettfinder_surface import _quote
+    signal = replace(signal, candidate_id=signal.key, source='esports_shadow',
+                     fixture_source='pandascore', competition='CS2')
+    quote = _quote(signal, (1.8,), fetched_at=NOW)
+    quote = replace(quote,
+        source=ESPORTS_PRICE_SOURCE, bet_name='Series Winner',
+        value_name=signal.selected_competitor, provider_event_id='quote-esports',
+        event_home=signal.competitor_a, event_away=signal.competitor_b,
+        origin_provider=signal.fixture_source, origin_event_id=signal.provider_event_id,
+        event_discipline=17, points=tuple(replace(p, bookmaker_id='oddspapi:test') for p in quote.points))
+    return replace(signal, reference_quote=quote.to_dict())
 
 
 def test_frozen_opposing_choices_share_one_scenario_without_price_ranking():
-    inputs = [football(key=k, probability=p) for k, p in (
+    inputs = [_priced_football(key=k, probability=p) for k, p in (
         ('RESULT_AWAY', .195253), ('RESULT_HOME', .551276), ('DC_X2', .454140), ('DC_1X', .806871))]
     original_probabilities = [s.probability for s in inputs]
     for ordering in permutations(inputs):
@@ -40,8 +61,8 @@ def test_frozen_opposing_choices_share_one_scenario_without_price_ranking():
     assert [s.probability for s in inputs] == original_probabilities
 
 
-@pytest.mark.parametrize('signal', [esports(age=14), replace(esports(), modeled_at=None),
-    replace(esports(), context_evidence=None)])
+@pytest.mark.parametrize('signal', [_priced_esports(esports(age=14)), _priced_esports(replace(esports(), modeled_at=None)),
+    _priced_esports(replace(esports(), context_evidence=None))])
 def test_unqualified_forecasts_remain_visible_but_never_highlighted(signal):
     catalog = compose_wettfinder_catalog(cards([signal]))
     assert not catalog.featured
@@ -50,7 +71,7 @@ def test_unqualified_forecasts_remain_visible_but_never_highlighted(signal):
 
 
 def test_exact_esports_explanation_is_shared_and_rejects_foreign_evidence():
-    signal = esports()
+    signal = _priced_esports(esports())
     analysis = build_forecast_analysis(signal, now=NOW)
     expected_reason = (
         'Spieler A: Die längerfristigen Serienergebnisse sprechen im '
@@ -72,7 +93,7 @@ def test_exact_esports_explanation_is_shared_and_rejects_foreign_evidence():
 
 @pytest.mark.parametrize('kind,label', [('result_date', 'Ergebnisse bis'), ('tournament_start_proxy', 'Erfasste Turniere bis')])
 def test_tennis_data_age_is_not_replaced_by_recalculation_time(kind, label):
-    signal = tennis()
+    signal = _admitted(tennis())
     context = {**signal.context_evidence, 'model_inputs': {**signal.context_evidence['model_inputs'],
         'stats_through': '2000-01-01', 'stats_through_kind': kind,
         'model_built_at': (NOW-timedelta(days=1)).isoformat(), 'training_cutoff': NOW.isoformat()}}
@@ -90,7 +111,7 @@ def test_tennis_data_age_is_not_replaced_by_recalculation_time(kind, label):
 
 
 def test_tennis_unknown_data_date_stays_unknown_and_neutral():
-    signal = tennis(coverage=False)
+    signal = _admitted(tennis(coverage=False))
     catalog = compose_wettfinder_catalog(cards([signal]))
     assert not catalog.featured
     assert 'Datenstand unbekannt' in catalog.additional[0].analysis_data_age
@@ -133,7 +154,7 @@ def test_canonical_clock_compares_equivalent_zones_but_new_revision_wins_by_time
 
 
 def test_stale_or_unexplained_opponent_cannot_anchor_a_supported_current_direction():
-    home = football(probability=.3)
+    home = _priced_football(probability=.3)
     stale = football(key='RESULT_AWAY', probability=.9, now=NOW-timedelta(hours=3))
     unsupported = replace(football(key='RESULT_AWAY', probability=.9), analysis_evidence=None)
     for opposite in (stale, unsupported):
@@ -143,7 +164,7 @@ def test_stale_or_unexplained_opponent_cannot_anchor_a_supported_current_directi
 
 @pytest.mark.parametrize('key', ['HOME_OVER_0_5', 'AWAY_OVER_0_5', 'HOME_UNDER_1_5', 'AWAY_UNDER_1_5'])
 def test_simple_markets_remain_in_both_consumer_pools(key):
-    signal = football(key=key)
+    signal = _priced_football(key=key)
     assert select_consumer_forecasts([signal], now=NOW)[0] is signal
     assert daily3_choices([signal], now=NOW)[0].signal is signal
     catalog = compose_wettfinder_catalog(cards([signal]))
@@ -151,8 +172,8 @@ def test_simple_markets_remain_in_both_consumer_pools(key):
 
 
 def test_complete_pool_precedes_occupied_slots_and_pagination():
-    home, away = football(probability=.6), football(key='RESULT_AWAY', probability=.4)
-    pool = [away, *[football(i) for i in range(2, 52)], home]
+    home, away = _priced_football(probability=.6), _priced_football(key='RESULT_AWAY', probability=.4)
+    pool = [away, *[_priced_football(i) for i in range(2, 52)], home]
     catalog = compose_wettfinder_catalog(cards(pool), max_featured=1)
     visible = catalog.featured + catalog.additional
     assert home.key in {c.key for c in visible} and away.key not in {c.key for c in visible}
@@ -163,14 +184,14 @@ def test_complete_pool_precedes_occupied_slots_and_pagination():
 
 @pytest.mark.parametrize('minutes,eligible', [(150, True), (151, False), (-1, False)])
 def test_highlight_clock_window_uses_actual_model_clock(minutes, eligible):
-    signal = esports(age=minutes/60)
+    signal = _priced_esports(esports(age=minutes/60))
     catalog = compose_wettfinder_catalog(cards([signal]))
     assert bool(catalog.featured) is eligible
 
 
 @pytest.mark.parametrize('days,eligible', [(14, True), (15, False), (-1, False)])
 def test_tennis_coverage_review_boundary_is_presentation_only(days, eligible):
-    signal = tennis()
+    signal = _admitted(tennis())
     context = {**signal.context_evidence, 'model_inputs': {**signal.context_evidence['model_inputs'],
         'stats_through': (NOW-timedelta(days=days)).date().isoformat()}}
     signal = replace(signal, context_evidence=context)
@@ -201,9 +222,10 @@ def test_same_key_clock_with_foreign_participant_is_stably_resolved():
 
 
 def test_comparable_btts_and_h2h_directions_choose_their_own_stronger_probability():
-    yes, no = football(key='BTTS_YES', probability=.4), football(key='BTTS_NO', probability=.6)
-    a = replace(tennis(), probability=.4)
-    b = replace(a, key='tennis-b', selected_competitor='Spieler B', selection='Sieg Spieler B', probability=.6)
+    yes, no = _priced_football(key='BTTS_YES', probability=.4), _priced_football(key='BTTS_NO', probability=.6)
+    a = _admitted(replace(tennis(), probability=.4))
+    b = _admitted(replace(a, key='tennis-b', candidate_id='tennis-b',
+                         selected_competitor='Spieler B', selection='Sieg Spieler B', probability=.6))
     for pool in permutations((yes, no, a, b)):
         selected = select_consumer_forecasts(pool, now=NOW)
         assert {s.key for s in selected} == {no.key, b.key}
@@ -212,7 +234,7 @@ def test_comparable_btts_and_h2h_directions_choose_their_own_stronger_probabilit
 
 @pytest.mark.parametrize('field', ['model_built_at', 'training_cutoff'])
 def test_tennis_future_provenance_cannot_be_hidden_by_current_calculation(field):
-    signal = tennis()
+    signal = _admitted(tennis())
     context = {**signal.context_evidence, 'model_inputs': {**signal.context_evidence['model_inputs'],
         field: (NOW+timedelta(days=1)).isoformat()}}
     signal = replace(signal, context_evidence=context)
@@ -249,7 +271,18 @@ def test_model_dates_are_retained_internally_not_customer_footers():
     'AWAY_UNDER_2_5', 'DC_1X', 'DC_X2', 'TOTAL_OVER_0_5', 'MIXED_BTTS_OR_OVER_2_5',
     'HOME_CORNERS_OVER_2_5', 'YELLOW_UNDER_4_5'])
 def test_fresh_exactly_evidenced_former_basis_market_can_highlight_without_forcing_three(key):
-    signal = football(key=key)
+    signal = _priced_football(key=key)
+    if key == 'MIXED_BTTS_OR_OVER_2_5':
+        from market_consensus import exact_market_target
+        assert exact_market_target(key) is None and signal.reference_quote is None
+        # A sound synthetic model for an unsupported composite market remains
+        # valid in the background, but cannot invent a public provider offer.
+        assert build_forecast_analysis(signal, now=NOW).supported
+        assert select_consumer_forecasts([signal], now=NOW) == [signal]
+        catalog = compose_wettfinder_catalog(cards([signal]))
+        assert not catalog.featured and not catalog.additional
+        assert daily3_choices([signal], now=NOW) == ()
+        return
     if 'CORNERS' in key or 'YELLOW' in key:
         evidence = signal.analysis_evidence
         signal = replace(signal, analysis_evidence={**evidence, 'basis': {**evidence['basis'],
@@ -269,7 +302,7 @@ def test_fresh_exactly_evidenced_former_basis_market_can_highlight_without_forci
 def test_market_categories_do_not_override_shared_canonical_preference():
     # Independent events share model time. A category demotion must not move
     # the ordinary event-1 forecast behind the unrelated event-2 forecast.
-    dc, home = football(1, key='DC_X2', probability=.75), football(2, probability=.8)
+    dc, home = _priced_football(1, key='DC_X2', probability=.75), _priced_football(2, probability=.8)
     for pool in ((dc, home), (home, dc)):
         shared = select_consumer_forecasts(pool, now=NOW)
         assert shared == [dc, home]

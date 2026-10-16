@@ -87,6 +87,13 @@ def _card(candidate: RiskCandidate, **price) -> surface.RiskBetCard:
     return surface.build_riskobet_card(candidate, overlay, snapshot=snapshot, now=NOW)
 
 
+def _admitted_card(candidate: RiskCandidate, **price) -> surface.RiskBetCard:
+    """Candidate-bound positive overlay for catalog-policy fixtures only."""
+    return _card(candidate, **{'status': 'AVAILABLE', 'observed_odds': 2.25,
+        'observed_at': NOW.isoformat(), 'fetched_at': NOW.isoformat(),
+        'publication_eligible': True, **price})
+
+
 def test_sport_filters_are_exactly_all_plus_the_six_product_sports():
     assert surface.SPORT_FILTERS == (
         "Alle",
@@ -142,6 +149,7 @@ def test_missing_research_probability_is_honestly_open_in_both_surfaces():
 
     full = surface.render_riskobet_card_html(card)
     compact = surface.render_riskobet_compact_row_html(card)
+    assert not surface.compose_riskobet_catalog([card]).cards
 
     assert surface.format_riskobet_probability(None) == "offen"
     for markup in (full, compact):
@@ -497,7 +505,7 @@ def test_price_changes_neither_visibility_nor_order():
             selection_key="football-two",
         ),
     ]
-    cards = [_card(candidate) for candidate in candidates]
+    cards = [_admitted_card(candidate) for candidate in candidates]
     repriced = [
         replace(
             card,
@@ -521,21 +529,21 @@ def test_price_changes_neither_visibility_nor_order():
 
 def test_all_filter_round_robins_sports_in_fixed_product_order():
     cards = [
-        _card(
+        _admitted_card(
             _candidate(
                 "football-one",
                 event_key="football-one",
                 selection_key="football-one",
             )
         ),
-        _card(
+        _admitted_card(
             _candidate(
                 "football-two",
                 event_key="football-two",
                 selection_key="football-two",
             )
         ),
-        _card(
+        _admitted_card(
             _candidate(
                 "tennis-one",
                 event_key="tennis-one",
@@ -543,7 +551,7 @@ def test_all_filter_round_robins_sports_in_fixed_product_order():
                 selection_key="tennis-one",
             )
         ),
-        _card(
+        _admitted_card(
             _candidate(
                 "tennis-two",
                 event_key="tennis-two",
@@ -551,7 +559,7 @@ def test_all_filter_round_robins_sports_in_fixed_product_order():
                 selection_key="tennis-two",
             )
         ),
-        _card(
+        _admitted_card(
             _candidate(
                 "basketball-one",
                 event_key="basketball-one",
@@ -573,7 +581,7 @@ def test_all_filter_round_robins_sports_in_fixed_product_order():
 
 
 def test_research_candidates_follow_shadow_and_validated_candidates():
-    research = _card(
+    research = _admitted_card(
         _candidate(
             "football-research",
             event_key="football-research",
@@ -581,7 +589,7 @@ def test_research_candidates_follow_shadow_and_validated_candidates():
             selection_key="football-research",
         )
     )
-    shadow = _card(
+    shadow = _admitted_card(
         _candidate(
             "tennis-shadow",
             event_key="tennis-shadow",
@@ -589,7 +597,7 @@ def test_research_candidates_follow_shadow_and_validated_candidates():
             selection_key="tennis-shadow",
         )
     )
-    validated = _card(
+    validated = _admitted_card(
         _candidate(
             "basketball-validated",
             event_key="basketball-validated",
@@ -612,7 +620,7 @@ def test_research_candidates_follow_shadow_and_validated_candidates():
 
 def test_research_is_not_promoted_above_established_simple_scenarios():
     established_simple = [
-        _card(
+        _admitted_card(
             _candidate(
                 f"shadow-simple-{index}",
                 event_key=f"shadow-simple-{index}",
@@ -623,7 +631,7 @@ def test_research_is_not_promoted_above_established_simple_scenarios():
         )
         for index in range(2)
     ]
-    research_useful = _card(
+    research_useful = _admitted_card(
         _candidate(
             "research-win",
             event_key="research-win",
@@ -646,7 +654,7 @@ def test_research_is_not_promoted_above_established_simple_scenarios():
 
 
 def test_research_stays_additional_even_when_top_slots_remain_free():
-    established = _card(
+    established = _admitted_card(
         _candidate(
             "shadow-win",
             event_key="shadow-win",
@@ -655,7 +663,7 @@ def test_research_stays_additional_even_when_top_slots_remain_free():
         )
     )
     research = [
-        _card(
+        _admitted_card(
             _candidate(
                 f"research-win-{index}",
                 event_key=f"research-win-{index}",
@@ -684,7 +692,7 @@ def test_catalog_never_publishes_more_than_two_scenarios_per_event():
         ("underdog_team_over_1_5_90_minutes", "away"),
     )
     cards = [
-        _card(
+        _admitted_card(
             replace(
                 _candidate(
                     f"scenario-{index}",
@@ -709,7 +717,7 @@ def test_catalog_never_publishes_more_than_two_scenarios_per_event():
 
 def test_featured_is_capped_at_three_and_simple_markets_cannot_dominate():
     useful = [
-        _card(
+        _admitted_card(
             _candidate(
                 f"useful-{index}",
                 event_key=f"useful-{index}",
@@ -721,7 +729,7 @@ def test_featured_is_capped_at_three_and_simple_markets_cannot_dominate():
         for index in range(2)
     ]
     simple = [
-        _card(
+        _admitted_card(
             _candidate(
                 f"simple-{index}",
                 event_key=f"simple-{index}",
@@ -758,8 +766,8 @@ def test_featured_is_capped_at_three_and_simple_markets_cannot_dominate():
 
 
 def test_sport_filter_only_changes_view_and_rejects_non_product_filters():
-    football = _card(_candidate())
-    tennis = _card(
+    football = _admitted_card(_candidate())
+    tennis = _admitted_card(
         _candidate(
             "tennis",
             event_key="tennis",

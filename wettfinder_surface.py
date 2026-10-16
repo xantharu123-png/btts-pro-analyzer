@@ -30,6 +30,7 @@ from forecast_analysis import build_forecast_analysis, forecast_highlight_reason
 from forecast_compact import CompactAnalysis, build_compact_analysis, render_compact_analysis_html
 from forecast_selection import select_consumer_forecasts
 from forecast_price_checks import has_current_price_check
+from quote_publication import publication_quote
 from market_consensus import (
     MarketConsensus,
     ReferencePriceStatus,
@@ -456,6 +457,14 @@ def build_wettfinder_card(
         ):
             raise ValueError("price evaluation quote mismatch")
         normalized_quote = current_quote
+    admitted_quote = publication_quote(normalized_quote,
+        candidate=wettfinder_quote_binding_candidate(signal), now=now)
+    if admitted_quote is not None and admitted_quote != current_quote:
+        # Display exactly the positively admitted native subset. In particular
+        # the provider's tolerated clock skew cannot display a future offer.
+        current_quote = normalized_quote = admitted_quote
+        status = wettfinder_reference_price_status(admitted_quote, signal.minimum_odds,
+            candidate=wettfinder_quote_binding_candidate(signal), now=now)
     released = signal.evidence_stage == "RELEASED"
     confirmed_tip = bool(
         released
@@ -525,8 +534,7 @@ def build_wettfinder_card(
         compact_analysis=build_compact_analysis(signal, analysis, now=now),
         highlight_comparison=(football_form_comparison(signal, now=now)
                               if not highlight_reason else None),
-        quote_floor_excluded=quote_below_publication_floor(
-            normalized_quote, candidate=wettfinder_quote_binding_candidate(signal), now=now),
+        quote_floor_excluded=admitted_quote is None,
     )
 
 
@@ -620,7 +628,8 @@ def compose_wettfinder_catalog(
 
     Shared canonical coherence precedes every sport/section/page filter.
     Highlight qualification is retained from the common card-build clock;
-    Unknown prices remain visible. The floor cannot select another direction.
+    Unknown prices remain in the model pool, not public tips. No price can
+    select another direction.
     """
 
     if (

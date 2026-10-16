@@ -19,12 +19,16 @@ import json
 import math
 import re
 from statistics import median
-from typing import Any, Iterable, Mapping, Optional
+from time import monotonic
+from typing import Any, Iterable, Mapping, MutableMapping, Optional
 import unicodedata
 
 import requests
 
-from api_budget import APIBudgetError, APIBudgetPriority, api_football_get
+from api_budget import (
+    APIBudgetError, APIBudgetExceeded, APIBudgetPriority, APIBudgetUnavailable,
+    api_football_get,
+)
 from odds_api_client import odds_api_get
 from betting_math import (
     MINIMUM_RECOMMENDED_DECIMAL_ODDS,
@@ -1223,26 +1227,114 @@ def _observation_is_current(
     return timedelta(minutes=-1) <= age <= REFERENCE_QUOTE_MAX_AGE
 
 
+def _quote_diagnostic(
+    diagnostics: Optional[MutableMapping[str, dict[str, Any]]],
+    candidates: Iterable[object],
+    reason_code: str,
+    *,
+    fetched_at: Optional[datetime] = None,
+    checked_at: Optional[datetime] = None,
+    provider_updated_at: Optional[datetime] = None,
+    bookmaker_count: Optional[int] = None,
+    error_type: Optional[str] = None,
+    http_status: Optional[int] = None,
+) -> None:
+    """Write only bounded receipt facts, never provider text or payloads."""
+    if diagnostics is None:
+        return
+    record: dict[str, Any] = {"reason_code": reason_code}
+    for field, moment in (("fetched_at", fetched_at), ("checked_at", checked_at),
+                          ("provider_updated_at", provider_updated_at)):
+        if moment is not None:
+            record[field] = _as_utc(moment).isoformat()
+    if bookmaker_count is not None:
+        record["bookmaker_count"] = bookmaker_count
+    if error_type in {
+        "MISSING_CREDENTIAL", "BUDGET_EXHAUSTED", "BUDGET_UNAVAILABLE", "BUDGET_ERROR",
+        "HTTP_ERROR", "TIMEOUT", "REQUEST_ERROR", "INVALID_RESPONSE", "PROVIDER_ERROR",
+    }:
+        record["error_type"] = error_type
+    if type(http_status) is int and 100 <= http_status <= 599:
+        record["http_status"] = http_status
+    for candidate in candidates:
+        candidate_id = str(_candidate_value(candidate, "candidate_id") or "").strip()
+        if candidate_id:
+            diagnostics[candidate_id] = dict(record)
+
+
+def _request_error_facts(error: BaseException) -> dict[str, Any]:
+    """Classify actual exception/status facts without serializing its text."""
+    if isinstance(error, APIBudgetExceeded):
+        return {"error_type": "BUDGET_EXHAUSTED"}
+    if isinstance(error, APIBudgetUnavailable):
+        transport_error_type = getattr(error, "transport_error_type", None)
+        if transport_error_type in {"TIMEOUT", "REQUEST_ERROR"}:
+            return {"error_type": transport_error_type}
+        return {"error_type": "BUDGET_UNAVAILABLE"}
+    if isinstance(error, APIBudgetError):
+        return {"error_type": "BUDGET_ERROR"}
+    if isinstance(error, requests.Timeout):
+        return {"error_type": "TIMEOUT"}
+    if isinstance(error, requests.HTTPError):
+        facts: dict[str, Any] = {"error_type": "HTTP_ERROR"}
+        status = getattr(error.response, "status_code", None)
+        if type(status) is int and 100 <= status <= 599:
+            facts["http_status"] = status
+        return facts
+    return {"error_type": "INVALID_RESPONSE" if isinstance(error, ValueError) else "REQUEST_ERROR"}
+
+
+def _quote_clock_reason(observed: Optional[datetime], fetched: datetime) -> str:
+    if observed is None or fetched - observed < timedelta(minutes=-1):
+        return "BAD_CLOCK"
+    if fetched - observed > REFERENCE_QUOTE_MAX_AGE:
+        return "STALE_CLOCK"
+    return "OBSERVED"
+
+
+def _missing_quote_reason(reasons: Iterable[str]) -> str:
+    # A valid but expired/undated offer proves more than a malformed price.
+    for reason in ("STALE_CLOCK", "BAD_CLOCK", "INVALID_QUOTE"):
+        if reason in reasons:
+            return reason
+    return "UNKNOWN_NOT_RECEIVED"
+
+
 def parse_fixture_consensus(
     payload: object,
     candidates: Iterable[object],
     *,
     fetched_at: Optional[datetime] = None,
     retain_observations: bool = False,
+    diagnostics: Optional[MutableMapping[str, dict[str, Any]]] = None,
 ) -> dict[str, MarketConsensus]:
     """Parse exact candidate prices from one API-Football odds response."""
+    candidate_list = list(candidates)
+    fetched = _as_utc(fetched_at or datetime.now(timezone.utc))
+    _quote_diagnostic(diagnostics, candidate_list, "UNKNOWN_NOT_RECEIVED", fetched_at=fetched)
     if not isinstance(payload, Mapping) or payload.get("errors"):
+        if isinstance(payload, Mapping) and payload.get("errors"):
+            _quote_diagnostic(diagnostics, candidate_list, "REQUEST_FAILED", fetched_at=fetched,
+                              error_type="PROVIDER_ERROR")
         return {}
     response = payload.get("response")
     if not isinstance(response, list):
         return {}
-    fetched = _as_utc(fetched_at or datetime.now(timezone.utc))
     quotes: dict[
         tuple[int, str, str],
         dict[str, tuple[QuotePoint, datetime]],
     ] = {}
     fixture_ids: set[int] = set()
     fixture_starts: dict[int, Optional[datetime]] = {}
+    requested_targets = {
+        (_candidate_value(candidate, "fixture_id"), _normalize(target[0]), _normalize(target[1]))
+        for candidate in candidate_list
+        if (target := exact_market_target(_candidate_value(candidate, "market_key"))) is not None
+        and type(_candidate_value(candidate, "fixture_id")) is int
+    } if diagnostics is not None else set()
+    received_markets: set[tuple[int, str]] = set()
+    received_selections: dict[tuple[int, str, str], set[str]] = {}
+    received_updates: dict[tuple[int, str, str], datetime] = {}
     for entry in response:
         if not isinstance(entry, Mapping):
             continue
@@ -1297,6 +1389,8 @@ def parse_fixture_consensus(
                 if not isinstance(bet, Mapping):
                     continue
                 bet_name = _normalize(bet.get("name"))
+                if diagnostics is not None and bet_name:
+                    received_markets.add((fixture_id, bet_name))
                 values = bet.get("values")
                 if not bet_name or not isinstance(values, list):
                     continue
@@ -1310,10 +1404,20 @@ def parse_fixture_consensus(
                         # the existing side/fixture/start binding afterwards.
                         value_name = {"1x": "home/draw", "x2": "draw/away",
                                       "12": "home/away"}.get(value_name, value_name)
+                    receipt_key = (fixture_id, bet_name, value_name)
+                    reasons = None
+                    if receipt_key in requested_targets:
+                        reasons = received_selections.setdefault(receipt_key, set())
+                        if update is not None:
+                            received_updates[receipt_key] = max(update, received_updates.get(receipt_key, update))
                     try:
                         odds = validate_decimal_odds(value.get("odd"))
                     except BettingMathError:
+                        if reasons is not None:
+                            reasons.add("INVALID_QUOTE")
                         continue
+                    if reasons is not None:
+                        reasons.add(_quote_clock_reason(update, fetched))
                     if not (_observation_is_current(update, fetched) or (
                         retain_observations and update is not None
                         and timedelta(minutes=-1) <= fetched - update <= QUOTE_DISPLAY_MAX_AGE
@@ -1346,7 +1450,7 @@ def parse_fixture_consensus(
                         )
 
     result: dict[str, MarketConsensus] = {}
-    for candidate in candidates:
+    for candidate in candidate_list:
         candidate_id = str(_candidate_value(candidate, "candidate_id") or "").strip()
         market_key = str(_candidate_value(candidate, "market_key") or "").strip()
         fixture_id = _candidate_value(candidate, "fixture_id")
@@ -1357,10 +1461,16 @@ def parse_fixture_consensus(
             or isinstance(fixture_id, bool)
             or not isinstance(fixture_id, int)
             or fixture_id <= 0
-            or (fixture_ids and fixture_id not in fixture_ids)
         ):
+            _quote_diagnostic(diagnostics, [candidate], "UNSUPPORTED", fetched_at=fetched)
+            continue
+        if fixture_id not in fixture_ids:
+            _quote_diagnostic(diagnostics, [candidate],
+                              "IDENTITY_MISMATCH" if fixture_ids else "FIXTURE_ABSENT",
+                              fetched_at=fetched)
             continue
         bet_name, value_name = target
+        receipt_key = (fixture_id, _normalize(bet_name), _normalize(value_name))
         raw = quotes.get(
             (fixture_id, _normalize(bet_name), _normalize(value_name)),
             {},
@@ -1371,10 +1481,22 @@ def parse_fixture_consensus(
         )
         summary = _summary_prices(sorted(point.odds for point in points))
         if summary is None:
+            if (fixture_id, _normalize(bet_name)) not in received_markets:
+                reason = "MARKET_ABSENT"
+            elif receipt_key not in received_selections:
+                reason = "SELECTION_ABSENT"
+            else:
+                reason = _missing_quote_reason(received_selections[receipt_key])
+            _quote_diagnostic(diagnostics, [candidate], reason, fetched_at=fetched,
+                              provider_updated_at=received_updates.get(receipt_key))
             continue
         lowest, conservative, consensus, best = summary
         observed_at = [observed[1] for observed in raw.values()]
         quoted_at = max(observed_at).isoformat() if observed_at else None
+        _quote_diagnostic(diagnostics, [candidate],
+                          "OBSERVED" if all(_observation_is_current(moment, fetched) for moment in observed_at)
+                          else "STALE_CLOCK", fetched_at=fetched,
+                          provider_updated_at=max(observed_at), bookmaker_count=len(points))
         result[candidate_id] = MarketConsensus(
             fixture_id=fixture_id,
             candidate_id=candidate_id,
@@ -1452,6 +1574,7 @@ def parse_h2h_event_consensus(
     candidates: Iterable[object],
     *,
     fetched_at: Optional[datetime] = None,
+    diagnostics: Optional[MutableMapping[str, dict[str, Any]]] = None,
 ) -> dict[str, MarketConsensus]:
     """Parse exact match-winner prices for one identified provider event.
 
@@ -1461,23 +1584,33 @@ def parse_h2h_event_consensus(
     participant must be one of the two modeled competitors. No market or
     price is inferred when any identity field is missing or ambiguous.
     """
+    current = _as_utc(fetched_at or datetime.now(timezone.utc))
+    requested_candidates = list(candidates)
+    _quote_diagnostic(diagnostics, requested_candidates, "UNKNOWN_NOT_RECEIVED", fetched_at=current)
     if not isinstance(payload, Mapping):
         return {}
     provider_event_id = str(payload.get("id") or "").strip()
     if not provider_event_id:
+        _quote_diagnostic(diagnostics, requested_candidates, "IDENTITY_MISMATCH", fetched_at=current)
         return {}
-    current = _as_utc(fetched_at or datetime.now(timezone.utc))
+    _quote_diagnostic(diagnostics, requested_candidates, "IDENTITY_MISMATCH", fetched_at=current)
     candidate_list = [
         candidate
-        for candidate in candidates
+        for candidate in requested_candidates
         if _h2h_event_matches(payload, candidate)
     ]
     if not candidate_list:
         return {}
 
     quotes: dict[str, dict[str, tuple[QuotePoint, datetime]]] = {}
+    received_market = False
+    received_selections: dict[str, set[str]] = {}
+    received_updates: dict[str, datetime] = {}
+    selected_names = {identity[2] for candidate in candidate_list
+                      if (identity := _h2h_candidate_identity(candidate)) is not None}
     bookmakers = payload.get("bookmakers")
     if not isinstance(bookmakers, list):
+        _quote_diagnostic(diagnostics, candidate_list, "MARKET_ABSENT", fetched_at=current)
         return {}
     for bookmaker in bookmakers:
         if not isinstance(bookmaker, Mapping):
@@ -1507,10 +1640,9 @@ def parse_h2h_event_consensus(
                 or _normalize(market.get("key")) != "h2h"
             ):
                 continue
+            received_market = True
             market_update = _parse_utc(market.get("last_update"))
             observed_at = market_update or bookmaker_update
-            if not _observation_is_current(observed_at, current):
-                continue
             outcomes = market.get("outcomes")
             if not isinstance(outcomes, list):
                 continue
@@ -1520,9 +1652,20 @@ def parse_h2h_event_consensus(
                 outcome_name = _tennis_identity_name(outcome.get("name"))
                 if not outcome_name:
                     continue
+                reasons = None
+                if diagnostics is not None and outcome_name in selected_names:
+                    reasons = received_selections.setdefault(outcome_name, set())
+                    if observed_at is not None:
+                        received_updates[outcome_name] = max(observed_at, received_updates.get(outcome_name, observed_at))
                 try:
                     odds = validate_decimal_odds(outcome.get("price"))
                 except BettingMathError:
+                    if reasons is not None:
+                        reasons.add("INVALID_QUOTE")
+                    continue
+                if reasons is not None:
+                    reasons.add(_quote_clock_reason(observed_at, current))
+                if not _observation_is_current(observed_at, current):
                     continue
                 by_bookmaker = quotes.setdefault(outcome_name, {})
                 existing = by_bookmaker.get(bookmaker_key)
@@ -1563,9 +1706,16 @@ def parse_h2h_event_consensus(
         )
         summary = _summary_prices(sorted(point.odds for point in points))
         if summary is None:
+            reason = ("MARKET_ABSENT" if not received_market else
+                      "SELECTION_ABSENT" if selected not in received_selections else
+                      _missing_quote_reason(received_selections[selected]))
+            _quote_diagnostic(diagnostics, [candidate], reason, fetched_at=current,
+                              provider_updated_at=received_updates.get(selected))
             continue
         lowest, conservative, consensus, best = summary
         observed = [entry[1] for entry in raw_points.values()]
+        _quote_diagnostic(diagnostics, [candidate], "OBSERVED", fetched_at=current,
+                          provider_updated_at=max(observed), bookmaker_count=len(points))
         result[candidate_id] = MarketConsensus(
             fixture_id=None,
             candidate_id=candidate_id,
@@ -1597,6 +1747,7 @@ def _odds_api_json(
     *,
     params: Optional[Mapping[str, object]] = None,
     timeout: int = 20,
+    request_diagnostic: Optional[MutableMapping[str, Any]] = None,
 ) -> tuple[object, Optional[str]]:
     try:
         response = odds_api_get(
@@ -1606,16 +1757,24 @@ def _odds_api_json(
             timeout=timeout,
         )
         if 300 <= response.status_code < 400:
+            if request_diagnostic is not None:
+                request_diagnostic.update(error_type="HTTP_ERROR", http_status=response.status_code)
             return None, "unerwartete Weiterleitung"
         response.raise_for_status()
         return response.json(), None
     except APIBudgetError as exc:
+        if request_diagnostic is not None:
+            request_diagnostic.update(_request_error_facts(exc))
         return None, type(exc).__name__
     except requests.RequestException as exc:
         # Do not include the exception text: requests may embed the request URL
         # and therefore the API key in it.
+        if request_diagnostic is not None:
+            request_diagnostic.update(_request_error_facts(exc))
         return None, f"{type(exc).__name__}"
     except ValueError:
+        if request_diagnostic is not None:
+            request_diagnostic["error_type"] = "INVALID_RESPONSE"
         return None, "ungueltige JSON-Antwort"
 
 
@@ -1808,6 +1967,7 @@ def fetch_tennis_h2h_consensus(
     timeout: int = 20,
     now: Optional[datetime] = None,
     price_observations: Optional[list[dict[str, Any]]] = None,
+    diagnostics: Optional[MutableMapping[str, dict[str, Any]]] = None,
 ) -> tuple[dict[str, MarketConsensus], list[str]]:
     """Fetch exact current H2H prices for persisted tennis model rows.
 
@@ -1817,15 +1977,20 @@ def fetch_tennis_h2h_consensus(
     """
     current = _as_utc(now or datetime.now(timezone.utc))
     key = str(api_key or "").strip()
-    if not key:
-        return {}, ["The-Odds-API-Key fuer Tennisquoten fehlt"]
+    requested_candidates = list(candidates)
+    _quote_diagnostic(diagnostics, requested_candidates, "UNSUPPORTED")
     candidate_list = [
         candidate
-        for candidate in candidates
+        for candidate in requested_candidates
         if _normalize(_candidate_value(candidate, "sport")) == "tennis"
         and _h2h_candidate_identity(candidate) is not None
         and str(_candidate_value(candidate, "candidate_id") or "").strip()
     ]
+    _quote_diagnostic(diagnostics, candidate_list, "UNKNOWN_NOT_RECEIVED")
+    if not key:
+        _quote_diagnostic(diagnostics, candidate_list, "REQUEST_FAILED", checked_at=current,
+                          error_type="MISSING_CREDENTIAL")
+        return {}, ["The-Odds-API-Key fuer Tennisquoten fehlt"]
     if not candidate_list:
         return {}, []
 
@@ -1843,14 +2008,23 @@ def fetch_tennis_h2h_consensus(
             event_identities.add(("legacy", identity[0], identity[1], identity[3]))
     event_count = len(event_identities)
     if event_count > TENNIS_PRICE_MAX_EVENTS:
+        _quote_diagnostic(diagnostics, candidate_list, "UNSUPPORTED")
         return {}, [f"Tennis-Quotenumfang überschreitet {TENNIS_PRICE_MAX_EVENTS} Ereignisse"]
 
+    sports_request_diagnostic: dict[str, Any] = {}
     sports_payload, sports_error = _odds_api_json(
         "sports/",
         key,
         timeout=timeout,
+        request_diagnostic=sports_request_diagnostic,
     )
+    sports_completed_at = current if now is not None else _as_utc(datetime.now(timezone.utc))
     if sports_error is not None or not isinstance(sports_payload, list):
+        _quote_diagnostic(diagnostics, candidate_list,
+                          "REQUEST_FAILED" if sports_error is not None else "UNKNOWN_NOT_RECEIVED",
+                          checked_at=sports_completed_at if sports_error is not None else None,
+                          fetched_at=sports_completed_at if sports_error is None else None,
+                          **sports_request_diagnostic)
         return {}, [
             f"Tennis-Sportliste: {sports_error or 'ungueltige Antwort'}"
         ]
@@ -1859,8 +2033,10 @@ def fetch_tennis_h2h_consensus(
         candidate_list,
     )
     if sport_key_error is not None:
+        _quote_diagnostic(diagnostics, candidate_list, "UNSUPPORTED", fetched_at=sports_completed_at)
         return {}, [sport_key_error]
     if not sport_keys:
+        _quote_diagnostic(diagnostics, candidate_list, "UNSUPPORTED", fetched_at=sports_completed_at)
         return {}, ["The Odds API meldet keine aktive Tennis-Konkurrenz"]
 
     scheduled_values = [
@@ -1884,6 +2060,8 @@ def fetch_tennis_h2h_consensus(
         "commenceTimeTo": time_to.isoformat().replace("+00:00", "Z"),
     }
     event_results: dict[str, tuple[object, Optional[str]]] = {}
+    event_request_diagnostics: dict[str, dict[str, Any]] = {sport_key: {} for sport_key in sport_keys}
+    event_completed_at = sports_completed_at
     with ThreadPoolExecutor(max_workers=min(4, len(sport_keys))) as executor:
         futures = {
             executor.submit(
@@ -1892,6 +2070,7 @@ def fetch_tennis_h2h_consensus(
                 key,
                 params=event_params,
                 timeout=min(timeout, TENNIS_EVENT_DISCOVERY_TIMEOUT),
+                request_diagnostic=event_request_diagnostics[sport_key],
             ): sport_key
             for sport_key in sport_keys
         }
@@ -1900,20 +2079,32 @@ def fetch_tennis_h2h_consensus(
             try:
                 event_results[sport_key] = future.result()
             except Exception as exc:
+                event_request_diagnostics[sport_key].update(_request_error_facts(exc))
                 event_results[sport_key] = (
                     None,
                     f"{type(exc).__name__}",
                 )
+            event_completed_at = current if now is not None else _as_utc(datetime.now(timezone.utc))
 
+    discovery_failed = False
+    discovery_failure_facts: dict[str, Any] = {}
+    received_events = False
     for sport_key in sport_keys:
         events_payload, event_error = event_results.get(
             sport_key,
             (None, "keine Antwort"),
         )
         if event_error is not None:
+            discovery_failed = True
+            # Report one actual failure; never concatenate arbitrary provider data.
+            if not discovery_failure_facts:
+                discovery_failure_facts = event_request_diagnostics[sport_key]
             errors.append(f"Tennis-Events {sport_key}: {event_error}")
             continue
         if not isinstance(events_payload, list):
+            discovery_failed = True
+            if not discovery_failure_facts:
+                discovery_failure_facts = {"error_type": "INVALID_RESPONSE"}
             errors.append(f"Tennis-Events {sport_key}: ungueltige Antwort")
             continue
         for event in events_payload:
@@ -1922,6 +2113,7 @@ def fetch_tennis_h2h_consensus(
             event_id = str(event.get("id") or "").strip()
             if not event_id:
                 continue
+            received_events = True
             for candidate in candidate_list:
                 if _h2h_event_matches(event, candidate):
                     candidate_id = str(
@@ -1938,6 +2130,13 @@ def fetch_tennis_h2h_consensus(
                 errors.append(
                     f"Tennisquote {candidate_id}: Ereignis nicht eindeutig"
                 )
+            reason = ("IDENTITY_MISMATCH" if len(candidate_matches) > 1 else
+                      "REQUEST_FAILED" if discovery_failed else
+                      "IDENTITY_MISMATCH" if received_events else "FIXTURE_ABSENT")
+            _quote_diagnostic(diagnostics, [candidate], reason,
+                              checked_at=event_completed_at if reason == "REQUEST_FAILED" else None,
+                              fetched_at=event_completed_at if reason != "REQUEST_FAILED" else None,
+                              **(discovery_failure_facts if reason == "REQUEST_FAILED" else {}))
             continue
         event_key = next(iter(candidate_matches))
         grouped_events.setdefault(event_key, []).append(candidate)
@@ -1949,6 +2148,7 @@ def fetch_tennis_h2h_consensus(
     collected_prices, collected_checks = [], []
     completed_at = current
     for sport_key, requested_events in by_sport.items():
+        odds_request_diagnostic: dict[str, Any] = {}
         odds_payload, odds_error = _odds_api_json(
             f"sports/{sport_key}/odds",
             key,
@@ -1960,16 +2160,22 @@ def fetch_tennis_h2h_consensus(
                 "oddsFormat": "decimal",
             },
             timeout=timeout,
+            request_diagnostic=odds_request_diagnostic,
         )
+        fetched_at = current if now is not None else _as_utc(datetime.now(timezone.utc))
         if odds_error is not None:
             errors.append(f"Tennisquote {sport_key}: {odds_error}")
+            for event_candidates in requested_events.values():
+                _quote_diagnostic(diagnostics, event_candidates, "REQUEST_FAILED", checked_at=fetched_at,
+                                  **odds_request_diagnostic)
             continue
         if not isinstance(odds_payload, list):
             errors.append(f"Tennisquote {sport_key}: ungueltige Antwort")
+            for event_candidates in requested_events.values():
+                _quote_diagnostic(diagnostics, event_candidates, "UNKNOWN_NOT_RECEIVED", fetched_at=fetched_at)
             continue
         # Each completed sport response owns its actual retrieval clock; a
         # provider update made during the batch must not look future-dated.
-        fetched_at = current if now is not None else _as_utc(datetime.now(timezone.utc))
         completed_at = fetched_at
         returned = {}
         duplicate_ids = set()
@@ -1982,10 +2188,14 @@ def fetch_tennis_h2h_consensus(
             returned[event_id] = event
         for event_id, event_candidates in requested_events.items():
             if event_id not in returned or event_id in duplicate_ids:
+                _quote_diagnostic(diagnostics, event_candidates,
+                                  "IDENTITY_MISMATCH" if event_id in duplicate_ids else "FIXTURE_ABSENT",
+                                  fetched_at=fetched_at)
                 continue
             result.update(
                 parse_h2h_event_consensus(
                     returned[event_id], event_candidates, fetched_at=fetched_at,
+                    diagnostics=diagnostics,
                 )
             )
             if price_observations is not None:
@@ -2006,10 +2216,17 @@ def fetch_football_consensus(
     *,
     timeout: int = 20,
     now: Optional[datetime] = None,
+    diagnostics: Optional[MutableMapping[str, dict[str, Any]]] = None,
+    deadline: Optional[float] = None,
 ) -> tuple[dict[str, MarketConsensus], list[str]]:
-    """Fetch one exact multi-bookmaker quote set per shortlisted fixture."""
+    """Fetch exact fixture quotes, optionally bounded by a monotonic deadline.
+
+    A deadline defers only requests not yet started; the existing per-request
+    timeout still bounds any in-flight call. Deferred rows have no receipt clock.
+    """
     current = _as_utc(now or datetime.now(timezone.utc))
     candidate_list = list(candidates)
+    _quote_diagnostic(diagnostics, candidate_list, "UNSUPPORTED")
     grouped: dict[int, list[object]] = {}
     for candidate in candidate_list:
         fixture_id = _candidate_value(candidate, "fixture_id")
@@ -2021,12 +2238,19 @@ def fetch_football_consensus(
             is not None
         ):
             grouped.setdefault(fixture_id, []).append(candidate)
+            _quote_diagnostic(diagnostics, [candidate], "UNKNOWN_NOT_RECEIVED")
     quotes: dict[str, MarketConsensus] = {}
     errors: list[str] = []
     headers = {"x-apisports-key": str(api_key or "").strip()}
     if not headers["x-apisports-key"]:
+        for fixture_candidates in grouped.values():
+            _quote_diagnostic(diagnostics, fixture_candidates, "REQUEST_FAILED", checked_at=current,
+                              error_type="MISSING_CREDENTIAL")
         return {}, ["API-Football-Key fuer Marktquoten fehlt"]
     for fixture_id, fixture_candidates in grouped.items():
+        if deadline is not None and monotonic() >= deadline:
+            _quote_diagnostic(diagnostics, fixture_candidates, "DEFERRED")
+            continue
         try:
             response = api_football_get(
                 "https://v3.football.api-sports.io/odds",
@@ -2040,13 +2264,20 @@ def fetch_football_consensus(
             payload = response.json()
         except (APIBudgetError, requests.RequestException, ValueError) as exc:
             errors.append(f"Marktquoten Spiel {fixture_id}: {type(exc).__name__}")
+            _quote_diagnostic(diagnostics, fixture_candidates, "REQUEST_FAILED",
+                              checked_at=current if now is not None else datetime.now(timezone.utc),
+                              **_request_error_facts(exc))
             continue
+        fetched_at = current if now is not None else _as_utc(datetime.now(timezone.utc))
         if not isinstance(payload, Mapping):
             errors.append(f"Marktquoten Spiel {fixture_id}: ungueltige Antwort")
+            _quote_diagnostic(diagnostics, fixture_candidates, "UNKNOWN_NOT_RECEIVED", fetched_at=fetched_at)
             continue
         provider_errors = payload.get("errors")
         if provider_errors:
-            errors.append(f"Marktquoten Spiel {fixture_id}: {provider_errors}")
+            errors.append(f"Marktquoten Spiel {fixture_id}: Providerfehler")
+            _quote_diagnostic(diagnostics, fixture_candidates, "REQUEST_FAILED", fetched_at=fetched_at,
+                              error_type="PROVIDER_ERROR")
             continue
         quotes.update(
             parse_fixture_consensus(
@@ -2054,8 +2285,9 @@ def fetch_football_consensus(
                 fixture_candidates,
                 # Later responses must not inherit the batch-start clock:
                 # a new provider observation would otherwise look future-dated.
-                fetched_at=current if now is not None else _as_utc(datetime.now(timezone.utc)),
+                fetched_at=fetched_at,
                 retain_observations=True,
+                diagnostics=diagnostics,
             )
         )
     return quotes, errors

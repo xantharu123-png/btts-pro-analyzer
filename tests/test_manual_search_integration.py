@@ -93,7 +93,7 @@ def test_known_below_floor_esports_offer_is_not_displayed(monkeypatch, price):
 def test_wrong_event_or_start_offer_cannot_satisfy_quote_range(monkeypatch, changes):
     _prices(monkeypatch, **changes)
     assert _rows([_match()], SearchFilters(quote_min=1.20)) == []
-    assert len(_rows([_match()], SearchFilters())) == 1
+    assert _rows([_match()], SearchFilters()) == []
 
 
 def test_opposite_side_offer_is_not_used_for_the_favorite(monkeypatch):

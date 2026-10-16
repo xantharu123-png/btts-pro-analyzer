@@ -385,15 +385,9 @@ def _display_card(
     now: Optional[datetime] = None,
 ) -> RiskBetCard:
     overlay = price
-    if quote is not None:
-        base = price or RiskBetPriceOverlay(candidate_id=candidate.candidate_id)
-        overlay = replace(base,
-            candidate_id=candidate.candidate_id,
-            status="AVAILABLE",
-            observed_odds=quote,
-            bookmaker="Eigene Buchmacherquote",
-            observed_at=None,
-        )
+    # Private comparison text has no provider/book/time proof and cannot
+    # publish a tip or overwrite the exact shared observation.
+    del quote
     return build_riskobet_card(candidate, overlay, snapshot=snapshot, now=now)
 
 

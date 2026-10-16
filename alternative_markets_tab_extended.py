@@ -29,6 +29,7 @@ from config_loader import load_app_config
 from date_context import german_day_label, zurich_today
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES
 from manual_search_filters import SearchFilters
+from quote_publication import publication_allowed, publication_quote, latest_reference_quotes, read_shared_quote_rows
 from market_consensus import (
     deserialize_consensus_map,
     exact_market_target,
@@ -449,7 +450,7 @@ def _merge_consumer_market_rows(
 
 def _manual_observed_quote(row, reference_quotes, *, now):
     """Exact provider observations only; never the model's minimum odds."""
-    observed = observed_consensus(
+    observed = publication_quote(
         reference_quotes.get(getattr(row, "candidate_id", "")),
         candidate=row, now=now,
     )
@@ -463,7 +464,7 @@ def _filter_manual_market_rows(rows, reference_quotes, *, search_filters, now):
     specs = {spec.key: spec for spec in market_specs()}
     matched = []
     for row in rows:
-        if quote_below_publication_floor(
+        if not publication_allowed(
             reference_quotes.get(getattr(row, "candidate_id", "")),
             candidate=row, now=now,
         ):
@@ -873,6 +874,8 @@ def create_alternative_markets_tab_extended(
     )
     reference_quotes = deserialize_consensus_map(snapshot.get('reference_quotes'))
     price_now = datetime.now(timezone.utc)
+    reference_quotes = latest_reference_quotes(displayed_rows, reference_quotes,
+        shared_rows=read_shared_quote_rows(), now=price_now)
     stored_count = len(displayed_rows)
     displayed_rows, matched_count = _filter_manual_market_rows(
         displayed_rows, reference_quotes, search_filters=search_filters, now=price_now,
@@ -914,7 +917,9 @@ def create_alternative_markets_tab_extended(
             ):
                 index = start_index + offset
                 st.caption(f"Auswahl {index}")
-                render_model_selection(candidate, presentation="fixture_first")
+                render_model_selection(candidate, presentation="fixture_first",
+                    reference_quote=reference_quotes.get(raw_candidate.candidate_id),
+                    reference_binding_candidate=raw_candidate, now=price_now)
                 observed = _manual_observed_quote(raw_candidate, reference_quotes, now=price_now)
                 quote_value = max(point.odds for point in observed.points) if observed else None
                 st.caption(f"Quote {quote_value:.2f}" if quote_value is not None else "Quote —")

@@ -243,17 +243,21 @@ def test_scopes_are_separate_and_clock_rollback_cannot_reopen_budget(store):
 def test_native_event_upgrade_cannot_bypass_transactional_slot_guard(store, monkeypatch):
     from dataclasses import replace
     from test_daily3_selection import tennis
-    from daily3_selection import daily3_choices
+    from daily3_selection import Daily3Choice
+    from selection_coherence import consumer_event_identity
     from daily3_comparison import Comparison
-    # Isolate the transactional identity guard from sport-specific model
-    # evidence. This does not fabricate a production tennis comparison.
-    monkeypatch.setattr('daily3_selection.daily3_comparison',
-                        lambda *a, **kw: Comparison(.1, .8, .6, 400))
+    # Historical contract snapshots test the transactional identity guard,
+    # not admission of a new unpriced public tennis suggestion.
     command(store, 'start')
     native = tennis(now=NOW)
     weak = replace(native, fixture_source=None, provider_event_id=None, competitor_a_id=None, competitor_b_id=None)
-    first = daily3_choices([weak], now=NOW)[0].snapshot()
-    upgraded = daily3_choices([native], now=NOW)[0].snapshot()
+    def historical_contract(signal):
+        return Daily3Choice(signal, consumer_event_identity(signal), 'tennis',
+            'Historical model contract', '', NOW,
+            datetime.fromisoformat(signal.scheduled_start), 'MATCH_WINNER',
+            Comparison(.1, .8, .6, 400)).snapshot()
+    first = historical_contract(weak)
+    upgraded = historical_contract(native)
     bet_id = ident()
     command(store, 'reserve', bet_id=bet_id, stake_cents=1000, odds='1.2', snapshot=first)
     command(store, 'place', bet_id=bet_id, revision=1, reference='Beleg')

@@ -15,11 +15,13 @@ from test_workflow_integrity import _RecordingStreamlit
 
 
 def card(game=1, market='DC_X2'):
-    return build_wettfinder_card(football(game, market), now=NOW)
+    from test_publication_odds_floor import priced
+    signal = priced(football(game, market), (1.8,)*3)
+    return build_wettfinder_card(signal, signal.reference_quote, now=NOW)
 
 
 def test_featured_and_additional_markets_of_same_game_merge_once_without_data_changes():
-    cards = [card(1, 'AWAY_OVER_2_5'), card(1, 'AWAY_RANGE_2_4'), card(1),
+    cards = [card(1, 'AWAY_OVER_2_5'), card(1, 'AWAY_OVER_1_5'), card(1),
              card(2, 'BTTS_YES'), card(3, 'HOME_OVER_1_5')]
     catalog = compose_wettfinder_catalog(cards)
     before = deepcopy(catalog)
@@ -27,7 +29,7 @@ def test_featured_and_additional_markets_of_same_game_merge_once_without_data_ch
     visible = catalog.featured + catalog.additional
     assert len(groups) == 3 and len({g.fixture_identity for g in groups}) == 3
     first_game = next(g for g in groups if g.cards[0].fixture_id == 1)
-    assert {c.market_key for c in first_game.cards} == {'AWAY_OVER_2_5', 'AWAY_RANGE_2_4', 'DC_X2'}
+    assert {c.market_key for c in first_game.cards} == {'AWAY_OVER_2_5', 'AWAY_OVER_1_5', 'DC_X2'}
     assert {id(c) for g in groups for c in g.cards} == {id(c) for c in visible}
     assert sum(len(g.cards) for g in groups) == len(visible)
     assert catalog == before
@@ -110,7 +112,7 @@ def test_grouped_market_does_not_repeat_game_heading_but_keeps_exact_price_bindi
         assert text not in markup
     assert internal_note in c.compact_analysis.explanation
     assert c == before
-    assert f'data-key="{c.key}"' in markup and 'data-price-code="UNAVAILABLE"' in markup
+    assert f'data-key="{c.key}"' in markup and 'data-price-code="TOO_LOW"' in markup
     assert 'data-grouped="true"' in markup
     assert c.event_label in markup  # aria-label still identifies the complete bet
 

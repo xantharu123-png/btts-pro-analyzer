@@ -185,8 +185,7 @@ def test_unknown_price_is_allowed_without_a_quote_range_but_is_never_invented(of
     prepare, *_ = offline
     prepare()
     rendered = _render(SearchFilters(probability_min=.70))
-    assert ('Modell', '75.0%') in rendered.metrics
-    assert all('Quote' not in label for label, _ in rendered.metrics)
+    assert not rendered.metrics  # An unknown offer stays in storage, not in public tips.
 
 
 def test_known_quote_below_floor_is_hidden_even_with_default_filters(offline):
@@ -238,6 +237,12 @@ def test_tennis_render_uses_actual_kickoff_and_favorite_probability_without_reca
     rows = [late, early]
     rendered = []
     monkeypatch.setattr(ui, '_load_current_predictions', lambda **_kwargs: rows)
+    from riskobet_surface import RiskBetPriceOverlay
+    # Quote identity is tested above; this case isolates the existing order.
+    monkeypatch.setattr(ui, 'load_shared_price_overlays', lambda candidates, **_kwargs: {
+        c.candidate_id: RiskBetPriceOverlay(candidate_id=c.candidate_id, status='AVAILABLE',
+            observed_odds=2.0, fetched_at=NOW.isoformat(), observed_at=NOW.isoformat(),
+            publication_eligible=True) for c in candidates})
     monkeypatch.setattr(ui.st, 'selectbox', lambda _label, _options, **_kwargs: mode)
     monkeypatch.setattr(ui, '_render_match_card', lambda row, **_kwargs: rendered.append(row['id']))
     _render(SearchFilters())

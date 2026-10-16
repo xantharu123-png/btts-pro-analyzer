@@ -2,7 +2,7 @@
 
 Nails down the three failures from the 2026-07-29 screenshot review:
 1. A bare "Ja" must never appear as a standalone heading.
-2. A blocked candidate keeps its quotenfreie forecast visible.
+2. An observed quote does not bypass a candidate's model blockers.
 3. One clear overall verdict instead of repeated NICHT WETTEN fragments.
 
 Note: AppTest.from_function extracts only the function body into a temp
@@ -61,6 +61,10 @@ def _run_one_ready() -> None:
 
     import pandas as pd
     from app import _render_prematch_results
+    import app
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    from market_consensus import MarketConsensus, QuotePoint, REFERENCE_SOURCE
 
     kickoff = (datetime.now(timezone.utc) + timedelta(hours=5)).isoformat()
     frame = pd.DataFrame([{
@@ -89,11 +93,24 @@ def _run_one_ready() -> None:
             },
         },
     }])
-    _render_prematch_results(
-        frame, 60, 60,
-        scanned_at=datetime.now().astimezone().isoformat(),
-        validated_model_available=True,
-    )
+    # Replace only the read-only receipt I/O seam, not publication admission.
+    stamp = datetime.now(timezone.utc).isoformat()
+    quote = MarketConsensus(fixture_id=123, candidate_id='123:BTTS_YES', market_key='BTTS_YES',
+        bet_name='Both Teams Score', value_name='Yes', consensus_odds=2.0,
+        conservative_odds=2.0, lowest_odds=2.0, best_odds=2.0, bookmaker_count=1,
+        quoted_at=stamp, fetched_at=stamp, source=REFERENCE_SOURCE,
+        points=(QuotePoint('Book', 2.0, 'api-football:1', stamp),),
+        scheduled_start=kickoff, event_home='Alpha', event_away='Beta')
+    receipt = dict(candidate_id='123:BTTS_YES', fixture_id=123, market_key='BTTS_YES',
+        selection='Ja', sport='Fußball', source='football_challenge',
+        home_team='Alpha', away_team='Beta', scheduled_start=kickoff,
+        reference_quote=quote.to_dict())
+    with patch.object(app, 'automated_wettfinder_snapshot', return_value=SimpleNamespace(forecasts=[receipt])):
+        _render_prematch_results(
+            frame, 60, 60,
+            scanned_at=datetime.now().astimezone().isoformat(),
+            validated_model_available=True,
+        )
 
 
 def _run_blocked_card() -> None:
@@ -102,6 +119,7 @@ def _run_blocked_card() -> None:
     import pandas as pd
     from bet_finder_ui import render_price_decision
     from football_recommendations import prematch_btts_candidate
+    from market_consensus import MarketConsensus, QuotePoint, REFERENCE_SOURCE
 
     kickoff = (datetime.now(timezone.utc) + timedelta(hours=5)).isoformat()
     frame = pd.DataFrame([{
@@ -135,11 +153,22 @@ def _run_blocked_card() -> None:
         snapshot_age_seconds=60,
         validated_model_available=False,
     )
-    render_price_decision(candidate, key="ux_test_blocked")
+    stamp = datetime.now(timezone.utc).isoformat()
+    binding = dict(candidate_id=candidate.event_key, fixture_id=123, market_key='BTTS_YES',
+        selection='Ja', sport='Fußball', source='football_challenge',
+        home_team='Alpha', away_team='Beta', scheduled_start=kickoff)
+    quote = MarketConsensus(fixture_id=123, candidate_id=candidate.event_key, market_key='BTTS_YES',
+        bet_name='Both Teams Score', value_name='Yes', consensus_odds=2.0,
+        conservative_odds=2.0, lowest_odds=2.0, best_odds=2.0, bookmaker_count=1,
+        quoted_at=stamp, fetched_at=stamp, source=REFERENCE_SOURCE,
+        points=(QuotePoint('Book', 2.0, 'api-football:1', stamp),),
+        scheduled_start=kickoff, event_home='Alpha', event_away='Beta')
+    render_price_decision(candidate, key="ux_test_blocked", reference_quote=quote,
+                          reference_binding_candidate=binding)
 
 
 def _run_shadow_playable_card() -> None:
-    from datetime import datetime, timezone
+    from datetime import datetime, timedelta, timezone
 
     from bet_finder_ui import render_price_decision
     from market_consensus import MarketConsensus, QuotePoint
@@ -170,7 +199,7 @@ def _run_shadow_playable_card() -> None:
         bet_name="Both Teams Score",
         value_name="Yes",
         consensus_odds=2.00,
-        conservative_odds=2.00,
+        conservative_odds=1.975,
         lowest_odds=1.95,
         best_odds=2.10,
         bookmaker_count=3,
@@ -182,18 +211,21 @@ def _run_shadow_playable_card() -> None:
             QuotePoint("B", 2.00, "api-football:2", now),
             QuotePoint("C", 2.10, "api-football:3", now),
         ),
-        scheduled_start=now,
+        scheduled_start=(datetime.fromisoformat(now)+timedelta(hours=5)).isoformat(),
     )
     render_price_decision(
         candidate,
         key="ux_shadow_playable",
         save_source="Test",
         reference_quote=quote,
+        reference_binding_candidate=dict(candidate_id='shadow-1', fixture_id=1, market_key='BTTS_YES',
+            selection='Ja', sport='Fußball', scheduled_start=quote.scheduled_start,
+            home_team='Alpha', away_team='Beta'),
     )
 
 
 def _run_released_playable_card() -> None:
-    from datetime import datetime, timezone
+    from datetime import datetime, timedelta, timezone
 
     from bet_finder_ui import render_price_decision
     from market_consensus import MarketConsensus, QuotePoint
@@ -224,7 +256,7 @@ def _run_released_playable_card() -> None:
         bet_name="Both Teams Score",
         value_name="Yes",
         consensus_odds=2.00,
-        conservative_odds=2.00,
+        conservative_odds=1.975,
         lowest_odds=1.95,
         best_odds=2.10,
         bookmaker_count=3,
@@ -236,18 +268,21 @@ def _run_released_playable_card() -> None:
             QuotePoint("B", 2.00, "api-football:2", now),
             QuotePoint("C", 2.10, "api-football:3", now),
         ),
-        scheduled_start=now,
+        scheduled_start=(datetime.fromisoformat(now)+timedelta(hours=5)).isoformat(),
     )
     render_price_decision(
         candidate,
         key="ux_released_playable",
         save_source="Test",
         reference_quote=quote,
+        reference_binding_candidate=dict(candidate_id='released-1', fixture_id=1, market_key='BTTS_YES',
+            selection='Ja', sport='Fußball', scheduled_start=quote.scheduled_start,
+            home_team='Alpha', away_team='Beta'),
     )
 
 
 def _run_statistical_release_pending_playable_card() -> None:
-    from datetime import datetime, timezone
+    from datetime import datetime, timedelta, timezone
 
     from bet_finder_ui import render_price_decision
     from market_consensus import MarketConsensus, QuotePoint
@@ -279,7 +314,7 @@ def _run_statistical_release_pending_playable_card() -> None:
         bet_name="Both Teams Score",
         value_name="Yes",
         consensus_odds=2.00,
-        conservative_odds=2.00,
+        conservative_odds=1.975,
         lowest_odds=1.95,
         best_odds=2.10,
         bookmaker_count=3,
@@ -291,13 +326,16 @@ def _run_statistical_release_pending_playable_card() -> None:
             QuotePoint("B", 2.00, "api-football:2", now),
             QuotePoint("C", 2.10, "api-football:3", now),
         ),
-        scheduled_start=now,
+        scheduled_start=(datetime.fromisoformat(now)+timedelta(hours=5)).isoformat(),
     )
     render_price_decision(
         candidate,
         key="ux_pending_statistics_playable",
         save_source="Test",
         reference_quote=quote,
+        reference_binding_candidate=dict(candidate_id='pending-statistics-1', fixture_id=1, market_key='BTTS_YES',
+            selection='Ja', sport='Fußball', scheduled_start=quote.scheduled_start,
+            home_team='Alpha', away_team='Beta'),
     )
 
 
@@ -326,7 +364,7 @@ def _run_missing_price_card() -> None:
 
 
 def _run_too_low_price_card() -> None:
-    from datetime import datetime, timezone
+    from datetime import datetime, timedelta, timezone
 
     from bet_finder_ui import render_price_decision
     from market_consensus import MarketConsensus, QuotePoint
@@ -357,7 +395,7 @@ def _run_too_low_price_card() -> None:
         bet_name="Both Teams Score",
         value_name="Yes",
         consensus_odds=1.60,
-        conservative_odds=1.60,
+        conservative_odds=1.575,
         lowest_odds=1.55,
         best_odds=1.70,
         bookmaker_count=3,
@@ -369,13 +407,16 @@ def _run_too_low_price_card() -> None:
             QuotePoint("B", 1.60, "api-football:2", now),
             QuotePoint("C", 1.70, "api-football:3", now),
         ),
-        scheduled_start=now,
+        scheduled_start=(datetime.fromisoformat(now)+timedelta(hours=5)).isoformat(),
     )
     render_price_decision(
         candidate,
         key="ux_too_low_price",
         save_source="Test",
         reference_quote=quote,
+        reference_binding_candidate=dict(candidate_id='low-1', fixture_id=1, market_key='BTTS_YES',
+            selection='Ja', sport='Fußball', scheduled_start=quote.scheduled_start,
+            home_team='Alpha', away_team='Beta'),
     )
 
 
@@ -493,7 +534,7 @@ def test_saved_reference_source_contains_concrete_provider_provenance():
         bet_name="Both Teams Score",
         value_name="Yes",
         consensus_odds=2.00,
-        conservative_odds=2.00,
+        conservative_odds=1.975,
         lowest_odds=1.95,
         best_odds=2.10,
         bookmaker_count=3,
@@ -539,16 +580,15 @@ def test_playable_price_cannot_bypass_pending_statistical_release():
 
 
 def test_missing_quote_keeps_selection_visible_and_neutral():
+    # Retained historical ID; the new policy withholds the public tip.
     at = AppTest.from_function(_run_missing_price_card)
     at.run(timeout=60)
     assert len(at.exception) == 0
     assert len(at.error) == 0
     assert len(at.warning) == 0
-    text = " ".join(info.value for info in at.info)
-    assert text.count("Keine exakt passende Marktquote") == 1
-    assert "richtig oder falsch" not in text
-    assert "verfügbar" in text
-    assert "verfuegbar" not in text
+    assert [caption.value for caption in at.caption] == ['Keine passende Quote ab 1,20.']
+    assert not at.subheader and not at.metric and not at.button
+    assert not at.success and not at.info
 
 
 def test_low_quote_changes_only_price_not_model_selection():

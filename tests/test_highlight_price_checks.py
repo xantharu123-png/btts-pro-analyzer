@@ -66,7 +66,7 @@ def test_never_price_checked_model_stays_visible_but_is_not_featured_or_daily3()
     card = build_wettfinder_card(signal, now=NOW)
     catalog = compose_wettfinder_catalog([card])
     assert catalog.featured == ()
-    assert [item.key for item in catalog.additional] == ["81:DC_1X"]
+    assert catalog.additional == ()  # Model retained in the background, not a quoted public tip.
     assert daily3_choices([signal], now=NOW) == ()
     assert card.model_probability == .75 and card.price_code == "UNAVAILABLE"
 
@@ -85,8 +85,9 @@ def test_actual_unavailable_price_result_can_still_feature_without_inventing_odd
     # Break caught: no quote is mistaken for no attempt, or UNAVAILABLE is promoted to a playable quote.
     signal = _with_attempt(_signal(), NOW.isoformat())
     card = build_wettfinder_card(signal, now=NOW)
-    assert [item.key for item in compose_wettfinder_catalog([card]).featured] == ["81:DC_1X"]
-    assert [item.signal.key for item in daily3_choices([signal], now=NOW)] == ["81:DC_1X"]
+    assert compose_wettfinder_catalog([card]).featured == ()
+    assert compose_wettfinder_catalog([card]).additional == ()
+    assert daily3_choices([signal], now=NOW) == ()
     assert getattr(card, "price_check_completed", False) is True
     assert card.observed_odds is None and card.reference_quote is None and card.price_code == "UNAVAILABLE"
 
@@ -115,7 +116,11 @@ def test_foreign_or_invalid_original_quote_cannot_substitute_for_a_price_attempt
     card = build_wettfinder_card(signal, quote, now=NOW)
     assert compose_wettfinder_catalog([card]).featured == ()
     assert daily3_choices([signal], now=NOW) == ()
-    assert [item.key for item in compose_wettfinder_catalog([card]).additional] == ["81:DC_1X"]
+    # A valid exact receipt just before model creation is still a real offer;
+    # the original highlight-attempt revision guard is unchanged.
+    assert [item.key for item in compose_wettfinder_catalog([card]).additional] == (
+        ["81:DC_1X"] if bad == "before_model" else []
+    )
 
 
 def test_exact_existing_quote_is_an_actual_check_without_an_attempt_map():
@@ -158,7 +163,8 @@ def test_price_admission_cannot_switch_the_models_modal_direction_to_checked_opp
     assert [item.key for item in select_consumer_forecasts([away, home], now=NOW)] == ["81:RESULT_HOME"]
     catalog = compose_wettfinder_catalog([build_wettfinder_card(s, now=NOW) for s in [away, home]])
     assert catalog.featured == ()
-    assert [item.key for item in catalog.additional] == ["81:RESULT_HOME"]
+    assert catalog.additional == ()
+    assert home.probability == .75 and away.probability == .72
     assert daily3_choices([away, home], now=NOW) == ()
 
 

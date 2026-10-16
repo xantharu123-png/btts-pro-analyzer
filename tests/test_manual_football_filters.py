@@ -34,6 +34,10 @@ def _quote(row, price, now, *, observed_at=None):
 
 def _render(monkeypatch, rows, *, quotes=None, job_result=None):
     now = datetime.now(timezone.utc)
+    if quotes is None:
+        # These cases test order/filter/catalog retention, with admitted prices.
+        # Explicit empty/incomplete mappings still exercise unknown-price cases.
+        quotes = {row.candidate_id: _quote(row, 2.0, now) for row in rows}
     scope = market_tab._market_scope_signature(
         list(ALTERNATIVE_MARKET_LEAGUES), now.date(), now.date(),
     )
@@ -204,9 +208,9 @@ def test_unpriced_rows_remain_without_quote_filter_and_no_rerender_fetch(monkeyp
     ))
     before = deepcopy(snapshot)
 
-    assert render(SearchFilters()) == ["1:BTTS_YES", "3:BTTS_YES"]
+    assert render(SearchFilters()) == ["3:BTTS_YES"]
     assert render(SearchFilters(quote_min=1.2, quote_max=3.0)) == ["3:BTTS_YES"]
-    assert render(SearchFilters()) == ["1:BTTS_YES", "3:BTTS_YES"]
+    assert render(SearchFilters()) == ["3:BTTS_YES"]
     assert snapshot == before
 
 
@@ -218,9 +222,9 @@ def test_cards_show_the_real_filter_quote_and_never_substitute_model_minimum(mon
         priced.candidate_id: _quote(priced, 2.2, now),
     })
 
-    assert render(SearchFilters()) == ["1:BTTS_YES", "2:BTTS_YES"]
+    assert render(SearchFilters()) == ["1:BTTS_YES"]
     assert "Quote 2.20" in surface.messages
-    assert "Quote —" in surface.messages
+    assert "Quote —" not in surface.messages
     assert "Quote 10.00" not in surface.messages
     assert "Quote 7.00" not in surface.messages
 
@@ -230,6 +234,8 @@ def test_done_job_cache_retains_all_candidates_for_later_filters(monkeypatch):
     rows[-1].probability = .61
     challenge = {"scanned_at": datetime.now(timezone.utc).isoformat(),
                  "shortlist": rows, "model_shortlist": rows, "context_scope_complete": True}
+    challenge['reference_quotes'] = serialize_consensus_map({row.candidate_id:
+        _quote(row, 2.0, datetime.now(timezone.utc)) for row in rows})
     render, surface, _ = _render(monkeypatch, [], job_result=challenge)
 
     assert render(SearchFilters(probability_min=.60, probability_max=.62)) == ["30:BTTS_YES"]

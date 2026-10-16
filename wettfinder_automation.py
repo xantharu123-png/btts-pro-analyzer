@@ -16,7 +16,7 @@ from __future__ import annotations
 from collections import Counter
 
 import argparse
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, fields
 from datetime import date, datetime, timedelta, timezone
 import json
@@ -25,7 +25,7 @@ import math
 import os
 from pathlib import Path
 import sys
-from time import perf_counter
+from time import monotonic, perf_counter
 import traceback
 from typing import Any, Callable, Iterable, Mapping, Optional
 import unicodedata
@@ -121,6 +121,7 @@ MAX_AUTOMATIC_RECOMMENDATIONS = MAX_AUTOMATED_RECOMMENDATIONS
 MAX_AUTOMATIC_PRICE_FIXTURES = 10
 MAX_AUTOMATIC_MARKETS_PER_FIXTURE = 8
 TENNIS_PRICE_MIN_GAP = timedelta(minutes=30)
+SCHEDULED_PRICE_MIN_GAP = timedelta(hours=3)
 MAX_AUTOMATIC_BASIC_FORECASTS = 4
 MAX_AUTOMATIC_BASIC_PER_MARKET_KEY = 2
 # The persisted artifact represents the currently active Zurich match day.
@@ -2673,6 +2674,37 @@ def _safe_quote_loader_error(exc: Exception) -> list[str]:
     return [f"Quotenabruf fehlgeschlagen ({type(exc).__name__})"]
 
 
+def _bind_received_quotes(quotes, candidates_by_id, diagnostics):
+    """A parsed offer is not an exact-candidate success until binding passes."""
+    bound = {}
+    for candidate_id, quote in quotes.items():
+        if quote_matches_candidate(quote, candidates_by_id.get(candidate_id)):
+            bound[candidate_id] = quote
+        elif candidate_id in candidates_by_id:
+            detail = dict(diagnostics.get(candidate_id) or {})
+            detail['reason_code'] = 'IDENTITY_MISMATCH'
+            diagnostics[candidate_id] = detail
+    return bound
+
+
+def _persist_quote_diagnostics(rows, checked_rows, diagnostics, *, now, errors=()):
+    """Replace the latest attempt with small, provider-secret-free facts."""
+    checked = {row.get('candidate_id') for row in checked_rows}
+    allowed = {'reason_code', 'fetched_at', 'checked_at', 'provider_updated_at',
+               'bookmaker_count', 'error_type', 'http_status'}
+    for row in (*rows, *checked_rows):
+        candidate_id = row.get('candidate_id')
+        if candidate_id not in checked:
+            continue
+        raw = diagnostics.get(candidate_id)
+        detail = {key: value for key, value in (raw.items() if isinstance(raw, dict) else ())
+                  if key in allowed and isinstance(value, (str, int, float, bool))}
+        if not detail.get('reason_code'):
+            detail = dict(reason_code='REQUEST_FAILED' if errors else 'UNKNOWN_NOT_RECEIVED',
+                          checked_at=_utc(now).isoformat())
+        row['reference_price_diagnostic'] = detail
+
+
 def _operational_quote_errors(errors: Iterable[object]) -> list[str]:
     """Separate provider failures from normal market/coverage absence."""
 
@@ -3770,12 +3802,14 @@ def run_wettfinder(
     # Observe prices only after modelling, for the user's 1.20 display floor.
     # Never enable network access implicitly for isolated replays/tests.
     observe_production_prices = production_state and football_quote_loader is None
+    football_quote_diagnostics = {}
     if observe_production_prices:
         price_config = config or load_app_config()
         if price_config.api_football_key:
             football_quote_loader = lambda rows: fetch_football_consensus(
                 price_config.api_football_key, rows,
-                now=current if fixed_now else None, timeout=10
+                now=current if fixed_now else None, timeout=10,
+                diagnostics=football_quote_diagnostics,
             )
     football_price_rows = select_price_check_candidates(
         (
@@ -3807,14 +3841,8 @@ def run_wettfinder(
         for row in football_price_rows
         if str(row.get("candidate_id") or "").strip()
     }
-    reference_quotes = {
-        candidate_id: quote
-        for candidate_id, quote in reference_quotes.items()
-        if quote_matches_candidate(
-            quote,
-            football_price_by_id.get(candidate_id),
-        )
-    }
+    reference_quotes = _bind_received_quotes(
+        reference_quotes, football_price_by_id, football_quote_diagnostics)
     football_price_status_counts, football_playable_rows = (
         _apply_reference_quotes(
             football_model_rows,
@@ -3824,6 +3852,8 @@ def run_wettfinder(
             previous_rows=previous.get("model_candidates") or (),
         )
     )
+    _persist_quote_diagnostics(football_model_rows, football_price_rows, football_quote_diagnostics,
+                               now=current, errors=quote_errors)
     football_quote_error_count = len(_operational_quote_errors(quote_errors))
 
     tennis_model_rows = [
@@ -3831,6 +3861,7 @@ def run_wettfinder(
     ]
     tennis_price_provider_status = "not_requested_for_isolated_run"
     tennis_price_observations: list[dict[str, Any]] = []
+    tennis_quote_diagnostics = {}
     if production_state and tennis_quote_loader is None:
         price_config = config or load_app_config()
         tennis_price_provider_status = "missing_api_key"
@@ -3838,6 +3869,7 @@ def run_wettfinder(
             tennis_quote_loader = lambda rows: fetch_tennis_h2h_consensus(
                 price_config.odds_api_key, rows, now=current if fixed_now else None,
                 price_observations=tennis_price_observations,
+                diagnostics=tennis_quote_diagnostics,
             )
     if tennis_quote_loader is not None:
         tennis_price_provider_status = "configured"
@@ -3861,14 +3893,8 @@ def run_wettfinder(
         for row in tennis_price_rows
         if str(row.get("candidate_id") or "").strip()
     }
-    tennis_reference_quotes = {
-        candidate_id: quote
-        for candidate_id, quote in tennis_reference_quotes.items()
-        if quote_matches_candidate(
-            quote,
-            tennis_price_by_id.get(candidate_id),
-        )
-    }
+    tennis_reference_quotes = _bind_received_quotes(
+        tennis_reference_quotes, tennis_price_by_id, tennis_quote_diagnostics)
     tennis_price_status_counts, tennis_playable_rows = (
         _apply_reference_quotes(
             tennis_model_rows,
@@ -3878,6 +3904,8 @@ def run_wettfinder(
             previous_rows=previous.get("model_candidates") or (),
         )
     )
+    _persist_quote_diagnostics(tennis_model_rows, tennis_price_rows, tennis_quote_diagnostics,
+                               now=current, errors=tennis_quote_errors)
     tennis_quote_error_count = len(_operational_quote_errors(tennis_quote_errors))
 
     esports_model_rows = [
@@ -4456,50 +4484,187 @@ def run_wettfinder(
     return document
 
 
-def refresh_prices_only(*, state_path=STATE_PATH, config=None, now=None, quote_loader=None,
-                        quote_sport="football"):
-    """Bounded price refresh; never rerun a model or advance its freshness.
+@contextmanager
+def _quote_publication_lock(path):
+    """One nonblocking publication owner shared by daily and scheduled CLIs."""
+    lock_path = Path(path).with_name(f'.{Path(path).name}.publication.lock')
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(lock_path, os.O_RDWR | os.O_CREAT | getattr(os, 'O_NOFOLLOW', 0), 0o600)
+    try:
+        try:
+            if os.name == 'nt':
+                import msvcrt
+                msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            raise RuntimeError('forecast publication already locked') from exc
+        yield
+    finally:
+        os.close(fd)
 
-    The canonical scheduler must be idle. A concurrent snapshot publication
-    aborts the replacement, so a price refresh cannot overwrite newer models.
-    """
-    from copy import deepcopy
+
+def _require_price_worker_idle():
     import subprocess
-    if quote_sport not in {"football", "tennis"}:
-        raise ValueError("unsupported quote sport")
-    path = Path(state_path)
-    def require_idle():
-        state = subprocess.run(['systemctl', 'show', 'betboy-wettfinder.service',
-                                '--property=ActiveState', '--value'], capture_output=True, text=True, check=True).stdout.strip()
-        if state not in {'inactive', 'failed'}:
-            raise RuntimeError('wettfinder worker must be idle for a price-only refresh')
-    canonical = _same_artifact_path(path, STATE_PATH)
-    if canonical:
-        require_idle()
-    original = path.read_bytes()
-    document = json.loads(original)
+    state = subprocess.run(['systemctl', 'show', 'betboy-wettfinder.service',
+                            '--property=ActiveState', '--value'], capture_output=True, text=True, check=True).stdout.strip()
+    if state not in {'inactive', 'failed'}:
+        raise RuntimeError('wettfinder worker must be idle for a price-only refresh')
+
+
+def _riskobet_tennis_identity(snapshot):
+    """Point lookup of the frozen native origin, without loading a model."""
+    import sqlite3
+    from contextlib import closing
+    ids = [f.factor_key.split(':', 1)[1] for f in snapshot.factors
+           if f.factor_key.startswith('tennis_prediction_id:')]
+    path = Path(TENNIS_DB)
+    if (len(ids) != 1 or not ids[0].isascii() or not ids[0].isdigit()
+            or not 0 < int(ids[0]) < 2**63 or not path.is_file()):
+        return None
+    try:
+        with closing(sqlite3.connect(path.resolve().as_uri()+'?mode=ro', uri=True)) as connection:
+            row = connection.execute('SELECT fixture_source, provider_event_id, player_a, player_b, '
+                'scheduled_start_utc FROM predictions WHERE id=?', (int(ids[0]),)).fetchone()
+    except sqlite3.Error:
+        return None
+    if (row is None or not all(isinstance(value, str) and value.strip() for value in row)
+            or row[2] == row[3] or snapshot.event_label != f'{row[2]} vs {row[3]}'
+            or _parse_iso(row[4]) != snapshot.starts_at
+            or snapshot.event_key != stable_event_key('tennis', row[0], row[1])):
+        return None
+    return row
+
+
+def _riskobet_price_targets(document, snapshots, candidates, *, now):
+    """Derive missing exact native targets, never new sporting candidates."""
+    from riskobet_prices import football_market
+    snapshot_by_id = {s.snapshot_id: s for s in snapshots}
+    existing = document.get('model_candidates') or []
+    old = {r.get('key'): r for r in document.get('riskobet_price_observations') or []
+           if isinstance(r, dict)}
+    rows = []
+    for candidate in candidates:
+        snapshot = snapshot_by_id.get(candidate.snapshot_id)
+        if (snapshot is None or candidate.starts_at <= now
+                or candidate.starts_at.astimezone(ZURICH_TZ).date() != target_search_date(now)):
+            continue
+        names = candidate.event_label.split(' vs ')
+        if len(names) != 2 or not all(names) or names[0] == names[1]:
+            continue
+        key = f'price:{candidate.candidate_id}'
+        if candidate.sport == 'tennis':
+            if (candidate.market_key != 'match_winner' or candidate.selection_key not in {'home', 'away'}
+                    or candidate.settlement_contract != 'riskobet-settlement-v1:tennis:match_winner:'+candidate.selection_key):
+                continue
+            identity = _riskobet_tennis_identity(snapshot)
+            if identity is None:
+                continue
+            provider, event, player_a, player_b, start = identity
+            selected = player_a if candidate.selection_key == 'home' else player_b
+            if candidate.selection_label != selected:
+                continue
+            if any(r.get('source') == 'tennis_shadow' and r.get('fixture_source') == provider
+                   and r.get('provider_event_id') == event and r.get('market_key') == 'H2H'
+                   and r.get('competitor_a') == player_a and r.get('competitor_b') == player_b
+                   and r.get('selected_competitor') == selected
+                   and _parse_iso(r.get('scheduled_start')) == candidate.starts_at for r in existing):
+                continue
+            row = dict(key=key, candidate_id=key, source='tennis_shadow', sport='Tennis',
+                fixture_id=None, fixture_source=provider, provider_event_id=event,
+                competitor_a=player_a, competitor_b=player_b, selected_competitor=selected,
+                market_key='H2H', scheduled_start=start, event_identity=candidate.event_key,
+                modeled_at=snapshot.modeled_at.isoformat(), status='PRICE_REQUIRED')
+            previous = old.get(key)
+            quote = MarketConsensus.from_dict(previous.get('reference_quote')) if previous else None
+            if quote_matches_candidate(quote, row):
+                row['reference_quote'] = quote.to_dict()
+            rows.append(row)
+            continue
+        if candidate.sport != 'football':
+            continue
+        ids = [f.factor_key.split(':', 1)[1] for f in snapshot.factors
+               if f.factor_key.startswith('football_fixture_id:')]
+        market = football_market(candidate)
+        if (len(ids) != 1 or not ids[0].isascii() or not ids[0].isdigit()
+                or not 0 < int(ids[0]) < 2**63 or market is None
+                or candidate.event_key != stable_event_key('football', 'api-football', ids[0])):
+            continue
+        fixture_id = int(ids[0])
+        if any(r.get('source') == 'football_challenge' and r.get('fixture_id') == fixture_id
+               and r.get('market_key') == market and r.get('home_team') == names[0]
+               and r.get('away_team') == names[1]
+               and _parse_iso(r.get('scheduled_start')) == candidate.starts_at for r in existing):
+            continue
+        row = dict(key=key, candidate_id=key, source='football_challenge', sport='Fussball',
+            fixture_id=fixture_id, home_team=names[0], away_team=names[1], market_key=market,
+            scheduled_start=candidate.starts_at.isoformat(), event_identity=candidate.event_key,
+            modeled_at=snapshot.modeled_at.isoformat(), status='PRICE_REQUIRED')
+        previous = old.get(key)
+        if previous:
+            quote = MarketConsensus.from_dict(previous.get('reference_quote'))
+            if quote_matches_candidate(quote, row):
+                row['reference_quote'] = quote.to_dict()
+        rows.append(row)
+        if len(rows) >= MAX_SCAN_FIXTURES * 2:
+            break
+    return rows
+
+
+def _refresh_price_document(document, *, quote_sport, config, now, quote_loader=None,
+                            scheduled=False, extra_rows=()):
+    """Mutate only price overlays in one unpublished snapshot."""
+    from copy import deepcopy
     previous = deepcopy(document.get('model_candidates') or [])
     current = _utc(now or datetime.now(timezone.utc))
     row_source = 'tennis_shadow' if quote_sport == 'tennis' else 'football_challenge'
     rows = [r for r in document.get('model_candidates', []) if r.get('source') == row_source]
+    extra_rows = list(extra_rows)
+    previous.extend(deepcopy(extra_rows))
+    all_rows = [*rows, *extra_rows]
+    checks = document.get('price_check_attempts') or {}
+    due_rows = all_rows
+    if scheduled:
+        due_rows = [r for r in all_rows if (checked := _parse_iso(checks.get(str(r.get('key') or '')))) is None
+                    or current - checked >= SCHEDULED_PRICE_MIN_GAP]
     if quote_sport == 'tennis':
         selected = _tennis_price_check_candidates(
-            rows, now=current, target_date=target_search_date(current),
-            previous_checks=document.get('price_check_attempts') or {},
-            min_gap=timedelta(0),
+            [r for r in due_rows if r not in extra_rows], now=current, target_date=target_search_date(current),
+            previous_checks=checks, min_gap=SCHEDULED_PRICE_MIN_GAP if scheduled else timedelta(0),
         )
+        selected.extend(r for r in due_rows if r in extra_rows)
     else:
         selected = select_price_check_candidates(
-            ({**r, 'status': 'PRICE_REQUIRED'} for r in rows
+            ({**r, 'status': 'PRICE_REQUIRED'} for r in due_rows if r not in extra_rows
              if r.get('status') in {'MODEL_SELECTION', 'PRICE_REQUIRED'}
              and exact_market_target(r.get('market_key')) is not None),
             now=current, target_date=target_search_date(current), preserve_order=True,
-            previous_checks=document.get('price_check_attempts') or {},
+            previous_checks=checks,
             max_fixtures=MAX_SCAN_FIXTURES, max_markets_per_fixture=100)
+        if scheduled:
+            # Price-only targets have no probability fields by construction.
+            # Share the same fixture/request bound without inventing probabilities.
+            selected.extend(r for r in due_rows if r in extra_rows)
+            epoch = datetime.min.replace(tzinfo=timezone.utc)
+            selected.sort(key=lambda r: _parse_iso(checks.get(r['key'])) or epoch)
+            limited, fixtures, per_fixture = [], set(), Counter()
+            for row in selected:
+                fixture = row.get('fixture_id')
+                if fixture not in fixtures and len(fixtures) >= MAX_SCAN_FIXTURES:
+                    continue
+                if per_fixture[fixture] >= 100:
+                    continue
+                fixtures.add(fixture)
+                per_fixture[fixture] += 1
+                limited.append(row)
+            selected = limited
     quotes, errors = {}, []
+    diagnostics = {}
     tennis_price_observations = []
     provider_status = 'configured'
-    if quote_loader is None and (selected or quote_sport == 'football'):
+    request_due = bool(selected) or (quote_sport == 'football' and not scheduled)
+    if quote_loader is None and request_due:
         cfg = config or load_app_config()
         if quote_sport == 'tennis':
             provider_status = 'configured' if cfg.odds_api_key else 'missing_api_key'
@@ -4508,16 +4673,26 @@ def refresh_prices_only(*, state_path=STATE_PATH, config=None, now=None, quote_l
                     quotes, errors = fetch_tennis_h2h_consensus(
                         cfg.odds_api_key, selected, now=current if now is not None else None,
                         price_observations=tennis_price_observations,
+                        diagnostics=diagnostics,
+                        **({'timeout': 10} if scheduled else {}),
                     )
                 except Exception as exc:
                     errors = _safe_quote_loader_error(exc)
             else:
                 errors = ["The-Odds-API-Key fuer Tennisquoten fehlt"]
+                diagnostics.update({row['candidate_id']: dict(reason_code='REQUEST_FAILED',
+                    error_type='MISSING_CREDENTIAL', checked_at=current.isoformat()) for row in selected})
         else:
-            quotes, errors = fetch_football_consensus(
-                cfg.api_football_key or '', selected,
-                now=current if now is not None else None, timeout=10)
-    elif quote_loader is not None and (selected or quote_sport == 'football'):
+            try:
+                quotes, errors = fetch_football_consensus(
+                    cfg.api_football_key or '', selected,
+                    now=current if now is not None else None, timeout=10, diagnostics=diagnostics,
+                    **({'deadline': monotonic()+240} if scheduled else {}))
+            except Exception as exc:
+                if not scheduled:
+                    raise
+                errors = _safe_quote_loader_error(exc)
+    elif quote_loader is not None and request_due:
         try:
             quotes, errors = quote_loader(selected)
         except Exception as exc:
@@ -4529,20 +4704,26 @@ def refresh_prices_only(*, state_path=STATE_PATH, config=None, now=None, quote_l
     if now is None:
         current = _utc(datetime.now(timezone.utc))
     selected_by_id = {r['candidate_id']: r for r in selected}
-    quotes = {key: quote for key, quote in quotes.items()
-              if quote_matches_candidate(quote, selected_by_id.get(key))}
-    counts, _ = _apply_reference_quotes(rows, selected, quotes, now=current, previous_rows=previous,
+    quotes = _bind_received_quotes(quotes, selected_by_id, diagnostics)
+    attempted = [row for row in selected
+                 if diagnostics.get(row.get('candidate_id'), {}).get('reason_code') != 'DEFERRED']
+    counts, _ = _apply_reference_quotes(all_rows, attempted, quotes, now=current, previous_rows=previous,
                                       price_evaluated_at=current)
+    _persist_quote_diagnostics(all_rows, selected, diagnostics, now=current, errors=errors)
     # Existing releases carry execution proof for their previous quote. Do not
     # manufacture a release during this display-only operation.
     document['candidates'] = [r for r in document.get('candidates', []) if r.get('source') != row_source]
     if quote_sport == 'football':
         document['challenge_release_candidates'] = [r for r in document.get('challenge_release_candidates', [])
                                                     if r.get('source') != row_source]
-    for row in selected:
+    for row in attempted:
         document.setdefault('price_check_attempts', {})[row['key']] = current.isoformat()
-    summary = dict(updated_at=current.isoformat(), fixtures=len({r.get('event_identity') or r.get('fixture_id') or r['key'] for r in selected}),
-                   checked=len(selected), quotes=len(quotes), errors=len(errors), status_counts=counts)
+    summary = dict(updated_at=current.isoformat(), fixtures=len({r.get('event_identity') or r.get('fixture_id') or r['key'] for r in attempted}),
+                   checked=len(attempted), quotes=len(quotes), errors=len(errors), status_counts=counts)
+    if len(attempted) != len(selected):
+        summary['deferred'] = len(selected)-len(attempted)
+    if scheduled:
+        summary['operational_errors'] = len(_operational_quote_errors(errors))
     if quote_sport == 'tennis':
         document['tennis_price_observations'] = merge_tennis_price_observations(
             document.get('tennis_price_observations'), tennis_price_observations,
@@ -4553,7 +4734,7 @@ def refresh_prices_only(*, state_path=STATE_PATH, config=None, now=None, quote_l
         document['bookmaker_data_used'] = bool(document.get('bookmaker_data_used') or quotes)
     document['price_only_refresh'] = summary
     source = document.setdefault('sources', {}).setdefault(quote_sport, {})
-    source.update(price_checked_count=len(selected), price_fixture_count=summary['fixtures'],
+    source.update(price_checked_count=len(attempted), price_fixture_count=summary['fixtures'],
                   reference_quote_count=len(quotes), price_status_counts=counts,
                   published_recommendation_count=0, quote_operational_error_count=len(errors))
     if quote_sport == 'football':
@@ -4561,23 +4742,138 @@ def refresh_prices_only(*, state_path=STATE_PATH, config=None, now=None, quote_l
     if quote_sport == 'tennis':
         source.update(price_provider_status=provider_status, quote_errors=errors[:10],
                       quote_operational_error_count=len(_operational_quote_errors(errors)))
-    if canonical:
-        require_idle()
-    if path.read_bytes() != original:
-        raise RuntimeError('snapshot changed during price refresh; nothing published')
-    write_state(document, path)
     return summary
+
+
+def _refresh_scheduled_prices(document, *, path, config, now):
+    """Observe the existing stored universe; no discovery, training or settlement."""
+    current = _utc(now or datetime.now(timezone.utc))
+    cfg = config or load_app_config()
+    snapshots, candidates = (), ()
+    risk_path = path.parent / 'riskobet_latest.json'
+    risk_status = 'not_available'
+    if risk_path.is_file():
+        try:
+            if risk_path.stat().st_size > 20_000_000:
+                raise ValueError('bounded risk artifact exceeded')
+            run = run_from_dict(json.loads(risk_path.read_text(encoding='utf-8')))
+            snapshots, candidates = run.snapshots, run.candidates
+            risk_status = 'reused_stored_model'
+        except (OSError, ValueError, KeyError, TypeError):
+            risk_status = 'invalid_stored_identity'
+    extras = _riskobet_price_targets(document, snapshots, candidates, now=current)
+    from riskobet_prices import _attempt_row_matches
+    risk_diagnostics = {}
+    for candidate in candidates:
+        if candidate.sport not in {'football', 'tennis'} or candidate.starts_at <= current:
+            continue
+        matching = [*document.get('model_candidates', []), *extras]
+        if not any(_attempt_row_matches(candidate, row) for row in matching):
+            risk_diagnostics[candidate.candidate_id] = {'reason_code': 'UNSUPPORTED'}
+    document['riskobet_price_diagnostics'] = risk_diagnostics
+    summaries = {}
+    for sport in ('football', 'tennis'):
+        summaries[sport] = _refresh_price_document(document, quote_sport=sport, config=cfg,
+            now=now, scheduled=True, extra_rows=[r for r in extras
+                if r['source'] == ('football_challenge' if sport == 'football' else 'tennis_shadow')])
+    document['candidates'] = []
+    document['challenge_release_candidates'] = []
+    document['riskobet_price_observations'] = extras
+    from team_sport_prices import refresh_team_sport_prices, snapshot_price_rows, attach_cached_team_prices
+    from esports_prices import refresh_esports_prices, snapshot_price_rows as esports_rows, attach_cached_esports_prices
+    team_rows = [r for r in document.get('model_candidates', [])
+                 if str(r.get('sport') or '').casefold() in {'basketball', 'eishockey', 'ice_hockey'}]
+    team_rows.extend(snapshot_price_rows(snapshots))
+    esports_model_rows = [r for r in document.get('model_candidates', []) if r.get('source') == 'esports_shadow']
+    esports_targets = [*esports_model_rows, *esports_rows(snapshots)]
+    for sport, target_rows, key, refresh, attach, cache_name in (
+        ('team_sports', team_rows, cfg.api_football_key, refresh_team_sport_prices,
+         attach_cached_team_prices, 'team_sport_quotes.json'),
+        ('esports', esports_targets, cfg.oddspapi_key, refresh_esports_prices,
+         attach_cached_esports_prices, 'esports_quotes.json'),
+    ):
+        summary = {'status': 'not_requested_no_due_candidates', 'quotes': 0}
+        provider_now = _utc(now or datetime.now(timezone.utc))
+        target_rows = [row for row in target_rows if (start := _parse_iso(row.get('scheduled_start'))) is not None
+                       and provider_now < start <= provider_now+timedelta(days=3)]
+        if target_rows:
+            attempt_key = 'prices:'+sport
+            previous_attempt = _parse_iso(document.get('price_check_attempts', {}).get(attempt_key))
+            if previous_attempt is not None and current-previous_attempt < SCHEDULED_PRICE_MIN_GAP:
+                summary = {'status': 'not_due' if key else 'missing_key', 'quotes': 0}
+            elif key:
+                try:
+                    kwargs = dict(api_key=key, path=path.parent/cache_name, now=now)
+                    summary = refresh(target_rows, **kwargs) if sport == 'team_sports' else refresh(**kwargs)
+                except Exception as exc:
+                    summary = {'status': 'failed', 'error_type': type(exc).__name__}
+                document.setdefault('price_check_attempts', {})[attempt_key] = _utc(now or datetime.now(timezone.utc)).isoformat()
+            else:
+                summary = {'status': 'missing_key', 'quotes': 0}
+                document.setdefault('price_check_attempts', {})[attempt_key] = current.isoformat()
+            completed = _utc(now or datetime.now(timezone.utc))
+            for row, priced in zip(target_rows, attach(target_rows, now=completed, path=path.parent/cache_name)):
+                for field in tuple(row):
+                    if field.startswith('reference_quote_'):
+                        row.pop(field)
+                row.update(reference_quote=priced.get('reference_quote'),
+                           reference_price_status=priced.get('reference_price_status', 'UNAVAILABLE'))
+                if priced.get('reference_quote') is not None:
+                    row['reference_price_evaluated_at'] = completed.isoformat()
+                else:
+                    row.pop('reference_price_evaluated_at', None)
+            error_count = (summary.get('errors', 0) if isinstance(summary.get('errors', 0), int)
+                           else len(summary.get('errors', [])))
+            summary['operational_errors'] = max(error_count, int(summary.get('status') in
+                {'failed', 'unavailable', 'missing_key', 'partial'}))
+        summaries[sport] = summary
+    result = dict(sport='all', updated_at=_utc(now or datetime.now(timezone.utc)).isoformat(),
+        checked=sum(s.get('checked', 0) for s in summaries.values()),
+        fixtures=sum(s.get('fixtures', s.get('checked', 0)) for s in summaries.values()),
+        quotes=sum(s.get('quotes', 0) for s in summaries.values()),
+        errors=sum(s.get('errors', 0) if isinstance(s.get('errors', 0), int) else len(s.get('errors', []))
+                   for s in summaries.values()),
+        operational_errors=sum(s.get('operational_errors', int(s.get('status') in {'failed', 'unavailable', 'missing_key', 'partial'}))
+                               for s in summaries.values()),
+        sources=summaries, riskobet_status=risk_status)
+    document['price_only_refresh'] = result
+    return result
+
+
+def refresh_prices_only(*, state_path=STATE_PATH, config=None, now=None, quote_loader=None,
+                        quote_sport="football"):
+    """Refresh bounded prices without models, under the daily publication lock."""
+    if quote_sport not in {'football', 'tennis', 'all'}:
+        raise ValueError('unsupported quote sport')
+    path = Path(state_path)
+    canonical = _same_artifact_path(path, STATE_PATH)
+    with (_quote_publication_lock(path) if canonical or quote_sport == 'all' else nullcontext()):
+        if canonical:
+            _require_price_worker_idle()
+        original = path.read_bytes()
+        document = json.loads(original)
+        if quote_sport == 'all':
+            summary = _refresh_scheduled_prices(document, path=path, config=config, now=now)
+        else:
+            summary = _refresh_price_document(document, quote_sport=quote_sport, config=config,
+                now=now, quote_loader=quote_loader)
+        if canonical:
+            _require_price_worker_idle()
+        if path.read_bytes() != original:
+            raise RuntimeError('snapshot changed during price refresh; nothing published')
+        write_state(document, path)
+        return summary
 
 
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--force-football", action="store_true")
     parser.add_argument('--quotes-only', action='store_true')
-    parser.add_argument('--quote-sport', choices=('football', 'tennis'), default='football')
+    parser.add_argument('--quote-sport', choices=('football', 'tennis', 'all'), default='football')
     parser.add_argument("--state-path", default=str(STATE_PATH))
     args = parser.parse_args(argv)
     if args.quote_sport != 'football' and not args.quotes_only:
-        parser.error('--quote-sport tennis requires --quotes-only')
+        parser.error('--quote-sport requires --quotes-only')
     if args.quotes_only:
         try:
             summary = refresh_prices_only(state_path=args.state_path, quote_sport=args.quote_sport)
@@ -4587,10 +4883,11 @@ def main(argv: Optional[list[str]] = None) -> int:
         print(json.dumps(summary))
         return 0 if not summary.get('operational_errors', summary['errors']) else 1
     try:
-        document = run_wettfinder(
-            state_path=args.state_path,
-            force_football=args.force_football,
-        )
+        with _quote_publication_lock(args.state_path):
+            document = run_wettfinder(
+                state_path=args.state_path,
+                force_football=args.force_football,
+            )
     except Exception as exc:
         print(
             json.dumps(

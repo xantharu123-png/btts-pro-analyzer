@@ -127,6 +127,11 @@ def test_riskobet_manual_quote_floor_applies_to_every_sport(monkeypatch,sport):
     assert ('Eigene Dezimalquote',key) not in fake.text_inputs
     fake.session_state[key] = '1.20'
     ui.render_riskobet()
+    assert _rendered_candidate_ids(fake) == []  # Text input is not a provider observation.
+    monkeypatch.setattr(ui, 'load_shared_price_overlays', lambda *a, **kw: {
+        candidate.candidate_id: RiskBetPriceOverlay(candidate_id=candidate.candidate_id,
+            status='AVAILABLE', observed_odds=1.20, publication_eligible=True)})
+    ui.render_riskobet()
     assert set(_rendered_candidate_ids(fake)) == {candidate.candidate_id}
 
 

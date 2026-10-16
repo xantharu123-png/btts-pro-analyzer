@@ -91,6 +91,7 @@ from market_consensus import (
     REFERENCE_SOURCE,
     MarketConsensus,
     QuotePoint,
+    exact_market_target,
     parse_fixture_consensus,
     reference_price_status,
     serialize_consensus_map,
@@ -447,14 +448,19 @@ def test_15k_model_selection_ignores_unbound_price_numbers():
     }
     fake_streamlit = MagicMock()
     fake_streamlit.multiselect.return_value = []
+    original = deepcopy(snapshot)
     with (
         patch("challenge_15k.st", fake_streamlit),
         patch("challenge_15k._render_candidate_context"),
     ):
         challenge_15k._render_model_challenge(snapshot, Mock(), {})
     visible = " ".join(str(call.args[0]) for call in fake_streamlit.markdown.call_args_list)
-    assert "Beide Teams treffen" in visible
-    fake_streamlit.multiselect.assert_called_once()
+    # Legacy unbound numbers cannot establish public-tip price proof; the
+    # original independent model catalog is nevertheless retained unchanged.
+    assert "Beide Teams treffen" not in visible
+    fake_streamlit.multiselect.assert_not_called()
+    assert snapshot == original
+    assert challenge_15k._challenge_model_candidate_pool([first, second]) == [first, second]
 
 
 def test_15k_model_keeps_validated_selection_without_confirmed_lineups():
@@ -625,6 +631,7 @@ def confirmed_lineups(home_team_id=10, away_team_id=11):
 
 
 def reference_quote_for(item, now, odds=("2.05", "2.10", "2.15", "2.20")):
+    bet_name, value_name = exact_market_target(item.market_key)
     payload = {
         "errors": [],
         "response": [
@@ -637,9 +644,9 @@ def reference_quote_for(item, now, odds=("2.05", "2.10", "2.15", "2.20")):
                         "name": f"Book {index}",
                         "bets": [
                             {
-                                "name": "Both Teams Score",
+                                "name": bet_name,
                                 "values": [
-                                    {"value": "Yes", "odd": value},
+                                    {"value": value_name, "odd": value},
                                 ],
                             }
                         ],
@@ -968,6 +975,7 @@ class ChallengeProbabilityTests(unittest.TestCase):
             "price_candidates": [],
             "reference_quotes": {},
         }
+        original = deepcopy(snapshot)
 
         with patch("challenge_15k.st", fake_streamlit):
             _render_price_check(snapshot, Mock(), {})
@@ -982,21 +990,26 @@ class ChallengeProbabilityTests(unittest.TestCase):
             for call in fake_streamlit.info.call_args_list
             if call.args
         )
-        self.assertIn("Team 1 Gesamttore", visible_markdown)
-        self.assertIn("MODELL-AUSWAHL", visible_info)
-        self.assertIn("keine exakt passende Vergleichsquote", visible_info)
-        self.assertIn("kein Einsatz bewertet", visible_info)
+        # Unsupported/unpriced models remain background facts, not public tips.
+        self.assertNotIn("Team 1 Gesamttore", visible_markdown)
+        self.assertIn("keine passende 15K-Auswahl", visible_info)
+        self.assertEqual(snapshot, original)
+        fake_streamlit.number_input.assert_not_called()
         fake_streamlit.success.assert_not_called()
 
     def test_hidden_price_candidate_cannot_build_15k_ticket(self):
         fake_streamlit = MagicMock()
         visible = candidate("1:BTTS_YES", 1, 0.75)
         hidden = candidate("2:BTTS_YES", 2, 0.65)
+        now = datetime.now(timezone.utc)
         snapshot = {
             "shortlist": [],
             "forecast_shortlist": [visible],
             "price_candidates": [hidden],
-            "reference_quotes": {},
+            "reference_quotes": serialize_consensus_map({
+                item.candidate_id: reference_quote_for(item, now)
+                for item in (visible, hidden)
+            }),
         }
 
         with (
@@ -1009,7 +1022,9 @@ class ChallengeProbabilityTests(unittest.TestCase):
             _render_price_check(snapshot, Mock(), {})
 
         self.assertEqual(ticket_builder.call_args.args[0], [])
-        fake_streamlit.success.assert_not_called()
+        # The visible model may explain its own provider quote, but the hidden
+        # alternative must still never become an automatic day ticket.
+        self.assertNotIn('15K-Tagestipp', [call.args[0] for call in fake_streamlit.subheader.call_args_list])
 
     def test_extreme_short_quote_moves_out_of_featured_challenge_rows(self):
         fake_streamlit = MagicMock()
@@ -1044,6 +1059,7 @@ class ChallengeProbabilityTests(unittest.TestCase):
                 QuotePoint(
                     f"Book {index}",
                     odds,
+                    bookmaker_id=f"api-football:{index}",
                     observed_at=now.isoformat(),
                 )
                 for index, odds in enumerate(
@@ -1051,6 +1067,7 @@ class ChallengeProbabilityTests(unittest.TestCase):
                     start=1,
                 )
             ),
+            scheduled_start=extreme_short.kickoff,
         )
         self.assertEqual(extreme_short.market_key, "AWAY_UNDER_1_5")
         self.assertEqual(
@@ -1067,9 +1084,11 @@ class ChallengeProbabilityTests(unittest.TestCase):
             "forecast_shortlist": [extreme_short, ordinary_unpriced],
             "price_candidates": [extreme_short, ordinary_unpriced],
             "reference_quotes": serialize_consensus_map(
-                {extreme_short.candidate_id: quote}
+                {extreme_short.candidate_id: quote,
+                 ordinary_unpriced.candidate_id: reference_quote_for(ordinary_unpriced, now, odds=("1.80",)*4)}
             ),
         }
+        original = deepcopy(snapshot)
         rendered = []
 
         with (
@@ -1081,8 +1100,9 @@ class ChallengeProbabilityTests(unittest.TestCase):
         ):
             _render_price_check(snapshot, Mock(), {})
 
-        self.assertEqual(rendered, [ordinary_unpriced, extreme_short])
-        self.assertTrue(
+        self.assertEqual(rendered, [ordinary_unpriced])
+        self.assertEqual(snapshot, original)
+        self.assertFalse(
             any(
                 "Sehr kurze Quoten" in str(call.args[0])
                 for call in fake_streamlit.expander.call_args_list
@@ -1179,7 +1199,9 @@ class ChallengeProbabilityTests(unittest.TestCase):
             )
             item.context = {"release_context_complete": False}
             team_totals.append(item)
-        result_spec = MARKET_BY_KEY["RESULT_TOTAL_1X_UNDER_3_5"]
+        # Keep this legacy test ID, but use an actually offered direct market
+        # for its useful-vs-repeated-basis catalog ordering assertion.
+        result_spec = MARKET_BY_KEY["RESULT_HOME"]
         osasuna = replace(
             candidate("4:RESULT_TOTAL_1X_UNDER_3_5", 4, 0.60),
             home_team="Osasuna",
@@ -1191,54 +1213,16 @@ class ChallengeProbabilityTests(unittest.TestCase):
         osasuna.context = {"release_context_complete": True}
         forecasts = [*team_totals, osasuna]
         now = datetime.now(timezone.utc)
-        basis_quote = MarketConsensus(
-            fixture_id=team_totals[0].fixture_id,
-            candidate_id=team_totals[0].candidate_id,
-            market_key=team_totals[0].market_key,
-            bet_name="Total - Away",
-            value_name="Under 2.5",
-            consensus_odds=1.50,
-            conservative_odds=1.50,
-            lowest_odds=1.50,
-            best_odds=1.50,
-            bookmaker_count=4,
-            quoted_at=now.isoformat(),
-            fetched_at=now.isoformat(),
-            source=REFERENCE_SOURCE,
-            points=(
-                QuotePoint(
-                    "A",
-                    1.50,
-                    bookmaker_id="api-football:1",
-                    observed_at=now.isoformat(),
-                ),
-                QuotePoint(
-                    "B",
-                    1.50,
-                    bookmaker_id="api-football:2",
-                    observed_at=now.isoformat(),
-                ),
-                QuotePoint(
-                    "C",
-                    1.50,
-                    bookmaker_id="api-football:3",
-                    observed_at=now.isoformat(),
-                ),
-                QuotePoint(
-                    "D",
-                    1.50,
-                    bookmaker_id="api-football:4",
-                    observed_at=now.isoformat(),
-                ),
-            ),
-        )
+        quotes = {item.candidate_id: reference_quote_for(item, now, odds=("1.50",)*4)
+                  for item in forecasts}
+        basis_quote = quotes[team_totals[0].candidate_id]
         snapshot = {
             "shortlist": [],
             "forecast_shortlist": [osasuna],
             "basis_forecasts": team_totals,
             "price_candidates": [osasuna],
             "reference_quotes": serialize_consensus_map(
-                {team_totals[0].candidate_id: basis_quote}
+                quotes
             ),
         }
         rendered = []
@@ -1263,7 +1247,7 @@ class ChallengeProbabilityTests(unittest.TestCase):
             [osasuna, *team_totals],
         )
         self.assertEqual(ticket_builder.call_args.args[0], [osasuna])
-        self.assertIsNone(rendered[0][1])
+        self.assertEqual(rendered[0][1], quotes[osasuna.candidate_id])
         self.assertEqual(rendered[1][1], basis_quote)
         self.assertTrue(
             any(

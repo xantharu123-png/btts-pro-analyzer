@@ -67,10 +67,11 @@ def test_research_or_missing_core_evidence_never_fills_top_slots(change):
 
 
 def test_never_checked_unknown_price_stays_additional():
+    # Retained historical test ID; the new public rule is background-only.
     _, candidate = current_candidate()
     card = checked_card(candidate)
     catalog = compose_riskobet_catalog([card])
-    assert catalog.featured == () and catalog.additional == (card,)
+    assert catalog.cards == ()
     assert card.observed_odds is None
 
 
@@ -95,14 +96,14 @@ def test_future_price_clock_is_not_a_completed_check(clock):
         row["reference_quote"]["points"][0]["observed_at"] = future
         row["reference_quote"]["quoted_at"] = future
     card, catalog = catalog_for(row, candidate)
-    assert catalog.featured == () and catalog.additional == (card,)
+    assert catalog.cards == () and not card.price_check_current
 
 
 def test_price_check_older_than_24_hours_is_not_current():
     row, candidate = _fixture(age=timedelta(hours=24, seconds=1))
     candidate = replace(candidate, context_state=ContextState.FRESH, missing_core_data=())
     card, catalog = catalog_for(row, candidate)
-    assert catalog.featured == () and catalog.additional == (card,)
+    assert catalog.cards == () and not card.price_check_current
 
 
 def test_unchecked_anchor_cannot_be_replaced_by_checked_opposite_winner():
@@ -117,7 +118,7 @@ def test_unchecked_anchor_cannot_be_replaced_by_checked_opposite_winner():
     before = deepcopy(first.to_dict()), deepcopy(second.to_dict())
     catalog = compose_riskobet_catalog([anchor, opposite])
     # Filtering price coverage before coherence would feature the opposing side.
-    assert catalog.featured == () and catalog.additional == (anchor,)
+    assert catalog.cards == ()
     assert (first.to_dict(), second.to_dict()) == before
 
 
@@ -129,11 +130,13 @@ def attempted_row():
 
 
 def test_actual_exact_attempt_can_return_no_quote_without_removing_top_eligibility():
+    # Retained historical ID; an attempt without a quote no longer publishes.
     row, candidate = attempted_row()
     attempts = {row["key"]: NOW.isoformat()}
     overlays = shared_price_overlays([candidate], [row], now=NOW, price_check_attempts=attempts)
     card = checked_card(candidate, overlays.get(candidate.candidate_id))
-    assert compose_riskobet_catalog([card]).featured == (card,)
+    assert compose_riskobet_catalog([card]).cards == ()
+    assert card.price_check_current
     assert card.observed_odds is None and card.price_code == "UNAVAILABLE"
 
 
@@ -152,7 +155,7 @@ def test_failed_price_attempt_never_crosses_native_event_start_or_selected_marke
     overlays = shared_price_overlays([candidate], [row], now=NOW, price_check_attempts=attempts)
     card = checked_card(candidate, overlays.get(candidate.candidate_id))
     catalog = compose_riskobet_catalog([card])
-    assert catalog.featured == () and catalog.additional == (card,)
+    assert catalog.cards == () and not card.price_check_current
 
 
 @pytest.mark.parametrize("checked", [
@@ -164,7 +167,7 @@ def test_attempt_requires_original_current_aware_clock_after_the_bound_model(che
     overlays = shared_price_overlays([candidate], [row], now=NOW,
         price_check_attempts={row["key"]: checked})
     card = checked_card(candidate, overlays.get(candidate.candidate_id))
-    assert compose_riskobet_catalog([card]).featured == ()
+    assert compose_riskobet_catalog([card]).cards == () and not card.price_check_current
 
 
 @pytest.mark.parametrize("change", [None,
@@ -184,7 +187,8 @@ def test_football_missing_quote_attempt_requires_exact_native_fixture_start_and_
         row.update(change)
     overlays = shared_price_overlays([candidate], [row], now=current, price_check_attempts=attempts)
     card = checked_card(candidate, overlays.get(candidate.candidate_id), now=current)
-    assert bool(compose_riskobet_catalog([card]).featured) is (change is None)
+    assert compose_riskobet_catalog([card]).cards == ()
+    assert card.price_check_current is (change is None)
     assert card.observed_odds is None
 
 
@@ -212,6 +216,7 @@ def test_saved_no_quote_attempt_loads_read_only_with_its_original_clock(tmp_path
     before = path.read_bytes()
     overlay = load_shared_price_overlays([candidate], now=NOW, path=path)[candidate.candidate_id]
     card = checked_card(candidate, overlay)
-    assert compose_riskobet_catalog([card]).featured == (card,)
+    assert compose_riskobet_catalog([card]).cards == ()
+    assert card.price_check_current
     assert overlay.checked_at == checked and overlay.fetched_at is None
     assert path.read_bytes() == before and tuple(tmp_path.iterdir()) == (path,)

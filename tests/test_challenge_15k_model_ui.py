@@ -1,4 +1,4 @@
-"""Real Streamlit render checks for quote-free 15K model selections."""
+"""Real Streamlit checks before entry of the user's actual 15K bet quote."""
 
 from streamlit.testing.v1 import AppTest
 
@@ -8,7 +8,7 @@ def _render_model_candidates() -> None:
     from types import SimpleNamespace
 
     from challenge_15k import _render_model_challenge
-    from test_challenge_15k import stress_safe_ticket_candidates
+    from test_challenge_15k import reference_quote_for, stress_safe_ticket_candidates
 
     candidates = stress_safe_ticket_candidates()
     for candidate in candidates:
@@ -17,12 +17,15 @@ def _render_model_candidates() -> None:
             release_eligible=False,
             lineups={"status": "pending", "required": False},
         )
+    now = datetime.now(timezone.utc)
     _render_model_challenge(
         {
-            "search_date": datetime.now(timezone.utc).date().isoformat(),
+            "search_date": now.date().isoformat(),
             "challenge_model_candidates": candidates,
             "reference_quotes": {
-                candidates[0].candidate_id: {"best_odds": 1.05},
+                **{candidate.candidate_id: reference_quote_for(candidate, now).to_dict()
+                   for candidate in candidates},
+                "unbound-price-number": {"best_odds": 1.05},
             },
         },
         SimpleNamespace(pending_tickets=lambda: []),
@@ -50,10 +53,17 @@ def test_15k_model_cards_render_without_quote_or_nested_expander():
 
 
 def _render_editorial_models() -> None:
+    from datetime import datetime, timezone
     from types import SimpleNamespace
     from challenge_15k import _render_model_challenge
     from test_challenge_15k_model_ui import editorial_snapshot
-    _render_model_challenge(editorial_snapshot(), SimpleNamespace(pending_tickets=lambda: []),
+    from test_challenge_15k import reference_quote_for
+    now = datetime.now(timezone.utc)
+    snapshot = editorial_snapshot(now=now)
+    snapshot['reference_quotes'] = {
+        candidate.candidate_id: reference_quote_for(candidate, now).to_dict()
+        for candidate in snapshot['challenge_model_candidates']}
+    _render_model_challenge(snapshot, SimpleNamespace(pending_tickets=lambda: []),
                             {"current_balance": 100.0, "stake_fraction": 0.05})
 
 

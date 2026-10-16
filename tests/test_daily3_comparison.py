@@ -9,7 +9,12 @@ from daily3_comparison import (
 )
 from daily3_selection import daily3_choices
 from forecast_selection import select_consumer_forecasts
-from test_daily3_selection import NOW, football
+from test_daily3_selection import NOW, football as _football
+from test_publication_odds_floor import priced
+
+
+def football(*args, **kwargs):
+    return priced(_football(*args, **kwargs), (1.8,) * 3)
 
 
 def test_wilson_endpoints_and_counts():
@@ -214,7 +219,7 @@ def test_national_comparison_uses_only_marked_recent_senior_pool_and_reaches_dai
     assert len(choices) == 1
     assert choices[0].comparison.margin == pytest.approx(.05)
     assert 'A-Länderspiel' in choices[0].comparison.summary
-    card = build_wettfinder_card(signal, now=NOW)
+    card = build_wettfinder_card(signal, signal.reference_quote, now=NOW)
     assert 'A-Länderspiele' in card.analysis_samples
     assert compose_wettfinder_catalog([card]).featured == (card,)
 

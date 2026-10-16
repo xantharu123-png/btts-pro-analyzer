@@ -2637,7 +2637,16 @@ def _render_prematch_results(
             key="prematch_bet_candidate",
         )
         candidate, selected_row = selectable_rows[selected_position]
-        render_model_selection(candidate, save_source="Fußball Prematch")
+        from quote_publication import native_football_publication_offer
+        price_now = datetime.now(timezone.utc)
+        cached = automated_wettfinder_snapshot(now=price_now)
+        quote, binding = native_football_publication_offer(cached.forecasts,
+            fixture_id=selected_row.get('_fixture_id'), scheduled_start=selected_row.get('_fixture_date'),
+            market_key='BTTS_YES' if candidate.selection == 'Ja' else 'BTTS_NO',
+            selection=candidate.selection, home_team=selected_row.get('Home'), away_team=selected_row.get('Away'),
+            now=price_now)
+        render_model_selection(candidate, save_source="Fußball Prematch",
+            reference_quote=quote, reference_binding_candidate=binding, now=price_now)
 
     with st.expander(f"Alle {len(candidate_rows)} geprüften Spiele mit Einzelgründen"):
         display_rows = ordered_event_rows(candidate_rows, mode=sort_mode,
@@ -3098,7 +3107,7 @@ def _render_live_football(analyzer, market: str) -> None:
             key=live_detail_key,
         )
         candidate, _item = candidate_items[selected]
-        render_model_selection(candidate, save_source="Live")
+        render_model_selection(candidate, save_source="Live", analysis_only=True)
 
     # Live-Überblick: IMMER alle unterstützten Live-Spiele mit Modellwerten
     # zeigen — auch wenn kein Kandidat das Gate passiert. Volle Transparenz
@@ -3509,7 +3518,7 @@ def _render_red_cards(analyzer) -> None:
         key=detail_key,
     )
     candidate, _entry = candidate_entries[selected]
-    render_model_selection(candidate, save_source="Live nach Platzverweis")
+    render_model_selection(candidate, save_source="Live nach Platzverweis", analysis_only=True)
 
 def render_live(analyzer) -> None:
     if analyzer is None:
@@ -4196,9 +4205,9 @@ def render_multi_sport(
     # never to its new visual position after a sort toggle.
     original_positions = {id(item): index for index, item in enumerate(snapshot_items)}
     filtered_results = None
-    if search_filters is not None:
+    if search_filters is not None or sport == "E-Sport":
         if sport == "E-Sport":
-            filtered_results = esports_search_results(snapshot_items, search_filters)
+            filtered_results = esports_search_results(snapshot_items, search_filters or SearchFilters())
             snapshot_items = [result.item for result in filtered_results]
         elif not search_filters.matches(probability=None):
             # These upcoming paths provide a timetable, not a fabricated model
@@ -4312,7 +4321,10 @@ def render_multi_sport(
         st.caption(f"Erwartete Gesamtzahl: {candidate.expected_total:.2f}")
     if filtered_results is not None and filtered_results[selected_index].quote is not None:
         st.metric("Quote", f"{filtered_results[selected_index].quote.best_odds:.2f}")
-    render_model_selection(candidate)
+    render_model_selection(candidate,
+        reference_quote=filtered_results[selected_index].quote if filtered_results is not None else None,
+        reference_binding_candidate=filtered_results[selected_index].binding if filtered_results is not None else None,
+        analysis_only=not is_upcoming)
 
 
 def _automated_signal_candidate(signal: ModelSignal) -> RecommendationCandidate:

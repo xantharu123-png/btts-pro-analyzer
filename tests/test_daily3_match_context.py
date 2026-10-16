@@ -2,7 +2,14 @@ from dataclasses import replace
 
 from daily3_selection import daily3_choices
 from forecast_selection import select_consumer_forecasts
-from test_daily3_selection import NOW, football
+from test_daily3_selection import NOW, football as _football
+from test_publication_odds_floor import priced
+from market_consensus import exact_market_target
+
+
+def football(*args, **kwargs):
+    signal = _football(*args, **kwargs)
+    return priced(signal, (1.8,) * 3) if exact_market_target(signal.market_key) else signal
 
 
 def test_favourite_baseline_not_confused_with_a_match_specific_form_signal():
@@ -22,7 +29,11 @@ def test_favourite_baseline_not_confused_with_a_match_specific_form_signal():
 def test_same_market_allowed_on_either_side_only_with_actual_match_signal():
     for key in ('HOME_OVER_0_5', 'AWAY_OVER_0_5', 'AWAY_UNDER_2_5', 'HOME_RANGE_1_3'):
         item = football(1, key, .78, variants=(.78, .73, .87))
-        assert daily3_choices([item], now=NOW)[0].signal is item
+        if exact_market_target(key):
+            assert daily3_choices([item], now=NOW)[0].signal is item
+        else:
+            assert daily3_choices([item], now=NOW) == ()
+            assert select_consumer_forecasts([item], now=NOW) == [item]
 
 
 def test_defensive_floor_handles_reverse_zero_and_small_form_changes_honestly():

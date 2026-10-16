@@ -166,10 +166,10 @@ def test_empty_day_keeps_sports_and_both_picture_panels_without_fake_tips(monkey
 def test_daily3_rail_probability_presentation_keeps_original_sequence_numbers_and_choices(monkeypatch):
     import app
     from daily3_selection import daily3_choices
-    from test_daily3_selection import NOW, football
+    from test_daily3_selection import NOW, _admitted_football
     from test_workflow_integrity import _RecordingStreamlit
-    choices = daily3_choices([football(1, probability=.75, start_hours=3),
-        football(2, probability=.80, start_hours=6), football(3, probability=.90, start_hours=9)], now=NOW)
+    choices = daily3_choices([_admitted_football(1, probability=.75, start_hours=3),
+        _admitted_football(2, probability=.80, start_hours=6), _admitted_football(3, probability=.90, start_hours=9)], now=NOW)
     before = deepcopy(choices)
     ui = _RecordingStreamlit()
     monkeypatch.setattr(app, 'st', ui)

@@ -1,5 +1,52 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 16.10.2026 – Quotenaktualisierung und verbindliche 1,20-Untergrenze
+
+Aktueller begrenzter Reparaturauftrag: testen, committen, main pushen und auf
+dem VPS veröffentlichen, **ohne neues Backup**. Diese neue ausdrückliche Regel
+ersetzt frühere Anforderungen, unbepreiste Modell-Auswahlen öffentlich zu zeigen.
+
+- [x] Öffentliche Tipps in Wettfinder, eigener Suche, Tennis, Daily3, 15K,
+  RisikoBet und den gemeinsamen Karten brauchen eine echte, exakt zugeordnete
+  Anbieterquote **ab 1,20**. Nicht passende, fehlende, ungültige oder abgelaufene
+  Preisbelege bleiben im Modellbestand, aber nicht als öffentliche Tipps.
+- [x] Modellrichtung und Widerspruchsprüfung kommen vor der Preiszulassung;
+  kein billiger/unbepreister Hauptausgang wird durch seine Gegenseite ersetzt.
+  Quoten über der Grenze verändern weder Wahrscheinlichkeit noch Reihenfolge.
+- [x] Auch offene manuelle Suchergebnisse und beide 15K-Darstellungen übernehmen
+  den neuesten exakt passenden Preisbeleg. Neuer niedriger Preis schlägt alten
+  höheren; gleichzeitige widersprüchliche Belege werden nicht wiederbelebt.
+- [x] Begrenzter Quotenlauf alle drei Stunden, unabhängig vom täglichen Modelllauf:
+  gespeicherten Spielbestand wiederverwenden; vorhandene Kontingentsteuerung,
+  Quellen-Caches, Zeitlimits, Dateisperre und konkurrierende Veröffentlichungen
+  berücksichtigen. Keine neue Sport-/Modellsuche, Datenbank oder Sicherung.
+- [x] Kandidatenbezogene sichere Diagnose unterscheidet fehlendes Spiel, Markt,
+  Auswahl, Identitätsfehler, Anbieterzeit, Kontingent und Transportfehler.
+  Keine Schlüssel, kompletten Anbieterantworten oder Fehler-URLs speichern.
+- [x] Neue tatsächliche Wetten unter der Grenze abweisen; alte echte Verträge
+  bleiben lesbar, idempotent wiederholbar und normal abrechenbar. Live ohne
+  exakt passenden Livepreis bleibt Analyse, ohne neue Tipp-/Geldaktion.
+- [x] Unabhängiges Produktreview: keine offenen Befunde; Sitzungs-Refresh und
+  fälschliches OBSERVED bei verworfener Zeitbindung korrigiert und nachgeprüft.
+- [x] Finale betroffene Offline-Regression:2.493 PASS/7 bestehende Skips/
+  32 bestandene Untertests, Exit0. Alle14.350 alten Test-IDs erhalten,
+  jetzt14.462 gesammelt;786 relevante Quellhashes während QA unverändert.
+  Komplette14K-Vollsuite für diesen Patch nicht erneut ausgeführt.
+- [ ] Commit/Push und echte VPS-Abnahme. Frühere fehlgeschlagene Prüfläufe
+  werden nicht als Vollpass umgedeutet.
+
+Konkreter Originalfall: Dinamo Bucuresti – FC Botosani, Fixture1565271,
+HOME_OVER_0_5. Ein gezielter vorhandener API-Football-Abruf lieferte tatsächlich
+1,07–1,11 bei drei Anbietern, nicht die nutzerseitig genannten1,01. Alle liegen
+unter1,20. Die Originalantwort vom Morgen wurde nicht archiviert; ihre damalige
+fehlende Speicherung kann daher nicht nachträglich exakt rekonstruiert werden.
+Der neue Produktionsnachweis folgt nach dem reinen Preisrefresh.
+
+Abgrenzung: Verletzungs-/Müdigkeits-/Wetterqualität und Marktvergleich sind damit
+nicht nachgewiesen; Schlüsselrotation bleibt ausdrücklich zurückgestellt.
+Vorherige vollständige14K-QA ist historisch, kein Vollsuite-Nachweis dieses Patches.
+Details: [Quoten-Audit](docs/audits/2026-10-16-quotenaktualisierung.md).
+
 ## 16.10.2026 – API-Schlüsselrotation auf Nutzerwunsch zurückgestellt
 
 - [ ] Die drei historisch veröffentlichten Schlüssel bei API-Football,

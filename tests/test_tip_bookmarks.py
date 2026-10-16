@@ -248,12 +248,25 @@ class _Surface:
 
 
 def test_model_selection_click_saves_the_actual_selection_without_price_evaluation(tmp_path, monkeypatch):
+    from market_consensus import parse_fixture_consensus
     surface = _Surface()
     monkeypatch.setattr(ui, "st", surface)
     monkeypatch.setattr(ui, "TipStore", partial(TipStore, tmp_path / "tips.db"))
     monkeypatch.setattr(ui, "evaluate_reference_price", lambda *a, **k: pytest.fail("bookmark evaluated price"))
 
-    ui.render_model_selection(_candidate())
+    candidate = _candidate()
+    ui.render_model_selection(candidate, now=T0)
+    assert not surface.buttons and not (tmp_path / 'tips.db').exists()
+    assert candidate == _candidate()  # Missing proof never changes the model.
+    binding = dict(candidate_id='17:RESULT_HOME', fixture_id=17, sport='Fußball',
+        source='football_challenge', scheduled_start=T1.isoformat(), market_key='RESULT_HOME',
+        selection='Alpha', home_team='Alpha', away_team='Beta')
+    payload = {'errors': [], 'response': [{'fixture': {'id': 17, 'date': T1.isoformat()},
+        'update': T0.isoformat(), 'bookmakers': [{'id': 1, 'name': 'Test Book',
+            'bets': [{'name': 'Match Winner', 'values': [{'value': 'Home', 'odd': '1.80'}]}]}]}]}
+    quote = parse_fixture_consensus(payload, [binding], fetched_at=T0)['17:RESULT_HOME']
+    ui.render_model_selection(candidate, reference_quote=quote,
+                              reference_binding_candidate=binding, now=T0)
 
     tips = TipStore(tmp_path / "tips.db", scope_id=SCOPE).list_tips()
     assert len(tips) == 1, "visible model selection has no working save action"

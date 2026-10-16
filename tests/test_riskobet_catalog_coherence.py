@@ -7,9 +7,19 @@ import pytest
 
 from riskobet_candidates import adapt_esports_shadow, adapt_football_candidates
 from riskobet_domain import EvidenceStage
-from riskobet_surface import build_riskobet_card, compose_riskobet_catalog
+from riskobet_surface import RiskBetPriceOverlay, build_riskobet_card, compose_riskobet_catalog
 from test_riskobet_candidates import MODELED_AT, create_esports_db, football_pool, insert_esports
 from test_riskobet_surface import _candidate
+
+
+def admitted_card(candidate, *, price_excluded=False):
+    # Composition tests enter at the validated native-price overlay contract;
+    # exact joining/parsing is exercised separately by real price-source tests.
+    overlay = RiskBetPriceOverlay(candidate.candidate_id, status='AVAILABLE',
+        observed_odds=1.12 if price_excluded else 1.50, bookmaker='Synthetic verified offer',
+        observed_at=MODELED_AT.isoformat(), fetched_at=MODELED_AT.isoformat(),
+        publication_eligible=True, below_floor=price_excluded)
+    return build_riskobet_card(candidate, overlay)
 
 
 def card(market, side, *, sport="football", event="event", snapshot="a", stage=EvidenceStage.SHADOW,
@@ -21,7 +31,7 @@ def card(market, side, *, sport="football", event="event", snapshot="a", stage=E
     )
     candidate = replace(candidate, snapshot_id="snapshot_" + snapshot*64,
         settlement_contract=f"riskobet-settlement-v1:{sport}:{market}:{side}")
-    return replace(build_riskobet_card(candidate), quote_floor_excluded=price_excluded)
+    return admitted_card(candidate, price_excluded=price_excluded)
 
 
 def keys(catalog):
@@ -32,7 +42,7 @@ def test_actual_football_adapter_no_longer_publishes_win_and_draw_as_two_tips():
     bundle = adapt_football_candidates(
         football_pool(home_win=.30, draw=.30, away_win=.40, dc=.60, two_goals=.20), modeled_at=MODELED_AT)[0]
     assert {c.market_key for c in bundle.candidates} == {"result_90_minutes", "draw_90_minutes"}
-    cards = tuple(build_riskobet_card(c) for c in bundle.candidates)
+    cards = tuple(admitted_card(c) for c in bundle.candidates)
     catalog = compose_riskobet_catalog(cards)
     assert len(catalog.cards) == 1
     assert catalog.cards[0] is cards[0]
@@ -118,7 +128,7 @@ def test_native_best_of_one_map_is_not_assumed_compatible_with_opposite_winner(t
     with sqlite3.connect(path) as connection:
         connection.execute("UPDATE esports_shadow_predictions SET series_type=1")
     bundle = adapt_esports_shadow(path, as_of=MODELED_AT)[0]
-    cards = tuple(build_riskobet_card(c) for c in bundle.candidates)
+    cards = tuple(admitted_card(c) for c in bundle.candidates)
     assert {c.market_key for c in cards} == {"series_winner", "at_least_one_map"}
     # The native adapter really does emit Bo1 maps. The public card has no
     # exact frozen format field and must not promise joint compatibility.

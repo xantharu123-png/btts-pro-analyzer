@@ -4,8 +4,8 @@ Retain exact-bound model variants and at least 70% in all three. Compare form
 (football) or surface (ATP) against the same match's general strength; a positive
 two-percentage-point change is not necessary for a defensive day selection.
 Haircut, odds, RELEASED flags, target profit and account money are not ranking
-inputs. After coherent model selection, known offers below 1.20 are hidden.
-Unknown prices stay eligible after an actual check; offers above the floor do not change ranking.
+inputs. After coherent model selection, a real exactly matched offer from 1.20
+is required. Unknown prices remain background-only; admitted prices do not change ranking.
 Time admission checks each actual leg, not imaginary future bets. Published choices are
 chronological planning, not guaranteed match durations or future cash credits.
 """
@@ -22,7 +22,7 @@ from forecast_analysis import (DAILY_MODEL_HIGHLIGHT_MAX_AGE, build_forecast_ana
     football_context_highlight_reason, forecast_highlight_reason, read_football_analysis)
 from forecast_selection import select_consumer_forecasts
 from forecast_price_checks import has_current_price_check
-from market_consensus import quote_below_publication_floor
+from quote_publication import publication_allowed
 from selection_coherence import consumer_event_identity
 
 POLICY_VERSION = 'daily3-defensive-day-sequence-checked-prices-v13'
@@ -97,7 +97,7 @@ def daily3_choices(signals, *, now, occupied_events=(), occupied_guards=(), used
     for s in select_consumer_forecasts(signals, now=now):
         if not has_current_price_check(s, now=now):
             continue
-        if quote_below_publication_floor(s.reference_quote, candidate=s, now=now):
+        if not publication_allowed(s.reference_quote, candidate=s, now=now):
             continue
         sport = _SPORTS.get(str(s.sport or '').strip().casefold())
         start, sampled = _clock(s.scheduled_start), _clock(s.modeled_at)

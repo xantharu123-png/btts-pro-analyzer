@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from esports_prices import attach_cached_esports_prices
 from market_consensus import observed_consensus
 from multi_sport_recommendations import esports_match_winner_candidate
+from quote_publication import publication_quote
 
 
 @dataclass(frozen=True)
@@ -12,6 +13,7 @@ class ManualEsportsResult:
     item: dict
     candidate: object
     quote: object
+    binding: dict
 
 
 def esports_search_results(items, filters, *, now=None):
@@ -36,10 +38,12 @@ def esports_search_results(items, filters, *, now=None):
     prices = attach_cached_esports_prices(bindings, now=current)
     results = []
     for (item, candidate), binding in zip(candidates, prices):
-        quote = observed_consensus(binding.get("reference_quote"), candidate=binding, now=current)
+        quote = publication_quote(binding.get("reference_quote"), candidate=binding, now=current)
+        if quote is None:
+            continue
         probability = candidate.model_probability / 100 if candidate.forecast_available else None
         if filters.matches(probability=probability,
                            quote=quote.best_odds if quote is not None else None,
                            market_kind="match_winner" if candidate.forecast_available else None):
-            results.append(ManualEsportsResult(item, candidate, quote))
+            results.append(ManualEsportsResult(item, candidate, quote, binding))
     return results

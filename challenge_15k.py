@@ -83,6 +83,7 @@ from challenge_engine import (
 from challenge_model_cache import load_model_artifact, save_model_artifact
 from challenge_store import ChallengeLedger, SETTLEMENT_RULE_VERSION
 from config_loader import load_app_config
+from quote_publication import publication_allowed, latest_reference_quotes, quote_receipt, read_shared_quote_rows
 from date_context import ZURICH_TIMEZONE, german_day_label, zurich_today
 from ui_components import (
     milestone_bar_html,
@@ -2129,6 +2130,7 @@ def _prefer_scheduled_snapshot(
     scheduled: object,
     *,
     scope: dict[str, Any],
+    now: Optional[datetime] = None,
 ) -> Optional[dict[str, Any]]:
     """Choose the newer same-scope result while preserving fresh manual work."""
     if not isinstance(scheduled, dict) or scheduled.get("scope") != scope:
@@ -2141,6 +2143,58 @@ def _prefer_scheduled_snapshot(
         return current
     if current_at is None or scheduled_at > current_at:
         return scheduled
+    if scheduled_at == current_at:
+        # A quote-only refresh deliberately keeps scanned_at/model revisions.
+        # Adopt prices for exactly equal frozen model rows, never replace a
+        # browser's manual work, model values, ledger or planning state.
+        def models(snapshot):
+            result = {}
+            for field in ('challenge_model_candidates', 'base_shortlist', 'price_candidates',
+                          'forecast_shortlist', 'shortlist'):
+                collection = snapshot.get(field)
+                if not isinstance(collection, (list, tuple)):
+                    continue
+                for candidate in collection:
+                    if isinstance(candidate, ChallengeCandidate):
+                        previous = result.get(candidate.candidate_id)
+                        result[candidate.candidate_id] = candidate if previous is None or previous == candidate else False
+            return {key: value for key, value in result.items() if value is not False}
+        own_models, fresh_models = models(current), models(scheduled)
+        targets = [candidate for key, candidate in own_models.items()
+                   if key in fresh_models and vars(candidate) == vars(fresh_models[key])]
+        if targets:
+            old_quotes = deserialize_consensus_map(current.get('reference_quotes'))
+            fresh_quotes = deserialize_consensus_map(scheduled.get('reference_quotes'))
+            receipts = [quote_receipt(fresh_models[candidate.candidate_id], fresh_quotes[candidate.candidate_id])
+                        for candidate in targets if candidate.candidate_id in fresh_quotes]
+            merged = latest_reference_quotes(targets, old_quotes, shared_rows=receipts,
+                now=now or datetime.now(timezone.utc))
+            from market_consensus import _parse_utc
+            previous_conflicts = current.get('reference_quote_conflicts')
+            previous_conflicts = previous_conflicts if isinstance(previous_conflicts, dict) else {}
+            conflicts = {key: stamp for key, stamp in previous_conflicts.items()
+                         if key in own_models and _parse_utc(stamp) is not None}
+            for candidate in targets:
+                key = candidate.candidate_id
+                old_quote, new_quote = old_quotes.get(key), fresh_quotes.get(key)
+                if (key not in merged and old_quote is not None and new_quote is not None
+                        and _parse_utc(old_quote.fetched_at) == _parse_utc(new_quote.fetched_at)):
+                    # Keep this ambiguity as price-only session state. Removing
+                    # the old quote must not resurrect the conflicting copy on
+                    # the next ordinary rerender; only a newer receipt clears it.
+                    conflicts[key] = new_quote.fetched_at
+                if key in merged and key in conflicts:
+                    if _parse_utc(merged[key].fetched_at) <= _parse_utc(conflicts[key]):
+                        merged.pop(key)
+                    else:
+                        conflicts.pop(key)
+            retained = {key: quote for key, quote in old_quotes.items()
+                        if key not in {candidate.candidate_id for candidate in targets}}
+            updated_quotes = {**retained, **merged}
+            if updated_quotes != old_quotes or conflicts != previous_conflicts:
+                from market_consensus import serialize_consensus_map
+                return dict(current, reference_quotes=serialize_consensus_map(updated_quotes),
+                            reference_quote_conflicts=conflicts)
     return current
 
 
@@ -2168,8 +2222,8 @@ def _scheduled_challenge_refresh_fragment(scope: dict[str, Any]) -> None:
         scheduled,
         scope=scope,
     )
-    if preferred is scheduled and scheduled is not current:
-        st.session_state["challenge_snapshot"] = scheduled
+    if preferred is not current and isinstance(preferred, dict):
+        st.session_state["challenge_snapshot"] = preferred
         st.session_state.pop("challenge_quote_result", None)
         st.rerun()
 
@@ -4798,8 +4852,11 @@ def _render_price_check(
 
     price_decision_now = datetime.now(timezone.utc)
     raw_quotes = deserialize_consensus_map(snapshot.get('reference_quotes'))
+    raw_quotes = latest_reference_quotes(displayed_candidates, raw_quotes,
+        shared_rows=read_shared_quote_rows(), now=price_decision_now,
+        blocked_at=snapshot.get('reference_quote_conflicts'))
     displayed_candidates = [candidate for candidate in displayed_candidates
-                            if not quote_below_publication_floor(
+                            if publication_allowed(
                                 raw_quotes.get(candidate.candidate_id), candidate=candidate, now=price_decision_now)]
     if not displayed_candidates:
         st.info('Aktuell keine passende 15K-Auswahl.')
@@ -4819,7 +4876,7 @@ def _render_price_check(
         for candidate in displayed_candidates
         if candidate.candidate_id in price_candidates_by_id
     ]
-    reference_quotes = deserialize_consensus_map(snapshot.get("reference_quotes"))
+    reference_quotes = raw_quotes
     displayed_by_id = {
         candidate.candidate_id: candidate
         for candidate in displayed_candidates
@@ -5299,8 +5356,11 @@ def _render_model_challenge(
     now = datetime.now(timezone.utc)
     quotes = deserialize_consensus_map(snapshot.get('reference_quotes'))
     # Resolve the model direction before the floor; never flip it for a price.
-    pool = [candidate for candidate in coherent_consumer_forecasts(pool)
-            if not quote_below_publication_floor(
+    pool = coherent_consumer_forecasts(pool)
+    quotes = latest_reference_quotes(pool, quotes, shared_rows=read_shared_quote_rows(), now=now,
+        blocked_at=snapshot.get('reference_quote_conflicts'))
+    pool = [candidate for candidate in pool
+            if publication_allowed(
                 quotes.get(candidate.candidate_id), candidate=candidate, now=now)]
     selections = _challenge_display_selections(pool)
     selections = [
@@ -5312,7 +5372,7 @@ def _render_model_challenge(
         return
 
     st.subheader("15K-Modellauswahl")
-    st.caption("Nach Modell ausgewählt · bekannte Quoten ab 1,20. Deine tatsächliche Quote erfasst du mit der Wette.")
+    st.caption("Nach Modell ausgewählt · exakt passende beobachtete Quote ab 1,20. Deine tatsächliche Quote erfasst du mit der Wette.")
     from tip_display_order import display_order_control, ordered_event_rows
     sort_mode = display_order_control(st, key='challenge_model_order')
     selections = ordered_event_rows(selections, mode=sort_mode,

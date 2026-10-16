@@ -11,6 +11,7 @@ from market_consensus import (
     bounded_tennis_price_observations,
 )
 from riskobet_domain import stable_event_key
+from quote_publication import publication_quote
 from riskobet_surface import RiskBetPriceOverlay
 
 
@@ -140,13 +141,15 @@ def shared_price_overlays(candidates, rows, *, now=None, tennis_price_observatio
         fresh = wettfinder_consensus(quote, now=now)
         # Fetch age, too, matters: an old cached response is never current.
         fresh = fresh if fresh and fresh.is_wettfinder_fresh(now) else None
-        price = max((fresh or display).points, key=lambda p: p.odds)
+        admitted = publication_quote(quote, candidate=binding, now=now)
+        price = max((admitted or fresh or display).points, key=lambda p: p.odds)
         overlays[candidate.candidate_id] = RiskBetPriceOverlay(
             candidate_id=candidate.candidate_id,
             status='AVAILABLE' if fresh else 'STALE',
             observed_odds=price.odds, bookmaker=price.bookmaker,
             observed_at=price.observed_at,
             below_floor=quote_below_publication_floor(quote, candidate=binding, now=now),
+            publication_eligible=admitted is not None,
             **_price_check_fields(quote, price, now),
         )
     _apply_checked_attempts(overlays, candidates, rows, price_check_attempts, now=now)
@@ -223,11 +226,13 @@ def tennis_price_overlays(candidates, rows, *, now, price_observations=()):
             continue
         fresh = wettfinder_consensus(quote, now=now)
         fresh = fresh if fresh and fresh.is_wettfinder_fresh(now) else None
-        point = max((fresh or observed).points, key=lambda p: p.odds)
+        admitted = publication_quote(quote, candidate=row, now=now)
+        point = max((admitted or fresh or observed).points, key=lambda p: p.odds)
         overlays[candidate.candidate_id] = RiskBetPriceOverlay(
             candidate.candidate_id, 'AVAILABLE' if fresh else 'STALE',
             point.odds, point.bookmaker, point.observed_at,
             quote_below_publication_floor(quote, candidate=row, now=now),
+            publication_eligible=admitted is not None,
             **_price_check_fields(quote, point, now),
         )
     return overlays
@@ -270,10 +275,12 @@ def team_price_overlays(candidates, rows, *, now):
         observed = observed_consensus(quote, candidate=binding, now=now)
         if observed is None or candidate.starts_at <= now:
             continue
-        point = max(observed.points, key=lambda p: p.odds)
+        admitted = publication_quote(quote, candidate=binding, now=now)
+        point = max((admitted or observed).points, key=lambda p: p.odds)
         overlays[candidate.candidate_id] = RiskBetPriceOverlay(
             candidate.candidate_id, 'OBSERVED', point.odds, point.bookmaker,
             point.observed_at, quote_below_publication_floor(quote, candidate=binding, now=now),
+            publication_eligible=admitted is not None,
             **_price_check_fields(quote, point, now),
         )
     return overlays
@@ -285,12 +292,20 @@ def load_shared_price_overlays(candidates, snapshots=(), *, now=None, path=None)
         data = json.loads(source.read_text(encoding='utf-8'))
         rows = data.get('model_candidates', ())
         tennis_prices = data.get('tennis_price_observations', ())
+        risk_prices = data.get('riskobet_price_observations', ())
         attempts = data.get('price_check_attempts', {})
     except (OSError, TypeError, ValueError, AttributeError):
         rows = []
         tennis_prices = []
+        risk_prices = []
         attempts = {}
     rows = [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+    # The quote-only sidecar is bounded and exact, not another model pool. An
+    # exact sidecar market is authoritative over its older model-row quote;
+    # conflicting sidecar duplicates still fail the normal overlay join.
+    risk_prices = bounded_riskobet_price_observations(risk_prices, now=now)
+    sidecar_keys = {_risk_price_identity(row) for row in risk_prices}
+    rows = [row for row in rows if _risk_price_identity(row) not in sidecar_keys] + risk_prices
     from team_sport_prices import attach_cached_team_prices, snapshot_price_rows
     # Full identity rows also cover research events absent from the normal pool.
     snapshots = tuple(snapshots)
@@ -304,3 +319,34 @@ def load_shared_price_overlays(candidates, snapshots=(), *, now=None, path=None)
     rows = attach_cached_esports_prices(rows, now=now, path=source.parent / 'esports_quotes.json')
     return shared_price_overlays(candidates, rows, now=now, tennis_price_observations=tennis_prices,
                                  price_check_attempts=attempts)
+
+
+def _risk_price_identity(row):
+    if row.get('fixture_id') is not None:
+        return ('football', row.get('fixture_id'), row.get('market_key'), row.get('scheduled_start'))
+    return ('tennis', row.get('fixture_source'), row.get('provider_event_id'),
+            row.get('market_key'), row.get('selected_competitor'), row.get('scheduled_start'))
+
+
+def bounded_riskobet_price_observations(rows, *, now=None):
+    """Read only exact football/tennis observations with original display clocks."""
+    from market_consensus import _parse_utc, QUOTE_DISPLAY_MAX_AGE
+    current = now or datetime.now(timezone.utc)
+    if not isinstance(rows, list) or len(rows) > 3000:
+        return []
+    result = []
+    for row in rows:
+        if (not isinstance(row, dict) or row.get('source') not in {'football_challenge', 'tennis_shadow'}):
+            continue
+        start = _parse_utc(row.get('scheduled_start'))
+        if start is None or start <= current:
+            continue
+        quote = observed_consensus(row.get('reference_quote'), candidate=row, now=current)
+        if quote is None:
+            continue
+        fetched = _parse_utc(quote.fetched_at)
+        if (fetched is None or not timedelta(0) <= current-fetched <= QUOTE_DISPLAY_MAX_AGE
+                or any(_parse_utc(p.observed_at) > fetched for p in quote.points)):
+            continue
+        result.append(dict(row, reference_quote=quote.to_dict()))
+    return result

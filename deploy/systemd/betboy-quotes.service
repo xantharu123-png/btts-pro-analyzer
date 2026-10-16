@@ -1,0 +1,21 @@
+[Unit]
+Description=BetBoy bounded price-only refresh of stored forecasts
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=betboy
+Group=betboy
+WorkingDirectory=/opt/betboy/app
+EnvironmentFile=-/etc/betboy/betboy.env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONUTF8=1
+ExecCondition=/usr/bin/python3 -I /usr/local/libexec/betboy-challenge-migration-marker.py --marker /etc/betboy/challenge-ledger-v2-migrated.json --application-root /opt/betboy/app require-complete
+ExecCondition=/usr/bin/python3 -I -c "import subprocess; state = subprocess.run(['systemctl', 'show', 'betboy-wettfinder.service', '--property=ActiveState', '--value'], capture_output=True, text=True, check=True).stdout.strip(); raise SystemExit(0 if state in {'inactive', 'failed'} else 1)"
+ExecStart=/opt/betboy/venv/bin/python wettfinder_automation.py --quotes-only --quote-sport all
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+TimeoutStartSec=12min

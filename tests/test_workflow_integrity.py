@@ -289,9 +289,50 @@ def _patch_automatic_snapshot(
     forecasts=(),
     signals=(),
 ):
+    # Layout tests supply complete synthetic native price inputs. Real missing,
+    # foreign and expired quote admission is exercised in quote-publication tests.
+    from zlib import crc32
+    from market_consensus import exact_market_target, ODDS_API_REFERENCE_SOURCE, ESPORTS_PRICE_SOURCE
+    prepared = []
+    for signal in forecasts:
+        if signal.reference_quote is not None:
+            prepared.append(signal)
+            continue
+        stamp = status.generated_at.isoformat()
+        names = (signal.event_label or '').split(' vs ')
+        home, away = names if len(names) == 2 else ('Home', 'Away')
+        is_football = signal.sport in {'Fußball', 'Fussball'}
+        if is_football:
+            signal = replace(signal, candidate_id=signal.candidate_id or signal.key,
+                fixture_id=signal.fixture_id or 1 + crc32(signal.key.encode()),
+                home_team=home, away_team=away,
+                market_key=signal.market_key or 'AWAY_UNDER_1_5')
+            bet, value = exact_market_target(signal.market_key)
+            source, prefix, provider, extra = REFERENCE_SOURCE, 'api-football:', None, {}
+        else:
+            esports = signal.sport == 'E-Sport'
+            origin = 'pandascore' if esports else 'ESPN'
+            signal = replace(signal, candidate_id=signal.candidate_id or signal.key,
+                fixture_id=None, fixture_source=origin, provider_event_id=signal.key,
+                competitor_a=home, competitor_b=away, selected_competitor=home,
+                competition='CS2' if esports else 'ATP', market_key='H2H')
+            bet, value = ('Series Winner' if esports else 'h2h'), home
+            source = ESPORTS_PRICE_SOURCE if esports else ODDS_API_REFERENCE_SOURCE
+            prefix = 'oddspapi:' if esports else 'odds-api:'
+            provider = signal.key
+            extra = dict(origin_provider=origin, origin_event_id=signal.key,
+                         event_discipline=17) if esports else {}
+        quote = MarketConsensus(fixture_id=signal.fixture_id, candidate_id=signal.candidate_id,
+            market_key=signal.market_key, bet_name=bet, value_name=value,
+            consensus_odds=2.0, conservative_odds=2.0, lowest_odds=2.0, best_odds=2.0,
+            bookmaker_count=1, quoted_at=stamp, fetched_at=stamp, source=source,
+            points=(QuotePoint('Synthetic book', 2.0, prefix+'fixture', stamp),),
+            scheduled_start=signal.scheduled_start, provider_event_id=provider,
+            event_home=home, event_away=away, **extra)
+        prepared.append(replace(signal, reference_quote=quote.to_dict()))
     snapshot = SimpleNamespace(
         status=status,
-        forecasts=tuple(forecasts),
+        forecasts=tuple(prepared),
         signals=tuple(signals),
     )
     monkeypatch.setattr(
@@ -659,7 +700,8 @@ def test_manual_surface_filters_known_short_odds_but_keeps_exact_floor_and_order
         "shortlist": [],
         "model_shortlist": forecasts,
         "reference_quotes": serialize_consensus_map(
-            {extreme.candidate_id: quote}
+            {extreme.candidate_id: quote, **{row.candidate_id:
+                __import__('test_manual_football_filters')._quote(row, 2.0, now) for row in primary}}
         ),
         "price_checked_at": now.isoformat(),
         "price_checked_count": 1,
@@ -730,9 +772,9 @@ def test_manual_surface_promotes_useful_market_and_keeps_all_others(
         _manual_forecast("osasuna-result-total", 4),
         home_team="Osasuna",
         away_team="Real Sociedad",
-        market_key="RESULT_TOTAL_1X_UNDER_3_5",
-        market="Resultat & Gesamttore 3,5",
-        selection="1X und Unter 3,5",
+        market_key="BTTS_YES",
+        market="Beide treffen",
+        selection="Ja",
     )
     osasuna.context["release_context_complete"] = True
     forecasts = [*team_totals, osasuna]
@@ -750,7 +792,8 @@ def test_manual_surface_promotes_useful_market_and_keeps_all_others(
         "scope": scope,
         "shortlist": [],
         "model_shortlist": forecasts,
-        "reference_quotes": {},
+        "reference_quotes": serialize_consensus_map({row.candidate_id:
+            __import__('test_manual_football_filters')._quote(row, 2.0, now) for row in forecasts}),
         "price_checked_at": None,
         "price_checked_count": 0,
         "fixtures_found": 4,
@@ -1731,7 +1774,8 @@ def test_all_sports_ui_keeps_multi_sport_widget_keys_isolated():
     source = Path(app.__file__).read_text(encoding="utf-8")
 
     assert 'key=f"run_multi_sport_{sport_key}"' in source
-    assert 'render_model_selection(candidate)' in source
+    assert 'render_model_selection(candidate,' in source
+    assert 'reference_binding_candidate=filtered_results[selected_index].binding' in source
 
 
 def test_multi_sport_window_rejects_reverse_and_overlong_ranges():

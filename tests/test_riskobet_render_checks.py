@@ -33,8 +33,9 @@ def football_bundle(*, state=ContextState.FRESH, expired=None, missing=None):
 
 def current_price(candidate):
     return RiskBetPriceOverlay(candidate_id=candidate.candidate_id, status="AVAILABLE",
-        observed_odds=2.2, observed_at=MODELED.isoformat(), fetched_at=NOW.isoformat(),
-        checked_at=NOW.isoformat(), price_check_current=True)
+        observed_odds=2.2, bookmaker='Synthetic verified offer',
+        observed_at=MODELED.isoformat(), fetched_at=NOW.isoformat(),
+        checked_at=NOW.isoformat(), price_check_current=True, publication_eligible=True)
 
 
 @pytest.mark.parametrize("section", ["h2h", "injuries", "weather"])
@@ -109,8 +110,9 @@ def test_manual_display_quote_preserves_actual_provider_coverage(monkeypatch, ma
     assert len(calls["featured"]) == 1
     card = calls["featured"][0]
     assert card.price_check_current is True
-    assert card.observed_odds == (overlay.observed_odds if manual is None else manual)
-    assert card.price_observed_at == (overlay.observed_at if manual is None else None)
+    # A private comparison field cannot overwrite the observed provider offer.
+    assert card.observed_odds == overlay.observed_odds
+    assert card.price_observed_at == overlay.observed_at
     assert card.model_probability == candidate.model_probability
     assert overlay.checked_at == NOW.isoformat()
 

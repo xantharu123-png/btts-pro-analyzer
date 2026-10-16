@@ -12,6 +12,7 @@ import sqlite3
 from typing import Optional
 
 from multi_sport_recommendations import PriceDecision, RecommendationCandidate
+from betting_math import odds_below_publication_floor
 
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parent / "saved_tips.db"
@@ -198,6 +199,23 @@ class TipStore:
         source_text = _text(source, "Quelle", 120)
         identity = self._identity(sport, event_key, market, selection)
         with closing(self._connect()) as connection:
+            if odds_below_publication_floor(quoted_odds):
+                old = connection.execute(
+                    "SELECT * FROM saved_tips WHERE scope_id=? AND identity_key=?",
+                    (self.scope_id, identity),
+                ).fetchone()
+                # Replaying an actual old contract is read-only. The new floor
+                # cannot rewrite its odds, debit money, or prevent settlement.
+                if (old is not None and old['decision_status'] == 'BET'
+                        and old['evidence_stage'] == 'RELEASED'
+                        and old['quoted_odds'] == quoted_odds
+                        and old['model_probability'] == model_probability
+                        and old['risk_adjusted_probability'] == adjusted_probability
+                        and old['minimum_odds'] == minimum_odds
+                        and old['stake_amount'] == max(0.0, float(decision.stake_amount or 0.0))
+                        and old['source'] == source_text):
+                    return self._saved_tip(old)
+                raise ValueError('Neue Tipps benötigen eine Quote ab 1,20.')
             connection.execute(
                 """
                 INSERT INTO saved_tips (

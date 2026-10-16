@@ -37,7 +37,9 @@ def test_model_selection_displays_only_model_and_fixed_user_floor(monkeypatch):
         lambda *args, **kwargs: pytest.fail("model view must not evaluate a quote"),
     )
 
-    ui.render_model_selection(_candidate())
+    quote = _quote()
+    ui.render_model_selection(_candidate(), reference_quote=quote,
+        reference_binding_candidate=_binding(quote))
 
     copy = " ".join(shown)
     assert "Alpha vs Beta" in copy
@@ -52,7 +54,7 @@ def _quote() -> MarketConsensus:
     return MarketConsensus(
         fixture_id=1, candidate_id="compact-price-action", market_key="BTTS_YES",
         bet_name="Both Teams Score", value_name="Yes", consensus_odds=2.00,
-        conservative_odds=2.00, lowest_odds=1.95, best_odds=2.10,
+        conservative_odds=1.975, lowest_odds=1.95, best_odds=2.10,
         bookmaker_count=3, quoted_at=NOW, fetched_at=NOW, source=REFERENCE_SOURCE,
         points=(
             QuotePoint("A", 1.95, "api-football:1", NOW),
@@ -63,11 +65,19 @@ def _quote() -> MarketConsensus:
     )
 
 
+def _binding(quote=None):
+    quote = quote or _quote()
+    return dict(candidate_id=quote.candidate_id, fixture_id=quote.fixture_id,
+        market_key=quote.market_key, sport='Fußball', selection='Ja',
+        scheduled_start=quote.scheduled_start)
+
+
 def _render_full() -> None:
     from datetime import datetime, timezone
     from bet_finder_ui import render_price_decision
     from market_consensus import MarketConsensus, QuotePoint, REFERENCE_SOURCE
     from multi_sport_recommendations import EVIDENCE_RELEASED, RecommendationCandidate
+    from test_bet_finder_ui import _binding
 
     now = datetime.now(timezone.utc).isoformat()
     candidate = RecommendationCandidate(
@@ -80,7 +90,7 @@ def _render_full() -> None:
     quote = MarketConsensus(
         fixture_id=1, candidate_id="full-contract", market_key="BTTS_YES",
         bet_name="Both Teams Score", value_name="Yes", consensus_odds=2.00,
-        conservative_odds=2.00, lowest_odds=1.95, best_odds=2.10, bookmaker_count=3,
+        conservative_odds=1.975, lowest_odds=1.95, best_odds=2.10, bookmaker_count=3,
         quoted_at=now, fetched_at=now, source=REFERENCE_SOURCE,
         points=(
             QuotePoint("A", 1.95, "api-football:1", now),
@@ -88,7 +98,8 @@ def _render_full() -> None:
             QuotePoint("C", 2.10, "api-football:3", now),
         ), scheduled_start="2030-01-01T16:00:00+00:00",
     )
-    render_price_decision(candidate, key="full-contract", reference_quote=quote, allow_manual_check=True)
+    render_price_decision(candidate, key="full-contract", reference_quote=quote,
+        reference_binding_candidate=_binding(quote), allow_manual_check=True)
 
 
 def _render_compact() -> None:
@@ -96,6 +107,7 @@ def _render_compact() -> None:
     from bet_finder_ui import render_price_decision
     from market_consensus import MarketConsensus, QuotePoint, REFERENCE_SOURCE
     from multi_sport_recommendations import EVIDENCE_RELEASED, RecommendationCandidate
+    from test_bet_finder_ui import _binding
 
     now = datetime.now(timezone.utc).isoformat()
     candidate = RecommendationCandidate(
@@ -108,7 +120,7 @@ def _render_compact() -> None:
     quote = MarketConsensus(
         fixture_id=1, candidate_id="compact-contract", market_key="BTTS_YES",
         bet_name="Both Teams Score", value_name="Yes", consensus_odds=2.00,
-        conservative_odds=2.00, lowest_odds=1.95, best_odds=2.10, bookmaker_count=3,
+        conservative_odds=1.975, lowest_odds=1.95, best_odds=2.10, bookmaker_count=3,
         quoted_at=now, fetched_at=now, source=REFERENCE_SOURCE,
         points=(
             QuotePoint("A", 1.95, "api-football:1", now),
@@ -118,6 +130,7 @@ def _render_compact() -> None:
     )
     render_price_decision(
         candidate, key="compact-contract", reference_quote=quote,
+        reference_binding_candidate=_binding(quote),
         save_source="Automatischer Wettfinder", allow_manual_check=True,
         presentation="compact", manual_surface="popover",
     )
@@ -126,6 +139,7 @@ def _render_compact() -> None:
 def _render_fixture_first() -> None:
     from bet_finder_ui import render_price_decision
     from multi_sport_recommendations import EVIDENCE_RELEASED, RecommendationCandidate
+    from test_bet_finder_ui import _quote, _binding
 
     candidate = RecommendationCandidate(
         event_key="fixture-first-contract", sport="Fußball", event_label="Alpha vs Beta",
@@ -138,6 +152,7 @@ def _render_fixture_first() -> None:
 
     render_price_decision(
         candidate, key="fixture-first-contract", presentation="fixture_first",
+        reference_quote=_quote(), reference_binding_candidate=_binding(),
     )
 
 
@@ -247,9 +262,11 @@ def test_compact_and_full_return_the_same_reference_decision_as_the_helper(monke
 
     full = ui.render_price_decision(
         _candidate(), key="full-decision", reference_quote=_quote(),
+        reference_binding_candidate=_binding(),
     )
     compact = ui.render_price_decision(
         _candidate(), key="compact-decision", reference_quote=_quote(),
+        reference_binding_candidate=_binding(),
         presentation="compact",
     )
 
@@ -410,6 +427,7 @@ def test_compact_automatic_bet_persists_exact_provider_provenance(monkeypatch):
 
     decision = ui.render_price_decision(
         _candidate(), key="compact-save", reference_quote=_quote(),
+        reference_binding_candidate=_binding(),
         save_source="Automatischer Wettfinder", presentation="compact",
     )
 
@@ -451,6 +469,7 @@ def test_compact_renderer_uses_exact_precomputed_reference_evaluation(monkeypatc
         _candidate(),
         key="precomputed",
         reference_quote=_quote(),
+        reference_binding_candidate=_binding(),
         presentation="compact",
         precomputed_reference_evaluation=evaluation,
     )
@@ -490,6 +509,7 @@ def test_mismatched_precomputed_bet_evaluation_cannot_be_saved(monkeypatch):
             other_candidate,
             key="mismatched-precomputed",
             reference_quote=_quote(),
+            reference_binding_candidate=_binding(),
             save_source="Automatischer Wettfinder",
             presentation="compact",
             precomputed_reference_evaluation=evaluation,

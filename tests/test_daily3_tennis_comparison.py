@@ -9,7 +9,7 @@ from context_models.contracts import canonical_timestamp, digest
 from context_models.tennis_live import CODE_PATHS, ORIGIN_KIND
 from daily3_tennis_comparison import build_tennis_comparison, tennis_surface_comparison
 from daily3_selection import daily3_choices
-from test_daily3_selection import NOW, tennis
+from test_daily3_selection import NOW, _admitted, tennis
 from tennis.elo import SurfaceElo
 from tennis.model_state import ModelState
 from tennis.predict import GateResult, predict_match
@@ -61,7 +61,7 @@ def test_real_surface_ablation_and_shortlisting_leave_original_state_and_forecas
     assert comparison['probabilities_a'][0] == origin['values']['p_a_cal']
     assert comparison['probabilities_a'][2] > comparison['probabilities_a'][1]+.02
     assert before == (state.elo.to_payload(), origin, vars(prediction))
-    s = signal()
+    s = _admitted(signal())
     choices = daily3_choices([s], now=NOW)
     assert len(choices) == 1 and choices[0].signal is s
     assert choices[0].comparison.summary.startswith('Belagsignal:')
@@ -76,13 +76,13 @@ def test_real_surface_ablation_and_shortlisting_leave_original_state_and_forecas
     ('modeled_at', (NOW+timedelta(seconds=1)).isoformat()),
 ])
 def test_wrong_or_insufficient_comparisons_are_not_admitted(field, value):
-    s = signal()
+    s = _admitted(signal())
     s.context_evidence['daily3_comparison'][field] = value
     assert daily3_choices([s], now=NOW) == ()
 
 
 def test_context_adjustment_or_stale_revision_cannot_borrow_original_ablation():
-    s = signal()
+    s = _admitted(signal())
     assert daily3_choices([replace(s, probability=s.probability+.001)], now=NOW) == ()
     assert daily3_choices([replace(s, modeled_at=(NOW-timedelta(hours=4)).isoformat())], now=NOW) == ()
     assert daily3_choices([replace(s, market_key='over_2_5_sets')], now=NOW) == ()
@@ -99,7 +99,11 @@ def test_only_selected_side_can_get_positive_surface_change():
 
 
 def test_price_does_not_supply_model_evidence_or_change_its_order():
-    s = signal()
+    unpriced = signal()
+    original = deepcopy(vars(unpriced))
+    assert daily3_choices([unpriced], now=NOW) == ()
+    assert vars(unpriced) == original
+    s = _admitted(unpriced)
     changed = replace(s, minimum_odds=999, evidence_stage='RELEASED')
     assert daily3_choices([s], now=NOW)[0].comparison == daily3_choices([changed], now=NOW)[0].comparison
     del s.context_evidence['daily3_comparison']
@@ -146,14 +150,14 @@ def test_general_comparison_keeps_real_serve_mixture_and_calibration():
 
 
 def test_incomplete_context_binding_cannot_claim_qualified_surface_comparison():
-    s = signal()
+    s = _admitted(signal())
     del s.context_evidence['context_model']['reference']
     assert daily3_choices([s], now=NOW) == ()
 
 
 @pytest.mark.parametrize('values', [[.811, .797, .82], [.733, .749, .767]])
 def test_daily3_preserves_qualified_tennis_without_a_two_point_surface_bonus(values):
-    s = signal()
+    s = _admitted(signal())
     raw = s.context_evidence['daily3_comparison']
     raw['probabilities_a'] = values
     s = replace(s, probability=values[0])
@@ -165,7 +169,7 @@ def test_daily3_preserves_qualified_tennis_without_a_two_point_surface_bonus(val
 
 
 def test_daily3_does_not_hide_disagreement_when_surface_bonus_is_not_required():
-    s = signal()
+    s = _admitted(signal())
     s.context_evidence['daily3_comparison']['probabilities_a'] = [.811, .697, .82]
     s = replace(s, probability=.811)
     assert daily3_choices([s], now=NOW) == ()

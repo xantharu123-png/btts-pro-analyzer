@@ -143,6 +143,43 @@ def test_transport_failure_is_charged_conservatively_without_key_in_error_or_led
     assert KEY not in dump
 
 
+@pytest.mark.parametrize('failure,error_type', [
+    (requests.Timeout, 'TIMEOUT'),
+    (requests.ConnectionError, 'REQUEST_ERROR'),
+])
+def test_real_client_transport_failure_reaches_tennis_candidate_diagnostics(
+    tmp_path, monkeypatch, failure, error_type,
+):
+    import market_consensus as market
+    client = OddsAPIClient(tmp_path / 'budget.db')
+    candidates, events = candidates_and_events()
+    calls = []
+
+    def get(url, **_kwargs):
+        calls.append(url)
+        if url.endswith('/sports'):
+            return response([dict(key='tennis_atp_test', active=True)])
+        if url.endswith('/events'):
+            return response(events)
+        raise failure('URL contained apiKey=' + KEY)
+
+    monkeypatch.setattr(market, 'odds_api_get',
+                        lambda path, **kwargs: client.get(path, **kwargs, now=NOW, get=get))
+    diagnostics = {}
+
+    quotes, errors = market.fetch_tennis_h2h_consensus(
+        KEY, candidates, now=NOW, diagnostics=diagnostics,
+    )
+
+    assert quotes == {} and errors
+    assert {row['error_type'] for row in diagnostics.values()} == {error_type}
+    assert all(row['reason_code'] == 'REQUEST_FAILED' for row in diagnostics.values())
+    assert len(calls) == 3 and remaining(client) == 499
+    assert KEY not in str(diagnostics) + str(errors)
+    with sqlite3.connect(tmp_path / 'budget.db') as connection:
+        assert KEY not in '\n'.join(connection.iterdump())
+
+
 def test_cannot_override_auth_or_follow_redirects(tmp_path):
     client = OddsAPIClient(tmp_path / 'budget.db')
     with pytest.raises(APIBudgetUnavailable):

@@ -1,5 +1,20 @@
 # BetBoy VPS deployment
 
+## Price-only refresh (16 October 2026)
+
+`betboy-quotes.timer` runs every three hours at `:15` Europe/Zurich. It uses
+`wettfinder_automation.py --quotes-only --quote-sport all`: stored events only,
+no sport/model scan, training, settlement or backup. Existing provider quota
+governors and cache lifetimes still apply. It skips an active daily worker;
+the publication lock and compare-before-write protect newer model snapshots.
+Candidate-specific quote diagnostics are stored alongside price observations,
+not in the price-neutral model database. Public tips require an exact observed
+offer of at least 1.20; model probabilities remain unchanged.
+
+The release of this repair explicitly does **not** use `update_server.sh`,
+which still has its separate legacy backup workflow. The production daily
+backup timer remains disabled; no new archive is required by this price job.
+
 The production VPS runs one public Streamlit app and all evidence jobs from
 the same persistent checkout. Runtime SQLite files remain untracked but are
 backed up transactionally every night. If OVH Automatic Backup or another
