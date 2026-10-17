@@ -1,5 +1,19 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## 17.10.2026 – neuer Zeitmarkt-Auftrag, noch kein Produktivcode
+
+Nutzer genehmigt Torzeit-Profil und kumulative 15/30/60/75-Minuten-Tore,
+Teamtore und BTTS: historisch prüfen, exakte Quoten, Tests/main/VPS, ohne Backups.
+Schriftliche Architektur-Spezifikation liegt in
+`docs/superpowers/specs/2026-10-17-football-time-markets-design.md` zur Freigabe.
+Erst danach Implementierungsplan; vorhandene 96/v14/40/Ticket-Verträge unverändert.
+3 begrenzte echte Anbieterdiagnosen: native144/Yes-No/WilliamHill belegt;
+30/60/75-Gesamt-/Team-/BTTS-Quoten nicht nachgewiesen. Einzelsegmente und
+Ergebnisquoten sind kein Ersatz. Receipt außerhalb Git unter
+`C:/Projekt/BetBoy/output/time-markets-20261017/`.
+Keine Produktivänderung, neuer Scanner, Backfill, Sicherung oder Datenbereinigung.
+Bestehende Hauptmarkt-Anzeigelücke und Kontext-/NHL-Restarbeiten bleiben offen.
+
 ## 17.10.2026 – Multigoal-Quotenabruf: aktueller Zusatzauftrag
 
 Kanonisch `.worktrees/audit-repairs-20261013`, Basis`6ff4d260`, kein Backup/

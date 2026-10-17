@@ -1,5 +1,28 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 17.10.2026 – neuer Auftrag: Torzeit-Profil und Zeitmärkte
+
+Nutzer hat 15-/30-/60-/75-Minuten-Gesamt-/Team-Tore und BTTS samt historischer
+Prüfung, exakten Quoten, Tests/main/VPS freigegeben; ausdrücklich keine Backups.
+Architektur-Erweiterung, kein bloßer weiterer 90-Minuten-Markt. Schriftlicher
+Entwurf: `docs/superpowers/specs/2026-10-17-football-time-markets-design.md`.
+Funktionsfreigabe liegt vor; schriftliche Spezifikation/Umsetzungsplan noch
+nicht freigegeben. Bisher nur Quellenprüfung und drei begrenzte API-Diagnosen,
+kein Produktivcode, kein historischer Backfill, kein Modell-/Sportscan.
+
+- [x] Existierende Endstände/Platzverweisfälle nicht als vollständige Torzeit-
+  Historie missverstanden; validierte FT-0:0 können ohne Ereignisabruf zählen.
+- [x] Echte Zeitquote belegt: native 144, William Hill, „Goal in 1-15 minutes“
+  mit Yes/No in zwei vollständigen Spielantworten. Anbieterzeiten beibehalten.
+- [ ] Exakte kumulative Gesamt-/Team-/BTTS-Preise für 30/60/75 nachweisen.
+  Separate Abschnitts-, Halbzeit- oder Ergebnisquoten nicht dafür verwenden.
+- [ ] Schriftliche Spezifikation prüfen/freigeben, danach Implementierungsplan.
+- [ ] Implementierung/chronologische historische Prüfung/Regression/UI-QA/Release.
+
+Belege: `C:/Projekt/BetBoy/output/time-markets-20261017/capability-01.json`.
+Die zuvor bestätigte Auswahl-/Darstellungslücke bei verstecktem Hauptmarkt
+bleibt separat offen; neue Zeitmärkte allein beheben sie nicht.
+
 ## 17.10.2026 – bezahlte Multigoal-Quoten gezielt geprüft
 
 Aktiver Zusatzauftrag: echte fehlende Angebote von Abruffehlern unterscheiden;
