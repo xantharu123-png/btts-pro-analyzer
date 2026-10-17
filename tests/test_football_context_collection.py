@@ -67,6 +67,7 @@ def test_no_space_and_naive_clock_do_not_allocate(tmp_path, monkeypatch):
 def test_automatic_entry_connects_only_canonical_real_scanner(tmp_path, monkeypatch, production, explicit_scanner):
     import wettfinder_automation as automation
     import context_sources.football_appearances as appearances
+    import runtime_paths
     from config_loader import AppConfig
     seen = []
     def scan(*args, **kwargs):
@@ -74,6 +75,7 @@ def test_automatic_entry_connects_only_canonical_real_scanner(tmp_path, monkeypa
         return {'candidates': [], 'errors': [], 'operational_errors': [],
                 'fixtures_found': 0, 'fixtures_modeled': 0}
     monkeypatch.setattr(automation, '_same_artifact_path', lambda *_: production)
+    monkeypatch.setattr(runtime_paths, 'CONTEXT_MODEL_DB_PATH', tmp_path/'models.db')
     monkeypatch.setattr(automation, '_default_football_scan', scan)
     monkeypatch.setattr(appearances, 'refresh_football_appearances', lambda *_a, **_k: {'status': 'no_request_due'})
     document = automation.run_wettfinder(state_path=tmp_path/'wettfinder.json', now=NOW,
@@ -85,20 +87,25 @@ def test_automatic_entry_connects_only_canonical_real_scanner(tmp_path, monkeypa
     if production and not explicit_scanner:
         assert seen[0] == collection.LIMITS
         assert document['football_original_admission']['status'] == 'reserved'
+        assert document['football_original_admission']['schema'] == collection.METERED_SCHEMA
+        assert document['football_original_admission']['completion']['charged_bytes'] == 0
     else:
         assert seen == [None]
         assert 'football_original_admission' not in document
         assert not (tmp_path/'football-original-admission.json').exists()
+        assert not (tmp_path/'football-original-committed-admission-v2.json').exists()
 
 
 def test_default_refresh_shares_one_permit_after_an_empty_first_batch(tmp_path, monkeypatch):
     from dataclasses import replace
     import wettfinder_automation as automation
     import context_sources.football_appearances as appearances
+    import runtime_paths
     from config_loader import AppConfig
     from test_wettfinder_automation import _challenge_candidate
     batches, seen = iter(([1], [2], [])), []
     monkeypatch.setattr(automation, '_same_artifact_path', lambda *_: True)
+    monkeypatch.setattr(runtime_paths, 'CONTEXT_MODEL_DB_PATH', tmp_path/'models.db')
     monkeypatch.setattr(automation, 'football_context_due_fixture_ids', lambda *_a, **_k: next(batches, []))
     monkeypatch.setattr(automation, 'football_models_due', lambda *_a, **_k: True)
     monkeypatch.setattr(automation, '_discovered_candidates_for_fixtures', lambda _state, ids:
@@ -118,5 +125,6 @@ def test_default_refresh_shares_one_permit_after_an_empty_first_batch(tmp_path, 
     assert len(seen) == 2
     assert all(call['original_capture_limits'] == collection.LIMITS for call in seen)
     assert seen[0]['original_capture_budget'] is seen[1]['original_capture_budget']
-    assert json.loads((tmp_path/'football-original-admission.json').read_text())['total_reserved'] == collection.SESSION_BYTES
+    state = json.loads((tmp_path/'football-original-committed-admission-v2.json').read_text())
+    assert state['total_committed'] == 0 and state['pending'] == {}
     assert document['football_original_usage'] == {'inserted_payload_bytes':0, 'source_inserted_payload_bytes':0}

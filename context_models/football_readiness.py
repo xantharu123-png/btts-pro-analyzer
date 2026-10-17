@@ -37,12 +37,19 @@ MAX_OUTCOME_REVISIONS = 64
 MAX_OUTCOME_BYTES = 64 * 1024
 MAX_EVALUATION_RECEIPTS = 100000
 MAX_EVALUATION_BYTES = 128 * 1024 * 1024
+MAX_STREAM_TRAINING_BYTES = 128 * 1024 * 1024
 
 
 class _PhysicalInputs:
     """One reader image; admission caches lengths, never decoded mutable data."""
-    def __init__(self, connection):
+    def __init__(self, connection, *, source_transport=None):
         self.connection, self.seen, self.size = connection, {}, 0
+        self.limit = MAX_INPUT_BYTES
+        if source_transport is not None:
+            from context_models.football_source_stream import SOURCE_TRANSPORT, MAX_RAW_BYTES
+            if source_transport != SOURCE_TRANSPORT:
+                raise ContextContractError('unknown football preparation source transport')
+            self.limit = MAX_RAW_BYTES
 
     def admit(self, table, ref):
         require_digest(ref)
@@ -54,7 +61,7 @@ class _PhysicalInputs:
             raise ContextIntegrityError('preparation input has missing or invalid physical content')
         key = (table, ref)
         if key not in self.seen:
-            if self.size + header[1] > MAX_INPUT_BYTES:
+            if self.size + header[1] > self.limit:
                 raise ReplayUnavailable('preparation_total_byte_bound_exceeded')
             self.seen[key] = header[1]
             self.size += header[1]
@@ -88,10 +95,18 @@ def _phase(decision, config, blocks):
                  if start <= decision < end), "outside")
 
 
-def _configuration(config, test_blocks):
+def _configuration(config, test_blocks, *, source_transport=None):
     config = validate_family_config(config)
+    allowed_variant, allowed_base = {VERSION}, {BASE_VERSION}
+    if source_transport is not None:
+        from context_models.football_source_stream import SOURCE_TRANSPORT
+        from context_models.football_joint_context import VERSIONS, BASE_VERSIONS
+        if source_transport != SOURCE_TRANSPORT:
+            raise ContextContractError('unknown football preparation source transport')
+        allowed_variant, allowed_base = VERSIONS, BASE_VERSIONS
     if (config["sport"] != "football" or config["feature_version"] not in {FEATURE_VERSION, POOLED_FEATURE_VERSION, PLAYER_LOAD_FEATURE_VERSION}
-            or config["model_variant"] != VERSION or config["base_versions"] != [BASE_VERSION]):
+            or config["model_variant"] not in allowed_variant or len(config["base_versions"]) != 1
+            or config["base_versions"][0] not in allowed_base):
         raise ContextContractError("football preparation owns only the source-bound joint model")
     _, _, blocks = split_windows(train_end=datetime.fromisoformat(config["train_end"]),
         tune_end=datetime.fromisoformat(config["tune_end"]), test_blocks=test_blocks)
@@ -157,7 +172,7 @@ def _actual_decision(connection, request, binding, original, *, latest, ledger=N
     return decision, None
 
 
-def _inspect(path, requests, config, blocks, *, as_of):
+def _inspect(path, requests, config, blocks, *, as_of, source_transport=None):
     clock = canonical_timestamp(as_of)
     report = {"schema": 1, "scope": "football-native-context-readiness-v1", "evaluated_at": clock,
         "requested_events": len(requests), "inspected_events": 0, "input_payload_bytes": 0,
@@ -165,9 +180,13 @@ def _inspect(path, requests, config, blocks, *, as_of):
         "events": [], "phase_counts": {key: 0 for key in ("train", "tune", "test:0", "test:1", "test:2", "outside")},
         "source_complete_events": 0, "feature_complete_events": 0, "outcome_events": 0,
         "test_events": 0, "minimum_test_events": 200, "empirical_qualification": "not_evaluated"}
+    training_limit = MAX_INPUT_BYTES if source_transport is None else MAX_STREAM_TRAINING_BYTES
+    if source_transport is not None:
+        report.update(scope='football-native-context-readiness-v2', source_transport=source_transport,
+                      retained_training_byte_limit=training_limit)
     entries, bindings, seen, retained = [], [], set(), []
     with _reader(Path(path)) as connection:
-        ledger = _PhysicalInputs(connection)
+        ledger = _PhysicalInputs(connection, source_transport=source_transport)
         for request in requests:
             ref = request["binding_ref"]
             item = {"binding_ref": ref, "status": "source_unavailable", "reason": None}
@@ -183,14 +202,24 @@ def _inspect(path, requests, config, blocks, *, as_of):
                 base = joint_base(original, binding, decision_at=datetime.fromisoformat(decision))
                 if config['feature_version'] == PLAYER_LOAD_FEATURE_VERSION and decision_proof is not None:
                     raise ReplayUnavailable("player_load_requires_original_decision")
-                rows = _bounded_receipts(connection, packet, cutoff=decision,
-                    **joint_source_scope_kwargs(config['feature_version']))
+                streamed = None
+                if source_transport is None:
+                    rows = _bounded_receipts(connection, packet, cutoff=decision,
+                        **joint_source_scope_kwargs(config['feature_version']))
+                else:
+                    from context_models.football_source_stream import streamed_joint_sources
+                    streamed = streamed_joint_sources(connection, packet, binding, base,
+                        feature_version=config['feature_version'], ledger=ledger)
+                    rows = streamed['observations']
+                    item['source_processing'] = streamed['audit']
                 # The owning source resolver admits its unchanged per-case pool
                 # before decoding it. One bounded pool may exist transiently
                 # before this cumulative physical-IO admission rejects it.
                 for row in rows:
                     ledger.admit('context_contents', row['content_digest'])
                 if decision_proof is not None:
+                    if source_transport is not None:
+                        raise ReplayUnavailable('stream_transport_requires_original_decision')
                     refs = sorted(row["digest"] for row in rows)
                     if (decision_proof["observation_refs_hash"] != digest(refs)
                             or decision_proof["observation_count"] != len(refs)):
@@ -233,13 +262,21 @@ def _inspect(path, requests, config, blocks, *, as_of):
                         payload = dict(schema=1, event=event, base=base, features=features, replay_ref=ref,
                             outcome_ref=outcome['digest'], event_identity_hash='0'*64,
                             family_config_hash=digest(config), preprocessing_refs=[])
+                        if source_transport is not None:
+                            payload.update(schema=2, source_transport=source_transport)
                         case = {'kind': 'context-training-case-v1', 'payload': payload}
                         artifacts = {obj['digest']: obj for obj in (envelope, _original_envelope(original), code)}
                         if decision_proof is not None:
                             from football_context_decisions import DECISION_KIND
                             artifacts[request['decision_ref']] = dict(digest=request['decision_ref'], kind=DECISION_KIND, payload=decision_proof)
-                        retained.append((item, len(canonical_bytes(dict(case={'digest': digest(case), **case},
-                            artifacts=artifacts, observations=rows+(outcome,))))))
+                        retained_length = len(canonical_bytes(dict(case={'digest': digest(case), **case},
+                            artifacts=artifacts, observations=rows+(outcome,))))
+                        if streamed is not None:
+                            # Preparation retains every causal row for detached
+                            # D1/D2 checking, not the small feature projection.
+                            retained_length += (streamed['audit']['expanded_observation_bytes']
+                                                - len(canonical_bytes(rows)))
+                        retained.append((item, retained_length))
             except ReplayUnavailable as exc:
                 item["reason"] = str(exc)
             report["events"].append(item)
@@ -259,16 +296,16 @@ def _inspect(path, requests, config, blocks, *, as_of):
     identity_bytes = len(canonical_bytes({identity_envelope['digest']: identity_envelope}))-1
     for item, length in retained:
         report['retained_training_payload_bytes'] += length + identity_bytes
-        if report['retained_training_payload_bytes'] > MAX_INPUT_BYTES:
+        if report['retained_training_payload_bytes'] > training_limit:
             item.update(status='source_unavailable', reason='training_retained_byte_bound_exceeded')
             break
     return report, tuple(entries), identity
 
 
-def inspect_football_readiness(path, requests, config, *, test_blocks, as_of):
+def inspect_football_readiness(path, requests, config, *, test_blocks, as_of, source_transport=None):
     """Read only the explicit native inventory and return compact diagnostics."""
-    config, blocks = _configuration(config, test_blocks)
-    report, _, _ = _inspect(path, _inventory(requests), config, blocks, as_of=as_of)
+    config, blocks = _configuration(config, test_blocks, source_transport=source_transport)
+    report, _, _ = _inspect(path, _inventory(requests), config, blocks, as_of=as_of, source_transport=source_transport)
     return report
 
 
@@ -306,7 +343,7 @@ def _evaluation_admission(path):
 
 
 def prepare_football_context(path, requests, config, *, test_blocks, code_revision, created_at,
-                             evaluate=False):
+                             evaluate=False, source_transport=None):
     """Prepare real cases/fit/dataset/experiment; never publish an active slot.
 
     Cases with missing selected features reach the owning resolver unchanged.
@@ -318,11 +355,11 @@ def prepare_football_context(path, requests, config, *, test_blocks, code_revisi
         raise ContextContractError("preparation requires a full code revision and explicit evaluation flag")
     if evaluate:
         _evaluation_admission(path)
-    config, blocks = _configuration(config, test_blocks)
+    config, blocks = _configuration(config, test_blocks, source_transport=source_transport)
     if canonical_timestamp(created_at) < config["tune_end"]:
         raise ContextContractError("preparation cannot predate completed tuning")
     requests = _inventory(requests)
-    report, entries, identity = _inspect(path, requests, config, blocks, as_of=created_at)
+    report, entries, identity = _inspect(path, requests, config, blocks, as_of=created_at, source_transport=source_transport)
     result = {"status": "not_ready", "readiness": report, "identity_ref": None, "case_refs": [],
         "fit_ref": None, "fit_status": None, "dataset_ref": None, "experiment_ref": None,
         "evaluation_ref": None, "approval_count": 0, "activated": False}
@@ -337,11 +374,11 @@ def prepare_football_context(path, requests, config, *, test_blocks, code_revisi
     for entry in sorted(entries, key=lambda entry: (entry['decision_at'], entry['event']['event_key'])):
         case = build_joint_training_case(path, binding_ref=entry['binding_ref'], outcome_ref=entry['outcome_ref'],
             identity_ref=identity_ref, config=config, as_of=created_at,
-            decision_at=datetime.fromisoformat(entry['decision_at']))
+            decision_at=datetime.fromisoformat(entry['decision_at']), source_transport=source_transport)
         member = {'case_ref': case['case']['digest'], 'observation_refs': sorted(row['digest'] for row in case['observations'])}
         if entry['phase'] in {'train', 'tune'}:
             retained_bytes += len(canonical_bytes(case))
-            if retained_bytes > MAX_INPUT_BYTES:
+            if retained_bytes > (MAX_INPUT_BYTES if source_transport is None else MAX_STREAM_TRAINING_BYTES):
                 raise ContextContractError('prepared train/tune exceeds its bounded retained expanded bytes')
             training.append(case)
             training_members.append(member)

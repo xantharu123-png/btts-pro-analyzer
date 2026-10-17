@@ -17,6 +17,8 @@ import sqlite3
 from betting_math import BettingMathError, proportional_no_vig_market
 from forecast_evidence import _TABLES, _utc
 from model_loss_statistics import paired_advantage_statistics
+from market_consensus import (REFERENCE_SOURCE, ODDS_API_REFERENCE_SOURCE,
+    ESPORTS_PRICE_SOURCE, TEAM_PRICE_SOURCES)
 
 
 def _contract(row, identity):
@@ -31,12 +33,85 @@ def _contract(row, identity):
         if match:
             prefix, side, line = match.groups()
             return f"{prefix}_{line}_5", side, ("OVER", "UNDER")
-    if row["sport"] in {"tennis", "esports"} and key == "H2H":
+    if row["sport"] in {"tennis", "esports", "basketball", "ice_hockey", "cricket"} and key == "H2H":
         a, b, selected = (identity.get(name) for name in
                           ("competitor_a", "competitor_b", "selected_competitor"))
-        if all(isinstance(name, str) and name.strip() for name in (a, b)) and a != b and selected in (a, b):
+        if (all(isinstance(name, str) and name.strip() for name in (a, b)) and a != b
+                and selected in (a, b) and row['selection'] == selected):
             return "H2H", selected, (a, b)
     return None
+
+
+def _selection_contract(row, identity):
+    contract = _contract(row, identity)
+    if contract is not None:
+        return contract
+    if row['sport'] == 'football' and row['market_key'] in {'DC_1X', 'DC_X2', 'DC_12'}:
+        return 'RESULT', row['market_key'], ('HOME', 'DRAW', 'AWAY')
+    return None
+
+
+def _native_selection_prices(quote, forecast, expected, side, observed, fetched):
+    """Only received exhaustive sets; no reciprocal or synthetic counter-price."""
+    part = quote.get('native_market_partition')
+    if not isinstance(part, dict):
+        return None
+    sport, key = forecast['sport'], forecast['market_key']
+    sources = {'football': REFERENCE_SOURCE, 'tennis': ODDS_API_REFERENCE_SOURCE,
+        'esports': ESPORTS_PRICE_SOURCE, **TEAM_PRICE_SOURCES}
+    if quote.get('source') != sources.get(sport):
+        return None
+    contract = _selection_contract(forecast, forecast['identity'])
+    if contract is None:
+        return None
+    family = contract[0]
+    period = {'football': 'football_90_minutes', 'tennis': 'tennis_match',
+              'esports': 'esports_series', 'basketball': 'including_overtime',
+              'ice_hockey': 'including_overtime_shootout'}.get(sport)
+    identity = forecast['identity']
+    source = identity.get('fixture_source') or ('api-football' if sport == 'football' else None)
+    event = identity.get('provider_event_id') or (str(identity.get('fixture_id')) if sport == 'football' else None)
+    if (period is None or part.get('market_key') != family or part.get('period') != period
+            or part.get('bookmaker_id') != quote['bookmaker_id']
+            or _utc(part.get('observed_at')) != observed or _utc(part.get('fetched_at')) != fetched
+            or part.get('fixture_source') != source or part.get('provider_event_id') != event
+            or part.get('quote_provider_event_id') != quote.get('provider_event_id')
+            or part.get('scheduled_start') != forecast['starts_at']):
+        return None
+    outcomes = part.get('outcomes')
+    if (not isinstance(outcomes, list) or len(outcomes) != len(expected)
+            or any(not isinstance(item, dict) or set(item) != {'selection', 'odds'}
+                   or not isinstance(item['selection'], str) for item in outcomes)):
+        return None
+    prices = {item['selection']: item['odds'] for item in outcomes}
+    if set(prices) != set(expected):
+        return None
+    if not key.startswith('DC_') and prices.get(side) != quote['odds']:
+        return None
+    fair = proportional_no_vig_market(prices[name] for name in expected).no_vig_probabilities
+    return dict(zip(expected, fair))
+
+
+def _summarize_groups(groups):
+    result = []
+    for key, group in sorted(groups.items()):
+        events = []
+        for identity, rows in group['events'].items():
+            events.append((min(row[0] for row in rows), identity,
+                *(sum(row[i] for row in rows)/len(rows) for i in range(1, 5))))
+        events.sort()
+        advantages = [row[4]-row[2] for row in events]
+        advantage, error, lower, p_value = paired_advantage_statistics(advantages)
+        result.append(dict(zip(('sport', 'model_version', 'policy_version', 'kind'), key)) | {
+            'unique_events': len(events), 'market_sets': group['sets'],
+            'bookmaker_snapshots': group['snapshots'],
+            'model_brier': sum(row[2] for row in events)/len(events),
+            'model_log_loss': sum(row[3] for row in events)/len(events),
+            'market_brier': sum(row[4] for row in events)/len(events),
+            'market_log_loss': sum(row[5] for row in events)/len(events),
+            'brier_advantage': advantage, 'paired_hac_standard_error': error,
+            'paired_one_sided_95pct_lower_bound': lower, 'paired_one_sided_p_value': p_value})
+    return result
 
 
 def _loss(probabilities, outcomes):
@@ -59,7 +134,12 @@ def build_market_comparison(db_path: str | Path, *, as_of=None) -> dict:
         supported_selections=0, complete_model_markets=0, resolved_model_markets=0,
         matched_market_sets=0, matched_unique_events=0)
     report = {"as_of": cutoff.isoformat(), "database_present": path.is_file(),
-        "groups": [], "coverage": coverage,
+        "groups": [], "selection_groups": [], "coverage": coverage,
+        "sport_coverage": {sport: {'first_causal_selections': 0, 'resolved_selections': 0,
+            'matched_selections': 0, 'matched_unique_events': 0,
+            'native_price_adapter': sport != 'cricket'} for sport in
+            ('football', 'tennis', 'basketball', 'ice_hockey', 'esports', 'cricket')},
+        "selection_score_units": "Separate binary selected-outcome Brier and Bernoulli log loss, event-balanced; do not pool with complete categorical-market losses.",
         "score_units": "Brier: mean squared outcome error per complete market; log loss: negative log probability of the realized outcome; both averaged within each event.",
         "policy": "First causal forecast per event/selection/model/policy; complete same-revision market; same native event, bookmaker, observation and fetch time; entry and closing separate; one averaged loss per event.",
         "limitations": ["Proportional margin removal is a market benchmark, not a true probability.",
@@ -127,7 +207,9 @@ def build_market_comparison(db_path: str | Path, *, as_of=None) -> dict:
                 continue
             seen.add(unique)
             coverage["first_causal_selections"] += 1
-            contract = _contract(row, identity)
+            report['sport_coverage'][row['sport']]['first_causal_selections'] += 1
+            categorical = _contract(row, identity) is not None
+            contract = _selection_contract(row, identity)
             if contract is None:
                 continue
             coverage["supported_selections"] += 1
@@ -144,9 +226,9 @@ def build_market_comparison(db_path: str | Path, *, as_of=None) -> dict:
                         or result["result_provider"].casefold() != provider.casefold()
                         or event is None or str(event) != result["result_event"]):
                     result = None
-            key = tuple(row[field] for field in ("sport", "model_version", "policy_version", "event_key", "run_id", "decision_at", "starts_at"))+(family, native)
+            key = tuple(row[field] for field in ("sport", "model_version", "policy_version", "event_key", "run_id", "decision_at", "starts_at"))+(family if categorical else row['market_key'], native)
             market = markets.setdefault(key, {"expected": expected, "rows": {}, "snapshots": {}, "start": start,
-                                             "native_pair_present": False})
+                "native_pair_present": False, 'selection_snapshots': {}, 'categorical': categorical})
             if side in market["rows"]:
                 market["rows"][side] = None  # Ambiguous labels are not merged.
                 continue
@@ -197,6 +279,16 @@ def build_market_comparison(db_path: str | Path, *, as_of=None) -> dict:
                 points[side] = None
             else:
                 points.setdefault(side, row["odds"])
+            try:
+                fair = _native_selection_prices(quote, forecast, market['expected'], side, observed, fetched)
+            except (ValueError, TypeError, KeyError, BettingMathError):
+                fair = None
+            if fair is not None:
+                selection_points = market['selection_snapshots'].setdefault(side, {})
+                if snapshot in selection_points and selection_points[snapshot] != fair:
+                    selection_points[snapshot] = None
+                else:
+                    selection_points.setdefault(snapshot, fair)
             complete = quote.get("complete_market")
             if forecast["sport"] == "tennis" and isinstance(complete, dict):
                 expected = market["expected"]
@@ -224,9 +316,42 @@ def build_market_comparison(db_path: str | Path, *, as_of=None) -> dict:
                         points.setdefault(other_side, odds)
                 market["native_pair_present"] = True
 
-    groups, all_events = {}, set()
+    groups, all_events, selection_groups, selection_events = {}, set(), {}, defaultdict(set)
     for key, market in markets.items():
         expected, rows = market["expected"], market["rows"]
+        for side, original in rows.items():
+            if (original is None or not original['result'] or original['result']['outcome'] not in {'WIN', 'LOSS'}
+                    or _utc(original['result']['observed_at']) <= original['decision']):
+                continue
+            report['sport_coverage'][key[0]]['resolved_selections'] += 1
+            latest_selection = {}
+            for snapshot, fair in market['selection_snapshots'].get(side, {}).items():
+                if fair is None:
+                    continue
+                book_key = snapshot[:5]
+                if book_key not in latest_selection or snapshot[5:] > latest_selection[book_key][0][5:]:
+                    latest_selection[book_key] = snapshot, fair
+            by_kind_selection = defaultdict(list)
+            chosen = {'DC_1X': ('HOME', 'DRAW'), 'DC_X2': ('DRAW', 'AWAY'),
+                      'DC_12': ('HOME', 'AWAY')}.get(original['market_key'], (side,))
+            y = int(original['result']['outcome'] == 'WIN')
+            for snapshot, fair in latest_selection.values():
+                p = sum(fair[name] for name in chosen)
+                by_kind_selection[snapshot[0]].append(((p-y)**2,
+                    -math.log(max(1e-15, min(1-1e-15, p if y else 1-p)))))
+            for kind, losses in by_kind_selection.items():
+                group = selection_groups.setdefault(key[:3]+(kind,),
+                    {'events': defaultdict(list), 'snapshots': 0, 'sets': 0})
+                p = original['probability']
+                group['events'][key[3]].append((market['start'], (p-y)**2,
+                    -math.log(max(1e-15, min(1-1e-15, p if y else 1-p))),
+                    *(sum(item[i] for item in losses)/len(losses) for i in (0, 1))))
+                group['sets'] += 1
+                group['snapshots'] += len(losses)
+                report['sport_coverage'][key[0]]['matched_selections'] += 1
+                selection_events[key[0]].add(key[3])
+        if not market['categorical']:
+            continue
         if market["native_pair_present"] and len(rows) == 1 and len(expected) == 2:
             # Binary complement is report arithmetic, never an inserted model
             # prediction or a fabricated opposing bookmaker price.
@@ -285,21 +410,8 @@ def build_market_comparison(db_path: str | Path, *, as_of=None) -> dict:
             coverage["matched_market_sets"] += 1
             all_events.add((key[0], key[3]))
     coverage["matched_unique_events"] = len(all_events)
-    for key, group in sorted(groups.items()):
-        events = []
-        for identity, rows in group["events"].items():
-            events.append((min(row[0] for row in rows), identity,
-                *(sum(row[i] for row in rows)/len(rows) for i in range(1, 5))))
-        events.sort()
-        advantages = [row[4]-row[2] for row in events]
-        advantage, error, lower, p_value = paired_advantage_statistics(advantages)
-        report["groups"].append(dict(zip(("sport", "model_version", "policy_version", "kind"), key)) | {
-            "unique_events": len(events), "market_sets": group["sets"],
-            "bookmaker_snapshots": group["snapshots"],
-            "model_brier": sum(row[2] for row in events)/len(events),
-            "model_log_loss": sum(row[3] for row in events)/len(events),
-            "market_brier": sum(row[4] for row in events)/len(events),
-            "market_log_loss": sum(row[5] for row in events)/len(events),
-            "brier_advantage": advantage, "paired_hac_standard_error": error,
-            "paired_one_sided_95pct_lower_bound": lower, "paired_one_sided_p_value": p_value})
+    report['groups'] = _summarize_groups(groups)
+    report['selection_groups'] = _summarize_groups(selection_groups)
+    for sport, events in selection_events.items():
+        report['sport_coverage'][sport]['matched_unique_events'] = len(events)
     return report

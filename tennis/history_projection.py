@@ -6,6 +6,7 @@ to either participant are kept, including corrections removing that participant.
 No caller-owned mutable row, validation flag or cross-worker cache is retained.
 """
 import json
+import sys
 from contextlib import contextmanager
 from types import MappingProxyType
 
@@ -31,6 +32,126 @@ class PreparedTennisHistory:
     @classmethod
     def from_physical_rows(cls, stored_rows, *, cutoff, tour):
         return cls.from_physical_tours(stored_rows, cutoff=cutoff, tours=(tour,))[tour]
+
+    @classmethod
+    def _from_case_physical_rows(cls, stored_rows, *, cutoff, tour, memberships=(), budget):
+        """One bounded case, with B1/native/index proof in the same reader.
+
+        Index membership headers are checked against their actual selected
+        physical receipt here, not through a second source decode. Every
+        revision remains present, including later participant corrections.
+        """
+        from context_observations import _decode_receipt
+        from context_sources.tennis_status import SOURCE_SCHEMA, _tour, _validate_tennis_source_tail
+        from context_models.contracts import ContextIntegrityError, canonical_timestamp
+        _tour(tour)
+        decision = canonical_timestamp(cutoff)
+        expected = {}
+        for member in memberships:
+            expected.setdefault(member[4], set()).add(tuple(member))
+        builder = _IndexBuilder(chronological=True)
+        seen = set()
+        encoded_bytes = 0
+        for stored in stored_rows:
+            budget.check()
+            row = _decode_receipt(stored)
+            if (row['source'] != 'espn' or row['sport'] != 'tennis'
+                    or row['kind'] not in ('event_status', 'workload')
+                    or row['source_schema'] not in (STATUS_SCHEMA, SOURCE_SCHEMA)
+                    or row['observed_at'] > decision):
+                raise ContextIntegrityError('streamed tennis source is outside its frozen case')
+            _validate_tennis_source_tail(row, stored[8])
+            if row['payload']['tour'] != tour or row['digest'] in seen:
+                raise ContextIntegrityError('streamed tennis source crosses tours or repeats a physical receipt')
+            seen.add(row['digest'])
+            participants = (row['payload']['participant_ids'] if row['source_schema'] == STATUS_SCHEMA
+                            else (row['payload']['player_id'], row['payload']['opponent_id']))
+            for member in expected.pop(row['digest'], ()):
+                if (member[0] != tour or member[1] not in participants
+                        or member[2] != row['event_key'] or member[3] != row['observed_at']):
+                    raise ContextIntegrityError('streamed tennis membership differs from physical native receipt')
+            row.update(evidence_class='prospective', effective_at=row['observed_at'], publication_resolution=None)
+            entry = cls._index_entry(row)
+            encoded_bytes += len(entry[0])
+            # Retain the immutable encoding, feature-scope decoded objects,
+            # indexes and Python bookkeeping together, not merely wire bytes.
+            budget.retain_case(encoded_bytes, len(seen))
+            builder.append(entry)
+        if expected:
+            raise ContextIntegrityError('streamed tennis membership has no physical native receipt')
+        result = cls.__new__(cls)
+        builder.finish(result)
+        return result
+
+    @classmethod
+    def _from_physical_case_batch(cls, stored_rows, *, cases, budget):
+        """Full physical negative proof when no verified index is available.
+
+        One actual native pass, grouped only by event. Participant removal or
+        correction cannot discard an earlier revision of that event. No
+        caller-provided validation flag or reusable source cache is accepted.
+        """
+        from context_observations import _decode_receipt
+        from context_sources.tennis_status import SOURCE_SCHEMA, _validate_tennis_source_tail
+        from context_models.contracts import ContextIntegrityError
+        builders = [_IndexBuilder(chronological=True) for _ in cases]
+        charges = [0 for _ in cases]
+        current, pending, pending_size, last_order = None, [], 0, None
+
+        def finish_event():
+            nonlocal pending_size
+            for index, (event, cutoff) in enumerate(cases):
+                eligible = [entry for tour, entry, _ in pending if tour == event['tour'] and entry[4] <= cutoff]
+                if not (current == event['event_key'] or any(
+                        player in (event['home_id'], event['away_id']) for entry in eligible for player in entry[2])):
+                    continue
+                physical_bytes = sum(size for tour, entry, size in pending
+                                     if tour == event['tour'] and entry[4] <= cutoff)
+                budget.admit_case_raw(index, len(eligible), physical_bytes)
+                for entry in eligible:
+                    cost = len(entry[0])+512
+                    budget.charge_metadata(cost)
+                    charges[index] += cost
+                    builders[index].append(entry)
+            budget.metadata_bytes -= pending_size
+            pending.clear()
+            pending_size = 0
+
+        for stored in stored_rows:
+            budget.check()
+            # A single work row is finite before crossing the SQL/Python
+            # decoder boundary; the source owner validates its full bytes.
+            if type(stored[8]) is not bytes or len(stored[8]) > budget.chunk_bytes:
+                raise ValueError('global tennis source work row exceeds chunk admission')
+            row = _decode_receipt(stored)
+            _validate_tennis_source_tail(row, stored[8])
+            if (row['source'] != 'espn' or row['sport'] != 'tennis'
+                    or row['source_schema'] not in (STATUS_SCHEMA, SOURCE_SCHEMA)
+                    or row['kind'] not in ('event_status', 'workload')):
+                raise ContextIntegrityError('global tennis stream is outside native source scope')
+            order = (row['event_key'], row['observed_at'], row['digest'])
+            if last_order is not None and order <= last_order:
+                raise ContextIntegrityError('global tennis physical stream is not strictly ordered')
+            if current is not None and row['event_key'] != current:
+                finish_event()
+            current, last_order = row['event_key'], order
+            budget.global_raw_rows += 1
+            budget.global_raw_payload_bytes += len(stored[8])
+            row.update(evidence_class='prospective', effective_at=row['observed_at'], publication_resolution=None)
+            entry = cls._index_entry(row)
+            cost = len(entry[0])+512
+            budget.charge_metadata(cost)
+            pending_size += cost
+            pending.append((row['payload']['tour'], entry, len(stored[8])))
+        if current is not None:
+            finish_event()
+        results = []
+        for builder, cost in zip(builders, charges):
+            result = cls.__new__(cls)
+            builder.finish(result)
+            result._stream_charge = cost
+            results.append(result)
+        return results
 
     @classmethod
     def from_physical_tours(cls, stored_rows, *, cutoff, tours):
@@ -126,6 +247,39 @@ class PreparedTennisHistory:
         finally:
             scope.rows.clear()
             _feature_receipt_scope.reset(token)
+
+    @contextmanager
+    def _stream_feature_scope(self, event, budget):
+        """Charge actual decoded rows alongside all retained encoded owners."""
+        rows, encoded = [], []
+        budget.selected_bytes = 0
+        def size(value):
+            result = sys.getsizeof(value)
+            if type(value) is dict:
+                result += sum(size(key)+size(item) for key, item in value.items())
+            elif type(value) in (tuple, list):
+                result += sum(size(item) for item in value)
+            return result
+        try:
+            for index in self._event_ordinals(event):
+                raw = self._rows[index]
+                row = json.loads(raw)
+                # Dict keys/strings are conservatively charged even if the
+                # JSON decoder internally shares their object identities.
+                budget.selected_bytes += size(row)+32
+                budget.check()
+                rows.append(row)
+                encoded.append(raw)
+            rows = tuple(rows)
+            scope = _FeatureReceiptScope(rows, encoded)
+            token = _feature_receipt_scope.set(scope)
+            try:
+                yield rows
+            finally:
+                scope.rows.clear()
+                _feature_receipt_scope.reset(token)
+        finally:
+            budget.selected_bytes = 0
 
 
 class _IndexBuilder:

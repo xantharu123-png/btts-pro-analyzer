@@ -3487,10 +3487,13 @@ def run_wettfinder(
             return {}
         if not original_collection_attempted:
             original_collection_attempted = True
-            from football_context_collection import reserve_original_capture
+            from football_context_collection import reserve_metered_capture
+            from runtime_paths import CONTEXT_MODEL_DB_PATH
             from context_models.football_original_publication import FootballOriginalBudget
-            original_collection_admission = reserve_original_capture(
-                Path(state_path).with_name('football-original-admission.json'), now=current)
+            original_collection_admission = reserve_metered_capture(
+                Path(state_path).with_name('football-original-committed-admission-v2.json'),
+                model_path=CONTEXT_MODEL_DB_PATH,
+                legacy_path=Path(state_path).with_name('football-original-admission.json'), now=current)
             limits = original_collection_admission['limits']
             if limits is not None:
                 original_collection_budget = FootballOriginalBudget(
@@ -4544,6 +4547,10 @@ def run_wettfinder(
         if decisions is not None:
             document['football'].update(decision_report_fields({'football_context_decisions': decisions}))
         document['football_original_usage'] = original_collection_budget.report()
+        from football_context_collection import finish_metered_capture
+        document['football_original_admission']['completion'] = finish_metered_capture(
+            Path(state_path).with_name('football-original-committed-admission-v2.json'),
+            original_collection_admission['reservation_id'], usage=document['football_original_usage'], now=current)
     stage('forecast_publication', write_state, document, state_path)
     if production_state:
         from tip_publication import record_automatic_publication

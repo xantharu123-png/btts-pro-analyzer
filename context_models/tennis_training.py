@@ -235,11 +235,20 @@ def _validate_membership_mode(mode):
         raise ValueError('membership_mode must be indexed or legacy')
 
 
-def build_live_training_cases(path, requests, *, config, as_of, seconds=45, membership_mode='indexed'):
+def build_live_training_cases(path, requests, *, config, as_of, seconds=45, membership_mode='indexed',
+                              source_transport='legacy'):
     """Build an unpublished bounded case tuple with one actual B1 transaction."""
     started = monotonic()
     _validate_membership_mode(membership_mode)
-    budget = _TennisBatchBudget(seconds, started=started)
+    if source_transport not in ('legacy', 'tennis-source-stream-v1'):
+        raise ValueError('unknown explicit tennis source transport')
+    if source_transport == 'tennis-source-stream-v1':
+        from context_models.tennis_stream import TennisSourceStreamBudget, iter_streamed_tennis_features
+        budget = TennisSourceStreamBudget(seconds, started=started)
+        feature_iterator = iter_streamed_tennis_features
+    else:
+        budget = _TennisBatchBudget(seconds, started=started)
+        feature_iterator = iter_live_tennis_features
     from context_models.dataset import _artifact, _receipt
     from context_models.training_contracts import validate_family_config, validate_resolved_case
     from context_models.contracts import require_digest
@@ -265,7 +274,7 @@ def build_live_training_cases(path, requests, *, config, as_of, seconds=45, memb
             budget.charge_metadata(len(canonical_bytes(origin))+2048)
             origins.append(origin)
         results = []
-        for _, history, features in iter_live_tennis_features(connection, tuple(origins), budget=budget,
+        for _, history, features in feature_iterator(connection, tuple(origins), budget=budget,
                                                               feature_version=config['feature_version'],
                                                               membership_mode=membership_mode):
             request, origin = frozen[len(results)], origins[len(results)]

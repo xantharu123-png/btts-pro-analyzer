@@ -1041,14 +1041,24 @@ def ice_hockey_result_loader(history_path=None) -> ResultLoader:
                     issues.append(ResultIssue(request.event_key, "native_identity_unproven"))
                     continue
                 found = connection.execute(
-                    "SELECT observed_at,digest,payload FROM history_result_revisions "
-                    "WHERE provider=? AND event_id=? AND observed_at<=? ORDER BY observed_at DESC LIMIT 1",
+                    "SELECT observed_at,digest,typeof(payload),length(CAST(payload AS BLOB)) "
+                    "FROM history_result_revisions "
+                    "WHERE provider=? AND event_id=? AND observed_at<=? ORDER BY observed_at DESC LIMIT 2",
                     (identity["provider"], identity["provider_event_id"], now.isoformat()),
-                ).fetchone()
-                if found is None:
+                ).fetchall()
+                if not found:
                     issues.append(ResultIssue(request.event_key, "matching_settled_result_missing"))
                     continue
-                observed, digest, raw = found
+                if (found[0][2] != 'text' or not 0 < found[0][3] <= 65536
+                        or len(found) == 2 and found[0][0] == found[1][0]):
+                    issues.append(ResultIssue(request.event_key, "native_result_unavailable"))
+                    continue
+                observed, digest, _, _ = found[0]
+                raw, = connection.execute(
+                    "SELECT payload FROM history_result_revisions "
+                    "WHERE provider=? AND event_id=? AND observed_at=? AND digest=?",
+                    (identity['provider'], identity['provider_event_id'], observed, digest),
+                ).fetchone()
                 if hashlib.sha256(raw.encode()).hexdigest() != digest:
                     raise ValueError("hockey result cache digest differs")
                 row = json.loads(raw)

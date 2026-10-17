@@ -11,6 +11,8 @@ from collections import defaultdict
 from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
+import hashlib
+import json
 import sqlite3
 from typing import Mapping
 
@@ -19,11 +21,13 @@ from challenge_engine import COUNT_MARKET_KINDS, MARKET_BY_KEY, _fixture_market_
 from challenge_store import SETTLEMENT_RULE_VERSION as FOOTBALL_RULE_VERSION
 import forecast_evidence as evidence
 from riskobet_domain import stable_event_key
-from riskobet_settlement import EsportsMarket, Selection, SettlementStatus, Sport, TennisMarket, settle_market
+from riskobet_settlement import (BasketballMarket, BasketballResult, EsportsMarket, EventStatus,
+    IceHockeyMarket, Selection, SettlementStatus, Sport, TennisMarket, settle_market)
 from riskobet_settlement_automation import (
     DEFAULT_ESPORTS_DB_PATH, DEFAULT_TENNIS_DB_PATH, SettlementRequest,
     _first_observation, _parse_time, _positive_int, esports_result_loader, tennis_result_loader,
     count_settlement_operational_errors,
+    ice_hockey_result_loader,
 )
 
 
@@ -42,7 +46,8 @@ def _native_identity(row: Mapping) -> tuple | None:
     if provider_id is None or isinstance(provider_id, bool):
         return None
     provider_id = str(provider_id).strip()
-    allowed = {"football": {"api-football"}, "tennis": {"espn", "sofascore"}, "esports": {"pandascore"}}
+    allowed = {"football": {"api-football"}, "tennis": {"espn", "sofascore"}, "esports": {"pandascore"},
+               "basketball": {"espn", "euroleague"}, "ice_hockey": {"nhl", "api-hockey"}}
     if provider not in allowed.get(sport, set()) or not provider_id:
         return None
     if sport == "football":
@@ -58,6 +63,11 @@ def _native_identity(row: Mapping) -> tuple | None:
         if sport == "esports":
             ids = (_positive_int(quoted.get("competitor_a_id")), _positive_int(quoted.get("competitor_b_id")))
             if _positive_int(provider_id) is None or None in ids or ids[0] == ids[1]:
+                return None
+            competitors += ids
+        elif sport in {'basketball', 'ice_hockey'}:
+            ids = tuple(quoted.get(field) for field in ('competitor_a_id', 'competitor_b_id'))
+            if any(not isinstance(value, str) or not value.strip() for value in ids) or ids[0] == ids[1]:
                 return None
             competitors += ids
     return (sport, provider, provider_id, evidence._utc(row["starts_at"]), *competitors)
@@ -167,10 +177,68 @@ def _native_result(identity: tuple, rows: list[dict], path: Path, now: datetime)
     return observation, evidence._hash(selected)
 
 
+def _cached_team_result(identity, rows, path, now):
+    """Consume an existing observed final, never an API call or inferred end time."""
+    if not path.is_file():
+        return None
+    sport, provider, provider_id, start, a, b, aid, bid = identity
+    provider_name = {'espn': 'ESPN', 'euroleague': 'EuroLeague', 'nhl': 'NHL', 'api-hockey': 'API-Hockey'}[provider]
+    with closing(sqlite3.connect(path.resolve().as_uri()+'?mode=ro', uri=True, timeout=1)) as conn:
+        conn.execute('PRAGMA query_only=ON')
+        conn.execute('BEGIN')
+        found = conn.execute('SELECT observed_at,digest,typeof(payload),length(CAST(payload AS BLOB)) '
+            'FROM history_result_revisions '
+            'WHERE provider=? AND event_id=? AND observed_at<=? ORDER BY observed_at DESC LIMIT 2',
+            (provider_name, provider_id, now.isoformat())).fetchall()
+        if (not found or found[0][2] != 'text' or not 0 < found[0][3] <= 65536
+                or len(found) == 2 and found[0][0] == found[1][0]):
+            return None
+        observed, digest, _, _ = found[0]
+        raw, = conn.execute('SELECT payload FROM history_result_revisions '
+            'WHERE provider=? AND event_id=? AND observed_at=? AND digest=?',
+            (provider_name, provider_id, observed, digest)).fetchone()
+        if hashlib.sha256(raw.encode('utf-8')).hexdigest() != digest:
+            raise ValueError('cached team result digest differs')
+        value = json.loads(raw)
+        if (not isinstance(value, dict) or not start < evidence._utc(observed) <= now
+                or evidence._utc(value.get('start_time')) != start or value.get('status') != 'completed'
+                or any(value.get(field) != expected for field, expected in (
+                    ('provider', provider_name), ('provider_event_id', provider_id),
+                    ('home_team', a), ('away_team', b), ('home_team_id', aid), ('away_team_id', bid)))):
+            return None
+        if sport == 'ice_hockey':
+            request = SettlementRequest(sport, stable_event_key(sport, provider_name, provider_id), start,
+                rows[0]['forecast_id'], f'{a} vs {b}', (), tuple(row['candidate_id'] for row in rows),
+                team_sport_identity=dict(provider=provider_name, provider_event_id=provider_id,
+                    home_id=aid, away_id=bid, home=a, away=b))
+            batch = ice_hockey_result_loader(path)((request,), now)
+            if len(batch.results) != 1 or batch.results[0].observed_at != evidence._utc(observed):
+                return None
+            canonical = batch.results[0].result
+            # The existing hockey owner opens its own read snapshot. Detect a
+            # concurrent source correction rather than binding it to old bytes.
+            with closing(sqlite3.connect(path.resolve().as_uri()+'?mode=ro', uri=True, timeout=1)) as check:
+                current = check.execute('SELECT observed_at,digest FROM history_result_revisions '
+                    'WHERE provider=? AND event_id=? AND observed_at<=? ORDER BY observed_at DESC LIMIT 1',
+                    (provider_name, provider_id, now.isoformat())).fetchone()
+            if current != (observed, digest):
+                return None
+        else:
+            from scanners.completed_history import whole
+            home, away = whole(value.get('home_score')), whole(value.get('away_score'))
+            if (value.get('sport') != 'basketball' or value.get('result_scope') != 'including_overtime'
+                    or home is None or away is None or home == away
+                    or value.get('winner_side') != ('home' if home > away else 'away')):
+                return None
+            canonical = BasketballResult(EventStatus.FINAL, home_points_final=home, away_points_final=away)
+        return canonical, evidence._utc(observed), digest
+
+
 def run_forecast_evidence_settlements(
     *, db_path: str | Path, now: datetime | None = None, football_provider=None,
     tennis_db_path: str | Path = DEFAULT_TENNIS_DB_PATH,
     esports_db_path: str | Path = DEFAULT_ESPORTS_DB_PATH,
+    team_history_path: str | Path | None = None,
     max_events_per_sport: int = MAX_EVENTS_PER_SPORT,
 ) -> dict:
     """Collect real outcomes, rotating finite event budgets once per half hour.
@@ -341,6 +409,27 @@ def run_forecast_evidence_settlements(
                 if result.status in {SettlementStatus.WIN, SettlementStatus.LOSS, SettlementStatus.VOID}:
                     append(row, result.status.value, observation.observed_at, provider, provider_id,
                            observation.source_result_id, digest, result.rule_version)
+    from scanners.completed_history import DEFAULT_HISTORY_PATH
+    for sport in ('basketball', 'ice_hockey'):
+        for identity, rows in selected.get(sport, []):
+            summary['checked_events'] += 1
+            try:
+                loaded = _cached_team_result(identity, rows, Path(team_history_path or DEFAULT_HISTORY_PATH), current)
+            except (sqlite3.Error, ValueError, TypeError, KeyError):
+                loaded = None
+                errors.append(f'{sport}:native_result_read_failed')
+            if loaded is None:
+                continue
+            canonical, observed, digest = loaded
+            _, provider, provider_id, _, a, *_ = identity
+            for row in rows:
+                result = settle_market(sport=Sport(sport), selection=Selection.HOME
+                    if row['quote_identity']['selected_competitor'] == a else Selection.AWAY,
+                    market=BasketballMarket.MATCH_WINNER_INCLUDING_OT if sport == 'basketball'
+                        else IceHockeyMarket.MATCH_WINNER_INCLUDING_OT, result=canonical)
+                if result.status in {SettlementStatus.WIN, SettlementStatus.LOSS}:
+                    append(row, result.status.value, observed, provider, provider_id,
+                        f'{provider}:event:{provider_id}:final', digest, result.rule_version)
     summary["errors"] = list(dict.fromkeys(errors))
     summary["operational_error_count"] = count_settlement_operational_errors(summary["errors"])
     return summary

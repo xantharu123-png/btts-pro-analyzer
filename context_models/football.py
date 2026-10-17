@@ -76,6 +76,23 @@ def _collection_conflicts(rows):
             for row in group for player in row["payload"]["reported_player_ids"]}
 
 
+def _native_causal_roster_row(row, decision):
+    """Existing native-source predicate, shared with the physical stream.
+
+    Structural/canonical B1 validation remains with each caller's owning
+    decoder. This predicate must run on every revision before latest selection.
+    """
+    if row["source"] != "api-football" or row["sport"] != "football":
+        raise ContextContractError("football roster source is not a supported native adapter")
+    if row["evidence_class"] != "prospective" or row["observed_at"] > decision:
+        return False
+    if (row["valid_from"] != row["observed_at"] or row["valid_until"] is not None
+            or row["published_at"] is not None or row["publication_proof"] is not None
+            or row["source_revision"] != digest(row["payload"])):
+        raise ContextIntegrityError("football source validity/receipt binding mismatch")
+    return True
+
+
 def _selected(rows, *, cutoff):
     """Retain real causal B1 receipts; do not trust a hand-made 'available' flag."""
     if type(rows) is not tuple:
@@ -84,14 +101,8 @@ def _selected(rows, *, cutoff):
     groups = {}
     for row in rows:
         _check_selected_row(row)
-        if row["source"] != "api-football" or row["sport"] != "football":
-            raise ContextContractError("football roster source is not a supported native adapter")
-        if row["evidence_class"] != "prospective" or row["observed_at"] > decision:
+        if not _native_causal_roster_row(row, decision):
             continue
-        if (row["valid_from"] != row["observed_at"] or row["valid_until"] is not None
-                or row["published_at"] is not None or row["publication_proof"] is not None
-                or row["source_revision"] != digest(row["payload"])):
-            raise ContextIntegrityError("football source validity/receipt binding mismatch")
         key = (row["event_key"], row["subject_id"], row["kind"], row["source"])
         previous = groups.get(key)
         if previous is None or row["observed_at"] > previous[0]["observed_at"]:

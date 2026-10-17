@@ -27,9 +27,16 @@ def case_header(resolved: dict, *, config: dict) -> dict:
     require_object(resolved, {"case", "artifacts", "observations"}, label="resolved training case")
     case = validate_artifact_envelope(resolved["case"], kind="context-training-case-v1")
     payload = case["payload"]
-    require_object(payload, CASE_FIELDS, label="training case")
-    if type(payload["schema"]) is not int or payload["schema"] != 1:
+    if type(payload) is not dict or type(payload.get("schema")) is not int or payload["schema"] not in {1, 2}:
         raise ContextContractError("unknown event case schema")
+    require_object(payload, CASE_FIELDS | ({"source_transport"} if payload["schema"] == 2 else set()), label="training case")
+    if payload["schema"] == 2:
+        from context_models.football_source_stream import SOURCE_TRANSPORT
+        if (payload["source_transport"] != SOURCE_TRANSPORT
+                or type(payload["base"]) is not dict
+                or payload["base"].get("version") not in {"football-goals-captured-joint-v1", "football-goals-captured-joint-v2"}
+                or type(payload['event']) is not dict or payload['event'].get('sport') != 'football'):
+            raise ContextContractError("unknown versioned training source transport")
     event = validate_event(payload["event"])
     base = validate_base_distribution(payload["base"])
     features = validate_feature_vector(payload["features"])

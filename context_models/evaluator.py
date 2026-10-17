@@ -47,6 +47,8 @@ def implementation_hashes():
         "context_models/tennis_effect.py", "context_models/offset.py", "model_loss_statistics.py", "tennis/simulator.py",
         "context_models/tennis_live.py", "context_models/tennis_training.py", "context_models/tennis_v3.py",
         "context_models/tennis_v4.py",
+        "context_models/tennis_stream.py",
+        "context_models/football_source_stream.py",
         "context_runtime_tennis.py", "context_sources/tennis_status.py", "context_sources/tennis.py",
         "tennis/predict.py", "tennis/model_state.py", "tennis/elo.py", "tennis/serve_model.py",
         "tennis/data_loader.py", "tennis/tour_state.py", "tennis/state_codec.py",

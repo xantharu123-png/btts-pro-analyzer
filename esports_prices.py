@@ -13,7 +13,7 @@ from api_budget import DEFAULT_DB_PATH
 from betting_math import validate_decimal_odds
 from market_consensus import (MarketConsensus, QuotePoint, ESPORTS_PRICE_SOURCE,
     esports_discipline, _identity_name, _parse_utc, _summary_prices,
-    observed_consensus, quote_matches_candidate)
+    observed_consensus, quote_matches_candidate, native_partition)
 from oddspapi_client import OddsPapiClient
 from runtime_paths import atomic_write_text
 from team_sport_prices import _writer_lock
@@ -122,15 +122,21 @@ def load_cached_quote(row, *, now=None, path=CACHE_PATH, document=None):
         return None
     event = matches[0]
     position = 0 if _identity_name(selected) == _identity_name(event['participant1Name']) else 1
+    pairs = _pairs(event, fetched)
     points = tuple(QuotePoint(slug, pair[position], 'oddspapi:'+slug, fetched.isoformat())
-                   for slug, pair in sorted(_pairs(event, fetched).items()))
+                   for slug, pair in sorted(pairs.items()))
     if not points:
         return None
     lowest, conservative, median, best = _summary_prices(sorted(p.odds for p in points))
     quote = MarketConsensus(None, str(row.get('candidate_id') or row.get('key') or ''),
         'H2H', 'Series Winner', selected, median, conservative, lowest, best, len(points),
         fetched.isoformat(), fetched.isoformat(), ESPORTS_PRICE_SOURCE, points,
-        event['fixtureId'], event['startTime'], a, b, 'pandascore', row['provider_event_id'], discipline)
+        event['fixtureId'], event['startTime'], a, b, 'pandascore', row['provider_event_id'], discipline,
+        native_market_partitions=tuple(native_partition('H2H', 'esports_series', 'oddspapi:'+slug,
+            fetched.isoformat(), fetched.isoformat(),
+            [(a, pair[0] if _identity_name(a) == _identity_name(event['participant1Name']) else pair[1]),
+             (b, pair[0] if _identity_name(b) == _identity_name(event['participant1Name']) else pair[1])])
+            for slug, pair in sorted(pairs.items())))
     return observed_consensus(quote, candidate=row, now=current)
 
 

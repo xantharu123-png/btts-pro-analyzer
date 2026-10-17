@@ -23,6 +23,7 @@ from api_budget import APIBudgetGovernor, APIBudgetPriority, DEFAULT_DB_PATH
 from market_consensus import (
     MarketConsensus, QuotePoint, TEAM_PRICE_SOURCES, _identity_name,
     _parse_utc, _summary_prices, observed_consensus, quote_matches_candidate,
+    native_partition,
 )
 from betting_math import validate_decimal_odds
 from runtime_paths import atomic_write_text, prepare_trusted_runtime_database_path
@@ -248,7 +249,7 @@ def parse_game_quotes(entries, rows, game, *, fetched_at, names=None):
         if match_game(row, [game], native_names) is None:
             continue
         selected_side = 'Home' if row['selected_competitor'] == row['competitor_a'] else 'Away'
-        points, conflicts = {}, set()
+        points, conflicts, partitions, partition_conflicts = {}, set(), {}, set()
         for book in matching[0].get('bookmakers', []):
             if not isinstance(book, dict) or type(book.get('id')) is not int or book['id'] <= 0 or not str(book.get('name') or '').strip():
                 continue
@@ -265,6 +266,12 @@ def parse_game_quotes(entries, rows, game, *, fetched_at, names=None):
                 except (TypeError, ValueError, KeyError):
                     continue
                 point = QuotePoint(book['name'], pair[selected_side], book_id, fetched_at.isoformat())
+                part = native_partition('H2H', 'including_overtime' if _sport(row) == 'basketball'
+                    else 'including_overtime_shootout', book_id, fetched_at.isoformat(), fetched_at.isoformat(),
+                    [(row['competitor_a'], pair['Home']), (row['competitor_b'], pair['Away'])])
+                if book_id in partitions and partitions[book_id] != part:
+                    partition_conflicts.add(book_id)
+                partitions[book_id] = part
                 if book_id in points and points[book_id] != point:
                     conflicts.add(book_id)
                 points[book_id] = point
@@ -276,7 +283,9 @@ def parse_game_quotes(entries, rows, game, *, fetched_at, names=None):
             'Home/Away including overtime', row['selected_competitor'], median, conservative,
             lowest, best, len(points), fetched_at.isoformat(), fetched_at.isoformat(),
             TEAM_PRICE_SOURCES[_sport(row)], points, str(game['id']), row['scheduled_start'],
-            row['competitor_a'], row['competitor_b'], row['fixture_source'], row['provider_event_id'])
+            row['competitor_a'], row['competitor_b'], row['fixture_source'], row['provider_event_id'],
+            native_market_partitions=tuple(partitions[point.bookmaker_id] for point in points
+                if point.bookmaker_id not in partition_conflicts))
         if quote_matches_candidate(quote, row):
             output[quote.candidate_id] = quote
     return output

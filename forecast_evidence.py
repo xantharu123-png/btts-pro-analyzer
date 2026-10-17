@@ -259,6 +259,18 @@ def _quote_records(forecast_id: str, forecast: dict, raw: object, kind: str,
         complete_market = _complete_tennis_market(forecast, quote, point, market_observations)
         if complete_market is not None:
             payload["complete_market"] = complete_market
+        for partition in quote.native_market_partitions:
+            if (partition['bookmaker_id'] == point.bookmaker_id
+                    and _utc(partition['observed_at']) == observed
+                    and _utc(partition['fetched_at']) == fetched):
+                payload['native_market_partition'] = {
+                    **partition, 'fixture_source': forecast['quote_identity'].get('fixture_source')
+                        or ('api-football' if forecast['sport'] == 'football' else None),
+                    'provider_event_id': forecast['quote_identity'].get('provider_event_id')
+                        or (str(forecast['quote_identity'].get('fixture_id')) if forecast['sport'] == 'football' else None),
+                    'quote_provider_event_id': quote.provider_event_id,
+                    'scheduled_start': forecast['starts_at'],
+                }
         records.append((_hash(payload), forecast_id, kind, point.bookmaker_id, payload["observed_at"], payload["fetched_at"], point.odds, int(payload["executable"]), _json(payload)))
     return records
 
@@ -439,7 +451,7 @@ def append_result(event_key: str, market_key: str, selection: str, outcome: str 
     if observed > _now():
         raise ValueError("result observation cannot be in the future")
     proof = {k: _text(provenance.get(k), k) for k in ("provider", "provider_event_id", "source_record_id", "payload_sha256", "settlement_rule")}
-    if proof["provider"].casefold() not in {"api-football", "espn", "sofascore", "pandascore", "nhl", "euroleague", "cricbuzz", "cricketdata"} or not re.fullmatch(r"[0-9a-f]{64}", proof["payload_sha256"]):
+    if proof["provider"].casefold() not in {"api-football", "api-hockey", "espn", "sofascore", "pandascore", "nhl", "euroleague", "cricbuzz", "cricketdata"} or not re.fullmatch(r"[0-9a-f]{64}", proof["payload_sha256"]):
         raise ValueError("result requires a recognized provider and canonical record hash")
     if any(token in proof["settlement_rule"].casefold() for token in ("manual", "synthetic", "guess")):
         raise ValueError("manual or inferred results are not evidence")

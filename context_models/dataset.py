@@ -374,12 +374,19 @@ def resolve_case(connection, item, *, config, plan, latest):
     from context_models.tennis_live import BASE_VERSION as LIVE_BASE
     live = payload["base"]["version"] == LIVE_BASE
     joint = payload['base']['version'] in {'football-goals-captured-joint-v1', 'football-goals-captured-joint-v2'}
+    physical_source_rows = None
     if joint:
         from context_models.football_training import joint_case_artifacts, relevant_receipts, joint_source_scope_kwargs
         artifacts = joint_case_artifacts(connection, payload, latest=_artifact_created_at(connection, case['digest']))
         packet = artifacts[payload['base']['model_hash']]['payload']
-        expected = {row['digest'] for row in relevant_receipts(connection, packet, cutoff=decision,
-            **joint_source_scope_kwargs(config['feature_version']))}
+        source_options = joint_source_scope_kwargs(config['feature_version'])
+        if payload['schema'] == 2:
+            source_options.update(source_transport=payload['source_transport'],
+                binding=artifacts[payload['replay_ref']]['payload'], base=payload['base'],
+                feature_version=config['feature_version'])
+        physical_source_rows = {row['digest']: row for row in relevant_receipts(connection, packet, cutoff=decision,
+            **source_options)}
+        expected = set(physical_source_rows)
         if set(item['observation_refs']) != expected | {payload['outcome_ref']}:
             raise ContextIntegrityError('joint case omits or adds a causal native revision')
     elif live:
@@ -403,7 +410,8 @@ def resolve_case(connection, item, *, config, plan, latest):
             raise ContextIntegrityError("original source replay revision differs from frozen experiment code")
     observations = []
     for ref in item["observation_refs"]:
-        row = _receipt(connection, ref)
+        row = (physical_source_rows[ref] if physical_source_rows is not None and ref in physical_source_rows
+               else _receipt(connection, ref))
         if row["observed_at"] > latest or row["observed_at"] > _artifact_created_at(connection, case["digest"]):
             raise ContextIntegrityError("case uses a source receipt from after its actual creation/evaluation")
         # No archive qualification is fabricated. D1 explicitly excludes late

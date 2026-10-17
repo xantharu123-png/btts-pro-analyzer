@@ -146,12 +146,21 @@ def joint_source_scope_kwargs(feature_version):
     return {'include_player_load': True} if feature_version == PLAYER_LOAD_FEATURE_VERSION else {}
 
 
-def relevant_receipts(connection, packet, *, cutoff, include_player_load=False):
+def relevant_receipts(connection, packet, *, cutoff, include_player_load=False,
+                      source_transport=None, binding=None, base=None, feature_version=None):
     """Complete predecision revision pool for the original's native events.
 
     Never read outcome labels here. Broader events are not silently added to
     the old model; this is the exact declared native input/context pool.
     """
+    if source_transport is not None:
+        from context_models.football_source_stream import SOURCE_TRANSPORT, streamed_joint_sources
+        if source_transport != SOURCE_TRANSPORT or binding is None or base is None:
+            raise ContextContractError('versioned football source transport needs its actual original binding and base')
+        if canonical_timestamp(cutoff) != base['cutoff']:
+            raise ContextIntegrityError('versioned football source cutoff differs from original base')
+        return streamed_joint_sources(connection, packet, binding, base,
+            feature_version=feature_version, retain_full=True)['observations']
     if include_player_load:
         from football_joint_worker import _bounded_receipts
         return _bounded_receipts(connection, packet, cutoff=cutoff, include_player_load=True)
@@ -253,6 +262,23 @@ def validate_joint_training_case(resolved, *, config, payload):
         raise ContextIntegrityError('original calculation was not before kickoff')
     if type(resolved['observations']) is not tuple:
         raise ContextContractError('joint case requires a frozen source pool')
+    if payload['schema'] == 2:
+        from context_models.football_source_stream import MAX_RAW_BYTES, MAX_RAW_RECEIPTS, MAX_EXPANDED_SOURCE_BYTES
+        from context_models.contracts import OBSERVATION_FIELDS
+        sources = [row for row in resolved['observations'] if row.get('kind') != 'match_outcome']
+        if len(sources) > MAX_RAW_RECEIPTS:
+            raise ContextContractError('versioned football case exceeds complete source receipt bound')
+        physical, expanded = {}, 2
+        for row in sources:
+            _check_selected_row(row)
+            if row['content_digest'] not in physical:
+                physical[row['content_digest']] = len(canonical_bytes({key: row[key] for key in OBSERVATION_FIELDS}))
+            extra = {key: row[key] for key in ('digest', 'content_digest', 'observed_at', 'evidence_class', 'effective_at', 'publication_resolution')}
+            expanded += physical[row['content_digest']] + len(canonical_bytes(extra)) - 1 + int(expanded > 2)
+            if expanded > MAX_EXPANDED_SOURCE_BYTES:
+                raise ContextContractError('versioned football case exceeds expanded source byte bound')
+        if sum(physical.values()) > MAX_RAW_BYTES:
+            raise ContextContractError('versioned football case exceeds complete physical source byte bound')
     by_ref, source, outcomes = {}, [], []
     for row in resolved['observations']:
         _check_selected_row(row)
@@ -366,7 +392,8 @@ def validate_joint_training_case(resolved, *, config, payload):
     return deepcopy(resolved)
 
 
-def build_joint_training_case(path, *, binding_ref, outcome_ref, identity_ref, config, as_of, decision_at=None):
+def build_joint_training_case(path, *, binding_ref, outcome_ref, identity_ref, config, as_of, decision_at=None,
+                              source_transport=None):
     """Build a detached case from actual stored originals; no copies or writes."""
     from context_models.dataset import _reader, _receipt
     from context_models.training_contracts import validate_family_config, validate_resolved_case
@@ -380,12 +407,17 @@ def build_joint_training_case(path, *, binding_ref, outcome_ref, identity_ref, c
         from context_models.football_joint_context import PLAYER_LOAD_FEATURE_VERSION
         if config['feature_version'] == PLAYER_LOAD_FEATURE_VERSION and base['cutoff'] != binding['payload']['decision_at']:
             raise ReplayUnavailable('player_load_requires_original_decision')
-        history = relevant_receipts(connection, original.to_dict(), cutoff=base['cutoff'],
-            **joint_source_scope_kwargs(config['feature_version']))
+        source_options = joint_source_scope_kwargs(config['feature_version'])
+        if source_transport is not None:
+            source_options.update(source_transport=source_transport, binding=binding['payload'], base=base,
+                                  feature_version=config['feature_version'])
+        history = relevant_receipts(connection, original.to_dict(), cutoff=base['cutoff'], **source_options)
         features = joint_features(event, history, base, cutoff=datetime.fromisoformat(base['cutoff']),
                                   version=config['feature_version'])
         payload = dict(schema=1, event=event, base=base, features=features, replay_ref=binding_ref,
             outcome_ref=outcome_ref, event_identity_hash=identity_ref, family_config_hash=digest(config), preprocessing_refs=[])
+        if source_transport is not None:
+            payload.update(schema=2, source_transport=source_transport)
         artifacts = joint_case_artifacts(connection, payload, latest=clock)
         result = _receipt(connection, outcome_ref)
         if result['observed_at'] > clock:

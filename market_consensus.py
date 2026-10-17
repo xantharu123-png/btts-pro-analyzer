@@ -11,7 +11,7 @@ synthesized.
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -115,12 +115,20 @@ class MarketConsensus:
     origin_provider: Optional[str] = None
     origin_event_id: Optional[str] = None
     event_discipline: Optional[int] = None
+    # Optional measurement sidecar. Never used in probabilities or admission.
+    native_market_partitions: tuple[dict, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         if self.event_discipline is None:
             # Keep legacy quote serialization unchanged (including financial history).
             payload.pop('event_discipline')
+        if not self.native_market_partitions:
+            payload.pop('native_market_partitions')
+        else:
+            # The live document and its stored JSON must expose the same
+            # container type, just as the existing points field does.
+            payload['native_market_partitions'] = list(payload['native_market_partitions'])
         payload["points"] = [asdict(point) for point in self.points]
         executable = self.executable_point
         payload["executable_quote"] = (
@@ -264,7 +272,8 @@ class MarketConsensus:
             )
             if loaded_executable != quote.executable_point:
                 return None
-        return quote
+        return replace(quote, native_market_partitions=validated_native_partitions(
+            payload.get('native_market_partitions', ()), quote))
 
     def is_fresh(self, now: Optional[datetime] = None) -> bool:
         """Require the fetch and every contributing offer to be current.
@@ -364,6 +373,121 @@ class MarketConsensus:
                 _quote_point_identity(point),
             ),
         )
+
+
+def native_partition(market_key, period, bookmaker_id, observed_at, fetched_at, outcomes):
+    """Small actual-price partition; never synthesize an opposing offer."""
+    return dict(market_key=market_key, period=period, bookmaker_id=bookmaker_id,
+        observed_at=observed_at, fetched_at=fetched_at,
+        outcomes=[dict(selection=selection, odds=odds) for selection, odds in outcomes])
+
+
+def validated_native_partitions(raw, quote):
+    """Optional malformed evidence is dropped without changing a valid offer."""
+    if not isinstance(raw, (list, tuple)) or len(raw) > 100:
+        return ()
+    contract = native_partition_contract(quote)
+    if contract is None:
+        return ()
+    family, period, expected, selected = contract
+    name_key = _tennis_identity_name if period == 'tennis_match' else lambda value: value
+    valid, conflicts = {}, set()
+    for part in raw:
+        try:
+            if not isinstance(part, Mapping) or set(part) != {
+                    'market_key', 'period', 'bookmaker_id', 'observed_at', 'fetched_at', 'outcomes'}:
+                continue
+            if not all(isinstance(part[key], str) and 0 < len(part[key]) <= 300
+                       for key in ('market_key', 'period', 'bookmaker_id')):
+                continue
+            observed, fetched = _parse_utc(part['observed_at']), _parse_utc(part['fetched_at'])
+            if (observed is None or fetched is None or not observed <= fetched == _parse_utc(quote.fetched_at)
+                    or part['market_key'] != family or part['period'] != period
+                    or not any(point.bookmaker_id == part['bookmaker_id']
+                               and _parse_utc(point.observed_at) == observed for point in quote.points)):
+                continue
+            outcomes = part['outcomes']
+            if (not isinstance(outcomes, (list, tuple)) or not 2 <= len(outcomes) <= 16
+                    or any(not isinstance(item, Mapping) or set(item) != {'selection', 'odds'}
+                           or not isinstance(item['selection'], str) or not 0 < len(item['selection']) <= 300
+                           for item in outcomes)):
+                continue
+            names = [item['selection'] for item in outcomes]
+            if len(names) != len(set(map(name_key, names))) or set(map(name_key, names)) != set(map(name_key, expected)):
+                continue
+            canonical = native_partition(part['market_key'], part['period'], part['bookmaker_id'],
+                observed.isoformat(), fetched.isoformat(),
+                [(item['selection'], validate_decimal_odds(item['odds'])) for item in outcomes])
+            if selected is not None and not any(
+                    point.bookmaker_id == part['bookmaker_id'] and _parse_utc(point.observed_at) == observed
+                    and next(item['odds'] for item in canonical['outcomes']
+                             if name_key(item['selection']) == name_key(selected)) == point.odds
+                    for point in quote.points):
+                continue
+            identity = tuple(canonical[key] for key in ('market_key', 'period', 'bookmaker_id', 'observed_at', 'fetched_at'))
+            if identity in valid and valid[identity] != canonical:
+                conflicts.add(identity)
+            valid[identity] = canonical
+        except (TypeError, ValueError, KeyError, OverflowError):
+            continue
+    return tuple(part for key, part in sorted(valid.items()) if key not in conflicts)
+
+
+def native_partition_contract(quote):
+    """Exact exhaustive price contract; overlapping DC is derived from 1X2."""
+    if quote.source == REFERENCE_SOURCE:
+        wanted = _football_partition_targets(quote.market_key)
+        if wanted is None:
+            return None
+        family, targets = wanted
+        selected = (None if quote.market_key.startswith('DC_') else
+                    quote.market_key.removeprefix('RESULT_') if family == 'RESULT' else
+                    quote.market_key.removeprefix('BTTS_') if family == 'BTTS' else
+                    'OVER' if '_OVER_' in quote.market_key else 'UNDER')
+        return family, 'football_90_minutes', tuple(side for side, _ in targets), selected
+    periods = {ODDS_API_REFERENCE_SOURCE: 'tennis_match', ESPORTS_PRICE_SOURCE: 'esports_series',
+               TEAM_PRICE_SOURCES['basketball']: 'including_overtime',
+               TEAM_PRICE_SOURCES['ice_hockey']: 'including_overtime_shootout'}
+    name_key = _tennis_identity_name if quote.source == ODDS_API_REFERENCE_SOURCE else lambda value: value
+    if (quote.market_key == 'H2H' and quote.source in periods and quote.event_home and quote.event_away
+            and name_key(quote.event_home) != name_key(quote.event_away)
+            and name_key(quote.value_name) in (name_key(quote.event_home), name_key(quote.event_away))):
+        return 'H2H', periods[quote.source], (quote.event_home, quote.event_away), quote.value_name
+    return None
+
+
+def _football_partition_targets(market_key):
+    if market_key.startswith('RESULT_') or market_key in {'DC_1X', 'DC_X2', 'DC_12'}:
+        return 'RESULT', [(side, exact_market_target('RESULT_'+side)) for side in ('HOME', 'DRAW', 'AWAY')]
+    if market_key in {'BTTS_YES', 'BTTS_NO'}:
+        return 'BTTS', [(side, exact_market_target('BTTS_'+side)) for side in ('YES', 'NO')]
+    match = re.fullmatch(r'(TOTAL|HOME|AWAY|CORNERS|HOME_CORNERS|AWAY_CORNERS|YELLOW|HOME_YELLOW|AWAY_YELLOW)_(OVER|UNDER)_(\d+)_5', market_key)
+    if match:
+        prefix, _, line = match.groups()
+        return f'{prefix}_{line}_5', [(side, exact_market_target(f'{prefix}_{side}_{line}_5')) for side in ('OVER', 'UNDER')]
+    return None
+
+
+def _football_native_partitions(market_key, fixture_id, points, quotes):
+    wanted = _football_partition_targets(market_key)
+    if wanted is None:
+        return ()
+    family, targets = wanted
+    result = []
+    for point in points:
+        members = []
+        for side, target in targets:
+            if target is None:
+                break
+            found = [item for item in quotes.get((fixture_id, _normalize(target[0]), _normalize(target[1])), {}).values()
+                     if item[0].bookmaker_id == point.bookmaker_id and item[0].observed_at == point.observed_at]
+            if len(found) != 1:
+                break
+            members.append((side, found[0]))
+        if len(members) == len(targets) and len({item[1][2] for item in members}) == 1:
+            result.append(native_partition(family, 'football_90_minutes', point.bookmaker_id,
+                point.observed_at, members[0][1][2].isoformat(), [(side, item[0].odds) for side, item in members]))
+    return tuple(result)
 
 
 @dataclass(frozen=True)
@@ -1580,6 +1704,7 @@ def parse_fixture_consensus(
                 if fixture_starts.get(fixture_id) is not None
                 else None
             ),
+            native_market_partitions=_football_native_partitions(market_key, fixture_id, points, quotes),
         )
     return result
 
@@ -1777,6 +1902,20 @@ def parse_h2h_event_consensus(
             continue
         lowest, conservative, consensus, best = summary
         observed = [entry[1] for entry in raw_points.values()]
+        partitions = []
+        native_names = [str(_candidate_value(candidate, field)).strip() for field in ('competitor_a', 'competitor_b')]
+        for point in points:
+            pair = []
+            for normalized, name in zip(identity[:2], native_names):
+                found = [item[0] for item in quotes.get(normalized, {}).values()
+                         if item[0].bookmaker_id == point.bookmaker_id
+                         and item[0].observed_at == point.observed_at]
+                if len(found) != 1:
+                    break
+                pair.append((name, found[0].odds))
+            if len(pair) == 2:
+                partitions.append(native_partition('H2H', 'tennis_match', point.bookmaker_id,
+                    point.observed_at, current.isoformat(), pair))
         _quote_diagnostic(diagnostics, [candidate], "OBSERVED", fetched_at=current,
                           provider_updated_at=max(observed), bookmaker_count=len(points))
         result[candidate_id] = MarketConsensus(
@@ -1800,6 +1939,7 @@ def parse_h2h_event_consensus(
             scheduled_start=_utc_iso(payload.get("commence_time")),
             event_home=_required_text(payload.get("home_team")),
             event_away=_required_text(payload.get("away_team")),
+            native_market_partitions=tuple(partitions),
         )
     return result
 

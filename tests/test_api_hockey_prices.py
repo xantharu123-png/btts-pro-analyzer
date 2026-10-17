@@ -141,4 +141,9 @@ def test_existing_nhl_and_basketball_price_identity_bytes_are_unchanged(sport, k
     assert len(prices._binding(candidate)) == 7
     assert prices._key(candidate) == key
     quote = prices.parse_game_quotes(odds(native), [candidate], native, fetched_at=NOW)[candidate['candidate_id']]
-    assert hashlib.sha256(canonical_bytes(quote.to_dict())).hexdigest() == quote_hash
+    payload = quote.to_dict()
+    assert len(payload.pop('native_market_partitions')) == 3
+    # Measurement metadata is new; the quote's existing identity/price bytes
+    # and a legacy persisted quote without that optional field stay unchanged.
+    assert hashlib.sha256(canonical_bytes(payload)).hexdigest() == quote_hash
+    assert canonical_bytes(MarketConsensus.from_dict(payload).to_dict()) == canonical_bytes(payload)
