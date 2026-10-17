@@ -14,7 +14,7 @@ Ausgangscommit lokal/GitHub/main/VPS `6ff4d260`.
   Abfragen ohne Datum/Spiel ausdrücklich nicht als Abwesenheitsnachweis gezählt.
 - [x] Tatsächliches zusätzliches Angebot gefunden: Roma–Genoa, Bet365,
   native349 „2 or 3 goals“ zu2,00, Anbieterstand09:18:17UTC. Nicht mit einem
-  vorhandenen anderen Bereich verwechseln; bestehender Katalog noch95.
+  vorhandenen anderen Bereich verwechseln; vorheriger Katalog hatte 95 Märkte.
 - [x] Echter Fetchfehler reproduziert/repariert: Folgeseiten wurden ignoriert.
   Jetzt höchstens20 native Seiten/Spiel innerhalb vorhandener Budget-/Zeitgrenzen,
   gemeinsamer Parser, unveränderte genaue Markt-/Anstoß-/Buchmacherbindung.
@@ -32,8 +32,15 @@ Ausgangscommit lokal/GitHub/main/VPS `6ff4d260`.
   nur deren Reihenfolge korrigiert, vollständiges Besitzermodul erneut 41 PASS;
   exakte Rücktransformation rekonstruiert den vollständig getesteten Dateihash.
   Produktionsquellen unverändert. Erster Zwischenlauf 15.119 bleibt INCOMPLETE.
-- [ ] Nach Abschluss finalen Stand committen, aufmain pushen und aufVPS per
-  geprüftem No-Backup-Helfer deployen; derzeit noch keine neue Veröffentlichung.
+- [x] Quellcommit `113744d6fa964de29644826465eba1c56dcc797a` auf main gepusht
+  und am 17.10.2026 um 16:53:41 CEST per geprüftem Fast-Forward auf VPS deployed.
+  Offline-Smoke: 96 Märkte, unveränderte 40 Fit-Ziele, exakte 2–3-Wahrscheinlichkeit,
+  native 349 auf Seite 2 und historische gemeinsame Treffer bestätigt.
+  App-PID 1211028→1215661; App/Caddy aktiv, beide Healthchecks `ok`.
+  Beide Prognose-Snapshot-Hashes und alle fünf Scan-/Quoten-Startstempel während
+  des Deployments identisch. Kein Backup, zusätzlicher Scan oder Migration.
+  Dieser abschließende Nachweis wird separat dokumentiert und per Docs-only-Pull
+  veröffentlicht; dabei kein weiterer App-Neustart.
 - [x] Kostenlose Alternativen geprüft: keine verfügbare, exakt nachgewiesene
   Bereichsquelle; deshalb kein erfundener/spekulativer Zusatzadapter.
 - [x] Nutzerfreigabe für Bereiche/Sieg-Torbereich-Statistik übernommen.
@@ -66,7 +73,7 @@ bewusst gestarteten manuellen Suche; keine zusätzlichen Scans dafür gestartet.
 
 Echte Preisuntergrenze1,20 und statistische Auswahl bleiben unverändert;
 keine künstliche Marktvielfalt und kein Renditeversprechen durch Softwaretests.
-[Befunde und laufende Nachweise](docs/audits/2026-10-17-multigoal-quotenabruf.md).
+[Befunde und Abschlussnachweise](docs/audits/2026-10-17-multigoal-quotenabruf.md).
 Receipts außerhalbGit: `C:/Projekt/BetBoy/output/multigoal-quotes-20261017/`.
 
 ## 17.10.2026 – statistische Auswahl vor Sortierung, Multigoal

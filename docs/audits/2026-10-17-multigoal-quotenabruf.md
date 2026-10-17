@@ -118,8 +118,30 @@ umgesetzt, nicht durch zusätzliche tägliche Sportscans umgangen.
 - Unabhängige Pagination-/Clock-, Registry-/Pin-, Native349-, Anzeige- und
   RisikoBet-Reviews freigegeben. Ein weiterer echter UI-RED8→GREEN4 schützt
   vor mehrfachen Statistikblöcken bei mehreren Märkten desselben Spiels.
-- Noch nicht committed/gepusht/deployed. Endbelege werden vor Veröffentlichung
-  ergänzt. Keine Behauptung besserer Wettqualität/Rendite aus diesen Tests.
+- Abschließender unabhängiger Test-ID-/Quellhash-Abgleich ohne Blocker.
+  Quellcommit `113744d6fa964de29644826465eba1c56dcc797a` committed, auf main
+  gepusht und am 17.10.2026 um 16:53:41 CEST per Fast-Forward auf VPS deployed.
+  Keine Behauptung besserer Wettqualität/Rendite aus diesen Tests.
+
+### Produktionsnachweis
+
+Der gesondert geprüfte No-Backup-Releasehelfer lief mit Exit 0 im ruhigen
+Timerfenster; keine laufenden Sportdienste angehalten oder neu gestartet.
+Offline-VPS-Smoke bestätigt 96 Definitionen, unveränderte 40 Fit-Ziele,
+exakte 2–3-Marginale, Seiten-2-Angebote für native 349 und echte gemeinsame
+historische Treffer. Alle geänderten Pythondateien sind syntaktisch geprüft.
+
+App-PID 1211028→1215661, App und Caddy aktiv; interner und öffentlicher
+Healthcheck jeweils `ok`. Die SHA-256-Fingerprints von `wettfinder_latest.json`
+und `riskobet_latest.json` sowie die Startstempel von Wettfinder, Tennis,
+E-Sport, Football-Shadow und Quotenjob blieben beim Deployment unverändert.
+Backup-Timer weiter disabled/inactive. Kein Backup, zusätzlicher Sportscan,
+Modelllauf, Datenbankumbau oder Paketinstallation.
+
+Receipt: `deploy-01.log` im oben genannten Ausgabepfad. Die nachträgliche
+Abschlussdokumentation wird mit gesondertem Docs-only-Fast-Forward gezogen;
+kein weiterer App-Neustart. Die UI-Nachweise unten sind ausdrücklich lokale
+Renderer-Prüfungen, kein behaupteter neuer vollständiger Live-Browserlauf.
 
 ## Freigegebene Ergänzungen
 

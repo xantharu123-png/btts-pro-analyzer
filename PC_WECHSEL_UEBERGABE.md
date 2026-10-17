@@ -24,14 +24,17 @@ Alle 15.076 alten IDs plus 157 neue genau einmal enthalten; 810 Quellen/Fixtures
 und drei Shell-Hashes. Fünf verschobene Auto-IDs nur durch Parameterreihenfolge
 stabilisiert; gesamtes Besitzermodul erneut 41 PASS, inverse Byte-Hash-Prüfung
 bestätigt ausschließlich diese Testreihenfolge. Produktionsquellen unverändert.
-Noch keine neue Veröffentlichung behaupten. Code/Teststand eingefroren.
-No-BackupReleasehelfer imuntenstehendenOrdner statischgeprüft undSyntaxPASS;
-erst nachvollständigerQA/MainPush einsetzen. Keine neuenAPI/Sportläufe/Backups.
+Quellcommit `113744d6fa964de29644826465eba1c56dcc797a` auf main/VPS live,
+17.10.2026 um 16:53:41 CEST, No-Backup-Fast-Forward, Offline-Smoke bestanden.
+App-PID 1211028→1215661; App/Caddy aktiv, beide Healthchecks `ok`.
+Prognose-Snapshots und fünf Scan-/Quoten-Startstempel beim Deployment unverändert.
+Keine neuen Sportläufe/Backups/Migrationen. Nur Abschlussdokumentation folgt.
 Kostenlose Quellen ohneexakte/verfügbareAbdeckung nichtangebunden.
 ZusammengeführteIntegration748PASS. AlleproduktivenDiffsundReleasehelferread-only
 freigegeben. LokaleRenderer(nichtLiveStreamlit) normal/RisikoBet mitTESTDATENbei
 1280/390/320px, Maus/Tastatur5/10, keinÜberlauf/Consolefehler. KeineBrowserübernahme.
-Nächster Schritt: finalen Test-ID-Abgleich reviewen, committen, main/VPS.
+Test-ID-Abgleich abschließend unabhängig freigegeben. Nächster Schritt:
+Abschlussdokumentation committen/main/VPS per Docs-only-Pull, ohne Neustart.
 Aktueller Bericht `docs/audits/2026-10-17-multigoal-quotenabruf.md`, Belege
 `C:/Projekt/BetBoy/output/multigoal-quotes-20261017/`.
 
