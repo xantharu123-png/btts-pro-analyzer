@@ -1,5 +1,103 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 17.10.2026 – beide Claude-Audits: frische Gegenprüfung und Reparatur
+
+**Accountwechsel auf Nutzerwunsch, Stand 18:25 Europe/Zurich.** Code eingefroren,
+vier Testprozesse laufen noch. Nicht neu implementieren oder parallel eine
+zweite Vollsuite starten. Es gibt noch keinen Codecommit/Deploy dieser Runde.
+Eine separate Dokumentationsübergabe ist kein Code-Release.
+
+### Nächster Account: genaue Fortsetzung
+
+1. Aktiver Checkout und Belege wie unten. Laufende Sessions: A28077/B72753/
+   C74874/D78656. IDs können accountübergreifend ungültig sein; maßgeblich sind
+   `full-qa-02/full-A.log` bis `full-D.log`, jeweilige Result-JSONs und JUnit-XMLs.
+   Um18:25 alle vier noch laufend, kein gemeldeter Test-Assertion-Fehler.
+   A enthält ausschließlich den langen `test_football_readiness_scale.py`;
+   wenige Punkte allein sind kein Beleg für Stillstand. PC laufen lassen.
+2. Nach vier Exit0 den bestehenden Runner `output/market-selection-20261017/full_qa.py`
+   mit Argument `report` starten, Environment `BETBOY_SELECTION_QA_RUN` auf
+   `C:/Projekt/BetBoy/output/claude-recheck-20261017/full-qa-02` setzen.
+   Interpreter: `C:/Projekt/BetBoy/betboy-app/.codex_test_venv/Scripts/python.exe`.
+   Zusätzlich alle15.233 Vorläufer-IDs aus `multigoal-quotes-20261017/full-qa-02/collection.log`
+   gegen15.318 aktuelle IDs abgleichen, nicht nur gegen die alte14.680-Basis.
+   Quellenhashes/Skip-IDs prüfen; CJS-Fontprobe separat hashen.
+3. Gezielt grün: UX592, Mathematik437, Daily3-Modul20, Cache33, Watch/Caller34.
+   Tennisbreitlauf588PASS+12Sandbox-Hardlinkfehler/3Skips; beide unveränderten
+   betroffenen Module nativ24PASS/3Skips. Überlappende Zahlen nicht addieren.
+   Unabhängige Gesamt-/Cache-Reviews ohne verbleibenden wichtigen Patchbefund.
+4. Eigene29 Code-/Test-/Doc-Dateien explizit prüfen/stagen, nie `git add -A`.
+   `debug.log` entstand durch Tests; `output/audit-repairs/` ist geerbter
+   ungetrackter Bestand. Weder committen noch pauschal löschen. Vor Push echte
+   private Ersatzschlüssel gegen den Index prüfen, ohne Werte auszugeben.
+5. Erst danach Sourcecommit/main-Push und neu geprüftes No-Backup-Deployskript.
+   VPS-Basis `4f2af4e8e6e8a2eb4b92d94d12b7fc219611caf9`. Alter Helfer
+   `output/multigoal-quotes-20261017/deploy-quotes.sh` hat falsche Basis/Dateiliste;
+   nicht unverändert ausführen. `update_server.sh` erstellt Backups: ungeeignet
+   ohne gezielte Anpassung. Ruhiges Timerfenster, FF auf exakten Zielcommit,
+   Offline-Smoke, App-Neustart, beide Healthchecks und SHA/Snapshot/Scanstart-Abgleich.
+   Keine Migration, Backups oder zusätzlichen Sport-/Modellscans.
+6. Neue vollständige Produktions-Browserprüfung steht noch aus. Tatsächlichen
+   Abschluss und Restlücken dokumentieren, nicht alle79Befunde als behoben melden.
+
+Letzter gelesener Shadowlauf18:12: Exit1/partial, zwei fehlende Quoten bei zwei
+zurückgestellten Kandidaten; keine Schlüssel-Fehlerkategorie mehr. Kein App-
+Absturz, aber auch kein bestätigter fehlerfreier Shadowlauf. Acht Timer geplant,
+21GiB frei. API-Konfiguration neuer als VPS-Code; App-Env-Aktivierung erst Neustart.
+Lokale Marktdatensuche fand keinen vollständigen kausalen Fußball-Gegenpreis-
+Datensatz. Das ist keine neue VPS-Datenprüfung; alte Summary vom13.10 nicht
+als aktuelle Rohdaten behandeln. Erst aktuelle Produktionsabdeckung lesend prüfen.
+
+Dieser Abschnitt ist aktuell; ältere Freigaben darunter sind historische
+Nachweise. Nutzerauftrag: beide Audits abgleichen, offene Fehler beheben,
+testen, main-Push/VPS, ausdrücklich **keine neuen Backups**.
+
+- [x] Beide vollständigen Berichte gelesen, alle **79 IDs** einzeln eingeordnet:
+  `docs/audits/2026-10-17-claude-gegenpruefung.md`. Nicht alle Empfehlungen sind
+  heutige Fehler; Preisgates/Marktblend/Bottomnav/Backup teils durch spätere
+  ausdrückliche Nutzerregeln überholt. Offene Modellschulden nicht als fertig markiert.
+- [x] Alle drei bekannten exponierten API-Schlüssel laut Nutzer erneuert;
+  gegen Git-Expositionen verschieden. Lokale ignorierte INI/Streamlit-Datei
+  und beide VPS-Secretdateien ersetzt, fremde Einstellungen erhalten.
+  API-Football/football-data/OpenWeather je genau einmal HTTP200/akzeptiert.
+  Werte nie ausgegeben oder in Git aufgenommen; keine Sicherung. App-Umgebung
+  wird erst durch den Release-Neustart neu geladen. Alte Provider-Widerrufe
+  sind nicht unabhängig durch diesen Authentifizierungsnachweis belegt.
+- [x] Sichtbarer Hauptmarkt/Fallback nach exakter nativer Quell-/Teilnehmer-/
+  Modellrevision und vorhandenem statistischen Rang, nicht nach Prozentwert
+  oder Quotenhöhe. Entfernte Richtung nicht als prominenter Ersatz wiederbelebt.
+- [x] Quotenherkunft ohne Hover, Zürcher UI-Zeiten, neutrale alte Quellen,
+  Live „Berechnet“, fünf wichtige kleine Labels >=12px in echtem Chromium.
+- [x] Tennis-Wächter/Formatvertrag korrigiert. Fehlende v2-Originale heißt
+  unavailable, nicht stabil; Wochenreport macht daraus weder Drift noch
+  Produktionszertifizierung. Tatsächlicher v2-Wächter bleibt mangels Original-
+  /Anchor-Anbindung unvollständig. Awarded nicht normal abgerechnet.
+- [x] Explizite Nicht-FT-Endstände abgewehrt, alte statuslose Originalreplays
+  erhalten. Separate rein lesende Projektions-Residualdiagnostik, keine neue
+  Kalibrierungsvariante/Gates/Originalfelder. Daily3-Kalender statt ISO-Text,
+  keine geratene Sommerzeitstunde. Legacy-Pickle-Lesen/-Schreiben an bestehende
+  lokale Dateivertrauensgrenze angeschlossen, **keine** Signatur behauptet.
+- [x] Unabhängiges Gesamt- und separates Cache-Review ohne verbleibenden
+  wichtigen Befund im jeweiligen Patch. Echter Wochenreport-Folgefehler und
+  Security-Helfer-INI/Env-Kanten zuvor reproduziert/behoben; Belege erhalten.
+- [ ] Finaler vollständiger Testlauf `output/claude-recheck-20261017/full-qa-02`
+  läuft: **15.318 eingesammelte Fälle**, vier native Offline-Gruppen. Noch
+  kein Pass. Der unterbrochene erste Zwischenlauf ist INCOMPLETE, nicht grün.
+- [ ] Nur nach erfolgreicher Endprüfung gezielt committen, main pushen und
+  No-Backup-Fast-Forward auf VPS, Offline-Smoke/Neustart/Healthchecks.
+  VPS-Code bei letzter Prüfung weiterhin `4f2af4e` (API-Konfiguration neuer).
+- [ ] Keine bessere Wettqualität belegt: produktionsgleiche Kalibrierung,
+  Gegnerstärke-/Unsicherheitsmodelle, echte Verletzungs-/Wetter-/Müdigkeitseffekte,
+  vollständige kausale Gegen-/Closingpreise und Markt-/Renditenachweis offen.
+- [ ] Weitere offene Software-/Launchschulden bleiben vollständig in der
+  79-ID-Matrix: Live-/manuelle Teamsportpfade, einzelne Formate/Zeitlogik,
+  CI/Lock/Linux-Gesamtabnahme, persistente manuelle Scanworker, Geldübersicht/
+  Währungsentscheidung, Kundenzugang/korrekte Rechtsangaben vor bezahltem Start.
+
+Gezielte QA außerhalb Git: `C:/Projekt/BetBoy/output/claude-recheck-20261017/`.
+Keine Sport-/Modellscans, Datenmigrationen, Backups oder pauschale Bereinigung.
+Torzeit-/15/30/60/75-Minuten-Auftrag darunter bleibt ein **separates** Paket.
+
 ## 17.10.2026 – neuer Auftrag: Torzeit-Profil und Zeitmärkte
 
 Nutzer hat 15-/30-/60-/75-Minuten-Gesamt-/Team-Tore und BTTS samt historischer

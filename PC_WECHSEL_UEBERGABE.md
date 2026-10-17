@@ -1,5 +1,39 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## 17.10.2026 – aktuelle Fortsetzung: beide Claude-Audits
+
+**Accountwechsel, Stand 18:25 Europe/Zurich.** Keine weitere Implementierung
+oder Veröffentlichung in diesem Turn. Vier Offline-Volltestgruppen laufen;
+PC laufen lassen. Oberster TODO-Unterabschnitt enthält exakte Sessions,
+Logpfade, Report-Befehl, ID-Abgleich, Testzahlen und Releasewarnungen.
+Keine zweite Suite starten, bestehende Quellenhashes unverändert halten.
+Sourceänderungen noch uncommitted; gesonderter Docscommit ist kein Code-Release.
+
+Aktiver Checkout `.worktrees/audit-repairs-20261013`, Basis `044a06fb`.
+Hauptcheckout weiterhin alte fremde WIP, nicht resetten/pauschal stagen.
+Alle79Befunde abgeglichen: `docs/audits/2026-10-17-claude-gegenpruefung.md`.
+Begrenzte Korrekturen im Arbeitsbaum: richtiger sichtbarer statistischer Lead,
+Quellen/Zurich/Labels, Tennis-Watch-/Wochenreport-Vertrag, Awarded, FT-Guard,
+separate Residuenmessung, Daily3-Kalender, gemeinsamer Legacy-Cache-Dateischutz.
+Originale/aktive Modellversionen/Geld-/Quotenregeln bewusst nicht umdefiniert.
+
+Alle drei vom Nutzer erneuerten Schlüssel lokal ignoriert und in VPS-Env/INI
+eingesetzt; andere Einstellungen erhalten, keine Werte ausgegeben. Je Anbieter
+ein Authcheck HTTP200. App-Env-Aktivierung erst Neustart. Widerruf alter Werte
+nicht allein daraus beweisbar. Kein Backup/Scan. VPS-Quellstand noch4f2af4e.
+
+Gezielte Tests/echtes RED+unabhängige Reviews vorhanden. **Vollsuite noch im Lauf**:
+`C:/Projekt/BetBoy/output/claude-recheck-20261017/full-qa-02`,15.318IDs, vier
+native Offline-Gruppen. Nicht als fertig ausgeben. VorherigerZwischenlauf01
+nach echtem Reviewer-Folgefund beendet und ausdrücklich INCOMPLETE erhalten.
+Erst finalen Exit-/ID-/Skip-/Quellenhash-Abgleich, dann explizite Dateiliste
+commit/main/VPS ohne Backup. Keine Bereinigung/Sportscans/Modelldatenmigration.
+
+Offene Modell-/Marktnachweise, Launch-/CI-/Persistenz-/UX-Schulden stehen mit
+allen IDs in der Matrix und im obersten TODO. Nicht „alle79behoben“ behaupten.
+Torzeitmärkte bleiben separater freigegebener Funktionsauftrag mit schriftlicher
+Spezifikation zur Freigabe; dieses Audit ist kein stiller Zeitmarkt-Neubau.
+
 ## 17.10.2026 – neuer Zeitmarkt-Auftrag, noch kein Produktivcode
 
 Nutzer genehmigt Torzeit-Profil und kumulative 15/30/60/75-Minuten-Tore,
