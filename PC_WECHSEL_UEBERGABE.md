@@ -2,17 +2,27 @@
 
 ## 17.10.2026 – aktuelle Fortsetzung: Marktvergleich und Daten-Deduplizierung
 
-Kanonisch bleibt `.worktrees/audit-repairs-20261013`, Ausgang lokal/main/VPS
-`46f1fa8`. Neue Marktvergleich-/Closing-/Tennis-Final-Reparatur vollständig geprüft:
-15.280PASS/98gleicheSKIP/147Untertests, alle15.318altenIDs+60neue erhalten.
-Initialer vollständiger FAIL mit19Fehlern/Exitcodes[0,1,1,1] bleibt erhalten.
+Kanonisch bleibt `.worktrees/audit-repairs-20261013`. Quellcommit
+`702f594ed22d0d6b18dff5f8946145f5f27f0898` auf main/VPS live am 17.10.
+um 21:22:44 CEST. No-Backup-FF, Offline-Smoke, App-PID 1218486 → 1222039,
+beide Healthchecks `ok`, App/Caddy aktiv, alle neun geprüften Jobstartstempel und
+Prognose-Snapshots beim Deploy unverändert. Abschlussdoku danach ohne Neustart.
+Neue Marktvergleich-/Closing-/Tennis-Final-Reparatur vollständig geprüft:
+15.280 PASS/98 gleiche SKIP/147 Untertests, alle 15.318 alten IDs + 60 neue erhalten.
+Initialer vollständiger FAIL mit 19 Fehlern/Exitcodes [0,1,1,1] bleibt erhalten.
 Nur Quoten-Testdaten-Uhr korrigiert und Regression ergänzt; fünf ganze Owner
-danach521PASS/3gleicheSKIP. Produktquellen unverändert gegenüber Vollsuite.
-Abschlussprüfer bestätigt exakt15.378JUnit-Haupt-IDs, keine Doppelungen/Lücken;
-`output/context-effects-20261017/verification-summary.json`. Veröffentlichung
-noch ausstehend; kein Deployment aus Testresultaten allein ableiten.
-Gezielte393 und236 Tests sowie unabhängige Reviews grün; nicht addieren.
+danach 521 PASS/3 gleiche SKIP. Produktquellen unverändert gegenüber Vollsuite.
+Abschlussprüfer bestätigt exakt 15.378 JUnit-Haupt-IDs, keine Doppelungen/Lücken;
+`output/context-effects-20261017/verification-summary.json`. Tatsächlicher Deploy:
+`output/context-effects-20261017/deploy-market-context-01.txt`.
+Gezielte 393 und 236 Tests sowie unabhängige Reviews grün; nicht addieren.
 Aktuelle vollständige Aufgaben/Abgrenzung stehen ganz oben in TODO_AKTUELL.md.
+
+Frischer rein lesender Produktionsvergleich 19:23:25 UTC: 48 Marktgruppen/20 Fußball-
+spiele (v13: N=10, aktuelle v14: N=8, v12: N=2), null Closing-Beobachtungen und bisher keine
+vergleichbaren Tennis-Gegenpaare. Kein robuster Qualitäts-/Renditebeleg. Neue
+Erfassungszweige erst in künftigen regulären Läufen produktiv nachzuweisen.
+Quelle: `output/context-effects-20261017/production-market-comparison-702f594.json`.
 
 Wichtig: Effekte sind NICHT fertig. Fußball8 vollständigeOriginale,7 davon am
 Quellenpoollimit; Lebenszeitreservierung128MiB erschöpft. Tennis1.000 native

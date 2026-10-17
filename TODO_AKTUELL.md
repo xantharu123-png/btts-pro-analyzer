@@ -1,9 +1,15 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
-## 17.10.2026 – Marktvergleich und Kontext-Datenpfad: geprüft, Veröffentlichung folgt
+## 17.10.2026 – Marktvergleich und Kontext-Datenpfad: Teilpaket live
 
 Aktiver Checkout unverändert `.worktrees/audit-repairs-20261013`, Ausgang
-`46f1fa8f6f690e15ae7045087e0bea762be79dd4` lokal/main/VPS. Keine Backups.
+`46f1fa8f6f690e15ae7045087e0bea762be79dd4`.
+**Quellcommit `702f594ed22d0d6b18dff5f8946145f5f27f0898` auf main und VPS.**
+No-Backup-FF am 17.10. um 21:22:44 CEST, Offline-Smoke bestanden,
+App-PID 1218486 → 1222039. App/Caddy aktiv, beide Healthchecks exakt `ok`;
+um 21:24 nochmals bestätigt. Prognose-Snapshots und alle neun geprüften
+Jobstartstempel beim Deploy identisch. Keine Migration/zusätzlichen Scans.
+Die nachfolgende Abschlussdokumentation wird separat ohne Neustart gezogen.
 
 - [x] Tatsächlicher Marktvergleich implementiert: vollständige gleiche native
   Märkte/Buchmacher/Zeitpunkte, proportionale Margenbereinigung, getrennte
@@ -36,8 +42,17 @@ Aktiver Checkout unverändert `.worktrees/audit-repairs-20261013`, Ausgang
   und Lock-Fehler reproduzierten sich dort nicht; ihre historische Ursache ist
   nicht als allgemeiner Speicher-/CPU-Mangel bewiesen. Maßgeblicher Abschluss:
   `C:/Projekt/BetBoy/output/context-effects-20261017/verification-summary.json`.
-- [ ] Nach Gesamtnachweis explizit committen/main pushen und No-Backup-VPS-FF,
-  Offline-Smoke/Neustart/Health/HEAD-Abgleich, dann frischen lesenden Marktbericht.
+- [x] Explizit committen/main pushen, No-Backup-VPS-FF und Betriebsprüfung.
+- [x] Echten Produktions-Marktbericht am 17.10. um 19:23:25 UTC rein lesend erzeugt:
+  56.162 Entry-Beobachtungen, null Closing-Beobachtungen, 48 vergleichbare
+  Marktgruppen aus 20 einzigartigen Fußballspielen. v13: N=10/Brier 0,114133 gegenüber
+  Markt 0,134223; aktuelle v14: N=8/0,129125 gegenüber 0,138586; v12: N=2/0,059302
+  gegenüber 0,045494. Keine robuste Qualitäts-/Rendite-/Effektfreigabe aus dieser
+  kleinen gemischten Abdeckung; bisher keine vergleichbaren Tennis-Gegenpaare.
+  Tatsächlicher JSON-Beleg außerhalb Git:
+  `C:/Projekt/BetBoy/output/context-effects-20261017/production-market-comparison-702f594.json`.
+  Neue native Gegenpreise/Closing-Erfassung müssen sich in regulären künftigen
+  Läufen noch produktiv belegen; dafür wurde kein zusätzlicher Scan gestartet.
 
 **Nicht abgeschlossen: numerische Verletzungs-, Wetter- und Müdigkeitseffekte.**
 Frisch produktiv geprüft: Fußball 115 Original-Bindings, davon nur acht vollständige
@@ -51,8 +66,16 @@ Konkrete Befunde und die verbleibende verlustfreie Quellen-/Budgetreparatur:
 [Kontext-Abnahmebereitschaft](docs/audits/2026-10-17-context-activation-readiness.md).
 [Paketabgrenzung](docs/audits/2026-10-17-market-context-release.md).
 
-Regulärer Shadow am17.10. um21:02:20CEST erfolgreich/Exit0; der ältere
-18:12UTC-Lauf war partial/Exit1. App/MainPID1218486 unverändert, keine zusätzlichen
+Weitere Marktvergleichs-Abnahme bleibt offen: kein Benchmark für sämtliche
+öffentlichen Tipps. Doppelte Chance/Multigoal/überlappende Kombinationen und
+Hockey/Basketball sind nicht abgedeckt. Fußball benötigt vollständige konsistente
+Original-Märkte; Closing bezeichnet nur die letzte tatsächlich beobachtete Quote
+in der letzten Stunde. Der Drei-Stunden-Quotenjob garantiert diese Fenster nicht.
+Aus fehlender Abdeckung folgt weder „guter“ noch „schlechter“ Tipp.
+
+Regulärer Shadow am 17.10. um 21:22:16 CEST erfolgreich/Exit 0, noch vor dem Deploy;
+Quotenjob 21:15:28 → 21:15:36 ebenfalls erfolgreich. Der ältere 18:12-UTC-Lauf war
+partial/Exit 1. App/MainPID 1222039 seit dem gezielten Neustart, keine zusätzlichen
 Sport-/API-Scans, Sicherungen, Bereinigungen oder Datenbankkopien durchgeführt.
 Die älteren Abschnitte unten behalten ihre datierten Nachweise.
 
