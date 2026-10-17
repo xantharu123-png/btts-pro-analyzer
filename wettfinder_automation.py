@@ -41,6 +41,7 @@ from challenge_15k import (
     scan_daily_challenge,
 )
 from challenge_engine import (
+    CHALLENGE_MARKET_CATALOG_SIGNATURE,
     MARKET_BY_KEY,
     MARKET_SPECS,
     MODEL_SCOPE_SAME_COMPETITION,
@@ -62,6 +63,7 @@ from context_models.football_original_publication import original_capture_report
 from football_joint_worker import joint_comparison_report_fields
 from football_context_decisions import decision_report_fields
 from forecast_analysis import project_football_analysis
+from selection_coherence import select_coherent_forecasts
 from football_model_refresh import MODEL_REFRESH_VERSION, refresh_fixture_models
 from ev_signal_sources import (
     AUTOMATED_FOOTBALL_RELEASE_CONTRACT,
@@ -293,6 +295,8 @@ def football_due(
     # prediction model, even when the league list itself is unchanged.
     if previous.get("discovery_model_version") != CHALLENGE_PREDICTION_VERSION:
         return FootballDueDecision(True, "model_version_changed")
+    if previous.get("discovery_market_catalog_signature") != CHALLENGE_MARKET_CATALOG_SIGNATURE:
+        return FootballDueDecision(True, "market_catalog_changed")
 
     return FootballDueDecision(
         False,
@@ -587,13 +591,15 @@ def _football_record_selection_rank(row: object) -> Optional[tuple[float, ...]]:
         return None
     values: list[float] = []
     for value in raw:
-        if (
-            isinstance(value, bool)
-            or not isinstance(value, (int, float))
-            or not math.isfinite(float(value))
-        ):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
             return None
-        values.append(float(value))
+        try:
+            number = float(value)
+        except OverflowError:
+            return None
+        if not math.isfinite(number):
+            return None
+        values.append(number)
     return tuple(values)
 
 
@@ -844,13 +850,15 @@ def select_catalog_candidates(
         target_date=target_date,
         preserve_order=preserve_order,
     )
-    # Primary/"interesting" markets are displayed before simple markets, but
-    # that presentation tier must not decide mutually exclusive directions.
-    # Compare probabilities only with complete, identical fixture and model
-    # bindings. A missing revision must never masquerade as a matching one.
+    # Compare directions only inside one exact market line and revision. A
+    # broad cover's larger marginal probability says nothing about its model
+    # skill relative to a different market. Preserve the complete pool until
+    # the quote-free statistical rank chooses a jointly coherent scenario.
     comparable_groups: dict[tuple[object, ...], list[dict[str, Any]]] = {}
     for row in valid:
         if row.get("source") != "football_challenge":
+            continue
+        if not str(row.get("key") or "").strip():
             continue
         if str(row.get("market_key") or "") not in MARKET_BY_KEY:
             continue
@@ -880,42 +888,53 @@ def select_catalog_candidates(
         comparable_groups.setdefault(group, []).append(row)
     suppressed: set[int] = set()
     for group_rows in comparable_groups.values():
-        ranked = sorted(group_rows, key=lambda row: -float(row["probability"]))
-        accepted: list[str] = []
-        ambiguous: list[str] = []
-        position = 0
-        while position < len(ranked):
-            probability = ranked[position]["probability"]
-            end = position + 1
-            while end < len(ranked) and ranked[end]["probability"] == probability:
-                end += 1
-            available: list[dict[str, Any]] = []
-            for row in ranked[position:end]:
-                market_key = str(row["market_key"])
-                if any(
-                    markets_mutually_exclusive(market_key, prior)
-                    for prior in (*accepted, *ambiguous)
-                ):
+        directions: dict[tuple[object, ...], list[dict[str, Any]]] = {}
+        for row in group_rows:
+            spec = MARKET_BY_KEY[row["market_key"]]
+            if spec.kind in {"result", "btts"}:
+                axis = ""
+            elif spec.kind in {"total", "team_total", "corner_total", "team_corners", "yellow_total", "team_yellow"}:
+                axis = str(spec.side).rsplit("_", 1)[0] if "_" in str(spec.side) else ""
+            else:
+                continue
+            directions.setdefault((spec.kind, spec.threshold, axis), []).append(row)
+        direction_winners: set[int] = set()
+        for direction_rows in directions.values():
+            if len({row["market_key"] for row in direction_rows}) < 2:
+                continue
+            modal_probability = max(row["probability"] for row in direction_rows)
+            modal_keys = {row["market_key"] for row in direction_rows
+                          if row["probability"] == modal_probability}
+            for row in direction_rows:
+                if len(modal_keys) != 1 or row["market_key"] not in modal_keys:
+                    # Withhold modal ties and all weaker directions: removing
+                    # two tied leaders must not manufacture a third winner.
                     suppressed.add(id(row))
                 else:
-                    available.append(row)
-            tied_conflicts: set[int] = set()
-            for index, left in enumerate(available):
-                for right in available[index + 1:]:
-                    if markets_mutually_exclusive(
-                        str(left["market_key"]), str(right["market_key"])
-                    ):
-                        tied_conflicts.update((id(left), id(right)))
-            for row in available:
-                market_key = str(row["market_key"])
-                if id(row) in tied_conflicts:
-                    suppressed.add(id(row))
-                    # An ambiguous modal tie must not promote a weaker third
-                    # result merely because both leading directions vanished.
-                    ambiguous.append(market_key)
-                else:
-                    accepted.append(market_key)
-            position = end
+                    direction_winners.add(id(row))
+        survivors = [row for row in group_rows if id(row) not in suppressed]
+
+        def statistical_preference(row):
+            rank = _football_record_selection_rank(row)
+            if rank is not None:
+                return (0, tuple(-value for value in rank), str(row["market_key"]), str(row["key"]))
+            # Legacy rows have no comparable statistical rank. Retain their
+            # input order, but don't let an unpaired line undo an explicitly
+            # resolved exact direction (the historical chained-line contract).
+            return (1, (0 if id(row) in direction_winners else 1,), "", "")
+
+        ranked = sorted(survivors, key=statistical_preference)
+        # Adapt producer role IDs for the shared, purely logical selector;
+        # never modify persisted rows or inspect prices to choose a scenario.
+        views = [{**row, "home_team_id": row["home_id"], "away_team_id": row["away_id"]}
+                 for row in ranked]
+        result_anchor = next((view for view in views
+                              if MARKET_BY_KEY[view["market_key"]].kind == "result"), None)
+        coherent = select_coherent_forecasts(
+            views, preferred=[result_anchor] if result_anchor is not None else (),
+        )
+        accepted = {id(view) for view in coherent}
+        suppressed.update(id(row) for row, view in zip(ranked, views) if id(view) not in accepted)
     selected: list[dict[str, Any]] = []
     seen_keys: set[str] = set()
     seen_markets: set[tuple[str, str, str]] = set()
@@ -1296,6 +1315,7 @@ def _football_state_from_snapshot(
         "search_date": search_date.isoformat(),
         "discovery_league_ids": sorted(ALTERNATIVE_MARKET_LEAGUES),
         "discovery_model_version": CHALLENGE_PREDICTION_VERSION,
+        "discovery_market_catalog_signature": CHALLENGE_MARKET_CATALOG_SIGNATURE,
         "last_attempt_at": attempted_at.isoformat(),
         "last_discovery_at": scanned_at.isoformat() if not degraded else None,
         "last_success_at": scanned_at.isoformat() if not degraded else None,

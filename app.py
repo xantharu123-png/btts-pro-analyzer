@@ -4666,6 +4666,10 @@ def _render_wettfinder_game(group, row_by_key, featured_keys, initially_open: bo
     ):
         shown_forms = set()
         for index, card in enumerate(group.cards):
+            if group.lead is not None and card.key != group.lead.key and (
+                index == 0 or group.cards[index - 1].key == group.lead.key
+            ):
+                st.markdown('### Weitere Märkte')
             signal, card = row_by_key[card.key]
             forms = card.compact_analysis.forms if card.compact_analysis else ()
             show_form = forms not in shown_forms
@@ -4689,6 +4693,9 @@ def _render_wettfinder_game(group, row_by_key, featured_keys, initially_open: bo
 def _render_wettfinder_games(catalog, row_by_key, *, sport_filter: str, sort_mode=PROBABILITY) -> None:
     featured_keys = {card.key for card in catalog.featured}
     original_groups = group_wettfinder_games(catalog)
+    # Retain legacy order only where no statistical producer rank exists.
+    # For ranked games the one price-blind lead controls game sorting; a
+    # compatible broad-cover alternative must not become the primary by p.
     ordered_cards = ordered_event_rows(
         ((group.fixture_identity, card) for group in original_groups for card in group.cards),
         mode=sort_mode, event_key=lambda item: item[0],
@@ -4699,8 +4706,18 @@ def _render_wettfinder_games(catalog, row_by_key, *, sport_filter: str, sort_mod
     for identity, card in ordered_cards:
         cards_by_group.setdefault(identity, []).append(card)
     original_by_identity = {group.fixture_identity: group for group in original_groups}
-    groups = tuple(replace(original_by_identity[identity], cards=tuple(cards))
-                   for identity, cards in cards_by_group.items())
+    groups = []
+    for identity, cards in cards_by_group.items():
+        original = original_by_identity[identity]
+        if original.lead is not None:
+            cards = ([card for card in cards if card.key == original.lead.key]
+                     + [card for card in cards if card.key != original.lead.key])
+        groups.append(replace(original, cards=tuple(cards)))
+    groups = ordered_event_rows(
+        groups, mode=sort_mode, event_key=lambda group: group.fixture_identity,
+        starts_at=lambda group: (group.lead or group.cards[0]).scheduled_start,
+        probability=lambda group: (group.lead or group.cards[0]).model_probability,
+    )
     # Highlight membership is independent of model-probability order.
     # Highlights stay attached to cards; opening defaults follow the
     # visible page, while clicked preferences stay attached to fixture keys.

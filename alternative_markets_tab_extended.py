@@ -9,6 +9,7 @@ import streamlit as st
 import scan_jobs
 from bet_finder_ui import (
     coherent_consumer_forecasts,
+    consumer_event_leads,
     group_consumer_markets_by_fixture,
     merge_consumer_forecast_catalog,
     partition_consumer_featured_forecasts,
@@ -55,7 +56,7 @@ FOOTBALL_MARKET_SCOPES = {
     "Beste Märkte": None,
     "Ergebnis": frozenset({"result", "double_chance"}),
     "Tore": frozenset(
-        {"total", "team_total", "team_range", "result_total", "mixed_or"}
+        {"total", "total_range", "team_total", "team_range", "result_total", "mixed_or"}
     ),
     "Beide treffen": frozenset({"btts"}),
     "Ecken": frozenset({"corner_total", "team_corners"}),
@@ -405,6 +406,7 @@ def _merge_consumer_market_rows(
     *,
     limit: Optional[int] = MAX_CONSUMER_MARKET_SELECTIONS,
     coherent: bool = False,
+    model_clock=None,
 ):
     """Keep the model-ranked display stable regardless of bookmaker price."""
 
@@ -444,7 +446,7 @@ def _merge_consumer_market_rows(
     # pool before the display limit, featured cards or very-short-price group.
     # The default preserves legacy helper callers and historical 15K behavior.
     if coherent:
-        displayed = coherent_consumer_forecasts(displayed)
+        displayed = coherent_consumer_forecasts(displayed, model_clock=model_clock)
     return displayed[:limit]
 
 
@@ -559,6 +561,7 @@ def _run_market_scan_worker(
             candidate_pool.append(candidate)
     model_shortlist = select_wettfinder_catalog(
         candidate_pool,
+        avoid_conflicts=False,
     )
     # Cache the whole existing modeled catalog. Display filters must not be
     # starved by an earlier 25-card/eight-market cut; prices cannot reorder it.
@@ -871,7 +874,9 @@ def create_alternative_markets_tab_extended(
     # A passing price never selects the primary direction for a game.
     displayed_rows = _merge_consumer_market_rows(
         shortlist, model_shortlist, coherent=True, limit=None,
+        model_clock=snapshot.get('scanned_at'),
     )
+    event_leads = consumer_event_leads(displayed_rows, model_clock=snapshot.get('scanned_at'))
     reference_quotes = deserialize_consensus_map(snapshot.get('reference_quotes'))
     price_now = datetime.now(timezone.utc)
     reference_quotes = latest_reference_quotes(displayed_rows, reference_quotes,
@@ -888,14 +893,33 @@ def create_alternative_markets_tab_extended(
     primary_rows = displayed_rows
     from tip_display_order import display_order_control, ordered_event_rows
     sort_mode = display_order_control(st, key='manual_football_order')
-    featured_rows, more_rows = partition_consumer_featured_forecasts(
-        primary_rows,
-        max_featured=FEATURED_CONSUMER_MARKET_SELECTIONS,
-        allow_mixed_backfill=True,
-    )
+    if event_leads:
+        visible_ids = {row.candidate_id for row in primary_rows}
+        featured_rows = [row for row in event_leads if row.candidate_id in visible_ids][
+            :FEATURED_CONSUMER_MARKET_SELECTIONS]
+        featured_ids = {row.candidate_id for row in featured_rows}
+        more_rows = [row for row in primary_rows if row.candidate_id not in featured_ids]
+    else:
+        featured_rows, more_rows = partition_consumer_featured_forecasts(
+            primary_rows, max_featured=FEATURED_CONSUMER_MARKET_SELECTIONS,
+            allow_mixed_backfill=True,
+        )
     displayed_rows = ordered_event_rows((*featured_rows, *more_rows), mode=sort_mode,
         event_key=lambda candidate: candidate.fixture_id, starts_at=lambda candidate: candidate.kickoff,
         probability=lambda candidate: candidate.probability)
+    if event_leads:
+        lead_by_fixture = {row.fixture_id: row for row in event_leads}
+        groups = []
+        for label, rows in group_consumer_markets_by_fixture(displayed_rows):
+            lead = lead_by_fixture.get(rows[0].fixture_id)
+            if lead is not None:
+                rows = ([row for row in rows if row.candidate_id == lead.candidate_id]
+                        + [row for row in rows if row.candidate_id != lead.candidate_id])
+            groups.append((lead or rows[0], rows))
+        groups = ordered_event_rows(groups, mode=sort_mode,
+            event_key=lambda group: group[0].fixture_id, starts_at=lambda group: group[0].kickoff,
+            probability=lambda group: group[0].probability)
+        displayed_rows = [row for _lead, rows in groups for row in rows]
     if not displayed_rows:
         if stored_count and (search_filters.probability_active
                              or search_filters.quote_active
@@ -916,6 +940,11 @@ def create_alternative_markets_tab_extended(
                 zip(candidates, rows),
             ):
                 index = start_index + offset
+                lead = next((row for row in event_leads if row.fixture_id == raw_candidate.fixture_id), None)
+                if lead is not None and raw_candidate.candidate_id != lead.candidate_id and (
+                    offset == 0 or rows[offset - 1].candidate_id == lead.candidate_id
+                ):
+                    st.markdown('### Weitere Märkte')
                 st.caption(f"Auswahl {index}")
                 render_model_selection(candidate, presentation="fixture_first",
                     reference_quote=reference_quotes.get(raw_candidate.candidate_id),

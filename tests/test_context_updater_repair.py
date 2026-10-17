@@ -803,6 +803,13 @@ def test_frozen_reviewed_preflight_algorithms_are_copied_without_drift():
     # Deliberate supply-chain parity gate, not a substitute for behavior tests.
     updater = ROOT / "deploy/update_server.sh"
     raw = updater.read_bytes().replace(b"\r\n", b"\n")
+    # The reviewed additive 95-market helper changes only this exact child
+    # byte pin. Reconstruct its 90-market predecessor before every frozen
+    # updater/algorithm hash assertion below; do not rehash those contracts.
+    reviewed_helper = b"a520cef52a31a165c116175e22e288b3dadc5a05b618ed0caa655c9bfac80bcc"
+    previous_helper = b"6a58f24766d84624c13c4a0fa1b4a01de0318aaa9899f9361550029e49cbe0dd"
+    assert raw.count(reviewed_helper) == 1 and previous_helper not in raw
+    raw = raw.replace(reviewed_helper, previous_helper)
     # Keep the historical repair installer and all of its algorithm/helper
     # pins frozen. Reconstruct only the explicitly reviewed quotes addition
     # (aab9fb2) and exact inventory repair; behavioral coverage lives in the
@@ -858,7 +865,7 @@ def test_frozen_reviewed_preflight_algorithms_are_copied_without_drift():
     old_helper = b"65f28869e773fcaa5bcc186648f440e1f764ffafa656b92211180eb857f09646"
     new_helper = b"6a58f24766d84624c13c4a0fa1b4a01de0318aaa9899f9361550029e49cbe0dd"
     helper = (ROOT / "scripts/backup_runtime_databases.py").read_bytes().replace(b"\r\n", b"\n")
-    assert hashlib.sha256(helper).hexdigest().encode("ascii") == new_helper
+    assert hashlib.sha256(helper).hexdigest().encode("ascii") == reviewed_helper
     assert raw.count(new_helper) == 1 and old_helper not in raw
     assert hashlib.sha256(predecessor.replace(new_helper, old_helper)).hexdigest() == \
         "e760e30c1469232ff9c8634ed023b60fdbb2342792db3c1f86a902a657933065"

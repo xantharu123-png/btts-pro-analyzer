@@ -20,7 +20,7 @@ from challenge_engine import MARKET_BY_KEY, MARKET_SPECS, market_outcome
 
 
 _T = TypeVar("_T")
-_GOAL_KINDS = frozenset({"result", "double_chance", "btts", "total", "team_total", "team_range", "result_total", "mixed_or"})
+_GOAL_KINDS = frozenset({"result", "double_chance", "btts", "total", "total_range", "team_total", "team_range", "result_total", "mixed_or"})
 _DOMAINS = {**{kind: "goals" for kind in _GOAL_KINDS}, "corner_total": "corners", "team_corners": "corners", "yellow_total": "yellow", "team_yellow": "yellow"}
 
 

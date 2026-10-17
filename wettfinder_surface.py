@@ -9,7 +9,7 @@ into safe consumer-facing data. The user floor excludes known offers below
 from __future__ import annotations
 
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from html import escape
 import math
@@ -28,7 +28,7 @@ from ev_signal_sources import ModelSignal
 from daily3_comparison import Comparison, football_form_comparison
 from forecast_analysis import build_forecast_analysis, forecast_highlight_reason, format_model_clock
 from forecast_compact import CompactAnalysis, build_compact_analysis, render_compact_analysis_html
-from forecast_selection import select_consumer_forecasts
+from forecast_selection import select_consumer_forecasts, select_event_leads, validated_selection_rank
 from forecast_price_checks import has_current_price_check
 from quote_publication import publication_quote
 from market_consensus import (
@@ -124,6 +124,10 @@ class WettfinderCard:
     display_home_name: Optional[str] = None
     display_away_name: Optional[str] = None
     display_selection: Optional[str] = None
+    selection_rank: Optional[tuple[float, ...]] = None
+
+    def __post_init__(self):
+        object.__setattr__(self, 'selection_rank', validated_selection_rank(self.selection_rank))
 
 
 @dataclass(frozen=True)
@@ -133,6 +137,8 @@ class WettfinderFixtureGroup:
     fixture_identity: str
     label: str
     cards: tuple[WettfinderCard, ...]
+    # Original price-blind primary, even when its offer cannot be published.
+    lead: Optional[WettfinderCard] = None
 
 
 @dataclass(frozen=True)
@@ -183,6 +189,7 @@ class WettfinderCatalog:
     featured: tuple[WettfinderCard, ...]
     additional: tuple[WettfinderCard, ...]
     additional_groups: tuple[WettfinderFixtureGroup, ...]
+    event_leads: tuple[WettfinderCard, ...] = ()
 
 
 def _token(value: object) -> str:
@@ -526,6 +533,7 @@ def build_wettfinder_card(
         model_version=signal.model_version,
         policy_version=signal.policy_version,
         model_scope=signal.model_scope,
+        selection_rank=signal.selection_rank,
         model_eligible=not forecast_highlight_reason(signal, now=now, analysis=analysis, check_context=False),
         highlight_eligible=not highlight_reason,
         price_check_completed=has_current_price_check(signal, now=now, quote=normalized_quote),
@@ -638,19 +646,25 @@ def compose_wettfinder_catalog(
         or max_featured < 1
     ):
         raise ValueError("max_featured must be a positive integer")
-    original = [card for card in select_consumer_forecasts(cards)
-                if not card.quote_floor_excluded]
+    coherent = select_consumer_forecasts(cards)
+    event_leads = tuple(card for card in select_event_leads(coherent) if card.selection_rank is not None)
+    ranked_events = {_fixture_identity(card) for card in event_leads}
+    lead_keys = {card.key for card in event_leads}
+    original = [card for card in coherent if not card.quote_floor_excluded]
     requested = _token(sport_filter)
     if requested in _ALL_SPORT_FILTERS:
         ordered = _round_robin_by_sport(original)
     else:
         ordered = [card for card in original if _token(card.sport) == requested]
-    featured = _select_featured(ordered, max_featured=max_featured)
+    featured = _select_featured(
+        (card for card in ordered if _fixture_identity(card) not in ranked_events or card.key in lead_keys),
+        max_featured=max_featured,
+    )
     featured_keys = {card.key for card in featured}
     remaining = [card for card in ordered if card.key not in featured_keys]
     groups = _group_additional(remaining)
     additional = tuple(card for group in groups for card in group.cards)
-    return WettfinderCatalog(featured, additional, groups)
+    return WettfinderCatalog(featured, additional, groups, event_leads)
 
 
 def group_wettfinder_games(catalog: WettfinderCatalog) -> tuple[WettfinderFixtureGroup, ...]:
@@ -660,7 +674,9 @@ def group_wettfinder_games(catalog: WettfinderCatalog) -> tuple[WettfinderFixtur
     run on the complete pool. Highlighted games come first; each card stays the
     original object and appears once.
     """
-    return _group_additional((*catalog.featured, *catalog.additional))
+    leads = {_fixture_identity(card): card for card in catalog.event_leads}
+    return tuple(replace(group, lead=leads.get(group.fixture_identity))
+                 for group in _group_additional((*catalog.featured, *catalog.additional)))
 
 
 def wettfinder_game_label(group: WettfinderFixtureGroup) -> str:

@@ -1,5 +1,34 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 17.10.2026 – statistische Auswahl vor Sortierung, Multigoal
+
+Aktiver Auftrag: alle unterstützten Fußballmärkte korrekt prüfen/auswählen,
+danach sortieren; testen, main pushen, VPS deployen, **keine Backups**.
+Kanonisch weiterhin `.worktrees/audit-repairs-20261013`, Basis `6c106d56`.
+
+- [x] Verlust der modalen Resultatrichtung gegen breitere Doppelte Chance im
+  echten gespeicherten Ilves-Lauf und unabhängig offline reproduziert.
+- [x] Statistische Marktgüte statt roher Trefferchance für marktübergreifende
+  Auswahl; ein statistischer Hauptmarkt je Spiel vor Anzeige-/Preisfiltern.
+- [x]95 Runtime-Märkte einschließlich Gesamt-/Team-Multigoal; alte90 Originale,
+  Kalibrierung und Tickets behalten ihre unveränderten Verträge.
+- [x] Separater95-Katalog für Cache/Discovery; keine Modellversions-Umetikettierung.
+- [x] Manuelle Suche und15K behalten den vollständigen Kandidatenpool bis zur
+  gemeinsamen Auswahl; kein Ersatz-Haupttipp durch einen anderen Preis.
+- [x] Vollständiger nativer Offline-Testbestand mehrstufig geprüft:14978PASS,
+ 98 unveränderte Skips, alle14680 alten IDs erhalten,396 neue Fälle. Alle15076
+  IDs sind im Endaggregat genau einmal enthalten;806 Quell-/Fixture-Hashes.
+  572PASS/8Skips im vollständigen Drei-Modul-Nachlauf des einen Helperpins.
+  Unabhängige Schlussreviews ohne offenen Blocker.
+- [ ] Geprüften Stand committen/main pushen und ohne Backup auf VPS deployen;
+  danach echten gespeicherten Katalog und internen Browser prüfen.
+
+Quotenprobe heute: API-Football kennt186/223, liefert aber in beiden begrenzten
+Tagesproben keine echten Bereichsangebote. Nicht mit anderen Märkten ersetzen.
+Öffentliche Tipps weiterhin nur mit exakt passender Quote ab1,20. Keine weiteren
+Scans/Backups/Cleanups. NHL-Personal-/Kontexteffekte bleiben separat offen.
+Details: [Auswahlbericht](docs/audits/2026-10-17-marktauswahl.md).
+
 ## 16.10.2026 – NHL-Erfassungsanschluss live, noch kein vollständiges Personalmodell
 
 Kanonisch `.worktrees/audit-repairs-20261013`, Ausgangscommit `cc93663`.

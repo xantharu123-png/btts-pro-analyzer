@@ -1814,7 +1814,7 @@ if ((kind == "backup" and len(args) == 2 and os.geteuid() == 0)
         raise SystemExit("invalid trusted backup child")
     with helper.open("rb") as source:
         checksum = hashlib.file_digest(source, "sha256").hexdigest()
-    if checksum != "6a58f24766d84624c13c4a0fa1b4a01de0318aaa9899f9361550029e49cbe0dd":
+    if checksum != "a520cef52a31a165c116175e22e288b3dadc5a05b618ed0caa655c9bfac80bcc":
         raise SystemExit("backup child pin differs")
     executable = "/usr/bin/python3"
     command = [executable, "-I", "-B", str(helper), "--verify-only", str(archive)]

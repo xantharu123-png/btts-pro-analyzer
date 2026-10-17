@@ -1,5 +1,25 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## 17.10.2026 – aktueller Auswahlauftrag
+
+Weiter im bestehenden `.worktrees/audit-repairs-20261013`, Basis `6c106d56`.
+User autorisiert alle Fußballmarkt-Auswahlfehler inklusive Multigoal beheben,
+testen, main-Push und VPS, ausdrücklich keine Backups. Kein neuer Sportscan.
+Runtime95; alte90 ORIGINAL-/Kalibrierungs-/Ticketverträge unverändert.
+Statistischer Hauptmarkt wird vor Wahrscheinlichkeitssortierung und Preisen
+bestimmt; frühere Gesamtvergleichs-p-Unterdrückung ist reproduziert/korrigiert.
+Manuelle Suche/15K fertig. Vollständiger nativer Offline-Testbestand mehrstufig
+grün:14978PASS/98 identische Skips, alle15076 IDs genau einmal abgedeckt,
+alle14680 alten IDs erhalten,806 Quell-/Fixture-Hashes. Drei vollständige
+Updater-Besitzermodule nach einzigem Helperpin-Abgleich:572PASS/8Skips.
+Noch nicht als live melden: Commit/Push/Deploy und echter Browser-/Katalogbeleg
+folgen jetzt. Aktueller Belegpfad außerhalbGit:
+`C:/Projekt/BetBoy/output/market-selection-20261017/`.
+Quellenprobe186/223 heute ohne echte Angebote: keine synthetischen Quoten.
+Öffentlich weiterhin genau passende Quote>=1,20. Kontext-/NHL-Vollmodell bleibt
+separat offen. Endgültige Receipts folgen im
+`docs/audits/2026-10-17-marktauswahl.md` und oben in`TODO_AKTUELL.md`.
+
 ## 16.10.2026 – NHL zuerst: native Erfassung, Vollmodell noch offen
 
 Aktiv weiter im isolierten `.worktrees/audit-repairs-20261013`, Basis `cc93663`;

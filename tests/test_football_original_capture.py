@@ -59,15 +59,19 @@ def test_new_same_call_api_retains_final_triplets_before_candidate_rounding():
     packet = originals[0].to_dict()
     assert packet["kind"] == "football-original-market-calculation-v2"
     assert packet["prediction_version"] == engine.CHALLENGE_PREDICTION_VERSION
-    assert packet["probabilities"] == {key: list(val) for key, val in expected["probabilities"].items()}
-    assert packet["raw_probabilities"] == {key: list(val) for key, val in raw_model["probabilities"].items()}
+    legacy_keys = {spec.key for spec in engine.LEGACY_MARKET_SPECS}
+    assert packet["probabilities"] == {key: list(val) for key, val in expected["probabilities"].items() if key in legacy_keys}
+    assert packet["raw_probabilities"] == {key: list(val) for key, val in raw_model["probabilities"].items() if key in legacy_keys}
     assert packet["goal_model"]["active_lambdas"] == list(expected["active_lambdas"])
     assert packet["count_models"]["corners"]["active_counts"] == list(expected["count_models"]["corners"]["active_counts"])
     assert packet["count_models"]["yellow"]["dispersion"] == list(expected["count_models"]["yellow"]["dispersion"])
-    assert len(packet["probabilities"]) == len(engine.MARKET_SPECS)
+    assert len(packet["probabilities"]) == len(engine.LEGACY_MARKET_SPECS) == 90
+    assert len(expected["probabilities"]) == len(engine.MARKET_SPECS) == 95
     assert any(item.probability != packet["probabilities"][item.market_key][0] for item in actual)
     assert any(item.expected_home_goals != packet["goal_model"]["active_lambdas"][0] for item in actual)
-    assert all(item.probability == round(packet["probabilities"][item.market_key][0], 6) for item in actual)
+    assert all(item.probability == round(expected["probabilities"][item.market_key][0], 6) for item in actual)
+    assert all(item.probability == round(packet["probabilities"][item.market_key][0], 6)
+               for item in actual if item.market_key in legacy_keys)
     assert canonical([item.to_dict() for item in actual]) == canonical([item.to_dict() for item in
         engine.build_fixture_candidates(fixture, raw, {}, curves, candidate_profile=engine.CANDIDATE_PROFILE_WETTFINDER)])
 

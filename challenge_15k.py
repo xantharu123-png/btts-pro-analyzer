@@ -23,6 +23,7 @@ import scan_jobs
 from account_identity import storage_scope
 from bet_finder_ui import (
     coherent_consumer_forecasts,
+    consumer_event_leads,
     group_consumer_markets_by_fixture,
     merge_consumer_forecast_catalog,
     partition_consumer_featured_forecasts,
@@ -40,9 +41,11 @@ from challenge_engine import (
     CANDIDATE_PROFILE_WETTFINDER,
     CHALLENGE_MODEL_CONTRACT_SIGNATURE,
     CHALLENGE_PREDICTION_VERSION,
+    CHALLENGE_MARKET_CATALOG_SIGNATURE,
     ChallengeCandidate,
     COUNT_MARKET_KINDS,
     MARKET_BY_KEY,
+    MARKET_SPECS,
     MAX_CHALLENGE_STAKE_FRACTION,
     MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST,
     MODEL_SCOPE_CROSS_COMPETITION_UNVALIDATED,
@@ -160,8 +163,9 @@ MARKET_KIND_LABELS = {
     "double_chance": "Doppelte Chance",
     "btts": "Beide Teams treffen",
     "total": "Gesamttore",
+    "total_range": "Gesamttore 1-3 / 1-4 / 2-4",
     "team_total": "Teamtore",
-    "team_range": "Teamtore 1-3 / 2-4",
+    "team_range": "Teamtore 1-3 / 1-4 / 2-4",
     "result_total": "Resultat & Tore",
     "mixed_or": "Gemischte Chance",
     "corner_total": "Eckbälle gesamt",
@@ -174,8 +178,9 @@ MARKET_KIND_DETAILS = {
     "double_chance": "1X / X2 / 12",
     "btts": "Ja / Nein",
     "total": "Über / Unter 0,5 bis 4,5",
+    "total_range": "insgesamt 1-3, 1-4 oder 2-4 Tore",
     "team_total": "je Team Über / Unter 0,5 bis 2,5",
-    "team_range": "je Team 1-3 oder 2-4 Tore",
+    "team_range": "je Team 1-3, 1-4 oder 2-4 Tore",
     "result_total": "1X & U3,5 / X2 & U3,5 / 12 & Ü1,5",
     "mixed_or": "BTTS / Heimsieg / Auswärtssieg ODER Ü2,5",
     "corner_total": "Über / Unter 5,5 bis 11,5",
@@ -767,6 +772,8 @@ def _cached_market_artifact(
         league_id,
         season,
         history,
+        market_catalog_signature=CHALLENGE_MARKET_CATALOG_SIGNATURE,
+        expected_market_keys=tuple(spec.key for spec in MARKET_SPECS),
     )
     if cached is not None:
         return cached
@@ -778,6 +785,7 @@ def _cached_market_artifact(
         history,
         validation,
         calibration,
+        market_catalog_signature=CHALLENGE_MARKET_CATALOG_SIGNATURE,
     )
     return validation, calibration
 
@@ -3049,7 +3057,7 @@ def scan_daily_challenge(
     forecast_candidates = _forecast_candidate_pool(contextualized)
     # Separate full pool for the normal Wettfinder. Existing 15K shortlist,
     # featured and ticket fields below deliberately keep their prior contract.
-    wettfinder_candidates = select_wettfinder_catalog(contextualized)
+    wettfinder_candidates = select_wettfinder_catalog(contextualized, avoid_conflicts=False)
     price_candidates = _price_candidate_pool(contextualized)
     challenge_model_candidates = _challenge_model_candidate_pool(contextualized)
     forecast_shortlist = select_forecast_shortlist(
@@ -3315,7 +3323,7 @@ def refresh_discovered_candidates(
     )
 
     forecast_candidates = _forecast_candidate_pool(contextualized)
-    wettfinder_candidates = select_wettfinder_catalog(contextualized)
+    wettfinder_candidates = select_wettfinder_catalog(contextualized, avoid_conflicts=False)
     price_candidates = _price_candidate_pool(contextualized)
     forecast_shortlist = select_forecast_shortlist(
         forecast_candidates,
@@ -4841,7 +4849,7 @@ def _render_price_check(
     displayed_candidates: list[ChallengeCandidate] = coherent_consumer_forecasts(merge_consumer_forecast_catalog(
         snapshot.get("forecast_shortlist") or shortlist,
         snapshot.get("basis_forecasts"),
-    ))
+    ), model_clock=snapshot.get('scanned_at'))
     if not displayed_candidates:
         st.info("Für diesen Spieltag gibt es aktuell keinen 15K-Tipp.")
         st.caption(
@@ -5356,13 +5364,14 @@ def _render_model_challenge(
     now = datetime.now(timezone.utc)
     quotes = deserialize_consensus_map(snapshot.get('reference_quotes'))
     # Resolve the model direction before the floor; never flip it for a price.
-    pool = coherent_consumer_forecasts(pool)
+    pool = coherent_consumer_forecasts(pool, model_clock=snapshot.get('scanned_at'))
+    leads = consumer_event_leads(pool, model_clock=snapshot.get('scanned_at'))
+    selections = leads[:MAX_PUBLIC_FORECASTS] if leads else _challenge_display_selections(pool)
     quotes = latest_reference_quotes(pool, quotes, shared_rows=read_shared_quote_rows(), now=now,
         blocked_at=snapshot.get('reference_quote_conflicts'))
-    pool = [candidate for candidate in pool
+    selections = [candidate for candidate in selections
             if publication_allowed(
                 quotes.get(candidate.candidate_id), candidate=candidate, now=now)]
-    selections = _challenge_display_selections(pool)
     selections = [
         candidate for candidate in selections
         if (kickoff := _candidate_kickoff(candidate)) is not None and kickoff > now

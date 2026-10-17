@@ -100,7 +100,7 @@ def test_two_percent_point_estimate_at_n_200_is_not_statistical_release_evidence
     assert metric.paired_loss_lower_confidence_bound < 0.0
     assert metric.paired_loss_p_value > 0.05
     assert metric.fdr_q_value > 0.05
-    assert metric.tested_hypotheses == len(MARKET_SPECS) == 90
+    assert metric.tested_hypotheses == len(MARKET_SPECS) == 95
     assert metric.statistical_release_passed is False
 
 
@@ -132,8 +132,8 @@ def test_bh_counts_unobserved_markets_in_the_configured_family():
 
     adjusted = challenge_engine._benjamini_hochberg_q_values(p_values)
 
-    assert len(adjusted) == 90
-    assert math.isclose(adjusted[target_key], 0.09, abs_tol=1e-12)
+    assert len(adjusted) == len(MARKET_SPECS) == 95
+    assert math.isclose(adjusted[target_key], 0.001 * len(MARKET_SPECS), abs_tol=1e-12)
 
 
 def test_all_echtgeld_release_paths_require_hac_fdr_but_forecast_stays_visible():

@@ -10,7 +10,9 @@ import market_consensus
 import wettfinder_automation
 from betting_math import BETTING_POLICY_VERSION
 from challenge_engine import (
+    CHALLENGE_MARKET_CATALOG_SIGNATURE,
     MARKET_BY_KEY,
+    MARKET_SPECS,
     MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST,
     MODEL_SCOPE_CROSS_COMPETITION_UNVALIDATED,
     ChallengeCandidate,
@@ -615,7 +617,7 @@ def _challenge_candidate(kickoff: datetime) -> ChallengeCandidate:
         paired_loss_lower_confidence_bound=0.02,
         paired_loss_p_value=0.01,
         fdr_q_value=0.02,
-        tested_hypotheses=90,
+        tested_hypotheses=len(MARKET_SPECS),
         statistical_release_passed=True,
         prediction_version=CHALLENGE_PREDICTION_VERSION,
     )
@@ -674,7 +676,7 @@ def test_football_record_persists_paired_statistical_release_evidence():
     assert record["paired_loss_lower_confidence_bound"] == 0.02
     assert record["paired_loss_p_value"] == 0.01
     assert record["fdr_q_value"] == 0.02
-    assert record["tested_hypotheses"] == 90
+    assert record["tested_hypotheses"] == len(MARKET_SPECS)
 
 
 def test_football_projection_persists_price_free_analysis_and_context_refresh_backfills_legacy():
@@ -1784,6 +1786,7 @@ def test_football_discovery_runs_only_once_for_current_target_date():
         "search_date": search_date.isoformat(),
         "discovery_league_ids": sorted(ALTERNATIVE_MARKET_LEAGUES),
         "discovery_model_version": CHALLENGE_PREDICTION_VERSION,
+        "discovery_market_catalog_signature": CHALLENGE_MARKET_CATALOG_SIGNATURE,
         "last_attempt_at": "2030-01-01T06:00:00+00:00",
         "fixture_kickoffs": ["2030-01-01T20:00:00+00:00"],
     }
@@ -1829,6 +1832,7 @@ def test_completed_empty_discovery_rescans_when_league_scope_changes():
 
     previous["discovery_league_ids"] = sorted(ALTERNATIVE_MARKET_LEAGUES)
     previous["discovery_model_version"] = CHALLENGE_PREDICTION_VERSION
+    previous["discovery_market_catalog_signature"] = CHALLENGE_MARKET_CATALOG_SIGNATURE
     current = football_due(previous, now=now, search_date=now.date())
     assert current.due is False
     assert current.reason == "daily_discovery_current"
@@ -1840,6 +1844,7 @@ def test_completed_empty_discovery_rescans_when_league_scope_changes():
     )
     assert rescan_state["discovery_league_ids"] == sorted(ALTERNATIVE_MARKET_LEAGUES)
     assert rescan_state["discovery_model_version"] == CHALLENGE_PREDICTION_VERSION
+    assert rescan_state["discovery_market_catalog_signature"] == CHALLENGE_MARKET_CATALOG_SIGNATURE
     assert football_due(
         rescan_state, now=now + timedelta(minutes=30), search_date=now.date()
     ).due is False
@@ -1866,6 +1871,7 @@ def test_completed_discovery_rescans_after_model_version_changes():
     assert legacy.reason == "model_version_changed"
 
     previous["discovery_model_version"] = CHALLENGE_PREDICTION_VERSION
+    previous["discovery_market_catalog_signature"] = CHALLENGE_MARKET_CATALOG_SIGNATURE
     current = football_due(previous, now=now, search_date=now.date())
     assert current.due is False
     assert current.reason == "daily_discovery_current"
@@ -4590,6 +4596,7 @@ def test_failed_research_attempt_is_retried_without_new_football_discovery(
                     "search_date": now.date().isoformat(),
                     "discovery_league_ids": sorted(ALTERNATIVE_MARKET_LEAGUES),
                     "discovery_model_version": wettfinder_automation.CHALLENGE_PREDICTION_VERSION,
+                    "discovery_market_catalog_signature": CHALLENGE_MARKET_CATALOG_SIGNATURE,
                     "last_attempt_at": (now - timedelta(minutes=5)).isoformat(),
                     "context_checks": {},
                     "discovery_candidates": [],

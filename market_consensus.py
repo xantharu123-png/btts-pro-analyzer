@@ -857,6 +857,23 @@ def _line_from_key(market_key: str) -> Optional[str]:
     return f"{int(match.group(1))}.{int(match.group(2))}"
 
 
+_RANGE_BET_NAMES = {
+    "total goals number by ranges": (186, "Total Goals Number By Ranges"),
+    "number of goals in match (range)": (223, "Total Goals Number By Ranges"),
+    "home team exact goals number": (40, "Home Team Exact Goals Number"),
+    "away team exact goals number": (41, "Away Team Exact Goals Number"),
+}
+
+
+def _literal_goal_range(value: object, *, candidate_selection: bool = False) -> Optional[str]:
+    """Literal inclusive endpoints only; never exact counts, scores or O/U."""
+    suffix = r"(?:\s+Tore)?" if candidate_selection else ""
+    match = re.fullmatch(r"\s*(\d+)\s*[-–]\s*(\d+)" + suffix + r"\s*", str(value or ""))
+    if match is None or int(match[1]) > int(match[2]):
+        return None
+    return f"{int(match[1])}-{int(match[2])}"
+
+
 def exact_market_target(market_key: object) -> Optional[tuple[str, str]]:
     """Return the exact API-Football bet/value pair for one model market."""
     key = str(market_key or "").strip().upper()
@@ -872,6 +889,11 @@ def exact_market_target(market_key: object) -> Optional[tuple[str, str]]:
     }
     if key in fixed:
         return fixed[key]
+    ranged = re.fullmatch(r"(TOTAL|HOME|AWAY)_RANGE_(1_3|1_4|2_4)", key)
+    if ranged:
+        bet = {"TOTAL": "Total Goals Number By Ranges", "HOME": "Home Team Exact Goals Number",
+               "AWAY": "Away Team Exact Goals Number"}[ranged[1]]
+        return bet, ranged[2].replace("_", "-")
     line = _line_from_key(key)
     if line is None:
         return None
@@ -965,6 +987,8 @@ def _football_candidate_selection_matches(
 ) -> bool:
     raw = _candidate_value(candidate, "selection")
     if raw is None:
+        if "_RANGE_" in market_key:
+            return False
         # Legacy in-memory callers used only candidate_id/fixture_id/key. New
         # production rows always include the modeled selection and are checked.
         return True
@@ -991,6 +1015,10 @@ def _football_candidate_selection_matches(
         if market_key == "RESULT_AWAY" and away:
             return selected in {away, f"sieg {away}"}
         return False
+
+    if "_RANGE_" in market_key:
+        target = exact_market_target(market_key)
+        return target is not None and _literal_goal_range(raw, candidate_selection=True) == target[1]
 
     expected_line = _line_from_key(market_key)
     if expected_line is None:
@@ -1129,8 +1157,9 @@ def quote_matches_candidate(
                 candidate,
                 FOOTBALL_QUOTE_START_TOLERANCE,
             )
-            and _normalize(quote.bet_name) == _normalize(bet_name)
-            and _normalize(quote.value_name) == _normalize(value_name)
+            and _normalize(_RANGE_BET_NAMES.get(_normalize(quote.bet_name), (None, quote.bet_name))[1]) == _normalize(bet_name)
+            and (_literal_goal_range(quote.value_name) == value_name if "_RANGE_" in market_key
+                 else _normalize(quote.value_name) == _normalize(value_name))
             and _football_candidate_selection_matches(
                 candidate,
                 market_key,
@@ -1389,6 +1418,14 @@ def parse_fixture_consensus(
                 if not isinstance(bet, Mapping):
                     continue
                 bet_name = _normalize(bet.get("name"))
+                range_source = _RANGE_BET_NAMES.get(bet_name)
+                if range_source is not None:
+                    expected_id, canonical_name = range_source
+                    # An explicit contradictory source ID invalidates the
+                    # range contract. Missing IDs retain exact-name binding.
+                    if "id" in bet and (type(bet["id"]) is not int or bet["id"] != expected_id):
+                        continue
+                    bet_name = _normalize(canonical_name)
                 if diagnostics is not None and bet_name:
                     received_markets.add((fixture_id, bet_name))
                 values = bet.get("values")
@@ -1398,6 +1435,12 @@ def parse_fixture_consensus(
                     if not isinstance(value, Mapping):
                         continue
                     value_name = _normalize(value.get("value"))
+                    if range_source is not None:
+                        # Do not sum exact-count prices or infer a range price
+                        # from open-ended/exact-goal/O-U selections.
+                        value_name = _literal_goal_range(value.get("value"))
+                        if value_name is None:
+                            continue
                     if bet_name == "double chance":
                         # API-Football uses both token and spelled-out outcomes.
                         # Canonicalize only this exact full-time market; retain

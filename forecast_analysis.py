@@ -19,7 +19,7 @@ from challenge_engine import MARKET_BY_KEY
 _SCHEMA = "football-card-analysis-v1"
 _CONTEXT_MAX_AGE = timedelta(minutes=75)
 _ZURICH = ZoneInfo("Europe/Zurich")
-_GOAL_KINDS = {"result", "double_chance", "btts", "total", "team_total", "team_range", "result_total", "mixed_or"}
+_GOAL_KINDS = {"result", "double_chance", "btts", "total", "total_range", "team_total", "team_range", "result_total", "mixed_or"}
 _COUNT_UNITS = {"corner_total": "Ecken", "team_corners": "Ecken", "yellow_total": "Gelbe Karten", "team_yellow": "Gelbe Karten"}
 # Operational presentation review windows, not empirical prediction filters.
 MODEL_HIGHLIGHT_MAX_AGE = timedelta(minutes=150)
@@ -349,6 +349,9 @@ def _contract(spec, home: str, away: str) -> tuple[str, str]:
     if spec.kind == "team_range":
         team = home if spec.side == "home" else away
         return f"{spec.low}–{spec.high} Tore für {team}", f"Tore für {team} außerhalb dieses Bereichs"
+    if spec.kind == "total_range":
+        return (f"{spec.low}–{spec.high} Tore insgesamt",
+                f"höchstens {spec.low - 1} Tore oder mindestens {spec.high + 1} Tore insgesamt")
     compound = {
         "RESULT_TOTAL_1X_UNDER_3_5": ("DC_1X", "ODER"),
         "RESULT_TOTAL_X2_UNDER_3_5": ("DC_X2", "ODER"),
@@ -396,7 +399,7 @@ def _rate_copy(spec, basis: Mapping, home: str, away: str) -> str | None:
         value, team = (left, home) if spec.side.startswith("home") else (right, away)
         return f"Das Modell erwartet {_decimal(value)} {unit} für {team}"
     pair = f"{_decimal(left)} für {home}, {_decimal(right)} für {away}"
-    if spec.kind in {"total", "corner_total", "yellow_total", "result_total", "mixed_or"}:
+    if spec.kind in {"total", "total_range", "corner_total", "yellow_total", "result_total", "mixed_or"}:
         if not _number(left + right):
             return None
         return f"Das Modell erwartet {_decimal(left + right)} {unit} insgesamt ({pair})"

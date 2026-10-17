@@ -112,7 +112,9 @@ def compare_captured_joint(original: FootballOriginal) -> dict:
 
     families = packet["distribution_capture"]["families"]
     included_kinds = {spec.kind for family in families for spec in _FAMILIES[family]}
-    expected_specs = [asdict(spec) for spec in engine.MARKET_SPECS if spec.kind in included_kinds]
+    # Published joint laws own their frozen fitting catalog, not additional
+    # runtime-only marginal projections from the same distribution.
+    expected_specs = [asdict(spec) for spec in engine.JOINT_FIT_MARKET_SPECS if spec.kind in included_kinds]
     if packet["market_specs"] != expected_specs:
         raise ContextIntegrityError("captured market catalog differs from installed law")
     keys = {spec["key"] for spec in expected_specs}

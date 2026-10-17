@@ -34,7 +34,10 @@ def historical_scalar_goldens(request, monkeypatch):
         'test_candidates_shift_with_calibration',
     }:
         from tests.football_legacy_reference import activate
-        activate(monkeypatch, globals())
+        historical = activate(monkeypatch, globals())
+        # These immutable scalar goldens consume the owning historical catalog,
+        # not the separately extended runtime catalog imported at collection.
+        monkeypatch.setitem(globals(), 'MARKET_SPECS', historical.MARKET_SPECS)
 
 
 def fixture(

@@ -83,14 +83,18 @@ def load_model_artifact(
     history: list[dict[str, Any]],
     *,
     db_path: str | Path = DEFAULT_DB_PATH,
+    market_catalog_signature: Optional[str] = None,
+    expected_market_keys: Optional[tuple[str, ...]] = None,
 ) -> Optional[
     tuple[
         dict[str, ValidationMetrics],
         dict[str, MarketCalibration],
     ]
 ]:
+    storage_signature = (model_signature if market_catalog_signature is None else
+                         f"{model_signature}|catalog={market_catalog_signature}")
     cache_key, _history_digest = _identity(
-        model_signature,
+        storage_signature,
         league_id,
         season,
         history,
@@ -116,6 +120,11 @@ def load_model_artifact(
         raw_calibration = payload["calibration"]
         if not isinstance(raw_validation, dict) or not isinstance(raw_calibration, dict):
             return None
+        if (market_catalog_signature is not None
+                and payload.get("market_catalog_signature") != market_catalog_signature):
+            return None
+        if expected_market_keys is not None and set(raw_validation) != set(expected_market_keys):
+            return None
         validation = {
             str(key): ValidationMetrics(**values)
             for key, values in raw_validation.items()
@@ -133,6 +142,8 @@ def load_model_artifact(
             if isinstance(values, dict)
             and isinstance(values.get("points"), list)
         }
+        if expected_market_keys is not None and set(validation) != set(expected_market_keys):
+            return None
     except (KeyError, TypeError, ValueError, json.JSONDecodeError):
         return None
     return validation, calibration
@@ -147,9 +158,12 @@ def save_model_artifact(
     calibration: dict[str, MarketCalibration],
     *,
     db_path: str | Path = DEFAULT_DB_PATH,
+    market_catalog_signature: Optional[str] = None,
 ) -> None:
+    storage_signature = (model_signature if market_catalog_signature is None else
+                         f"{model_signature}|catalog={market_catalog_signature}")
     cache_key, history_hash = _identity(
-        model_signature,
+        storage_signature,
         league_id,
         season,
         history,
@@ -157,6 +171,8 @@ def save_model_artifact(
     payload = json.dumps(
         {
             "schema_version": MODEL_ARTIFACT_SCHEMA_VERSION,
+            **({"market_catalog_signature": market_catalog_signature}
+               if market_catalog_signature is not None else {}),
             "validation": {
                 key: asdict(metric)
                 for key, metric in validation.items()
@@ -186,7 +202,7 @@ def save_model_artifact(
                 """,
                 (
                     cache_key,
-                    model_signature,
+                    storage_signature,
                     league_id,
                     season,
                     history_hash,
@@ -202,7 +218,7 @@ def save_model_artifact(
                   AND season = ?
                   AND cache_key <> ?
                 """,
-                (model_signature, league_id, season, cache_key),
+                (storage_signature, league_id, season, cache_key),
             )
             connection.commit()
     except (OSError, sqlite3.Error):

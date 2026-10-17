@@ -15,6 +15,10 @@ from test_context_contracts import football_reference_base
 
 NOW = datetime(2026, 9, 9, 12, tzinfo=timezone.utc)
 GOAL_KINDS = {"result", "double_chance", "btts", "total", "team_total", "team_range", "result_total", "mixed_or"}
+# B5's football-base-v1/log-rate examples own the historical 90-market
+# contract. Runtime-only projections are tested with their owning joint model;
+# they must not be injected here as arbitrary .37 count-family placeholders.
+LEGACY_SPECS = engine.LEGACY_MARKET_SPECS
 FEATURE_NAMES = ["availability", "workload", "availability_workload"]
 
 
@@ -36,8 +40,11 @@ def inputs(*, rates=(2., 1.), values=(1., .5, .5), home_coef=(-.3, -.1, -.2), aw
     base = football_reference_base()
     base.update(cutoff=NOW.isoformat(), params=dict(zip(("home_lambda", "away_lambda"), rates)),
                 markets={spec.key: engine.market_probability(matrix, spec) if spec.kind in GOAL_KINDS else .37
-                         for spec in engine.MARKET_SPECS})
+                         for spec in LEGACY_SPECS})
     base = validate_base_distribution(base)
+    assert len(base['markets']) == len(LEGACY_SPECS) == 90
+    assert len([spec for spec in LEGACY_SPECS if spec.kind in GOAL_KINDS]) == 40
+    assert not set(base['markets']) & engine.PROJECTION_ONLY_MARKET_KEYS
     coverage = {"version": "football-roster-v1", "case": "reported_players"}
     features = {"version": "football-roster-components-v2", "event_key": base["event_key"], "cutoff": base["cutoff"],
                 "values": dict(zip(FEATURE_NAMES, values)), "states": {name: "available" for name in FEATURE_NAMES},
@@ -103,10 +110,10 @@ def test_all_goal_contracts_use_exactly_one_authoritative_matrix(monkeypatch):
     monkeypatch.setattr(engine, "market_probability", counted_probability)
     result = module.apply_football_effect(base, features, artifact, event=event())
     assert len(matrices) == 1
-    assert {spec.key for spec in contracts} == {spec.key for spec in engine.MARKET_SPECS if spec.kind in GOAL_KINDS}
+    assert {spec.key for spec in contracts} == {spec.key for spec in LEGACY_SPECS if spec.kind in GOAL_KINDS}
     assert len(contracts) == len({spec.key for spec in contracts})
     assert {spec.kind for spec in contracts} == GOAL_KINDS
-    for spec in engine.MARKET_SPECS:
+    for spec in LEGACY_SPECS:
         if spec.kind in GOAL_KINDS:
             assert result["markets"][spec.key] == original_probability(matrices[0], spec)
         else:

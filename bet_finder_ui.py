@@ -12,6 +12,7 @@ import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Callable, Iterable, Optional, TypeVar
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import streamlit as st
@@ -382,8 +383,40 @@ def partition_consumer_featured_forecasts(
     return featured, secondary
 
 
+def _consumer_statistical_views(rows, model_clock):
+    """Ephemeral comparison bindings from one declared saved model snapshot.
+
+    This never writes projected clocks/evidence back onto original candidates.
+    Unknown, naive or future snapshot clocks retain the legacy contract.
+    """
+    from challenge_engine import ChallengeCandidate
+    from forecast_analysis import _clock
+    clock = _clock(model_clock)
+    if (not rows or clock is None or clock > datetime.now(timezone.utc)
+            or any(not isinstance(row, ChallengeCandidate) for row in rows)):
+        return None
+    from wettfinder_automation import _football_candidate_record
+    views = []
+    for row in rows:
+        record = _football_candidate_record(row, context_checked_at=clock)
+        if record is None or not record.get('model_version'):
+            return None
+        views.append(SimpleNamespace(**record, home_team_id=record['home_id'],
+            away_team_id=record['away_id'], original=row))
+    return views
+
+
+def consumer_event_leads(rows, *, model_clock=None):
+    """Original statistical event leaders; absent metadata is not invented."""
+    from forecast_selection import select_event_leads
+    views = _consumer_statistical_views(list(rows), model_clock)
+    return [view.original for view in select_event_leads(views)] if views is not None else []
+
+
 def coherent_consumer_forecasts(
     rows: Iterable[_ForecastRow],
+    *,
+    model_clock=None,
 ) -> list[_ForecastRow]:
     """Select compatible normal-finder cards before any display/price split.
 
@@ -394,6 +427,22 @@ def coherent_consumer_forecasts(
     """
 
     original = list(rows)
+    views = _consumer_statistical_views(original, model_clock)
+    if views is not None:
+        from forecast_analysis import _clock
+        from wettfinder_automation import select_catalog_candidates
+        grouped = {}
+        for view in views:
+            kickoff = _clock(view.scheduled_start)
+            if kickoff is None:
+                return select_coherent_forecasts(original)
+            grouped.setdefault(kickoff.astimezone(_ZURICH_TZ).date(), []).append(vars(view))
+        selected = []
+        for target, records in grouped.items():
+            selected.extend(select_catalog_candidates(records, now=_clock(model_clock),
+                target_date=target, preserve_order=True))
+        accepted = {id(record['original']) for record in selected}
+        return [row for row in original if id(row) in accepted]
     preferred = sorted(
         original,
         key=lambda row: (
@@ -1075,6 +1124,7 @@ def render_price_decision(
 
 __all__ = [
     "coherent_consumer_forecasts",
+    "consumer_event_leads",
     "consumer_fixture_label",
     "group_consumer_markets_by_fixture",
     "merge_consumer_forecast_catalog",

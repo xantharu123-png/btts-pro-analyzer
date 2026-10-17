@@ -25,6 +25,8 @@ from zoneinfo import ZoneInfo
 from betting_math import BETTING_POLICY_VERSION, minimum_recommendation_odds
 from context_links import ContextReference
 from forecast_analysis import read_football_analysis
+from forecast_selection import validated_selection_rank
+from challenge_engine import MARKET_SPECS
 from team_sport_forecasts import SOURCE as TEAM_RESEARCH_SOURCE, POLICY as TEAM_RESEARCH_POLICY, valid_research_row, research_signal_row, freeze_research_snapshot
 from market_consensus import (
     MarketConsensus,
@@ -56,7 +58,7 @@ MAX_AUTOMATED_MODEL_CANDIDATES = 112_800
 MAX_AUTOMATED_RECOMMENDATIONS = 3
 AUTOMATED_WETTFINDER_MAX_AGE = timedelta(hours=2, minutes=30)
 AUTOMATED_MODEL_MAX_AGE = timedelta(hours=24)
-AUTOMATED_VALIDATION_MARKET_HYPOTHESES = 90
+AUTOMATED_VALIDATION_MARKET_HYPOTHESES = len(MARKET_SPECS)
 AUTOMATED_VALIDATION_FDR_ALPHA = 0.05
 
 # Maximales Signal-Alter je Fußball-Quelle: Prematch-Spiele liegen in der
@@ -116,8 +118,11 @@ class ModelSignal:
     team_sport_snapshot: Optional[Mapping[str, object]] = None
     # Original exact-key attempt time, not a quote/price or model ranking input.
     price_checked_at: Optional[str] = None
+    # Presentation-only transport of the producer's unchanged quote-free rank.
+    selection_rank: Optional[tuple[float, ...]] = None
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, 'selection_rank', validated_selection_rank(self.selection_rank))
         if self.team_sport_snapshot is not None:
             object.__setattr__(self, 'team_sport_snapshot', freeze_research_snapshot(self.team_sport_snapshot))
         if self.context_ref is not None and not isinstance(self.context_ref, ContextReference):
@@ -1449,7 +1454,90 @@ def _automated_analysis_fields(row: dict, *, now: datetime) -> dict:
         "competitor_a_id": row.get("competitor_a_id"),
         "competitor_b_id": row.get("competitor_b_id"),
         "context_evidence": row.get("context_evidence") if isinstance(row.get("context_evidence"), dict) else None,
+        "selection_rank": validated_selection_rank(row.get("selection_rank")),
     }
+
+
+def _complete_saved_football_view(document: dict, rows: list, *, now: datetime) -> list:
+    """Re-select saved producer rows, never recalculate or rewrite predictions.
+
+    Older writers persisted a lossy cross-market probability filter. The raw
+    producer pool is optional; malformed/legacy state keeps the validated
+    ledger unchanged. Prices are overlaid only after price-blind selection.
+    """
+    from challenge_engine import MARKET_BY_KEY
+    from wettfinder_automation import (
+        _football_record_selection_rank, _persisted_football_records, select_catalog_candidates,
+    )
+
+    state = document.get('football')
+    target = now.astimezone(ZURICH_TZ).date()
+    if (not isinstance(state, dict) or state.get('status') not in {'completed', 'degraded'}
+            or state.get('search_date') != target.isoformat()):
+        return rows
+    statuses = _validated_football_context_statuses(state)
+    producer = state.get('discovery_model_version')
+    raw = state.get('candidates')
+    if (statuses is None or not isinstance(producer, str) or not producer.strip()
+            or not isinstance(raw, list) or not raw or len(raw) > MAX_AUTOMATED_FOOTBALL_CANDIDATES):
+        return rows
+    complete = []
+    for row in raw:
+        if not isinstance(row, dict):
+            continue
+        identifiers = tuple(row.get(field) for field in ('fixture_id', 'home_id', 'away_id'))
+        if (any(type(value) is not int or value <= 0 for value in identifiers)
+                or identifiers[1] == identifiers[2]
+                or statuses.get(str(identifiers[0])) != 'verified'
+                or row.get('source') != 'football_challenge'
+                or row.get('status') != 'PRICE_REQUIRED'
+                or row.get('evidence_stage') != 'SHADOW'
+                or row.get('policy_version') != BETTING_POLICY_VERSION
+                or row.get('market_key') not in MARKET_BY_KEY
+                or row.get('event_identity') != f'football:{identifiers[0]}'
+                or not isinstance(row.get('key'), str) or not row['key'].strip()
+                or _football_record_selection_rank(row) is None):
+            continue
+        try:
+            if _automated_model_version(row) != producer:
+                continue
+            if 'context_ref' in row:
+                ContextReference.from_dict(row['context_ref'])
+        except ValueError:
+            continue
+        modeled, cutoff = (_parse_iso(row.get(field)) for field in ('modeled_at', 'input_cutoff_at'))
+        if (modeled is None or cutoff is None or modeled.tzinfo is None or cutoff.tzinfo is None
+                or not cutoff <= modeled <= now or read_football_analysis(row, now=now) is None):
+            continue
+        probability, haircut, minimum = (row.get(field) for field in (
+            'probability', 'probability_haircut', 'minimum_odds'))
+        if (not _valid_probability(probability) or not _valid_haircut(haircut, probability)
+                or type(minimum) not in (int, float) or not 1. < minimum < 1000.):
+            continue
+        expected = _minimum_odds(probability, haircut)
+        if expected is None or abs(minimum - expected) > .011:
+            continue
+        complete.append(row)
+    keys = [row['key'] for row in complete]
+    previous = [row for row in rows if row.get('source') == 'football_challenge']
+    # Do not replace an intact ledger with a partial or ambiguous raw copy.
+    if (not complete or len(set(keys)) != len(keys)
+            or not {row.get('key') for row in previous} <= set(keys)):
+        return rows
+    persisted = _persisted_football_records(
+        {**state, 'candidates': complete}, field_name='candidates', now=now,
+        target_date=target, limit=None, basic_only=False,
+    )
+    if not {row.get('key') for row in previous} <= {row['key'] for row in persisted}:
+        return rows
+    selected = select_catalog_candidates(persisted, now=now, target_date=target, preserve_order=True)
+    from quote_publication import latest_reference_quotes
+    shared = document.get('riskobet_price_observations')
+    shared = shared if isinstance(shared, list) and len(shared) <= MAX_AUTOMATED_MODEL_CANDIDATES else []
+    quotes = latest_reference_quotes(selected, {}, shared_rows=[*rows, *complete, *shared], now=now)
+    restored = [{**row, 'reference_quote': quotes[row['candidate_id']].to_dict()
+                 if row.get('candidate_id') in quotes else None} for row in selected]
+    return [*restored, *(row for row in rows if row.get('source') != 'football_challenge')]
 
 
 def automated_wettfinder_forecasts(
@@ -1501,6 +1589,7 @@ def automated_wettfinder_forecasts(
     football = football if isinstance(football, dict) else {}
     football_statuses = _validated_football_context_statuses(football)
     football_context_available = football_statuses is not None
+    rows = _complete_saved_football_view(document, rows, now=current)
     policies = _current_automated_policies()
     forecasts: List[ModelSignal] = []
     for row in rows:

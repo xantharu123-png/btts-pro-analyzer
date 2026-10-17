@@ -6,6 +6,36 @@ from challenge_engine import MarketCalibration, ValidationMetrics
 from challenge_model_cache import load_model_artifact, save_model_artifact
 
 
+def test_market_catalog_identity_recomputes_missing_ranges_without_deleting_previous_catalog(tmp_path):
+    import challenge_engine as engine
+    db_path = tmp_path / 'catalog-cache.db'
+    old_validation = {spec.key: ValidationMetrics(0, None, None, None, None, False)
+                      for spec in engine.LEGACY_MARKET_SPECS}
+    new_validation = {spec.key: ValidationMetrics(0, None, None, None, None, False)
+                      for spec in engine.MARKET_SPECS}
+    save_model_artifact(engine.CHALLENGE_PREDICTION_VERSION, 39, 2026, [], old_validation, {}, db_path=db_path)
+    keys = tuple(spec.key for spec in engine.MARKET_SPECS)
+    signature = 'football-market-catalog:95-bounded-multigoal-v1'
+    assert load_model_artifact(engine.CHALLENGE_PREDICTION_VERSION, 39, 2026, [], db_path=db_path,
+        market_catalog_signature=signature, expected_market_keys=keys) is None
+    save_model_artifact(engine.CHALLENGE_PREDICTION_VERSION, 39, 2026, [], new_validation, {}, db_path=db_path,
+        market_catalog_signature=signature)
+    assert load_model_artifact(engine.CHALLENGE_PREDICTION_VERSION, 39, 2026, [], db_path=db_path,
+        market_catalog_signature=signature, expected_market_keys=keys) == (new_validation, {})
+    assert load_model_artifact(engine.CHALLENGE_PREDICTION_VERSION, 39, 2026, [], db_path=db_path) == (old_validation, {})
+    with sqlite3.connect(db_path) as connection:
+        assert connection.execute('SELECT COUNT(*) FROM challenge_model_artifacts').fetchone()[0] == 2
+
+
+def test_catalog_labeled_but_incomplete_validation_is_not_accepted_as_computed(tmp_path):
+    db_path = tmp_path / 'incomplete-cache.db'
+    validation = {'HOME_RANGE_1_3': ValidationMetrics(0, None, None, None, None, False)}
+    save_model_artifact('v14', 39, 2026, [], validation, {}, db_path=db_path,
+        market_catalog_signature='range-catalog')
+    assert load_model_artifact('v14', 39, 2026, [], db_path=db_path,
+        market_catalog_signature='range-catalog', expected_market_keys=('HOME_RANGE_1_3', 'TOTAL_RANGE_1_4')) is None
+
+
 def test_model_artifact_round_trip_and_history_invalidation(tmp_path):
     db_path = tmp_path / "model-cache.db"
     history = [

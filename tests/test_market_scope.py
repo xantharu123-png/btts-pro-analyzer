@@ -19,8 +19,10 @@ def _passthrough_wettfinder_catalog(
     *,
     require_release=False,
     max_per_fixture=None,
+    avoid_conflicts=True,
 ):
     del require_release, max_per_fixture
+    assert avoid_conflicts is False
     selected = list(rows)
     return selected if max_candidates is None else selected[:max_candidates]
 

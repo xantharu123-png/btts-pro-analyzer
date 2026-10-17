@@ -42,6 +42,8 @@ CHALLENGE_MODEL_CONTRACT_SIGNATURE = (
 # Prediction/cache provenance is separate from the immutable monetary ticket
 # contract. Finder profiles/history updates must not invalidate old tickets.
 CHALLENGE_PREDICTION_VERSION = "challenge-engine:coherent-joint-calibration-v14"
+# Catalog coverage changes independently of the immutable calibrated law.
+CHALLENGE_MARKET_CATALOG_SIGNATURE = "football-market-catalog:95-bounded-multigoal-v1"
 CANDIDATE_PROFILE_CHALLENGE = "challenge"
 CANDIDATE_PROFILE_WETTFINDER = "wettfinder"
 TARGET_ODDS_MIN = 2.0
@@ -260,7 +262,7 @@ class QuotedTicket:
         return self.total_odds
 
 
-def market_specs() -> tuple[MarketSpec, ...]:
+def market_specs(*, include_extended_ranges: bool = True) -> tuple[MarketSpec, ...]:
     """Return the N1Bet-compatible market subset the model can settle exactly."""
     specs: list[MarketSpec] = [
         MarketSpec("RESULT_HOME", "Endergebnis", "Heimsieg", "result", side="home"),
@@ -498,13 +500,32 @@ def market_specs() -> tuple[MarketSpec, ...]:
                     ),
                 )
             )
+    if include_extended_ranges:
+        specs.extend(
+            MarketSpec(f"TOTAL_RANGE_{low}_{high}", "Gesamttore", f"{low}-{high} Tore",
+                       "total_range", low=low, high=high)
+            for low, high in ((1, 3), (1, 4), (2, 4))
+        )
+        specs.extend(
+            MarketSpec(f"{prefix}_RANGE_1_4", label, "1-4 Tore", "team_range",
+                       side=side, low=1, high=4)
+            for prefix, label, side in (("HOME", "Team 1 Gesamttore", "home"),
+                                        ("AWAY", "Team 2 Gesamttore", "away"))
+        )
     return tuple(specs)
 
 
+# The immutable v1/v2 joint recipes were fitted against the original catalog.
+# Extra settlement projections must not change its atoms or target weights.
+LEGACY_MARKET_SPECS = market_specs(include_extended_ranges=False)
+JOINT_FIT_MARKET_SPECS = LEGACY_MARKET_SPECS
 MARKET_SPECS = market_specs()
+PROJECTION_ONLY_MARKET_KEYS = frozenset(spec.key for spec in MARKET_SPECS) - frozenset(
+    spec.key for spec in JOINT_FIT_MARKET_SPECS)
 MARKET_BY_KEY = {spec.key: spec for spec in MARKET_SPECS}
 COUNT_MARKET_KINDS = {"corner_total", "team_corners", "yellow_total", "team_yellow"}
-GOAL_MARKET_SPECS = tuple(spec for spec in MARKET_SPECS if spec.kind not in COUNT_MARKET_KINDS)
+GOAL_MARKET_SPECS = tuple(spec for spec in LEGACY_MARKET_SPECS if spec.kind not in COUNT_MARKET_KINDS)
+GOAL_PROJECTION_MARKET_SPECS = tuple(spec for spec in MARKET_SPECS if spec.kind not in COUNT_MARKET_KINDS)
 
 # Broad safety lines are useful calibration outputs and often weak featured
 # cards.  In the normal Wettfinder this classification is presentation metadata
@@ -783,6 +804,8 @@ def market_outcome(spec: MarketSpec, home_count: int, away_count: int) -> bool:
         return scored if spec.side == "yes" else not scored
     if spec.kind == "total":
         return total > float(spec.threshold) if spec.side == "over" else total < float(spec.threshold)
+    if spec.kind == "total_range":
+        return int(spec.low) <= total <= int(spec.high)
     if spec.kind == "team_total":
         goals = home_goals if str(spec.side).startswith("home") else away_goals
         return goals > float(spec.threshold) if str(spec.side).endswith("over") else goals < float(spec.threshold)
@@ -1908,7 +1931,7 @@ def fixture_market_probabilities(
             model["raw_probabilities"][spec.key] = tuple(p[spec.key] for p in raw_values)
             model["probabilities"][spec.key] = tuple(p[spec.key] for p in effective_values)
 
-    project_family("goals", GOAL_MARKET_SPECS, model, "_lambdas")
+    project_family("goals", GOAL_PROJECTION_MARKET_SPECS, model, "_lambdas")
     model["count_models"] = {}
     for family, specs in (
         ("corners", CORNER_MARKET_SPECS),
@@ -1939,10 +1962,17 @@ def fixture_market_probabilities(
             [key for key in model["probabilities"] if key in calibration]
         )
     if original_capture is not None:
+        # Existing immutable ORIGINAL/context contracts retain their exact
+        # 90-market catalog. Runtime-only extra marginals do not manufacture
+        # owning context evidence or retroactively expand old snapshots.
+        legacy_keys = {spec.key for spec in LEGACY_MARKET_SPECS}
+        original_model = {**model, "probabilities": {
+            key: value for key, value in model["probabilities"].items() if key in legacy_keys}}
         original_capture(capture_football_original(
-            inputs=original_inputs, model=model,
-            raw_probabilities=original_raw_probabilities, calibration_recipes=original_calibration_recipes,
-            provenance=original_provenance, market_specs=MARKET_SPECS,
+            inputs=original_inputs, model=original_model,
+            raw_probabilities={key: value for key, value in original_raw_probabilities.items() if key in legacy_keys},
+            calibration_recipes={key: value for key, value in original_calibration_recipes.items() if key in legacy_keys},
+            provenance=original_provenance, market_specs=LEGACY_MARKET_SPECS,
             prediction_version=prediction_version_for_law(law_version),
             model_contract_signature=CHALLENGE_MODEL_CONTRACT_SIGNATURE,
         ))

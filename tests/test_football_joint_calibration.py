@@ -164,7 +164,7 @@ def test_persisted_unversioned_football_row_cannot_release():
     row={'context':{'release_context_complete':True,'release_eligible':True},'model_scope':'same_competition',
          'context_stale':False,'statistical_release_passed':True,'paired_loss_mean':.05,
          'paired_loss_hac_standard_error':.005,'paired_loss_lower_confidence_bound':.04,
-         'paired_loss_p_value':.00001,'fdr_q_value':.0009,'tested_hypotheses':90}
+         'paired_loss_p_value':.00001,'fdr_q_value':.0009,'tested_hypotheses':len(engine.MARKET_SPECS)}
     assert not _football_recommendation_release_eligible(row)
     assert not _football_row_release_eligible(row)
     row.update(prediction_version=engine.CHALLENGE_PREDICTION_VERSION,validation_prediction_version=engine.CHALLENGE_PREDICTION_VERSION)
@@ -217,6 +217,9 @@ def test_historical_authenticated_ticket_reads_and_settles_without_redefinition(
     payload.pop('prediction_version');payload['validation'].pop('prediction_version')
     payload.pop('market_comparison')  # Optional new presentation metadata did not exist in the old ticket schema.
     payload.pop('national_samples')  # Optional national-model field did not exist in old tickets.
+    # This is an actually old issuance, not a current 95-market validation
+    # relabelled as historical. The frozen old admission law requires 90.
+    payload['validation']['tested_hypotheses'] = 90
     payload['validation']=old.ValidationMetrics(**payload['validation'])
     candidate=old.ChallengeCandidate(**payload)
     ticket=old.select_quoted_ticket([candidate],{candidate.candidate_id:2.10},now=now)

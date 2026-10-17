@@ -91,7 +91,7 @@ def test_exact_market_mapping_covers_direct_lines_but_not_synthetic_ranges():
         "Away Team Yellow Cards",
         "Over 1.5",
     )
-    assert exact_market_target("HOME_RANGE_1_3") is None
+    assert exact_market_target("HOME_RANGE_1_3") == ("Home Team Exact Goals Number", "1-3")
     assert exact_market_target("RESULT_TOTAL_1X_UNDER_3_5") is None
     assert exact_market_target("MIXED_BTTS_OR_OVER_2_5") is None
 

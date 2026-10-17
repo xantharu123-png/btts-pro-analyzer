@@ -99,8 +99,7 @@ def validate_family_config(config: dict) -> dict:
         raise ContextContractError("regularization search must use the predeclared five alphas")
     row["alpha_grid"] = list(ALPHA_GRID)
     if family == "football:goals:90min":
-        from challenge_engine import MARKET_SPECS
-        from context_models.football_effect import GOAL_KINDS
+        from challenge_engine import GOAL_MARKET_SPECS
         joint = row['model_variant'] in {'football-joint-log-tilt-v1', 'football-joint-log-tilt-v2'}
         if joint:
             from context_models.football_joint_context import FEATURE_VERSION, POOLED_FEATURE_VERSION, PLAYER_LOAD_FEATURE_VERSION, LINK, feature_group, feature_coverage, joint_versions_for_variant
@@ -136,7 +135,9 @@ def validate_family_config(config: dict) -> dict:
             raise ContextContractError("unreviewed football fitting/replay law")
         if not joint and any(_FOOTBALL_FEATURE.fullmatch(name) is None for name in row["feature_names"]):
             raise ContextContractError("football training consumes only actual B4 component/player columns")
-        catalog = {spec.key for spec in MARKET_SPECS if spec.kind in GOAL_KINDS}
+        # Runtime-only projections do not inherit an owning context law's
+        # target admission merely by sharing an existing MarketSpec kind.
+        catalog = {spec.key for spec in GOAL_MARKET_SPECS}
     else:
         from context_models.tennis_effect import (
             SERVE_BASE_VERSION, SERVE_VARIANT, WINNER_VARIANT, _COVERAGE_CASES, _FEATURES,

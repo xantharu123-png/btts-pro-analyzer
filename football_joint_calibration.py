@@ -67,7 +67,11 @@ def calibrate_joint_distribution(raw_matrix, specs, calibration, *, law_version=
     """Return a joint matrix and reproducible solver/target diagnostics."""
     law_version = ACTIVE_LAW_VERSION if law_version is None else law_version
     recipe = recipe_for_law(law_version)
-    ordered = tuple(sorted(specs, key=lambda s: s.key))
+    from challenge_engine import PROJECTION_ONLY_MARKET_KEYS
+    # Both published laws keep their original fit catalog. Extended ranges are
+    # marginals of this same effective q, never new objective rows/atoms.
+    ordered = tuple(sorted((spec for spec in specs
+                            if spec.key not in PROJECTION_ONLY_MARKET_KEYS), key=lambda s: s.key))
     cells = tuple(sorted(raw_matrix))
     if not cells or any(isinstance(raw_matrix[c], bool) or not isinstance(raw_matrix[c], numbers.Real)
                         or not math.isfinite(raw_matrix[c]) or raw_matrix[c] < 0 for c in cells):

@@ -6,10 +6,58 @@ The returned objects are untouched; coherence is run exactly once before any
 consumer's section, slot, occupancy or price filter.
 """
 from datetime import datetime, timezone
+import math
 
 from challenge_engine import MARKET_BY_KEY
 from forecast_analysis import _clock, forecast_highlight_reason
 from selection_coherence import _role_binding, consumer_event_identity, select_coherent_forecasts
+
+
+def validated_selection_rank(value):
+    """Optional canonical producer rank; invalid legacy metadata stays absent."""
+    if not isinstance(value, (list, tuple)) or len(value) != 6:
+        return None
+    if any(type(number) not in (int, float) for number in value):
+        return None
+    try:
+        rank = tuple(float(number) for number in value)
+    except OverflowError:
+        return None
+    return rank if all(math.isfinite(number) for number in rank) else None
+
+
+def select_event_leads(rows):
+    """Choose one statistical lead per already coherent canonical event pool.
+
+    Compare the producer's existing rank only within the first/current row's
+    participant and model revision. Missing ranks preserve canonical legacy
+    preference. Quotes, marginal probabilities and display sorting are absent.
+    """
+    grouped = {}
+    for row in rows:
+        grouped.setdefault(consumer_event_identity(row), []).append(row)
+    def revision(row):
+        binding = _role_binding(row)
+        clocks = tuple(_clock(getattr(row, field, None)) for field in (
+            'scheduled_start', 'modeled_at', 'input_cutoff_at'))
+        model, policy = getattr(row, 'model_version', None), getattr(row, 'policy_version', None)
+        if (not binding or binding[0] == 'invalid' or any(clock is None for clock in clocks)
+                or not isinstance(model, str) or not model.strip()
+                or not isinstance(policy, str) or not policy.strip()):
+            return None
+        return (binding, *clocks, model, policy,
+                getattr(row, 'model_scope', None), getattr(row, 'model_eligible', None))
+    leads = []
+    for pool in grouped.values():
+        first = pool[0]
+        current_revision = revision(first)
+        comparable = [row for row in pool if current_revision is not None and revision(row) == current_revision
+                      and validated_selection_rank(getattr(row, 'selection_rank', None)) is not None]
+        lead = min(comparable, key=lambda row: (
+            tuple(-number for number in validated_selection_rank(row.selection_rank)), _stable_key(row)
+        )) if comparable else first
+        leads.append(lead)
+    return leads
 
 
 def _family(row):

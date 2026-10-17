@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 from challenge_engine import (
     CHALLENGE_PREDICTION_VERSION,
+    MARKET_SPECS,
     ValidationMetrics,
     build_fixture_candidates,
     market_is_basic_forecast,
@@ -30,7 +31,7 @@ def _credible_metric() -> ValidationMetrics:
         paired_loss_lower_confidence_bound=0.0418,
         paired_loss_p_value=0.00001,
         fdr_q_value=0.0009,
-        tested_hypotheses=90,
+        tested_hypotheses=len(MARKET_SPECS),
         statistical_release_passed=True,
         prediction_version=CHALLENGE_PREDICTION_VERSION,
     )

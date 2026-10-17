@@ -267,10 +267,17 @@ def scale_store(tmp_path_factory, native_case):
                 kwargs['native_resolver'](tuple(past+[target]))
                 original = football_original.capture_football_original(
                     inputs=football_original.football_original_inputs(target, past, None, logical_history_cutoff=kickoff),
-                    model=model, raw_probabilities=template['raw_probabilities'], calibration_recipes=template['calibration_recipes'],
-                    provenance=template['goal_provenance'], market_specs=engine.MARKET_SPECS,
+                    # Copy the owning historical capture catalog, not today's
+                    # expanded projection catalog; no runtime-only target may
+                    # be relabelled as old context-training evidence.
+                    model={**model, 'probabilities': {key: value for key, value in model['probabilities'].items()
+                        if key in template['probabilities']}},
+                    raw_probabilities=template['raw_probabilities'], calibration_recipes=template['calibration_recipes'],
+                    provenance=template['goal_provenance'], market_specs=engine.LEGACY_MARKET_SPECS,
                     prediction_version=template['prediction_version'], model_contract_signature=template['model_contract_signature'])
                 kwargs['original_capture'](original)
+            # These native fixtures contain goal inputs, not corner/card data.
+            assert set(original.to_dict()['probabilities']) == {spec.key for spec in engine.GOAL_MARKET_SPECS}
             assert publication.report()['events'][0]['source_state'] == 'captured'
             refs.append(publication.report()['events'][0]['binding_ref'])
             captured_lengths.append(len(original._bytes))

@@ -202,7 +202,7 @@ def recent_football_goal_market_facts(recent, spec, *, home, away):
     Team markets use goals scored for that team and goals conceded by the other
     team. Corners/cards must never receive facts inferred from football scores.
     """
-    if spec.kind not in {'team_total', 'team_range', 'total', 'btts'}:
+    if spec.kind not in {'team_total', 'team_range', 'total', 'total_range', 'btts'}:
         return (), ()
     contract = _contract(spec, home, away)[0]
     if spec.kind in {'team_total', 'team_range'}:
@@ -221,7 +221,7 @@ def recent_football_goal_market_facts(recent, spec, *, home, away):
             both = row['scored'] > 0 and row['conceded'] > 0
             return both if spec.side == 'yes' else not both
         goals = row['scored'] + row['conceded'] if field == 'total' else row[field]
-        if spec.kind == 'team_range':
+        if spec.kind in {'team_range', 'total_range'}:
             return spec.low <= goals <= spec.high
         return goals > spec.threshold if spec.side.endswith('over') else goals < spec.threshold
 

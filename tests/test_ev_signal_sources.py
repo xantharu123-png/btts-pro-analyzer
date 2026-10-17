@@ -60,7 +60,7 @@ def _playable_automatic_candidate(
     scheduled_start: str = "2030-01-01T15:00:00+00:00",
     odds: tuple[str, ...] = ("2.00", "2.02", "2.04", "2.06"),
 ) -> dict:
-    from challenge_engine import CHALLENGE_PREDICTION_VERSION
+    from challenge_engine import CHALLENGE_PREDICTION_VERSION, MARKET_SPECS
     candidate = {
         "prediction_version": CHALLENGE_PREDICTION_VERSION,
         "validation_prediction_version": CHALLENGE_PREDICTION_VERSION,
@@ -100,7 +100,7 @@ def _playable_automatic_candidate(
         "paired_loss_lower_confidence_bound": 0.02,
         "paired_loss_p_value": 0.01,
         "fdr_q_value": 0.02,
-        "tested_hypotheses": 90,
+        "tested_hypotheses": len(MARKET_SPECS),
     }
     payload = {
         "response": [
@@ -258,6 +258,35 @@ def _automatic_document(
         "candidates": strict,
         "challenge_release_candidates": challenge_strict,
     }
+
+
+def test_existing_90_market_model_document_remains_readable_without_current_release_approval(tmp_path):
+    """A historical model row is not a current 95-hypothesis strict approval."""
+    import json
+    row = _model_automatic_candidate()
+    row['tested_hypotheses'] = 90
+    artifact = tmp_path / 'old-catalog-model.json'
+    document = _automatic_document([row], candidates=[], challenge_release_candidates=[])
+    artifact.write_text(json.dumps(document), encoding='utf-8')
+    now = datetime(2030, 1, 1, 10, 30, tzinfo=timezone.utc)
+    loaded = _load_automated_wettfinder_document(artifact, now=now)
+    assert loaded is not None
+    assert loaded[0]['model_candidates'][0]['tested_hypotheses'] == 90
+    assert len(automated_wettfinder_forecasts(artifact, now=now)) == 1
+    assert automated_wettfinder_signals(artifact, now=now) == []
+    assert not signal_sources._football_recommendation_release_eligible(row)
+    assert json.loads(artifact.read_text(encoding='utf-8')) == document
+
+
+def test_existing_90_market_metric_cannot_be_relabelled_as_current_strict_document(tmp_path):
+    import json
+    row = _playable_automatic_candidate()
+    row['tested_hypotheses'] = 90
+    artifact = tmp_path / 'old-catalog-strict.json'
+    artifact.write_text(json.dumps(_automatic_document([_model_overlay(row)], candidates=[row])), encoding='utf-8')
+    now = datetime(2030, 1, 1, 10, 30, tzinfo=timezone.utc)
+    assert _load_automated_wettfinder_document(artifact, now=now) is None
+    assert automated_wettfinder_signals(artifact, now=now) == []
 
 
 def test_both_automated_builders_retain_exact_analysis_and_original_model_clocks(tmp_path, monkeypatch):

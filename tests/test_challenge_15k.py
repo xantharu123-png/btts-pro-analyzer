@@ -118,6 +118,8 @@ def test_cached_market_artifact_builds_and_saves_one_paired_cold_result():
         39,
         2025,
         history,
+        market_catalog_signature=challenge_15k.CHALLENGE_MARKET_CATALOG_SIGNATURE,
+        expected_market_keys=tuple(spec.key for spec in MARKET_SPECS),
     )
     build_mock.assert_called_once_with(history)
     save_mock.assert_called_once_with(
@@ -127,6 +129,7 @@ def test_cached_market_artifact_builds_and_saves_one_paired_cold_result():
         history,
         artifact[0],
         artifact[1],
+        market_catalog_signature=challenge_15k.CHALLENGE_MARKET_CATALOG_SIGNATURE,
     )
 
 
@@ -147,6 +150,8 @@ def test_cached_market_artifact_reuses_persistent_hit_without_rebuilding():
         39,
         2025,
         history,
+        market_catalog_signature=challenge_15k.CHALLENGE_MARKET_CATALOG_SIGNATURE,
+        expected_market_keys=tuple(spec.key for spec in MARKET_SPECS),
     )
     build_mock.assert_not_called()
     save_mock.assert_not_called()
@@ -2130,7 +2135,11 @@ class ChallengeProviderTests(unittest.TestCase):
         self.assertEqual(len(snapshot["forecast_shortlist"]), 1)
         self.assertGreater(snapshot["price_candidate_count"], 0)
         self.assertEqual(snapshot["configured_market_definitions"], len(MARKET_SPECS))
-        self.assertEqual(snapshot["modeled_market_definitions"], 40)
+        from challenge_engine import GOAL_MARKET_SPECS, GOAL_PROJECTION_MARKET_SPECS
+        # The owning historical fit remains 40; today's projection catalog
+        # additionally covers the five bounded Multigoal predicates.
+        self.assertEqual(len(GOAL_MARKET_SPECS), 40)
+        self.assertEqual(snapshot["modeled_market_definitions"], len(GOAL_PROJECTION_MARKET_SPECS))
         self.assertGreater(snapshot["market_candidates"], 0)
         self.assertEqual(
             sum(item["configured"] for item in snapshot["market_coverage"]),
@@ -2138,7 +2147,7 @@ class ChallengeProviderTests(unittest.TestCase):
         )
         self.assertEqual(
             sum(item["modeled"] for item in snapshot["market_coverage"]),
-            40,
+            len(GOAL_PROJECTION_MARKET_SPECS),
         )
         self.assertTrue(snapshot["base_shortlist"])
         self.assertNotIn(UNVALIDATED_TRANSFER_REASON, snapshot["blocked_counts"])

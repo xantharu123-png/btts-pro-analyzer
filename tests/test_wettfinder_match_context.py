@@ -47,18 +47,8 @@ def test_broad_forecast_without_supporting_form_is_not_promoted(variants):
 def test_no_market_or_home_away_ban_when_same_match_has_supporting_form(key):
     signal = _priced_football(key=key, probability=.78, variants=(.78, .73, .87))
     result = catalog([signal])
-    if key == 'HOME_RANGE_1_3':
-        from market_consensus import exact_market_target
-        from forecast_analysis import build_forecast_analysis
-        from daily3_comparison import football_form_comparison
-        # This native feed has no exact 1-3 range offer. Its model and match
-        # reason remain sound without manufacturing publication price proof.
-        assert exact_market_target(key) is None and signal.reference_quote is None
-        assert build_forecast_analysis(signal, now=NOW).supported
-        assert football_form_comparison(signal, now=NOW) is not None
-        assert signal.probability == .78
-        assert not result.featured and not result.additional
-        return
+    # The exact literal range fixture is now mapped too; it must satisfy the
+    # same support/price/presentation assertions as every other market here.
     assert [c.key for c in result.featured] == [signal.key]
     card = result.featured[0]
     for html in (render_top_card_html(card), render_compact_row_html(card, grouped=True, featured=True)):

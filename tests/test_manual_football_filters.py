@@ -253,7 +253,8 @@ def test_explicit_worker_prices_the_uncapped_catalog_once_and_keeps_model_values
     monkeypatch.setattr(market_tab, "ChallengeDataProvider", lambda *_: object())
     monkeypatch.setattr(market_tab, "scan_daily_challenge", lambda *_a, **_k: snapshot)
 
-    def select(candidates, max_candidates=None, *, max_per_fixture=None):
+    def select(candidates, max_candidates=None, *, max_per_fixture=None, avoid_conflicts=True):
+        assert avoid_conflicts is False
         selection_limits.append((max_candidates, max_per_fixture))
         return list(candidates) if max_candidates is None else list(candidates)[:max_candidates]
 
