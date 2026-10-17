@@ -15,7 +15,7 @@ def test_market_catalog_identity_recomputes_missing_ranges_without_deleting_prev
                       for spec in engine.MARKET_SPECS}
     save_model_artifact(engine.CHALLENGE_PREDICTION_VERSION, 39, 2026, [], old_validation, {}, db_path=db_path)
     keys = tuple(spec.key for spec in engine.MARKET_SPECS)
-    signature = 'football-market-catalog:95-bounded-multigoal-v1'
+    signature = engine.CHALLENGE_MARKET_CATALOG_SIGNATURE
     assert load_model_artifact(engine.CHALLENGE_PREDICTION_VERSION, 39, 2026, [], db_path=db_path,
         market_catalog_signature=signature, expected_market_keys=keys) is None
     save_model_artifact(engine.CHALLENGE_PREDICTION_VERSION, 39, 2026, [], new_validation, {}, db_path=db_path,

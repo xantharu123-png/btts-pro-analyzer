@@ -13,7 +13,7 @@ from tests.test_football_original_storage import NOW
 
 
 NEW_RANGES = {
-    "TOTAL_RANGE_1_3", "TOTAL_RANGE_1_4", "TOTAL_RANGE_2_4",
+    "TOTAL_RANGE_1_3", "TOTAL_RANGE_1_4", "TOTAL_RANGE_2_4", "TOTAL_RANGE_2_3",
     "HOME_RANGE_1_4", "AWAY_RANGE_1_4",
 }
 
@@ -123,7 +123,7 @@ def test_fresh_runtime_projects_ranges_without_expanding_owning_original(monkeyp
     model = engine.fixture_market_probabilities(
         fixture, history, calibration(), original_capture=originals.append)
     packet = originals[0].to_dict()
-    assert len(model["probabilities"]) == 95
+    assert len(model["probabilities"]) == 96
     assert NEW_RANGES <= set(model["probabilities"])
     for field in ("probabilities", "raw_probabilities", "calibration_recipes"):
         assert len(packet[field]) == 90

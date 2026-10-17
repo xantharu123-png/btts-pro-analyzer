@@ -15,7 +15,7 @@ from market_consensus import exact_market_target, parse_fixture_consensus, quote
 from tests.test_football_original_capture import values, calibration
 
 
-NEW_KEYS = {'TOTAL_RANGE_1_3', 'TOTAL_RANGE_1_4', 'TOTAL_RANGE_2_4',
+NEW_KEYS = {'TOTAL_RANGE_1_3', 'TOTAL_RANGE_1_4', 'TOTAL_RANGE_2_4', 'TOTAL_RANGE_2_3',
             'HOME_RANGE_1_4', 'AWAY_RANGE_1_4'}
 
 
@@ -71,7 +71,7 @@ def test_extended_catalog_projects_same_calibrated_q_without_changing_old_market
     assert canonical(old) == canonical(baseline['probabilities'])
     assert canonical(model['distribution_capture']['families']['goals']) == canonical(
         baseline['distribution_capture']['families']['goals'])
-    assert len(model['probabilities']) == 95
+    assert len(model['probabilities']) == 96
     assert all(math.isfinite(p) and 0 <= p <= 1 for ps in model['probabilities'].values() for p in ps)
     for index, variant in enumerate(('active', 'season', 'form')):
         cells = model['distribution_capture']['families']['goals'][variant]['effective_cells']
@@ -190,7 +190,7 @@ def test_new_range_uses_its_own_chronological_outcomes_and_never_borrows_old_val
     from copy import deepcopy
     rows = league_history(cycles=12)
     records = engine._walk_forward_market_records(rows)
-    assert len(records) == 95
+    assert len(records) == 96
     assert records['TOTAL_RANGE_1_4']['outcomes']
     assert records['TOTAL_RANGE_1_4']['outcomes'] != records['HOME_RANGE_1_3']['outcomes']
     changed = deepcopy(rows)

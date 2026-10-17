@@ -1,5 +1,74 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 17.10.2026 – bezahlte Multigoal-Quoten gezielt geprüft
+
+Aktiver Zusatzauftrag: echte fehlende Angebote von Abruffehlern unterscheiden;
+kostenlose Zusatzquelle nur bei nachgewiesener exakter Abdeckung. Kein Backup,
+kein zusätzlicher Sport-/Modellscan. Kanonischer Worktree unverändert,
+Ausgangscommit lokal/GitHub/main/VPS `6ff4d260`.
+
+- [x] Aktiver bezahlter API-Football-Zugang verifiziert. 14 begrenzte echte
+  Status-/Katalog-/Quotenanfragen, normale Budgetbuchung, keine Schlüsselausgabe.
+- [x] Drei vollständige native Spielantworten und fünf gültige Datum-/Markt-
+  Abfragen: keine passenden 1–3-/1–4-/2–4-Gesamt-/Teamangebote. Ungültige
+  Abfragen ohne Datum/Spiel ausdrücklich nicht als Abwesenheitsnachweis gezählt.
+- [x] Tatsächliches zusätzliches Angebot gefunden: Roma–Genoa, Bet365,
+  native349 „2 or 3 goals“ zu2,00, Anbieterstand09:18:17UTC. Nicht mit einem
+  vorhandenen anderen Bereich verwechseln; bestehender Katalog noch95.
+- [x] Echter Fetchfehler reproduziert/repariert: Folgeseiten wurden ignoriert.
+  Jetzt höchstens20 native Seiten/Spiel innerhalb vorhandener Budget-/Zeitgrenzen,
+  gemeinsamer Parser, unveränderte genaue Markt-/Anstoß-/Buchmacherbindung.
+- [x] Teilfehler/kaputte Seitencontainer beweisen keine Markt-Abwesenheit.
+  Gültige Angebote bleiben erhalten; begrenzte Diagnosefakten bleiben gespeichert.
+- [x] Unabhängiges Review fand Seiten-Uhrkante; mit echten RED-Fällen behoben.
+  Spätere fremde Angebote erneuern keine früheren Quoten. Re-Review ohne P1/P2.
+- [x] 407 betroffene Tests vor der letzten Uhr-/Container-Erweiterung bestanden;
+  zusätzlich final350 fokussierte Tests grün (Agent; nachgelagerter Sandbox-
+  Temp-Cleanup-Fehler bei Exit0 dokumentiert, nicht als Produktfehler versteckt).
+- [x] Vollständiger nativer Offline-Endstand: 15.135 PASS, 98 identische Skips,
+  vier Gruppen mit Exit 0. Alle 15.076 bisherigen IDs und 157 zusätzliche Fälle
+  im Endabgleich genau einmal enthalten; 810 Quell-/Fixture- und drei Shell-Hashes.
+  Fünf automatisch nummerierte Test-IDs waren durch neue Parameter verschoben:
+  nur deren Reihenfolge korrigiert, vollständiges Besitzermodul erneut 41 PASS;
+  exakte Rücktransformation rekonstruiert den vollständig getesteten Dateihash.
+  Produktionsquellen unverändert. Erster Zwischenlauf 15.119 bleibt INCOMPLETE.
+- [ ] Nach Abschluss finalen Stand committen, aufmain pushen und aufVPS per
+  geprüftem No-Backup-Helfer deployen; derzeit noch keine neue Veröffentlichung.
+- [x] Kostenlose Alternativen geprüft: keine verfügbare, exakt nachgewiesene
+  Bereichsquelle; deshalb kein erfundener/spekulativer Zusatzadapter.
+- [x] Nutzerfreigabe für Bereiche/Sieg-Torbereich-Statistik übernommen.
+  TOTAL_RANGE_2_3 ergänzt:96 Runtime/46 Torprojektionen, bisherige90/40/v14
+  und sämtliche bisherigen95 Wahrscheinlichkeiten/Abrechnungen bleiben gleich.
+  Neuer Markt wird separat validiert; alte95-Nachweise nicht als96 ausgegeben.
+- [x] Native349 „2 or 3 goals“ exakt angebunden; kein disjunktes „1 or 3“,
+  keine Über/Unter-/Halbzeit-/Teamquote als Gesamtbereich umetikettiert.
+- [x] Kompakte historische5/10-Treffer für Gesamtbereiche1–3/1–4/2–3/2–4
+  und jeweiliger Team-Sieg plus Bereich: gemeinsame Treffer gezählt, nicht
+  Einzelhäufigkeiten multipliziert. Keine neue Modellchance daraus behauptet.
+  Gemeinsam in normalen Karten, Daily3,15K und manueller Suche; nur einmal/Spiel.
+- [x] RisikoBet: eigene snapshotgebundene DISPLAY_ONLY-Zähler, keine Rate-/Rank-
+  Wirkung, kein Prosa-Parsen, kein JSON im Kundentext. Altstände ohne strukturierte
+  Daten werden nicht umgeschrieben; neue Faktoren erst im regulären Lauf.
+- [x] Zusammengeführte21-Modul-Integration748PASS/Exit0. Registry211PASS+6
+  Untertests nativ; vorausgegangene11 Sandbox-Berechtigungsfehler erhalten.
+- [x] Unabhängige Registry-/Parser-/UI-/RisikoBet-Reviews ohne offenen Blocker.
+  Zusätzlich manuellen Mehrfachblock mit echtem RED8→GREEN4 korrigiert.
+- [x] Echte Renderer mit isolierten TESTDATEN bei1280/390/320px im vorhandenen
+  Headless-Playwright geprüft: normale Karten und RisikoBet,5/10 per Maus/Tastatur,
+  keine Console-/Pagefehler/Überläufe. Kein Benutzerbrowser übernommen.
+  Das ist Renderer-QA, kein vollständiger Produktions-Streamlit-Nachweis.
+
+Nur der tatsächlich bepreiste2–3-Bereich wird als neue Modell-Marktdefinition
+ergänzt. Sieg/Bereich-Kombinationen stehen als beobachtete Spielstatistik da;
+ohne belegten exakten Anbieterpreis wird daraus kein zusätzlicher Tipp.
+Neue2–3-Prognosen entstehen beim nächsten regulären Modelllauf oder einer
+bewusst gestarteten manuellen Suche; keine zusätzlichen Scans dafür gestartet.
+
+Echte Preisuntergrenze1,20 und statistische Auswahl bleiben unverändert;
+keine künstliche Marktvielfalt und kein Renditeversprechen durch Softwaretests.
+[Befunde und laufende Nachweise](docs/audits/2026-10-17-multigoal-quotenabruf.md).
+Receipts außerhalbGit: `C:/Projekt/BetBoy/output/multigoal-quotes-20261017/`.
+
 ## 17.10.2026 – statistische Auswahl vor Sortierung, Multigoal
 
 Aktiver Auftrag: alle unterstützten Fußballmärkte korrekt prüfen/auswählen,

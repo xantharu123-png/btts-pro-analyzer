@@ -19,7 +19,7 @@ def _football_candidate():
 
 
 def _football_payload():
-    return {"errors": [], "response": [{
+    return {"errors": [], "paging": {"current": 1, "total": 1}, "response": [{
         "fixture": {"id": 42, "date": "2030-01-01T16:00:00+00:00"},
         "update": NOW.isoformat(), "bookmakers": [{
             "id": 1, "name": "Book A", "bets": [{
@@ -172,7 +172,7 @@ def test_football_fetch_passes_candidate_diagnostics_without_changing_pair_retur
 
         def json(self):
             if case == "empty":
-                return {"errors": [], "response": []}
+                return {"errors": [], "paging": {"current": 1, "total": 1}, "response": []}
             if case == "provider_error":
                 return {"errors": {"secret-key": "secret-provider-error"}}
             return _football_payload()
@@ -279,7 +279,14 @@ def test_request_diagnostic_distinguishes_budget_http_and_timeout_without_messag
     assert receipt["error_type"] == error_type
     assert receipt.get("http_status") == status
     assert receipt["checked_at"] == NOW.isoformat()
-    assert set(receipt) <= {"reason_code", "error_type", "http_status", "checked_at"}
+    assert set(receipt) <= {
+        "reason_code", "error_type", "http_status", "checked_at",
+        "pagination_complete", "pagination_pages_received", "pagination_failure",
+    }
+    if transport == "api_football_get":
+        assert receipt["pagination_complete"] is False
+        assert receipt["pagination_pages_received"] == 0
+        assert receipt["pagination_failure"] == "REQUEST_FAILED"
     assert "secret" not in str(receipt) + str(errors)
 
 

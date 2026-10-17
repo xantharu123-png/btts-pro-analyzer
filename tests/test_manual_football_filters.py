@@ -316,7 +316,8 @@ def test_explicit_worker_reuses_budgeted_fixture_batch_without_per_market_reques
 
     def request(_url, *, params, priority, **_kwargs):
         requested.append((params, priority))
-        return SimpleNamespace(raise_for_status=lambda: None, json=lambda: {"response": []})
+        return SimpleNamespace(raise_for_status=lambda: None, json=lambda: {
+            "errors": [], "paging": {"current": 1, "total": 1}, "response": []})
 
     monkeypatch.setattr(market_consensus, "api_football_get", request)
 

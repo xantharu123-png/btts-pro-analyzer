@@ -144,6 +144,13 @@ details.wf-fact {padding:0 !important;}
 .form-toggle input:focus-visible+label {outline:3px solid #a67b00;outline-offset:2px;}
 .form-window {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1.3rem;}
 .form-window-10 {display:none;}
+.form-goal-markets {grid-column:1/-1;min-width:0;border-top:1px solid var(--bb-line);padding-top:.8rem;}
+.form-goal-markets h5 {margin:0 !important;font:600 .9rem/1.3 sans-serif !important;}
+.form-goal-markets>small {color:var(--bb-muted);font-size:.68rem;}
+.form-goal-markets table {width:100%;table-layout:fixed;border-collapse:collapse;margin-top:.4rem;font-size:.75rem;}
+.form-goal-markets th, .form-goal-markets td {padding:.35rem .3rem;border:0;border-bottom:1px solid var(--bb-line);overflow-wrap:anywhere;}
+.form-goal-markets th:first-child {width:42%;text-align:left;font-weight:500;}
+.form-goal-markets th:not(:first-child), .form-goal-markets td {text-align:center;font-variant-numeric:tabular-nums;}
 .sports-form:has(input[value="10"]:checked) .form-window-5 {display:none;}
 .sports-form:has(input[value="10"]:checked) .form-window-10 {display:grid;}
 .form-team {position:relative;min-width:0;padding:0 .1rem;} .form-team+.form-team {border-left:1px solid var(--bb-line);padding-left:1rem;}

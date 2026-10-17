@@ -15,6 +15,8 @@ NEW_DEFINITIONS = {
     'TOTAL_RANGE_2_4': ('total_range', None, None, 2, 4),
     'HOME_RANGE_1_4': ('team_range', 'home', None, 1, 4),
     'AWAY_RANGE_1_4': ('team_range', 'away', None, 1, 4),
+    # Append new cases so the existing pytest-generated definition IDs survive.
+    'TOTAL_RANGE_2_3': ('total_range', None, None, 2, 3),
 }
 
 
@@ -71,6 +73,8 @@ def test_standalone_verifier_accepts_exact_new_multigoal_ticket_definition(key, 
     ('TOTAL_RANGE_1_4', 2, 2, True), ('TOTAL_RANGE_1_4', 2, 3, False),
     ('TOTAL_RANGE_2_4', 0, 1, False), ('TOTAL_RANGE_2_4', 1, 1, True),
     ('TOTAL_RANGE_2_4', 4, 0, True), ('TOTAL_RANGE_2_4', 5, 0, False),
+    ('TOTAL_RANGE_2_3', 0, 1, False), ('TOTAL_RANGE_2_3', 1, 1, True),
+    ('TOTAL_RANGE_2_3', 0, 3, True), ('TOTAL_RANGE_2_3', 2, 2, False),
     ('HOME_RANGE_1_4', 0, 2, False), ('HOME_RANGE_1_4', 1, 0, True),
     ('HOME_RANGE_1_4', 4, 5, True), ('HOME_RANGE_1_4', 5, 4, False),
     ('AWAY_RANGE_1_4', 2, 0, False), ('AWAY_RANGE_1_4', 0, 1, True),
@@ -90,6 +94,9 @@ def test_standalone_contract_fields_have_inclusive_total_and_role_bound_semantic
     ('HOME_RANGE_1_4', ('team_range', 'away', None, 1, 4)),
     ('AWAY_RANGE_1_4', ('team_range', 'home', None, 1, 4)),
     ('TOTAL_RANGE_0_99', ('total_range', None, None, 0, 99)),
+    ('TOTAL_RANGE_2_3', ('total_range', None, None, 1, 3)),
+    ('TOTAL_RANGE_2_3', ('total_range', None, None, 2, 4)),
+    ('TOTAL_RANGE_2_3', ('team_range', 'home', None, 2, 3)),
 ])
 def test_standalone_verifier_rejects_changed_bounds_side_and_unknown_contract(key, definition):
     with pytest.raises(RuntimeError, match='market definition is invalid'):
@@ -103,3 +110,11 @@ def test_original_ninety_standalone_definitions_remain_byte_identical():
     # Captured from the standalone verifier before adding the five definitions.
     assert hashlib.sha256(canonical(old).encode()).hexdigest() == (
         '34ce6ea1952d6c5fae8a6d3c43808a713e94c2cc4dff0a8f7474e0842062c739')
+
+
+def test_previous_ninety_five_standalone_definition_bytes_remain_exact():
+    old = {key: value for key, value in verifier.CHALLENGE_MARKET_DEFINITIONS.items()
+           if key != 'TOTAL_RANGE_2_3'}
+    assert len(old) == 95
+    assert hashlib.sha256(canonical(old).encode()).hexdigest() == (
+        'dc2449b7e3b0d9b3e12071e20ca74d9345181b60420eca960db3f9f5482fd9fc')

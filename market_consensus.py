@@ -860,18 +860,24 @@ def _line_from_key(market_key: str) -> Optional[str]:
 _RANGE_BET_NAMES = {
     "total goals number by ranges": (186, "Total Goals Number By Ranges"),
     "number of goals in match (range)": (223, "Total Goals Number By Ranges"),
+    "number of goals in match": (349, "Total Goals Number By Ranges"),
     "home team exact goals number": (40, "Home Team Exact Goals Number"),
     "away team exact goals number": (41, "Away Team Exact Goals Number"),
 }
 
 
 def _literal_goal_range(value: object, *, candidate_selection: bool = False) -> Optional[str]:
-    """Literal inclusive endpoints only; never exact counts, scores or O/U."""
+    """Inclusive endpoints or an adjacent native pair; never disjoint sets/O-U."""
     suffix = r"(?:\s+Tore)?" if candidate_selection else ""
     match = re.fullmatch(r"\s*(\d+)\s*[-–]\s*(\d+)" + suffix + r"\s*", str(value or ""))
-    if match is None or int(match[1]) > int(match[2]):
-        return None
-    return f"{int(match[1])}-{int(match[2])}"
+    if match is not None and int(match[1]) <= int(match[2]):
+        return f"{int(match[1])}-{int(match[2])}"
+    if not candidate_selection:
+        adjacent = re.fullmatch(r"\s*(\d+)\s+or\s+(\d+)\s+goals\s*",
+                                str(value or ""), flags=re.IGNORECASE)
+        if adjacent is not None and int(adjacent[2]) == int(adjacent[1]) + 1:
+            return f"{int(adjacent[1])}-{int(adjacent[2])}"
+    return None
 
 
 def exact_market_target(market_key: object) -> Optional[tuple[str, str]]:
@@ -886,6 +892,7 @@ def exact_market_target(market_key: object) -> Optional[tuple[str, str]]:
         "DC_12": ("Double Chance", "Home/Away"),
         "BTTS_YES": ("Both Teams Score", "Yes"),
         "BTTS_NO": ("Both Teams Score", "No"),
+        "TOTAL_RANGE_2_3": ("Total Goals Number By Ranges", "2-3"),
     }
     if key in fixed:
         return fixed[key]
@@ -1281,6 +1288,7 @@ def _quote_diagnostic(
     if error_type in {
         "MISSING_CREDENTIAL", "BUDGET_EXHAUSTED", "BUDGET_UNAVAILABLE", "BUDGET_ERROR",
         "HTTP_ERROR", "TIMEOUT", "REQUEST_ERROR", "INVALID_RESPONSE", "PROVIDER_ERROR",
+        "INCOMPLETE_PAGINATION",
     }:
         record["error_type"] = error_type
     if type(http_status) is int and 100 <= http_status <= 599:
@@ -1336,8 +1344,9 @@ def parse_fixture_consensus(
     fetched_at: Optional[datetime] = None,
     retain_observations: bool = False,
     diagnostics: Optional[MutableMapping[str, dict[str, Any]]] = None,
+    entry_received_at: Optional[Iterable[datetime]] = None,
 ) -> dict[str, MarketConsensus]:
-    """Parse exact candidate prices from one API-Football odds response."""
+    """Parse exact prices, preserving each native page's actual receipt clock."""
     candidate_list = list(candidates)
     fetched = _as_utc(fetched_at or datetime.now(timezone.utc))
     _quote_diagnostic(diagnostics, candidate_list, "UNKNOWN_NOT_RECEIVED", fetched_at=fetched)
@@ -1349,9 +1358,13 @@ def parse_fixture_consensus(
     response = payload.get("response")
     if not isinstance(response, list):
         return {}
+    receipts = ([fetched] * len(response) if entry_received_at is None
+                else [_as_utc(moment) for moment in entry_received_at])
+    if len(receipts) != len(response):
+        raise ValueError("entry receipt clocks must match odds response entries")
     quotes: dict[
         tuple[int, str, str],
-        dict[str, tuple[QuotePoint, datetime]],
+        dict[str, tuple[QuotePoint, datetime, datetime]],
     ] = {}
     fixture_ids: set[int] = set()
     fixture_starts: dict[int, Optional[datetime]] = {}
@@ -1364,7 +1377,8 @@ def parse_fixture_consensus(
     received_markets: set[tuple[int, str]] = set()
     received_selections: dict[tuple[int, str, str], set[str]] = {}
     received_updates: dict[tuple[int, str, str], datetime] = {}
-    for entry in response:
+    received_receipts: dict[tuple[int, str, str], datetime] = {}
+    for entry, entry_fetched in zip(response, receipts):
         if not isinstance(entry, Mapping):
             continue
         fixture = entry.get("fixture")
@@ -1451,6 +1465,8 @@ def parse_fixture_consensus(
                     reasons = None
                     if receipt_key in requested_targets:
                         reasons = received_selections.setdefault(receipt_key, set())
+                        received_receipts[receipt_key] = max(
+                            entry_fetched, received_receipts.get(receipt_key, entry_fetched))
                         if update is not None:
                             received_updates[receipt_key] = max(update, received_updates.get(receipt_key, update))
                     try:
@@ -1460,10 +1476,10 @@ def parse_fixture_consensus(
                             reasons.add("INVALID_QUOTE")
                         continue
                     if reasons is not None:
-                        reasons.add(_quote_clock_reason(update, fetched))
-                    if not (_observation_is_current(update, fetched) or (
+                        reasons.add(_quote_clock_reason(update, entry_fetched))
+                    if not (_observation_is_current(update, entry_fetched) or (
                         retain_observations and update is not None
-                        and timedelta(minutes=-1) <= fetched - update <= QUOTE_DISPLAY_MAX_AGE
+                        and timedelta(minutes=-1) <= entry_fetched - update <= QUOTE_DISPLAY_MAX_AGE
                     )):
                         continue
                     market_quotes = quotes.setdefault(
@@ -1490,6 +1506,7 @@ def parse_fixture_consensus(
                                 observed_at=update.isoformat(),
                             ),
                             update,
+                            entry_fetched,
                         )
 
     result: dict[str, MarketConsensus] = {}
@@ -1530,15 +1547,18 @@ def parse_fixture_consensus(
                 reason = "SELECTION_ABSENT"
             else:
                 reason = _missing_quote_reason(received_selections[receipt_key])
-            _quote_diagnostic(diagnostics, [candidate], reason, fetched_at=fetched,
+            _quote_diagnostic(diagnostics, [candidate], reason,
+                              fetched_at=received_receipts.get(receipt_key, fetched),
                               provider_updated_at=received_updates.get(receipt_key))
             continue
         lowest, conservative, consensus, best = summary
         observed_at = [observed[1] for observed in raw.values()]
+        quote_fetched = max(observed[2] for observed in raw.values())
         quoted_at = max(observed_at).isoformat() if observed_at else None
         _quote_diagnostic(diagnostics, [candidate],
-                          "OBSERVED" if all(_observation_is_current(moment, fetched) for moment in observed_at)
-                          else "STALE_CLOCK", fetched_at=fetched,
+                          "OBSERVED" if all(_observation_is_current(observed[1], observed[2])
+                                            for observed in raw.values())
+                          else "STALE_CLOCK", fetched_at=quote_fetched,
                           provider_updated_at=max(observed_at), bookmaker_count=len(points))
         result[candidate_id] = MarketConsensus(
             fixture_id=fixture_id,
@@ -1552,7 +1572,7 @@ def parse_fixture_consensus(
             best_odds=best,
             bookmaker_count=len(points),
             quoted_at=quoted_at,
-            fetched_at=fetched.isoformat(),
+            fetched_at=quote_fetched.isoformat(),
             source=REFERENCE_SOURCE,
             points=points,
             scheduled_start=(
@@ -2253,6 +2273,28 @@ def fetch_tennis_h2h_consensus(
     return result, errors
 
 
+_FOOTBALL_ODDS_MAX_PAGES = 20
+
+
+def _football_odds_entry_has_shape(entry: object) -> bool:
+    """A broken native container cannot prove a market or selection absent."""
+    if not isinstance(entry, Mapping):
+        return False
+    fixture, bookmakers = entry.get("fixture"), entry.get("bookmakers")
+    if (not isinstance(fixture, Mapping) or type(fixture.get("id")) is not int
+            or fixture["id"] <= 0 or not isinstance(bookmakers, list)):
+        return False
+    for bookmaker in bookmakers:
+        if not isinstance(bookmaker, Mapping) or not isinstance(bookmaker.get("bets"), list):
+            return False
+        for bet in bookmaker["bets"]:
+            if not isinstance(bet, Mapping) or not isinstance(bet.get("values"), list):
+                return False
+            if not all(isinstance(value, Mapping) for value in bet["values"]):
+                return False
+    return True
+
+
 def fetch_football_consensus(
     api_key: str,
     candidates: Iterable[object],
@@ -2262,10 +2304,11 @@ def fetch_football_consensus(
     diagnostics: Optional[MutableMapping[str, dict[str, Any]]] = None,
     deadline: Optional[float] = None,
 ) -> tuple[dict[str, MarketConsensus], list[str]]:
-    """Fetch exact fixture quotes, optionally bounded by a monotonic deadline.
+    """Fetch and merge bounded native pages before calculating exact prices.
 
     A deadline defers only requests not yet started; the existing per-request
-    timeout still bounds any in-flight call. Deferred rows have no receipt clock.
+    timeout still bounds any in-flight call. Entirely deferred fixtures have no receipt clock.
+    Partial pages can prove received offers, never an absent market/selection.
     """
     current = _as_utc(now or datetime.now(timezone.utc))
     candidate_list = list(candidates)
@@ -2294,45 +2337,132 @@ def fetch_football_consensus(
         if deadline is not None and monotonic() >= deadline:
             _quote_diagnostic(diagnostics, fixture_candidates, "DEFERRED")
             continue
-        try:
-            response = api_football_get(
-                "https://v3.football.api-sports.io/odds",
-                headers=headers,
-                params={"fixture": fixture_id},
-                timeout=timeout,
-                priority=APIBudgetPriority.RECOMMENDATION,
-                label=f"odds consensus fixture {fixture_id}",
-            )
-            response.raise_for_status()
-            payload = response.json()
-        except (APIBudgetError, requests.RequestException, ValueError) as exc:
-            errors.append(f"Marktquoten Spiel {fixture_id}: {type(exc).__name__}")
-            _quote_diagnostic(diagnostics, fixture_candidates, "REQUEST_FAILED",
-                              checked_at=current if now is not None else datetime.now(timezone.utc),
-                              **_request_error_facts(exc))
-            continue
-        fetched_at = current if now is not None else _as_utc(datetime.now(timezone.utc))
-        if not isinstance(payload, Mapping):
-            errors.append(f"Marktquoten Spiel {fixture_id}: ungueltige Antwort")
-            _quote_diagnostic(diagnostics, fixture_candidates, "UNKNOWN_NOT_RECEIVED", fetched_at=fetched_at)
-            continue
-        provider_errors = payload.get("errors")
-        if provider_errors:
-            errors.append(f"Marktquoten Spiel {fixture_id}: Providerfehler")
-            _quote_diagnostic(diagnostics, fixture_candidates, "REQUEST_FAILED", fetched_at=fetched_at,
-                              error_type="PROVIDER_ERROR")
-            continue
-        quotes.update(
+        entries: list[object] = []
+        entry_receipts: list[datetime] = []
+        received_pages: list[list[object]] = []
+        fetched_at: Optional[datetime] = None
+        checked_at: Optional[datetime] = None
+        total_pages: Optional[int] = None
+        page_number = 1
+        failure: Optional[str] = None
+        failure_error: Optional[str] = None
+        failure_facts: dict[str, Any] = {}
+        while True:
+            if page_number > 1 and deadline is not None and monotonic() >= deadline:
+                failure = "DEADLINE"
+                break
+            params = {"fixture": fixture_id}
+            if page_number > 1:
+                params["page"] = page_number
+            try:
+                response = api_football_get(
+                    "https://v3.football.api-sports.io/odds",
+                    headers=headers,
+                    params=params,
+                    timeout=timeout,
+                    priority=APIBudgetPriority.RECOMMENDATION,
+                    label=f"odds consensus fixture {fixture_id}",
+                )
+                response.raise_for_status()
+                payload = response.json()
+            except (APIBudgetError, requests.RequestException, ValueError) as exc:
+                failure = "REQUEST_FAILED"
+                failure_error = f"Marktquoten Spiel {fixture_id}: {type(exc).__name__}"
+                failure_facts = _request_error_facts(exc)
+                checked_at = current if now is not None else _as_utc(datetime.now(timezone.utc))
+                break
+            # Each actual response owns its clock. A failed later request must
+            # not renew the retrieval clock of an earlier received offer.
+            received_at = current if now is not None else _as_utc(datetime.now(timezone.utc))
+            checked_at = received_at
+            if not isinstance(payload, Mapping):
+                failure = "INVALID_RESPONSE"
+                failure_facts = {"error_type": "INVALID_RESPONSE"}
+                break
+            if payload.get("errors"):
+                failure = "PROVIDER_ERROR"
+                failure_error = f"Marktquoten Spiel {fixture_id}: Providerfehler"
+                failure_facts = {"error_type": "PROVIDER_ERROR"}
+                break
+            if not isinstance(payload.get("response"), list):
+                failure = "INVALID_RESPONSE"
+                failure_facts = {"error_type": "INVALID_RESPONSE"}
+                break
+            page_entries = payload["response"]
+            # Preserve genuinely received prices even if page metadata is bad.
+            entries.extend(page_entries)
+            entry_receipts.extend([received_at] * len(page_entries))
+            fetched_at = received_at
+            repeated_body = page_entries in received_pages
+            received_pages.append(page_entries)
+            if not all(_football_odds_entry_has_shape(entry) for entry in page_entries):
+                failure = "INVALID_RESPONSE"
+                failure_facts = {"error_type": "INVALID_RESPONSE"}
+                break
+            paging = payload.get("paging")
+            if not isinstance(paging, Mapping):
+                failure = "MISSING_PAGING" if "paging" not in payload else "INVALID_PAGING"
+                break
+            reported_page, reported_total = paging.get("current"), paging.get("total")
+            if (type(reported_page) is not int or type(reported_total) is not int
+                    or reported_page < 1 or reported_total < reported_page):
+                failure = "INVALID_PAGING"
+                break
+            if reported_page != page_number:
+                failure = "REPEATED_PAGE" if reported_page < page_number else "INVALID_PAGING"
+                break
+            if total_pages is None:
+                total_pages = reported_total
+            elif reported_total != total_pages:
+                failure = "INVALID_PAGING"
+                break
+            if repeated_body:
+                failure = "REPEATED_PAGE"
+                break
+            if page_number == total_pages:
+                break
+            if page_number >= _FOOTBALL_ODDS_MAX_PAGES:
+                failure = "PAGE_LIMIT"
+                break
+            page_number += 1
+        fixture_quotes = (
             parse_fixture_consensus(
-                payload,
+                {"errors": [], "response": entries},
                 fixture_candidates,
-                # Later responses must not inherit the batch-start clock:
-                # a new provider observation would otherwise look future-dated.
                 fetched_at=fetched_at,
                 retain_observations=True,
                 diagnostics=diagnostics,
+                entry_received_at=entry_receipts,
             )
+            if fetched_at is not None else {}
         )
+        quotes.update(fixture_quotes)
+        if failure is not None:
+            deferred = failure == "DEADLINE"
+            if not deferred:
+                errors.append(failure_error or f"Marktquoten Spiel {fixture_id}: unvollstaendige Paginierung")
+                failure_facts.setdefault("error_type", "INCOMPLETE_PAGINATION")
+            missing = [candidate for candidate in fixture_candidates
+                       if str(_candidate_value(candidate, "candidate_id") or "").strip() not in fixture_quotes]
+            for candidate in missing:
+                candidate_id = str(_candidate_value(candidate, "candidate_id") or "").strip()
+                previous = diagnostics.get(candidate_id, {}) if diagnostics is not None else {}
+                _quote_diagnostic(diagnostics, [candidate], "DEFERRED" if deferred else "REQUEST_FAILED",
+                                  fetched_at=_parse_utc(previous.get("fetched_at")) or fetched_at,
+                                  checked_at=checked_at,
+                                  provider_updated_at=_parse_utc(previous.get("provider_updated_at")),
+                                  **failure_facts)
+            if diagnostics is not None:
+                for candidate in fixture_candidates:
+                    candidate_id = str(_candidate_value(candidate, "candidate_id") or "").strip()
+                    if candidate_id and candidate_id in diagnostics:
+                        diagnostics[candidate_id].update(
+                            pagination_complete=False,
+                            pagination_pages_received=len(received_pages),
+                            pagination_failure=failure,
+                        )
+                        if total_pages is not None:
+                            diagnostics[candidate_id]["pagination_total_pages"] = total_pages
     return quotes, errors
 
 

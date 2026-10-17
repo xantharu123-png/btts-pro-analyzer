@@ -68,6 +68,8 @@ ESPORTS_SIMPLE_MAX_PROBABILITY = 0.85
 RESEARCH_WIN_MIN_PROBABILITY = 0.12
 FOOTBALL_CONTEXT_TTL = timedelta(minutes=75)
 FOOTBALL_HIGHLIGHT_CHECK_SCHEMA = "football-highlight-context-checks-v1"
+FOOTBALL_GOAL_HISTORY_SCHEMA = "football-goal-history-v1"
+FOOTBALL_GOAL_HISTORY_LABELS = ('1-3', '1-4', '2-3', '2-4', 'W1-3', 'W1-4', 'W2-3', 'W2-4')
 RESEARCH_HISTORY_TTL = timedelta(days=30)
 
 _UTC = timezone.utc
@@ -203,6 +205,15 @@ def _without_prices(value: object) -> object:
 
 def _candidate_probability(candidate: object) -> Optional[float]:
     return _probability(_get(candidate, "probability"))
+
+
+def football_goal_history_source(*, event_key, starts_at, modeled_at, input_cutoff_at, input_hash):
+    """Bind display counts to the owning immutable event/model revision."""
+    return FOOTBALL_GOAL_HISTORY_SCHEMA + ':' + canonical_input_hash({
+        'event_key': event_key, 'starts_at': starts_at.isoformat(),
+        'modeled_at': modeled_at.isoformat(), 'input_cutoff_at': input_cutoff_at.isoformat(),
+        'input_hash': input_hash,
+    })
 
 
 def _candidate_cautious(candidate: object, probability: float) -> Optional[float]:
@@ -922,6 +933,7 @@ def football_risk_bundle(
         'away_id': _get(selected[0], 'away_team_id'), 'scheduled_start': starts_at.isoformat(),
         'model_scope': _get(selected[0], 'model_scope'), 'input_cutoff_at': cutoff.isoformat()})
     recent_factors = []
+    goal_history = []
     if recent:
         facts, details = recent_football_result_facts(recent, home=home, away=away)
         for side, team in (('home', home), ('away', away)):
@@ -941,6 +953,21 @@ def football_risk_bundle(
                 source='loaded-football-results:'+canonical_input_hash(recent),
                 observed_at=_parse_datetime(recent['as_of']), imported_at=model_time,
                 fresh_until=starts_at, sample_size=len(recent[side]), role=FactorRole.DISPLAY_ONLY))
+        from sports_form import football_forms, football_goal_history_rows
+        forms = football_forms({'customer_recent_results': recent}, home, away)
+        for window in (5, 10):
+            if window == 10 and (len(forms) != 2 or any(len(form.results) < 10 for form in forms)):
+                continue
+            rows = football_goal_history_rows(forms, window)
+            if not rows:
+                continue
+            payload = {'schema': FOOTBALL_GOAL_HISTORY_SCHEMA, 'window': window,
+                'teams': [home, away], 'samples': [min(window, len(form.results)) for form in forms],
+                'rows': [[label, int(row[1].split('/')[0]), int(row[2].split('/')[0])]
+                         for label, row in zip(FOOTBALL_GOAL_HISTORY_LABELS, rows)]}
+            summary = json.dumps(payload, ensure_ascii=False, separators=(',', ':'))
+            if len(summary) <= 600:
+                goal_history.append((window, summary))
     minimum_venue = min(
         (
             min(tuple(_get(candidate, "venue_samples", ()) or (0,)))
@@ -985,8 +1012,16 @@ def football_risk_bundle(
             "context": context_payload,
             "highlight_context_check_schema": FOOTBALL_HIGHLIGHT_CHECK_SCHEMA,
             **({'customer_recent_results': recent} if recent is not None else {}),
+            **({'football_goal_history_schema': FOOTBALL_GOAL_HISTORY_SCHEMA} if goal_history else {}),
         }
     )
+    if goal_history:
+        source = football_goal_history_source(event_key=event_key, starts_at=starts_at,
+            modeled_at=model_time, input_cutoff_at=cutoff, input_hash=input_hash)
+        recent_factors.extend(FactorEvidence(factor_key='football_goal_history_'+str(window),
+            summary=summary, source=source, observed_at=_parse_datetime(recent['as_of']),
+            imported_at=model_time, fresh_until=starts_at, sample_size=0,
+            role=FactorRole.DISPLAY_ONLY) for window, summary in goal_history)
     snapshot = EventModelSnapshot(
         event_key=event_key,
         sport="football",

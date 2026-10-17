@@ -1,5 +1,40 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## 17.10.2026 – Multigoal-Quotenabruf: aktueller Zusatzauftrag
+
+Kanonisch `.worktrees/audit-repairs-20261013`, Basis`6ff4d260`, kein Backup/
+zusätzlicher Sportscan. PaidAPI-Football aktiv;14 begrenzte Quellenanfragen.
+Drei native Spiele vollständig1/1 ohne1–3/1–4/2–4; fünf gültige Datum-/Markt-
+Abfragen leer. Nichtglobal verallgemeinern; ungültige unscopedQueries keinBeweis.
+Roma–Genoa lieferte nativ349 „2or3goals“2,00/Bet365 (Anbieter09:18UTC), bislang
+nicht im95Katalog. Nicht fälschlich einem anderen Bereich zuordnen.
+Fetch ignorierte Folgeseiten: repariert, bounded20/Fixture, Budget/Deadline,
+echte per-pageReceipts, gemeinsamer unveränderter Exact-/BookmakerParser.
+Teil-/Containerfehler nicht alsAbwesenheit. Persistenz nurvier boundedFakten.
+Zwei Review-P2 Uhr/Shape mit RED→GREEN korrigiert, Re-Review freigegeben.
+Erster Vollsuite-Zwischenlauf15.119 kontrolliertINCOMPLETE beendet, weilNutzer
+weitereVarianten/Statistik explizitfreigab; Logsbleiben. Endstandjetzt96Runtime/
+46Torprojektionen, alte90/40/v14/alle95Werteunverändert; native3492–3exakt.
+Kompakte5/10-Häufigkeiten(gesamt1–3/1–4/2–3/2–4undSieg+Bereich) ausbereits
+validiertenErgebnissen, keineZusatzmodellchance. Normal/Daily3/15K/manuell/RisikoBet,
+einmalproSpiel, keineJSON/Prosaübernahme. RisikoBetneueFaktorenerstregulärerLauf;
+Altsnapshotsnichtneuinterpretiert. Original90/95-Fit-/Tickethashesunverändert.
+Finaler Offline-Nachweis: 15.135 PASS, 98 identische Skips; vier Exit-0-Gruppen.
+Alle 15.076 alten IDs plus 157 neue genau einmal enthalten; 810 Quellen/Fixtures
+und drei Shell-Hashes. Fünf verschobene Auto-IDs nur durch Parameterreihenfolge
+stabilisiert; gesamtes Besitzermodul erneut 41 PASS, inverse Byte-Hash-Prüfung
+bestätigt ausschließlich diese Testreihenfolge. Produktionsquellen unverändert.
+Noch keine neue Veröffentlichung behaupten. Code/Teststand eingefroren.
+No-BackupReleasehelfer imuntenstehendenOrdner statischgeprüft undSyntaxPASS;
+erst nachvollständigerQA/MainPush einsetzen. Keine neuenAPI/Sportläufe/Backups.
+Kostenlose Quellen ohneexakte/verfügbareAbdeckung nichtangebunden.
+ZusammengeführteIntegration748PASS. AlleproduktivenDiffsundReleasehelferread-only
+freigegeben. LokaleRenderer(nichtLiveStreamlit) normal/RisikoBet mitTESTDATENbei
+1280/390/320px, Maus/Tastatur5/10, keinÜberlauf/Consolefehler. KeineBrowserübernahme.
+Nächster Schritt: finalen Test-ID-Abgleich reviewen, committen, main/VPS.
+Aktueller Bericht `docs/audits/2026-10-17-multigoal-quotenabruf.md`, Belege
+`C:/Projekt/BetBoy/output/multigoal-quotes-20261017/`.
+
 ## 17.10.2026 – aktueller Auswahlauftrag
 
 Weiter im bestehenden `.worktrees/audit-repairs-20261013`, Basis `6c106d56`.

@@ -934,6 +934,7 @@ def create_alternative_markets_tab_extended(
                 "Basisprognosen und weitere miteinander vereinbare "
                 "Auswahlen stehen unten."
             )
+        shown_form_fixtures = set()
         def render_rows(rows, *, start_index: int) -> None:
             candidates = [_strict_market_candidate(candidate) for candidate in rows]
             for offset, (candidate, raw_candidate) in enumerate(
@@ -970,9 +971,12 @@ def create_alternative_markets_tab_extended(
                         + tuple(Fact(label, value, fact_details.get(label, ()))
                                 for label, value in customer.facts),
                         (), (customer.counterargument, *customer.details),
-                        format_model_clock(snapshot.get('scanned_at')), forms)
+                        format_model_clock(snapshot.get('scanned_at')), forms, football_goal_history=True)
                     st.markdown(render_compact_analysis_html(compact,
-                        instance_key=raw_candidate.candidate_id), unsafe_allow_html=True)
+                        instance_key=raw_candidate.candidate_id,
+                        show_form=raw_candidate.fixture_id not in shown_form_fixtures), unsafe_allow_html=True)
+                    if forms:
+                        shown_form_fixtures.add(raw_candidate.fixture_id)
                 with st.popover("Kontextdaten"):
                     st.caption(candidate_context_summary(raw_candidate))
                 if offset < len(candidates) - 1:

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from hashlib import sha256
 from html import escape
+import re
 
 
 @dataclass(frozen=True)
@@ -176,7 +177,49 @@ def _has_result_details(result):
                 result.venue)) or result.rank is not None
 
 
-def _window_html(forms, count):
+def football_goal_history_rows(forms, count):
+    """Observed joint hits in already validated football history, not a forecast."""
+    if count not in (5, 10) or type(count) is not int or len(forms) != 2:
+        return ()
+    scores = []
+    for form in forms:
+        if form.scope != 'Letzte Spiele · alle Spielorte' or not 1 <= len(form.results) <= 10:
+            return ()
+        side = []
+        for row in form.results[:count]:
+            if not isinstance(row.score, str) or not re.fullmatch(r'[0-9]{1,2}:[0-9]{1,2}', row.score):
+                return ()
+            left, right = map(int, row.score.split(':'))
+            outcome = 'S' if left > right else 'U' if left == right else 'N'
+            if max(left, right) > 30 or row.outcome != outcome:
+                return ()
+            side.append((left, right))
+        scores.append(side)
+    ranges = ((1, 3), (1, 4), (2, 3), (2, 4))
+    rows = []
+    for winner in (False, True):
+        for low, high in ranges:
+            label = f'Sieg + {low}–{high}' if winner else f'{low}–{high} Tore'
+            counts = tuple(f'{sum(low <= left + right <= high and (not winner or left > right) for left, right in side)}/{len(side)}'
+                           for side in scores)
+            rows.append((label, *counts))
+    return tuple(rows)
+
+
+def _goal_history_html(forms, count):
+    rows = football_goal_history_rows(forms, count)
+    if not rows:
+        return ''
+    headings = ''.join(f'<th scope="col">{escape(form.team)}</th>' for form in forms)
+    body = ''.join(f'<tr><th scope="row">{escape(label)}</th><td>{left}</td><td>{right}</td></tr>'
+                   for label, left, right in rows)
+    return ('<section class="form-goal-markets" aria-label="Historische Multigoal-Treffer">'
+            '<h5>Multigoal &amp; Sieg-Kombis</h5><small>Gesamttore · Treffer / Spiele</small>'
+            '<table><thead><tr><th scope="col">Letzte Spiele</th>' + headings
+            + '</tr></thead><tbody>' + body + '</tbody></table></section>')
+
+
+def _window_html(forms, count, *, include_goal_ranges=False):
     teams = []
     for form in forms:
         rows = form.results[:count]
@@ -201,13 +244,14 @@ def _window_html(forms, count):
             f'<span>{record} · {len(rows)} Spiele</span></div><small>{escape(form.scope)}</small>'
             f'<div class="form-results">{"".join(_result_html(r) for r in rows)}</div>'
             f'{opponents}{coverage}</section>')
-    return f'<div class="form-window form-window-{count}">{"".join(teams)}</div>'
+    ranges = _goal_history_html(forms, count) if include_goal_ranges else ''
+    return f'<div class="form-window form-window-{count}">{"".join(teams)}{ranges}</div>'
 
 
-def render_form_html(forms, *, instance_key=''):
+def render_form_html(forms, *, instance_key='', include_goal_ranges=False):
     if not forms:
         return ''
-    suffix = sha256((instance_key + repr(forms)).encode()).hexdigest()[:16]
+    suffix = sha256((instance_key + repr(forms) + ('|goal-history' if include_goal_ranges else '')).encode()).hexdigest()[:16]
     group = 'form-' + suffix
     # Ten is enabled only when every displayed side has ten actual results.
     can_ten = all(len(form.results) >= 10 for form in forms)
@@ -222,4 +266,5 @@ def render_form_html(forms, *, instance_key=''):
         # uncontrolled inputs once the user chooses a window.
         f'<input id="{group}-5" type="radio" name="{group}" value="5" aria-label="5 Spiele (Standardansicht)">'
         f'<label for="{group}-5">5 Spiele</label>{ten}</div></div>'
-        f'{_window_html(forms, 5)}{_window_html(forms, 10) if can_ten else ""}</section>')
+        f'{_window_html(forms, 5, include_goal_ranges=include_goal_ranges)}'
+        f'{_window_html(forms, 10, include_goal_ranges=include_goal_ranges) if can_ten else ""}</section>')

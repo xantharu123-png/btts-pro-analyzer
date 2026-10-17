@@ -43,7 +43,7 @@ CHALLENGE_MODEL_CONTRACT_SIGNATURE = (
 # contract. Finder profiles/history updates must not invalidate old tickets.
 CHALLENGE_PREDICTION_VERSION = "challenge-engine:coherent-joint-calibration-v14"
 # Catalog coverage changes independently of the immutable calibrated law.
-CHALLENGE_MARKET_CATALOG_SIGNATURE = "football-market-catalog:95-bounded-multigoal-v1"
+CHALLENGE_MARKET_CATALOG_SIGNATURE = "football-market-catalog:96-bounded-multigoal-v2"
 CANDIDATE_PROFILE_CHALLENGE = "challenge"
 CANDIDATE_PROFILE_WETTFINDER = "wettfinder"
 TARGET_ODDS_MIN = 2.0
@@ -504,7 +504,7 @@ def market_specs(*, include_extended_ranges: bool = True) -> tuple[MarketSpec, .
         specs.extend(
             MarketSpec(f"TOTAL_RANGE_{low}_{high}", "Gesamttore", f"{low}-{high} Tore",
                        "total_range", low=low, high=high)
-            for low, high in ((1, 3), (1, 4), (2, 4))
+            for low, high in ((1, 3), (1, 4), (2, 4), (2, 3))
         )
         specs.extend(
             MarketSpec(f"{prefix}_RANGE_1_4", label, "1-4 Tore", "team_range",

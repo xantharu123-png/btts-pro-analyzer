@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
+from html import escape
+import json
 import math
 from pathlib import Path
 from typing import Mapping, Optional
@@ -13,6 +15,11 @@ from tip_display_order import display_order_control, ordered_event_rows
 from context_links import ContextReference
 from team_sport_forecasts import TeamSportForecast
 from betting_math import odds_below_publication_floor
+from riskobet_candidates import (
+    FOOTBALL_GOAL_HISTORY_SCHEMA,
+    FOOTBALL_GOAL_HISTORY_LABELS,
+    football_goal_history_source,
+)
 
 from riskobet_domain import (
     ContextState,
@@ -394,6 +401,7 @@ def _display_card(
 def _customer_factor_detail(factor: FactorEvidence) -> str:
     """Project sporting observations without changing their frozen evidence."""
     if (factor.factor_key.startswith('football_highlight_context_checks_')
+            or factor.factor_key.startswith('football_goal_history_')
             or factor.factor_key in {'tennis_calibrated_match_model', 'esports_subgraph_elo'}
             or factor.factor_key.startswith('football_fixture_id:')):
         return ''
@@ -441,6 +449,92 @@ def _render_factor_details(snapshot: EventModelSnapshot) -> None:
         st.write(detail)
 
 
+def _football_goal_history_html(candidate: RiskCandidate, snapshot: EventModelSnapshot) -> str:
+    """Render only structured, snapshot-owned observed counts, never prose guesses."""
+    if (snapshot.sport != 'football' or candidate.sport != 'football'
+            or candidate.snapshot_id != snapshot.snapshot_id
+            or candidate.event_key != snapshot.event_key
+            or candidate.event_label != snapshot.event_label
+            or candidate.starts_at != snapshot.starts_at):
+        return ''
+    factors = tuple(f for f in snapshot.factors if f.factor_key.startswith('football_goal_history_'))
+    if not factors:
+        return ''
+    def unique_object(pairs):
+        parsed = dict(pairs)
+        if len(parsed) != len(pairs):
+            raise ValueError('duplicate goal-history field')
+        return parsed
+
+    source = football_goal_history_source(event_key=snapshot.event_key, starts_at=snapshot.starts_at,
+        modeled_at=snapshot.modeled_at, input_cutoff_at=snapshot.input_cutoff_at,
+        input_hash=snapshot.input_hash)
+    windows = {}
+    for factor in factors:
+        if (factor.role is not FactorRole.DISPLAY_ONLY or factor.sample_size != 0
+                or factor.coverage is not None or factor.source != source
+                or factor.observed_at > snapshot.input_cutoff_at
+                or factor.imported_at != snapshot.modeled_at
+                or factor.fresh_until != snapshot.starts_at):
+            return ''
+        try:
+            raw = json.loads(factor.summary, object_pairs_hook=unique_object)
+        except (ValueError, TypeError):
+            return ''
+        if (not isinstance(raw, dict) or set(raw) != {'schema', 'window', 'teams', 'samples', 'rows'}
+                or raw['schema'] != FOOTBALL_GOAL_HISTORY_SCHEMA
+                or type(raw['window']) is not int or raw['window'] not in (5, 10)
+                or factor.factor_key != 'football_goal_history_'+str(raw['window'])):
+            return ''
+        window, teams, samples, rows = raw['window'], raw['teams'], raw['samples'], raw['rows']
+        if (not isinstance(teams, list) or len(teams) != 2
+                or any(not isinstance(team, str) or not team.strip() or len(team) > 200 for team in teams)
+                or teams[0].casefold() == teams[1].casefold()
+                or snapshot.event_label != f'{teams[0]} vs {teams[1]}'
+                or not isinstance(samples, list) or len(samples) != 2
+                or any(type(n) is not int or not 1 <= n <= window for n in samples)
+                or window == 10 and samples != [10, 10]
+                or not isinstance(rows, list) or len(rows) != 8):
+            return ''
+        for label, row in zip(FOOTBALL_GOAL_HISTORY_LABELS, rows):
+            if (not isinstance(row, list) or len(row) != 3 or row[0] != label
+                    or any(type(hits) is not int or not 0 <= hits <= sample
+                           for hits, sample in zip(row[1:], samples))):
+                return ''
+        if any(rows[index+4][side] > rows[index][side] for index in range(4) for side in (1, 2)):
+            return ''
+        windows[window] = raw
+    if 5 not in windows or len(windows) != len(factors):
+        return ''
+    if 10 in windows and (windows[10]['teams'] != windows[5]['teams']
+            or windows[5]['samples'] != [5, 5]
+            or any(not 0 <= ten[side]-five[side] <= 5
+                   for five, ten in zip(windows[5]['rows'], windows[10]['rows']) for side in (1, 2))):
+        return ''
+    group = 'riskobet-goals-' + snapshot.snapshot_id
+    ten_control = (f'<input id="{group}-10" type="radio" name="{group}" value="10">'
+        f'<label for="{group}-10">10 Spiele</label>') if 10 in windows else (
+        '<span class="form-ten-unavailable" title="Weniger als zehn Ergebnisse erfasst">10 Spiele</span>')
+    tables = []
+    for window, raw in sorted(windows.items()):
+        headings = ''.join(f'<th scope="col">{escape(team)}</th>' for team in raw['teams'])
+        body = ''
+        for label, home, away in raw['rows']:
+            display = ('Sieg + ' + label[1:] if label.startswith('W') else label + ' Tore').replace('-', '–')
+            body += (f'<tr><th scope="row">{display}</th><td>{home}/{raw["samples"][0]}</td>'
+                     f'<td>{away}/{raw["samples"][1]}</td></tr>')
+        tables.append(f'<div class="form-window form-window-{window}"><section class="form-goal-markets">'
+            f'<table><thead><tr><th scope="col">Gesamttore</th>{headings}</tr></thead>'
+            f'<tbody>{body}</tbody></table></section></div>')
+    return ('<section class="sports-form" aria-label="Historische Multigoal-Treffer">'
+        '<div class="form-heading"><h4>Multigoal &amp; Sieg-Kombis</h4>'
+        '<div class="form-toggle" role="group" aria-label="Anzahl Spiele">'
+        f'<input id="{group}-5" type="radio" name="{group}" value="5" aria-label="5 Spiele (Standardansicht)">'
+        f'<label for="{group}-5">5 Spiele</label>{ten_control}</div></div>'
+        '<small>Historische Treffer / erfasste Spiele · Sieg des jeweiligen Teams · keine Modellchance</small>'
+        + ''.join(tables) + '</section>')
+
+
 def _render_quote_comparison(candidate: RiskCandidate) -> None:
     suffix = _widget_suffix(candidate)
     quote_key = f"riskobet-quote-{suffix}"
@@ -474,10 +568,16 @@ def _render_quote_comparison(candidate: RiskCandidate) -> None:
 def _render_detail(
     candidate: RiskCandidate,
     snapshot: EventModelSnapshot,
+    *,
+    show_goal_history: bool = True,
 ) -> None:
     suffix = _widget_suffix(candidate)
     detail_key = f"riskobet-detail-{suffix}"
     with st.container(key=f"riskobet_actions_{suffix}"):
+        if show_goal_history:
+            history_html = _football_goal_history_html(candidate, snapshot)
+            if history_html:
+                st.markdown(history_html, unsafe_allow_html=True)
         recent_form = next(
             (
                 _customer_factor_detail(factor)
@@ -568,6 +668,7 @@ def _render_ordered_scenarios(catalog, candidate_by_id, snapshots, sort_mode):
         st.caption(f"{offset + 1}–{min(offset + page_size, len(events))} von {len(events)} Spielen")
     featured = {card.candidate_id: i for i, card in enumerate(catalog.featured)}
     additional = {card.candidate_id: i for i, card in enumerate(catalog.additional)}
+    shown_goal_events = set()
     with st.container(key="riskobet_featured_grid"):
         # Row-oriented columns keep DOM and mobile order identical.
         for row_start in range(0, len(visible), 2):
@@ -580,7 +681,10 @@ def _render_ordered_scenarios(catalog, candidate_by_id, snapshots, sort_mode):
                 with columns[position], st.container(key=key):
                     renderer = render_riskobet_card_html if is_featured else render_riskobet_compact_row_html
                     st.markdown(renderer(card, show_price=False), unsafe_allow_html=True)
-                    _render_detail(candidate, snapshots[candidate.snapshot_id])
+                    event = (card.sport_key, card.event_key)
+                    _render_detail(candidate, snapshots[candidate.snapshot_id],
+                        show_goal_history=event not in shown_goal_events)
+                    shown_goal_events.add(event)
 
 
 def render_riskobet(

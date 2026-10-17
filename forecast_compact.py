@@ -32,6 +32,7 @@ class CompactAnalysis:
     explanation: tuple[str, ...]
     model_clock: str
     forms: tuple[TeamForm, ...] = ()
+    football_goal_history: bool = False
 
 
 # Presentation only, including older in-session cards. Do not rewrite the
@@ -220,7 +221,8 @@ def build_compact_analysis(signal, analysis, *, now):
     if freshness and freshness != 'Keine exakt zugeordneten Modellgrundlagen' and freshness not in warnings:
         warnings.append(freshness)
     explanation = tuple(part for part in (analysis.basis, analysis.caution, analysis.samples, analysis.data_age) if part)
-    return CompactAnalysis(summary, tuple(facts), tuple(warnings), explanation, format_model_clock(signal.modeled_at), forms)
+    return CompactAnalysis(summary, tuple(facts), tuple(warnings), explanation,
+                           format_model_clock(signal.modeled_at), forms, football_goal_history=football)
 
 
 def _fact_html(fact):
@@ -246,6 +248,6 @@ def render_compact_analysis_html(compact, *, supporting_fact='', instance_key=''
     return ('<section class="wf-analysis" aria-label="Kurzcheck">'
             f'{summary}'
             f'{support}'
-            f'{render_form_html(compact.forms, instance_key=instance_key) if show_form else ""}'
+            f'{render_form_html(compact.forms, instance_key=instance_key, include_goal_ranges=compact.football_goal_history) if show_form else ""}'
             f'<div class="wf-facts">{facts}</div>{warning_html}'
             '</section>')

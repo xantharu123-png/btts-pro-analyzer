@@ -2713,7 +2713,8 @@ def _persist_quote_diagnostics(rows, checked_rows, diagnostics, *, now, errors=(
     """Replace the latest attempt with small, provider-secret-free facts."""
     checked = {row.get('candidate_id') for row in checked_rows}
     allowed = {'reason_code', 'fetched_at', 'checked_at', 'provider_updated_at',
-               'bookmaker_count', 'error_type', 'http_status'}
+               'bookmaker_count', 'error_type', 'http_status', 'pagination_complete',
+               'pagination_pages_received', 'pagination_total_pages', 'pagination_failure'}
     for row in (*rows, *checked_rows):
         candidate_id = row.get('candidate_id')
         if candidate_id not in checked:

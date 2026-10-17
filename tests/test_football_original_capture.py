@@ -66,7 +66,7 @@ def test_new_same_call_api_retains_final_triplets_before_candidate_rounding():
     assert packet["count_models"]["corners"]["active_counts"] == list(expected["count_models"]["corners"]["active_counts"])
     assert packet["count_models"]["yellow"]["dispersion"] == list(expected["count_models"]["yellow"]["dispersion"])
     assert len(packet["probabilities"]) == len(engine.LEGACY_MARKET_SPECS) == 90
-    assert len(expected["probabilities"]) == len(engine.MARKET_SPECS) == 95
+    assert len(expected["probabilities"]) == len(engine.MARKET_SPECS) == 96
     assert any(item.probability != packet["probabilities"][item.market_key][0] for item in actual)
     assert any(item.expected_home_goals != packet["goal_model"]["active_lambdas"][0] for item in actual)
     assert all(item.probability == round(expected["probabilities"][item.market_key][0], 6) for item in actual)

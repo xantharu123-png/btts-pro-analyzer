@@ -225,6 +225,21 @@ def test_daily_native_price_wrapper_persists_diagnostics_without_refetching_mode
     assert checked['reference_price_diagnostic'] == row['reference_price_diagnostic']
 
 
+def test_pagination_failure_receipt_survives_storage_without_provider_payload():
+    row, _ = _football()
+    checked = dict(row)
+    expected = dict(reason_code='REQUEST_FAILED', error_type='INCOMPLETE_PAGINATION',
+        checked_at=NOW.isoformat(), pagination_complete=False,
+        pagination_pages_received=1, pagination_total_pages=2,
+        pagination_failure='REQUEST_FAILED')
+    diagnostics = {row['candidate_id']: {**expected,
+        'raw_response': {'credential': 'never-store'}, 'url': 'private-request-url'}}
+    automation._persist_quote_diagnostics([row], [checked], diagnostics, now=NOW)
+    assert row['reference_price_diagnostic'] == expected
+    assert checked['reference_price_diagnostic'] == expected
+    assert 'never-store' not in str(row['reference_price_diagnostic'])
+
+
 def test_team_and_esports_schedule_reuse_existing_caches_and_do_not_claim_execution(tmp_path, monkeypatch):
     from test_team_sport_prices import row as team_row
     from test_esports_prices import row as esports_row

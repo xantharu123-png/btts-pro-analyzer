@@ -46,6 +46,7 @@ def _payload(
     }
     return {
         "errors": [],
+        "paging": {"current": 1, "total": 1},
         "response": [
             {
                 "fixture": {

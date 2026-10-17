@@ -270,6 +270,7 @@ def _challenge_market_definitions() -> dict[
         "TOTAL_RANGE_1_3": ("total_range", None, None, 1, 3),
         "TOTAL_RANGE_1_4": ("total_range", None, None, 1, 4),
         "TOTAL_RANGE_2_4": ("total_range", None, None, 2, 4),
+        "TOTAL_RANGE_2_3": ("total_range", None, None, 2, 3),
         "HOME_RANGE_1_4": ("team_range", "home", None, 1, 4),
         "AWAY_RANGE_1_4": ("team_range", "away", None, 1, 4),
     })
