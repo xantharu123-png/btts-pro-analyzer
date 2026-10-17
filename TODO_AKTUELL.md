@@ -1,5 +1,42 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 17.10.2026 – Reparaturpaket live, tatsächlicher Endstand
+
+**Quellcommit `e8a32b83d6c0510adb798ab3c96c4a63704a4d5d` auf main und VPS.**
+No-Backup-Fast-Forward am17.10. um19:52:50CEST; Offline-Smoke bestanden,
+App-PID1215661→1218486. Beide Healthchecks exakt`ok`, App/Caddy aktiv.
+Prognose-Snapshots und Startstempel aller neun geprüften Dienste beim Deploy
+unverändert. Kein Backup, keine Migration, kein zusätzlicher Sportscan.
+Neue Schlüssel im laufenden App-Prozess mit Environment und INI identisch;
+nur Ja/Nein ausgegeben. Abschlussdokumentation danach separat ohne Neustart.
+
+- [x] Reparaturquellen explizit committed/gepusht/deployed; fremde Logs und
+  `output/audit-repairs/` erhalten/uncommitted. Gesamt-QA15.220PASS/98identische
+  SKIP/147Untertests mit den unten exakt dokumentierten Owner-Rechecks.
+- [x] Produktions-Kernansicht1440/390px mit geladenen Spielblöcken und sichtbarer
+  Quotenquelle/Zeit geprüft, mobil kein horizontalerÜberlauf. Keine relevanten
+  App-/Seitenfehler beobachtet; zehn Ressourcenfehler waren absichtlich
+  blockierte externe Bilder/Icons. Vollständige produktive Navigation/
+  Accordion-/5–10-Abnahme bleibt INCOMPLETE wegen DOM-Rerun/Zeitgrenze.
+  Diese Interaktionen wurden separat im echten isolierten Renderer bestanden.
+- [x] Aktuelle Produktionsdaten nur lesend gezählt: Forecast-Evidence87.320
+  Zeilen/1.444verschiedeneSportereignisse,5.306Ergebniszeilen,56.162Entry-
+  Quoten, **0Closing-Quoten**. Fußball779verschiedeneEreignisse. Das sind
+  keine87.320unabhängigenTests und keine Renditebelege. DBca419MiB.
+  Tennis2.429Prognosen/6.495Revisionen, **0beidseitigeEntry-/Closingpaare**.
+  Lokale Leerbestände aus vorherigen Abschnitten sind nicht aktuellerVPS-Stand.
+- [ ] Nächste fachliche Priorität: diese vorhandenen Produktions-Entrydaten
+  zeit-/quell-/marktgebunden auswerten und fehlende vollständige Preisgruppen/
+  Closings gezielt schließen; keine Marktwahrscheinlichkeit aus Einzelseiten
+  erfinden. Kein neuer Pflicht-EV-Block oder Marktblend ohne Produktentscheidung.
+- [ ] Offen bleiben die in der79-ID-Matrix konkret benannten Modell-/Kontext-
+  und Launchschulden. **Nicht alle79Punkte behoben, keine bessere Rendite belegt.**
+  Torzeitmärkte sind weiterhin nur spezifiziert, kein stiller Produktivcode.
+
+Abschlussbelege außerhalbGit unter `C:/Projekt/BetBoy/output/claude-recheck-20261017/`:
+`final-summary-02.json`, `deploy-01.txt`, `ui-production-01/acceptance-status.txt`.
+Der Abschnitt „Release vorbereitet“ direkt darunter ist damit historisch.
+
 ## 17.10.2026 – Fortsetzung nach Accountwechsel: QA abgeschlossen, Release vorbereitet
 
 Dieser Abschnitt ersetzt den Übergabestatus18:25 direkt darunter.

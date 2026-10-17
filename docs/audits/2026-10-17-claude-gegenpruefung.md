@@ -177,4 +177,38 @@ Startlogik prüft lokaleSQL-Daten und verwirft das ML am bisherigen Gate. Keine
 separate Trainingsausführung ergänzt, kein erzwungener Cache erzeugt.
 Der neueReleaseweg ist source-only mit expliziter31-Pfadliste und neun
 Jobzuständen; keine Sicherung, Migration oder zusätzlich gestarteter Sportscan.
-Release-SHA und tatsächliche Aktivierungs-/Healthbelege werden nach Deployment ergänzt.
+Quellrelease `e8a32b83d6c0510adb798ab3c96c4a63704a4d5d` am17.10.2026 um
+19:52:50CEST auf VPS perFast-Forward. Lokaler Stand/GitHubmain/VPS danach
+identisch; Offline-Smoke bestanden, PID1215661→1218486, App/Caddy aktiv,
+interner und öffentlicher Healthcheck exakt`ok`. Beide Snapshot-SHA256 und
+Startstempel aller neun geprüften Dienste vor/nach Deploy gleich. Kein neues
+Backup/Sportscan/Migration. Alle drei ersetzten Schlüssel im echten neuen
+App-Prozess identisch mit Environment/INI; kein Wert protokolliert.
+
+Produktion anschließend im isolierten Chrome bei1440/390px: geladene Spiel-
+blöcke, Modellwerte, Quotenherkunft/-zeit, mobil ohne horizontalenÜberlauf.
+Keine relevanten App-/Seitenfehler; zehn bewusst blockierte externe Bild-/
+Iconfehler getrennt benannt. Ganze Navigation/Accordion-/5–10-Bedienung unter
+Streamlit wegen Rerun-Rennen/Zeitgrenze **INCOMPLETE**, nicht als bestanden
+umgedeutet; diese Interaktionen im isolierten tatsächlichen Renderer grün.
+Interner Browser war inWorkeinstellungen deaktiviert; kein Benutzerbrowser
+übernommen. Belege: `deploy-01.txt`, `ui-production-01/acceptance-status.txt`.
+
+### Frische Produktionsabdeckung, keine neue Qualitätsbehauptung
+
+Nurlesender, begrenzterSQL-Abgleich nach Release: Forecast-Evidence439.697.408
+Bytes,87.320Forecastzeilen,822Läufe,5.306Ergebniszeilen,56.162Quotezeilen,
+alleQuotezeilen vomTyp`entry`, **keineClosingzeilen**. VerschiedeneEreignisse:
+Fußball779, Tennis261, E-Sport383, Hockey21. Nicht jede Prognosezeile ist ein
+unabhängiges Ereignis; keine Samples/Renditen aus bloßenZählern behauptet.
+Tennis-Shadow43.323.392Bytes,2.429Prognosen,6.495Revisionen; beidseitige
+Entry-/Closingquote jeweils0, auch mitIDs/Zeitbindung0. Die Spalten dafür
+existieren bereits. Das ist der aktuelleVPS-Bestand, nicht die vorher lokal
+gesehenen Leer-/Altdaten. Ob einzelne moderneEntrygruppen vollständig und
+kausal vergleichbar sind, muss getrennt geprüft werden. Bestehende aggregierte
+Reports ersetzen fehlende native Preisgruppen nicht.
+
+Abschlussdokumentation wird separat committed und docs-only gepullt; kein
+weiterer App-Neustart. Fachliche/Launch-/Architekturschulden der Matrix bleiben
+offen. Diese Veröffentlichung behebt belegte Codefehler, nicht alle79Punkte
+und nicht automatisch die Wettqualität.

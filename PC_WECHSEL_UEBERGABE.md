@@ -1,5 +1,26 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## 17.10.2026 – aktueller Abschluss: Reparaturquellen live
+
+Source `e8a32b83d6c0510adb798ab3c96c4a63704a4d5d` main/VPS am19:52:50CEST,
+No-Backup-FF, Offline-Smoke, Apprestart1215661→1218486, beideHealthchecks`ok`.
+Alle neun Jobstartstempel/Prognose-Snapshots beim Deploy identisch. Drei neue
+Keys im tatsächlichen App-Prozess aktiviert/geprüft, keine Werte ausgegeben.
+15.220PASS/98gleicheSkips/147Untertests inkl.expliziter106erCSS- und11erAST-
+Whitespace-Owner-Rechecks; alle15.233altenIDs+85neuegenaueinmal.
+Live-Kernansicht1440/390geladen,keinOverflow/relevanterAppfehler; vollständige
+LiveNavigation/Accordion/5–10INCOMPLETE. Isolierter tatsächlicherRenderer mit
+diesenInteraktionengrün. AbschlussdokumentationfolgtDocs-onlyohneNeustart.
+
+Wichtig neuerVPS-Datenbefund(nurlesend):87.320Forecastzeilen für1.444Ereignisse,
+5.306Ergebniszeilen,56.162Entryquotes,0Closings;Football779Ereignisse.
+Tennis2.429Prognosen,0beidseitigeEntry-/Closingpaare. Nicht mitlokalenLeer-
+beständenverwechseln. NächsterSchrittfachlich: vorhandeneEntrybelegekausal/
+marktgebundenauswerten, fehlendevollständigeGegen-/Closingpreisegezieltschließen.
+KeineRendite-/Kontexteffektfreigabeerfunden;79-ID-MatrixenthältechteRestarbeit.
+KeineBackups/neuenSportscans/Migrationen/Bereinigungen. Fremdeungetrackte
+`debug.log` und `output/audit-repairs/` erhalten. AktiverCheckoutunverändert.
+
 ## 17.10.2026 – Fortsetzung: vollständige QA abgeschlossen, Release folgt
 
 Aktiv weiterhin `.worktrees/audit-repairs-20261013`; Stand18:25darunterhistorisch.
