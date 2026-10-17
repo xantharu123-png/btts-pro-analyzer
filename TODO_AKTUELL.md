@@ -20,13 +20,27 @@ Kanonisch weiterhin `.worktrees/audit-repairs-20261013`, Basis `6c106d56`.
   IDs sind im Endaggregat genau einmal enthalten;806 Quell-/Fixture-Hashes.
   572PASS/8Skips im vollständigen Drei-Modul-Nachlauf des einen Helperpins.
   Unabhängige Schlussreviews ohne offenen Blocker.
-- [ ] Geprüften Stand committen/main pushen und ohne Backup auf VPS deployen;
-  danach echten gespeicherten Katalog und internen Browser prüfen.
+- [x] Quellcommit`725ccc28e9949528be53ca4c1d41396bfa397408` aufmain gepusht
+  und17.10. um10:42CEST per Fast-Forward aufVPS deployed. Offline-Smoke und beide
+  Healthchecks`ok`; App-PID1200874→1211028. Kein Backup, Scan oder Migration.
+- [x] Echter gespeicherter Katalog:486 gelesene Prognosen,237 sichtbare Karten
+  aus64 Spielen, alle exakt bepreist>=1,20. Hauptmärkte nach Statistikkriterium:
+  18Resultat,17Teamtore,12DC,10Teamecken,5Team-Multigoal,2Resultat+Tore,2Gesamttore.
+  Sichtbare Hauptmärkte darunter7Resultat/9DC/10Teamtore/10Teamecken/2Gesamttore;
+  nicht bepreiste Hauptmärkte werden nicht durch andere Richtungen ersetzt.
+- [x] Interner Browser: Seitenwechsel, Ilves öffnen/schließen, Roma-Heimsieg
+  als Hauptmarkt58,3% vor den78,9%-Nebenmärkten und echte Quote1,58 geprüft.
+  Keine neuen Browserfehler nach dem App-Neustart; gespeicherte Dateien unverändert.
 
 Quotenprobe heute: API-Football kennt186/223, liefert aber in beiden begrenzten
 Tagesproben keine echten Bereichsangebote. Nicht mit anderen Märkten ersetzen.
 Öffentliche Tipps weiterhin nur mit exakt passender Quote ab1,20. Keine weiteren
 Scans/Backups/Cleanups. NHL-Personal-/Kontexteffekte bleiben separat offen.
+Neue fünf Marktprojektionen entstehen erst bei regulärer Neuberechnung;
+bestehende alte90-Prognosen wurden nicht umgeschrieben. Der unabhängige
+Nur-Lese-Prozess brauchte1,5GiB virtuellen Adressraum (408MiB tatsächliche
+Spitze); die anfängliche640MiB-Testgrenze scheiterte vor JSON-Auswertung.
+Keine App-/Server-Speichergrenze wurde verändert.
 Details: [Auswahlbericht](docs/audits/2026-10-17-marktauswahl.md).
 
 ## 16.10.2026 – NHL-Erfassungsanschluss live, noch kein vollständiges Personalmodell

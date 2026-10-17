@@ -106,9 +106,47 @@ Besitzer-Nachläufe. Ursprüngliche Fehlbelege bleiben erhalten, kein Ausfiltern
 oder Lockern der Assertions. Zusätzlich11 native No-Backup-Deploy-Guardtests
 und3 reine Dokumente-Pull-Tests bestanden.
 
-Commit/Push/Deploy sowie der echte gespeicherte Katalog- und Browsernachweis
-folgen jetzt; deren konkrete Git-/VPS-Identität wird anschließend ergänzt.
-Keine bessere Wett-Rendite aus Softwaretests ableiten.
+Quellcommit`725ccc28e9949528be53ca4c1d41396bfa397408`: main-Push und VPS-
+Fast-Forward17.10.2026 um10:42CEST bestätigt. App-PID1200874→1211028,
+Caddy aktiv, lokaler und öffentlicher Healthcheck`ok`. Offline-Auswahl-/95-
+Katalogsmoke bestanden. Kein Backup, Modellscan, Migration oder Paketinstallation;
+alle fünf Sportdienst-Startstempel im Deploy unverändert. Der normale/root-
+installierte Updater wurde nicht aufgerufen oder ersetzt.
+
+Nur-Lese-Produktionsprobe10:43CEST mit gesperrtem Netzwerk:
+
+- Unveränderter Bericht vom04:18CEST,820 ursprüngliche Fußball-Kandidaten,
+ 546 gespeicherte Modellzeilen; neuer Leser486 Prognosen.
+- 237 sichtbare Karten aus64 Spielen. Jede sichtbare Karte besitzt eine echte,
+  exakt passende Quote>=1,20; keine fehlende Quote wurde ergänzt/erfunden.
+- 66 statistische Fußball-Hauptmärkte:18Resultat,17Teamtore,12DoppelteChance,
+ 10Teamecken,5Team-Multigoal,2Resultat+Gesamttore,2Gesamttore. Preisverfügbarkeit
+  getrennt:38 davon tatsächlich sichtbar, darunter7Resultat und9DoppelteChance.
+  Die unbepreisten Multigoal-Hauptmärkte bleiben im Hintergrund, kein Ersatz
+  durch einen anders bepreisten Markt. Keine künstlichen Familienquoten.
+- Ilves`RESULT_HOME=0,486390` bleibt intern erhalten; widersprechendes`DC_X2`
+  ist entfernt. Sichtbarer statistischer Hauptmarkt dort`HOME_UNDER_2_5`, nicht
+  automatisch der breitere88,9%-Gesamttor-Unter-Markt.
+- JSON-SHA unverändert vor/nach Leser:
+ `98f853f979202fb092f6fd3b13c9ac074fb9343d57b32b890d519ee013ca5449`.
+
+Der erste disposable Prüfer endete vor der JSON-Auswertung an seiner künstlichen
+640MiB-Adressraumgrenze. Serverprüfung:3,1GiB RAM verfügbar, App aktiv mit256MiB.
+Nur für diesen Prozess1,5GiB virtuelle Obergrenze erlaubt; gemessene Resident-
+Spitze417520KiB (408MiB), CPU-/Datei-/Netzsperren unverändert. Kein Produktpatch
+und keine Server-/App-Grenze geändert. Fehlbeleg bleibt erhalten.
+
+Interner Browser nach Reload:64 Spiele, Seitenwechsel1→2 und Ilves-Block auf/zu
+kontrolliert. ASRoma–Genoa zeigt den statistischen58,3%-Heimsieg mit echter
+Quote1,58 vor dem78,9%-Teamtor-Unter-Markt unter„Weitere Märkte“. Screenshot
+direkt im Chat ausgegeben. Kein neuer Console-Fehler während der Prüfung;
+alte Websocket-Unterbrechungen08:42:27–29UTC gehören zum erklärten App-Neustart.
+Der erste Locator wartete fälschlich auf eine nicht existierende Heading
+„Wettfinder“; danach mit tatsächlich gerendertem DOM weitergeprüft.
+
+Die neuen fünf Projektionen entstehen beim nächsten regulären Modelllauf;
+bereits gespeicherte alte90-Prognosen werden nicht umgeschrieben. Keine bessere
+Wett-Rendite aus Softwaretests oder dieser Anzeigeprüfung ableiten.
 
 Unabhängig offen bleiben tatsächliche belastbare Verletzungs-/Wetter-/Müdigkeits-
 wirkungen und der vollständige NHL-Personalmodellnachweis. Dieser Auswahlfix

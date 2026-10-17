@@ -12,8 +12,16 @@ Manuelle Suche/15K fertig. Vollständiger nativer Offline-Testbestand mehrstufig
 grün:14978PASS/98 identische Skips, alle15076 IDs genau einmal abgedeckt,
 alle14680 alten IDs erhalten,806 Quell-/Fixture-Hashes. Drei vollständige
 Updater-Besitzermodule nach einzigem Helperpin-Abgleich:572PASS/8Skips.
-Noch nicht als live melden: Commit/Push/Deploy und echter Browser-/Katalogbeleg
-folgen jetzt. Aktueller Belegpfad außerhalbGit:
+Quellcommit`725ccc28e9949528be53ca4c1d41396bfa397408` aufmain undVPS live,
+17.10.10:42CEST ohne Backup/Scan/Migration; beide Healthchecks`ok`.
+Echter Leser:95Runtime-Märkte,486Prognosen,237sichtbare Karten/64Spiele, jede
+sichtbare Karte echte passendeQuote>=1,20. Statistische Hauptmärkte gemischt,
+einschließlich5 Team-Multigoal im Hintergrund ohne passende Preisangebote.
+Browser-Roma:58,3%-Heimsieg/Quote1,58 zuerst,78,9%-Unter-Markt sekundär;
+Ilves öffnet/schließt, keinDC_X2 mehr. Keine neuen Fehler nach Restart.
+Die gespeicherten Prognosedateien blieben unverändert. Abschließend folgen
+nur dieser Dokumentationscommit/main/VPS-Pull, kein weiterer App-Restart.
+Aktueller Belegpfad außerhalbGit:
 `C:/Projekt/BetBoy/output/market-selection-20261017/`.
 Quellenprobe186/223 heute ohne echte Angebote: keine synthetischen Quoten.
 Öffentlich weiterhin genau passende Quote>=1,20. Kontext-/NHL-Vollmodell bleibt
