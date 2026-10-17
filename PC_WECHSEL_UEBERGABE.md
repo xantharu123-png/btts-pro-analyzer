@@ -1,5 +1,29 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## 17.10.2026 – aktuelle Fortsetzung: Marktvergleich und Daten-Deduplizierung
+
+Kanonisch bleibt `.worktrees/audit-repairs-20261013`, Ausgang lokal/main/VPS
+`46f1fa8`. Neue Marktvergleich-/Closing-/Tennis-Final-Reparatur vollständig geprüft:
+15.280PASS/98gleicheSKIP/147Untertests, alle15.318altenIDs+60neue erhalten.
+Initialer vollständiger FAIL mit19Fehlern/Exitcodes[0,1,1,1] bleibt erhalten.
+Nur Quoten-Testdaten-Uhr korrigiert und Regression ergänzt; fünf ganze Owner
+danach521PASS/3gleicheSKIP. Produktquellen unverändert gegenüber Vollsuite.
+Abschlussprüfer bestätigt exakt15.378JUnit-Haupt-IDs, keine Doppelungen/Lücken;
+`output/context-effects-20261017/verification-summary.json`. Veröffentlichung
+noch ausstehend; kein Deployment aus Testresultaten allein ableiten.
+Gezielte393 und236 Tests sowie unabhängige Reviews grün; nicht addieren.
+Aktuelle vollständige Aufgaben/Abgrenzung stehen ganz oben in TODO_AKTUELL.md.
+
+Wichtig: Effekte sind NICHT fertig. Fußball8 vollständigeOriginale,7 davon am
+Quellenpoollimit; Lebenszeitreservierung128MiB erschöpft. Tennis1.000 native
+Finals sind gemischteBaselinegenerationen, nur52 aktuellePOINT-Joint-Artefakte;
+realeMerkmalsleser weiterhin blockiert. Bericht
+`docs/audits/2026-10-17-context-activation-readiness.md` ist frisch produktiv
+nachgewiesen. Keine frei erfundenen Effekte/Endzeiten oder gelockerten Gates.
+NeueFinal-Deduplizierung wirkt nur mit bekanntem gebundenem Gewinner, nicht
+auf sämtliche alteDraws; historischeZeilen bleiben unangetastet.
+Noch keine Backups, Datenbankkopien, Bereinigungen oder zusätzlichenAPI-Scans.
+
 ## 17.10.2026 – aktueller Abschluss: Reparaturquellen live
 
 Source `e8a32b83d6c0510adb798ab3c96c4a63704a4d5d` main/VPS am19:52:50CEST,

@@ -20,7 +20,7 @@ from typing import Mapping
 
 from market_consensus import (
     MarketConsensus, WETTFINDER_FETCH_MAX_AGE, quote_matches_candidate,
-    wettfinder_reference_price_status,
+    wettfinder_reference_price_status, bounded_tennis_price_observations,
 )
 
 
@@ -175,7 +175,44 @@ def _normalize_row(row: Mapping, decision: datetime, default_model: str, policy:
     }
 
 
-def _quote_records(forecast_id: str, forecast: dict, raw: object, kind: str) -> list[tuple]:
+def _complete_tennis_market(forecast, quote, point, observations):
+    """Bind both real prices from an already received native H2H response.
+
+    No synthetic opposing forecast is created and no provider is requested.
+    A book/update/fetch mismatch leaves the optional full-market proof absent.
+    """
+    identity = forecast["quote_identity"]
+    if forecast["sport"] != "tennis" or forecast["market_key"] != "H2H":
+        return None
+    a, b = identity.get("competitor_a"), identity.get("competitor_b")
+    if not all(isinstance(name, str) and name for name in (a, b)) or a == b:
+        return None
+    offered = {}
+    for row in observations:
+        if any(row.get(field) != identity.get(field) for field in
+                ("fixture_source", "provider_event_id", "competitor_a", "competitor_b")):
+            continue
+        selected = row.get("selected_competitor")
+        other = MarketConsensus.from_dict(row.get("reference_quote"))
+        if (selected not in (a, b) or other is None or not quote_matches_candidate(other, row)
+                or other.source != quote.source or other.provider_event_id != quote.provider_event_id
+                or other.fetched_at != quote.fetched_at or other.scheduled_start != quote.scheduled_start):
+            continue
+        for price in other.points:
+            if price.bookmaker_id == point.bookmaker_id and price.observed_at == point.observed_at:
+                if selected in offered and offered[selected] != price.odds:
+                    return None
+                offered[selected] = price.odds
+    if (set(offered) != {a, b} or offered.get(identity.get("selected_competitor")) != point.odds):
+        return None
+    return {"market_key": "H2H", "fixture_source": identity.get("fixture_source"),
+        "provider_event_id": identity.get("provider_event_id"), "quote_provider_event_id": quote.provider_event_id,
+        "scheduled_start": forecast["starts_at"], "competitors": [a, b],
+        "outcomes": [{"selection": name, "odds": offered[name]} for name in (a, b)]}
+
+
+def _quote_records(forecast_id: str, forecast: dict, raw: object, kind: str,
+                   market_observations=()) -> list[tuple]:
     quote = MarketConsensus.from_dict(raw.to_dict() if isinstance(raw, MarketConsensus) else raw)
     if quote is None or not quote_matches_candidate(quote, forecast["quote_identity"]):
         raise ValueError("quote does not exactly match forecast event and selection")
@@ -219,29 +256,32 @@ def _quote_records(forecast_id: str, forecast: dict, raw: object, kind: str) -> 
             "fixture_id": quote.fixture_id, "market_key": quote.market_key,
             "selection": quote.value_name, "starts_at": start.isoformat(),
         }
+        complete_market = _complete_tennis_market(forecast, quote, point, market_observations)
+        if complete_market is not None:
+            payload["complete_market"] = complete_market
         records.append((_hash(payload), forecast_id, kind, point.bookmaker_id, payload["observed_at"], payload["fetched_at"], point.odds, int(payload["executable"]), _json(payload)))
     return records
 
 
-def _capture_current_closing_quotes(conn, normalized: list, recorded_at: datetime) -> int:
-    """Bind fresh, already fetched native quotes to earlier executable forecasts.
+def _capture_current_closing_quotes(conn, normalized: list, recorded_at: datetime,
+                                    price_observations=()) -> int:
+    """Bind fresh, already fetched prices to earlier causal forecasts.
 
-    No historical import or provider call is performed. Only the first causal
-    executable revision of each model/policy receives CLV observations, matching
-    the report's return cohort and bounding work across repeated scan revisions.
+    No historical import or provider call is performed. The first causal
+    revision receives a market benchmark, even without an EV-qualified
+    entry. The first executable revision also receives CLV observations for the
+    unchanged historical return cohort. Neither is a new selection gate.
     Rebinding the internal candidate revision ID never changes provider identity,
     bookmaker, price, native participants, event time or observation clocks.
     """
     before = conn.total_changes
+    market_observations = bounded_tennis_price_observations(price_observations, now=recorded_at)
     checked = 0
     identity_fields = ("fixture_id", "provider_event_id", "fixture_source", "home_id", "away_id",
                        "competitor_a", "competitor_b", "competitor_a_id", "competitor_b_id", "selected_competitor")
     for current, raw in normalized:
         if raw is None:
             continue
-        checked += 1
-        if checked > _MAX_CURRENT_CLOSING_QUOTES:
-            break
         quote = MarketConsensus.from_dict(raw.to_dict() if isinstance(raw, MarketConsensus) else raw)
         if quote is None or not quote_matches_candidate(quote, current["quote_identity"]):
             continue
@@ -249,15 +289,23 @@ def _capture_current_closing_quotes(conn, normalized: list, recorded_at: datetim
         if (not fetched <= recorded_at < start or start-fetched > timedelta(hours=1)
                 or recorded_at-fetched > WETTFINDER_FETCH_MAX_AGE):
             continue
+        checked += 1
+        if checked > _MAX_CURRENT_CLOSING_QUOTES:
+            break
         earlier = conn.execute(
-            "SELECT forecast_id,payload_json FROM (SELECT f.forecast_id,f.payload_json,"
-            "ROW_NUMBER() OVER (PARTITION BY f.model_version,f.policy_version "
-            "ORDER BY f.decision_at,f.forecast_id) AS revision_order FROM forecast_rows f "
+            "WITH eligible AS (SELECT f.*, EXISTS (SELECT 1 FROM forecast_quotes q "
+            "WHERE q.forecast_id=f.forecast_id AND q.kind='entry' AND q.executable=1) AS has_entry "
+            "FROM forecast_rows f "
             "WHERE f.event_key=? AND f.sport=? AND f.market_key=? AND f.selection=? "
             "AND f.starts_at=? AND f.decision_at<? "
-            "AND json_extract(f.payload_json,'$.causal_provenance_complete')=1 "
-            "AND EXISTS (SELECT 1 FROM forecast_quotes q WHERE q.forecast_id=f.forecast_id "
-            "AND q.kind='entry' AND q.executable=1)) WHERE revision_order=1 "
+            "AND json_extract(f.payload_json,'$.causal_provenance_complete')=1), ranked AS ("
+            "SELECT forecast_id,payload_json,has_entry, "
+            "ROW_NUMBER() OVER (PARTITION BY model_version,policy_version "
+            "ORDER BY decision_at,forecast_id) AS causal_order, "
+            "ROW_NUMBER() OVER (PARTITION BY model_version,policy_version,has_entry "
+            "ORDER BY decision_at,forecast_id) AS entry_order FROM eligible) "
+            "SELECT forecast_id,payload_json FROM ranked "
+            "WHERE causal_order=1 OR (has_entry=1 AND entry_order=1) "
             "ORDER BY forecast_id LIMIT ?",
             (current["event_key"], current["sport"], current["market_key"], current["selection"],
              current["starts_at"], fetched.isoformat(), _MAX_CLOSING_VERSION_BINDINGS),
@@ -269,7 +317,7 @@ def _capture_current_closing_quotes(conn, normalized: list, recorded_at: datetim
                 continue
             bound = {**quote.to_dict(), "candidate_id": forecast["quote_identity"]["candidate_id"]}
             try:
-                records = _quote_records(forecast_id, forecast, bound, "closing")
+                records = _quote_records(forecast_id, forecast, bound, "closing", market_observations)
             except (TypeError, ValueError):
                 continue
             conn.executemany("INSERT OR IGNORE INTO forecast_quotes VALUES(?,?,?,?,?,?,?,?,?)", records)
@@ -307,6 +355,8 @@ def record_forecast_run(document: Mapping, db_path: str | Path, model_version: s
     run_id = _hash({k:v for k,v in run.items() if k != "recorded_at"})
     quote_rejected, ids = [], []
     closing_recorded = 0
+    market_observations = bounded_tennis_price_observations(
+        document.get("tennis_price_observations"), now=recorded_at)
     with closing(_connect(db_path)) as conn, conn:
         conn.execute("BEGIN IMMEDIATE")
         existing = conn.execute("SELECT payload_json FROM forecast_runs WHERE run_id=?", (run_id,)).fetchone()
@@ -321,11 +371,11 @@ def record_forecast_run(document: Mapping, db_path: str | Path, model_version: s
             conn.execute("INSERT OR IGNORE INTO forecast_rows VALUES(?,?,?,?,?,?,?,?,?,?,?)", (forecast_id, run_id, row["event_key"], row["sport"], row["market_key"], row["selection"], row["model_version"], row["policy_version"], row["starts_at"], row["decision_at"], _json(row)))
             if quote is not None:
                 try:
-                    records = _quote_records(forecast_id, row, quote, "entry")
+                    records = _quote_records(forecast_id, row, quote, "entry", market_observations)
                     conn.executemany("INSERT OR IGNORE INTO forecast_quotes VALUES(?,?,?,?,?,?,?,?,?)", records)
                 except (TypeError, ValueError) as exc:
                     quote_rejected.append({"forecast_id": forecast_id, "reason": str(exc)})
-        closing_recorded = _capture_current_closing_quotes(conn, normalized, recorded_at)
+        closing_recorded = _capture_current_closing_quotes(conn, normalized, recorded_at, market_observations)
     return {"run_id": run_id, "recorded": len(set(ids)), "forecast_ids": ids, "rejected": rejected,
             "quotes_rejected": quote_rejected, "closing_quotes_recorded": closing_recorded}
 
@@ -339,6 +389,39 @@ def append_quote_observation(forecast_id: str, quote: object, *, kind: str, db_p
         before = conn.total_changes
         conn.executemany("INSERT OR IGNORE INTO forecast_quotes VALUES(?,?,?,?,?,?,?,?,?)", records)
         return conn.total_changes-before
+
+
+def record_current_closing_quotes(document: Mapping, *, db_path: str | Path, model_version: str) -> dict:
+    """Record already fetched closing prices, never a new model/run or entry.
+
+    Price-only refreshes keep the original model decision and all probabilities.
+    They previously updated the cards without reaching the closing-price owner.
+    Missing evidence is not initialized by this optional observation step.
+    """
+    if not Path(db_path).is_file():
+        return {"status": "no_existing_forecasts", "recorded": 0, "rejected": 0}
+    decision = _utc(document.get("decision_at") or document.get("generated_at"))
+    recorded_at = _now()
+    if decision > recorded_at:
+        raise ValueError("forecast decision cannot be in the future")
+    model = _text(model_version, "model version")
+    policy = _text(document.get("selection_policy_version") or document.get("betting_policy_version"), "policy version")
+    rows = document.get("model_candidates")
+    if not isinstance(rows, (list, tuple)):
+        raise ValueError("model_candidates must be the complete candidate sequence")
+    normalized, rejected = [], 0
+    for row in rows:
+        if not isinstance(row, Mapping) or row.get("reference_quote") is None:
+            continue
+        try:
+            normalized.append((_normalize_row(row, decision, model, policy), row["reference_quote"]))
+        except (TypeError, ValueError):
+            rejected += 1
+    with closing(_connect(db_path)) as conn, conn:
+        conn.execute("BEGIN IMMEDIATE")
+        count = _capture_current_closing_quotes(conn, normalized, recorded_at,
+            price_observations=document.get('tennis_price_observations'))
+    return {"status": "completed", "recorded": count, "rejected": rejected}
 
 
 def append_result(event_key: str, market_key: str, selection: str, outcome: str | bool, *, observed_at: datetime | str, provenance: Mapping, db_path: str | Path) -> str:

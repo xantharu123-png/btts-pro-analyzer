@@ -57,6 +57,102 @@ def _terminal_revision(rows, competition):
     return digest({'rows': facts, 'native_winner_flags': winner_flags})
 
 
+def _terminal_receipt_fingerprints(rows):
+    """Exact completed native facts INCLUDING known winner outcomes.
+
+    Winner flags are not retained in status-v1. Therefore a final without a
+    validated outcome is deliberately not eligible for persistent suppression.
+    No first clock, actual end, missing winner or injury is inferred here.
+    """
+    from context_models.contracts import OBSERVATION_FIELDS
+    from context_sources.tennis import SOURCE_SCHEMA
+    from context_sources.tennis_status import STATUS_SCHEMA, validate_selected_tennis_receipt
+    from context_sources.outcomes import validate_outcome_record, TENNIS_WINNER_OUTCOME
+    from context_models.tennis import _joint_match_identity
+    statuses = [row for row in rows if row['kind'] == 'event_status']
+    work = [row for row in rows if row['kind'] == 'workload']
+    outcomes = [row for row in rows if row['kind'] == 'match_outcome']
+    if len(statuses) != 1 or len(work) != 2 or not outcomes or len(rows) != 3+len(outcomes):
+        return None
+    status = statuses[0]
+    p = status['payload']
+    if (status['source_schema'] != STATUS_SCHEMA or status['sport'] != 'tennis'
+            or status['format'] != 'singles' or p['status'] != 'completed' or p['issues']
+            or any(p['native_status'][flag] for flag in ('retired', 'walkover', 'unsupported'))):
+        return None
+    for row in (status, *work):
+        validate_selected_tennis_receipt({**row, 'evidence_class': 'prospective',
+            'effective_at': row['observed_at'], 'publication_resolution': None})
+    players = set(p['participant_ids'])
+    if (set(p['workload_receipts']) != {row['digest'] for row in work}
+            or {row['subject_id'] for row in work} != players
+            or len({_joint_match_identity(row) for row in work}) != 1
+            or any(row['source_schema'] != SOURCE_SCHEMA or row['payload']['status'] != 'completed'
+                or row['competition'] != status['competition']
+                or row['schedule_revision'] != status['schedule_revision']
+                or row['observed_at'] != status['observed_at'] for row in work)):
+        return None
+    winners = set()
+    for row in outcomes:
+        result = row['payload']
+        if (result.get('outcome_contract') != TENNIS_WINNER_OUTCOME
+                or {result.get('home_id'), result.get('away_id')} != players
+                or result.get('reported_scheduled_start', result.get('scheduled_start')) != p['scheduled_start']
+                or row['observed_at'] != status['observed_at']):
+            return None
+        event = {'event_key': row['event_key'], 'sport': 'tennis', 'competition': row['competition'],
+            'format': row['format'], 'home_id': result['home_id'], 'away_id': result['away_id'],
+            'scheduled_start': result['scheduled_start'], 'schedule_revision': row['schedule_revision'],
+            'status': 'scheduled', 'tour': p['tour'], 'surface': None, 'indoor': None}
+        validate_outcome_record({**row, 'evidence_class': 'prospective',
+            'effective_at': row['observed_at'], 'publication_resolution': None}, event=event)
+        winners.add(result['result']['winner_id'])
+    if len(winners) != 1:
+        return None
+    fingerprints = {}
+    for row in rows:
+        content = {key: row[key] for key in OBSERVATION_FIELDS}
+        content.pop('valid_from')
+        content.pop('source_revision')
+        payload = dict(content['payload'])
+        if row['kind'] == 'event_status':
+            payload.pop('competition_revision')
+            payload.pop('workload_receipts')
+        elif row['kind'] == 'workload':
+            payload.pop('result_observed_at')
+        content['payload'] = payload
+        key = digest(content)
+        if key in fingerprints:
+            return None
+        fingerprints[key] = row['digest']
+    return fingerprints
+
+
+def _persisted_terminal_reuse(connection, prepared):
+    """Bounded latest-whole-reception comparison under B1's writer lock."""
+    from context_observations import _SELECT, _decode_receipt
+    current = tuple({**row, 'observed_at': clock, 'content_digest': content_hash,
+        'digest': receipt_hash} for row, clock, content_hash, receipt_hash, _ in prepared)
+    desired = _terminal_receipt_fingerprints(current)
+    if desired is None:
+        return {}
+    key, clock = current[0]['event_key'], current[0]['observed_at']
+    latest = connection.execute('SELECT max(observed_at) FROM context_observations WHERE event_key=?',
+        (key,)).fetchone()[0]
+    if latest is None or latest > clock:
+        return {}
+    admission = connection.execute('''SELECT count(*),coalesce(sum(length(c.payload)),0)
+        FROM context_observations r LEFT JOIN context_contents c ON c.content_digest=r.content_digest
+        WHERE r.event_key=? AND r.observed_at=?''', (key, latest)).fetchone()
+    if admission[0] > 64 or admission[1] > 128*1024:
+        return {}  # Optional optimisation; never turn unbounded history into an empty match.
+    stored = tuple(_decode_receipt(row) for row in connection.execute(_SELECT+
+        ' WHERE r.event_key=? AND r.observed_at=?', (key, latest)))
+    previous = _terminal_receipt_fingerprints(stored)
+    return ({ref: previous[fact] for fact, ref in desired.items()}
+        if previous is not None and previous.keys() == desired.keys() else {})
+
+
 def _expected_exclusion(status, competition):
     """Classify known out-of-scope draws, never make their rows modelable.
 
@@ -188,6 +284,12 @@ class _Capture:
             identity_conflict_events=self.identity_conflict_outcome_events)
         self.issues.update(issues)
         chunk = []
+        def append_chunk():
+            refs = append_observation_batch(path, tuple(chunk), deduplicate_tennis_terminals=True)
+            self.refs.update(refs)
+            actual = {digest({'content_digest': digest(row),
+                'observed_at': canonical_timestamp(at)}) for row, at in chunk if row['kind'] == 'event_status'}
+            self.unchanged_terminal_receptions += len(actual-set(refs))
         for index, (observed, rows) in enumerate(self.pending):
             if index in outcomes:
                 rows = (*rows, *outcomes[index])
@@ -197,11 +299,11 @@ class _Capture:
             # may remain partial on interruption, but a committed chunk is
             # atomic and retains every original reception clock.
             if len(chunk) + len(rows) > 512:
-                self.refs.update(append_observation_batch(path, tuple(chunk)))
+                append_chunk()
                 chunk = []
             chunk.extend((row, observed) for row in rows)
         if chunk:
-            self.refs.update(append_observation_batch(path, tuple(chunk)))
+            append_chunk()
         # An explicit drain ends this reception batch. A later real reception
         # in the same owner is new evidence; no cache crosses persistence.
         self._last_terminal.clear()

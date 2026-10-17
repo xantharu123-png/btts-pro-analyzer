@@ -16,8 +16,13 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", required=True, type=Path, help="Dedicated forecast evidence SQLite database")
     parser.add_argument("--as-of", help="Optional timezone-aware historical reporting cutoff")
+    parser.add_argument("--market-comparison", action="store_true",
+                        help="Include complete same-book, same-time no-vig market benchmarks")
     args = parser.parse_args(argv)
     report = build_quality_report(args.db, as_of=args.as_of)
+    if args.market_comparison:
+        from forecast_market_comparison import build_market_comparison
+        report["market_comparison"] = build_market_comparison(args.db, as_of=args.as_of)
     print(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False))
     return 0
 

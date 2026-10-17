@@ -10,9 +10,6 @@ from market_consensus import MarketConsensus, QuotePoint, REFERENCE_SOURCE
 from multi_sport_recommendations import EVIDENCE_RELEASED, RecommendationCandidate
 
 
-NOW = datetime.now(timezone.utc).isoformat()
-
-
 def _candidate(*, release_pending: bool = False) -> RecommendationCandidate:
     return RecommendationCandidate(
         event_key="compact-price-action", sport="Fußball", event_label="Alpha vs Beta",
@@ -51,15 +48,16 @@ def test_model_selection_displays_only_model_and_fixed_user_floor(monkeypatch):
 
 
 def _quote() -> MarketConsensus:
+    now = datetime.now(timezone.utc).isoformat()
     return MarketConsensus(
         fixture_id=1, candidate_id="compact-price-action", market_key="BTTS_YES",
         bet_name="Both Teams Score", value_name="Yes", consensus_odds=2.00,
         conservative_odds=1.975, lowest_odds=1.95, best_odds=2.10,
-        bookmaker_count=3, quoted_at=NOW, fetched_at=NOW, source=REFERENCE_SOURCE,
+        bookmaker_count=3, quoted_at=now, fetched_at=now, source=REFERENCE_SOURCE,
         points=(
-            QuotePoint("A", 1.95, "api-football:1", NOW),
-            QuotePoint("B", 2.00, "api-football:2", NOW),
-            QuotePoint("C", 2.10, "api-football:3", NOW),
+            QuotePoint("A", 1.95, "api-football:1", now),
+            QuotePoint("B", 2.00, "api-football:2", now),
+            QuotePoint("C", 2.10, "api-football:3", now),
         ),
         scheduled_start="2030-01-01T16:00:00+00:00",
     )
@@ -70,6 +68,26 @@ def _binding(quote=None):
     return dict(candidate_id=quote.candidate_id, fixture_id=quote.fixture_id,
         market_key=quote.market_key, sport='Fußball', selection='Ja',
         scheduled_start=quote.scheduled_start)
+
+
+def test_quote_fixture_uses_execution_clock_after_delayed_collection(monkeypatch):
+    import sys
+    from bet_finder_ui import evaluate_reference_price
+
+    executed_at = datetime.now(timezone.utc) + timedelta(hours=2)
+
+    class ExecutionClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return executed_at.astimezone(tz) if tz is not None else executed_at.replace(tzinfo=None)
+
+    monkeypatch.setattr(sys.modules[__name__], "datetime", ExecutionClock)
+    quote = _quote()
+    evaluation = evaluate_reference_price(_candidate(), quote, bankroll=100.0, now=executed_at)
+
+    assert evaluation.decision is not None and evaluation.decision.status == "BET"
+    assert quote.quoted_at == quote.fetched_at == executed_at.isoformat()
+    assert all(point.observed_at == quote.quoted_at for point in quote.points)
 
 
 def _render_full() -> None:
@@ -224,7 +242,9 @@ def test_default_full_presentation_keeps_reference_details_and_manual_expander()
 def test_compact_presentation_evaluates_same_automatic_bet_without_duplicate_content():
     from bet_finder_ui import evaluate_reference_price
 
-    expected = evaluate_reference_price(_candidate(), _quote(), bankroll=100.0)
+    quote = _quote()
+    expected = evaluate_reference_price(_candidate(), quote, bankroll=100.0,
+        now=datetime.fromisoformat(quote.fetched_at))
     app = AppTest.from_function(_render_compact)
     app.run(timeout=30)
 
@@ -372,13 +392,15 @@ def test_manual_price_state_is_discarded_when_model_candidate_changes(monkeypatc
 def test_reference_evaluation_keeps_exact_executable_offer_provenance():
     from bet_finder_ui import evaluate_reference_price
 
-    evaluation = evaluate_reference_price(_candidate(), _quote(), bankroll=100.0)
+    quote = _quote()
+    evaluation = evaluate_reference_price(_candidate(), quote, bankroll=100.0,
+        now=datetime.fromisoformat(quote.fetched_at))
 
     assert evaluation.decision is not None
     assert evaluation.decision.status == "BET"
     assert evaluation.status.bookmaker == "B"
     assert evaluation.status.bookmaker_id == "api-football:2"
-    assert evaluation.status.observed_at == NOW
+    assert evaluation.status.observed_at == quote.quoted_at
     assert evaluation.quote is not None
     assert evaluation.quote.candidate_id == "compact-price-action"
 
@@ -386,11 +408,12 @@ def test_reference_evaluation_keeps_exact_executable_offer_provenance():
 def test_reference_evaluation_uses_one_injected_clock_and_never_exposes_raw_quote():
     from bet_finder_ui import evaluate_reference_price
 
+    quote = _quote()
     evaluation = evaluate_reference_price(
         _candidate(),
-        _quote(),
+        quote,
         bankroll=100.0,
-        now=datetime.fromisoformat(NOW) + timedelta(hours=2),
+        now=datetime.fromisoformat(quote.quoted_at) + timedelta(hours=2),
     )
 
     assert evaluation.status.code == "STALE"
@@ -425,9 +448,10 @@ def test_compact_automatic_bet_persists_exact_provider_provenance(monkeypatch):
         lambda decision, *, source: saved.append((decision, source)),
     )
 
+    quote = _quote()
     decision = ui.render_price_decision(
-        _candidate(), key="compact-save", reference_quote=_quote(),
-        reference_binding_candidate=_binding(),
+        _candidate(), key="compact-save", reference_quote=quote,
+        reference_binding_candidate=_binding(quote),
         save_source="Automatischer Wettfinder", presentation="compact",
     )
 
@@ -435,14 +459,15 @@ def test_compact_automatic_bet_persists_exact_provider_provenance(monkeypatch):
     assert len(saved) == 1
     assert "API-Football" in saved[0][1]
     assert "B [api-football:2]" in saved[0][1]
-    assert NOW in saved[0][1]
+    assert quote.quoted_at in saved[0][1]
 
 
 def test_compact_renderer_uses_exact_precomputed_reference_evaluation(monkeypatch):
     import bet_finder_ui as ui
 
+    quote = _quote()
     evaluation = ui.evaluate_reference_price(
-        _candidate(), _quote(), bankroll=100.0
+        _candidate(), quote, bankroll=100.0
     )
 
     class _Streamlit:
@@ -468,8 +493,8 @@ def test_compact_renderer_uses_exact_precomputed_reference_evaluation(monkeypatc
     decision = ui.render_price_decision(
         _candidate(),
         key="precomputed",
-        reference_quote=_quote(),
-        reference_binding_candidate=_binding(),
+        reference_quote=quote,
+        reference_binding_candidate=_binding(quote),
         presentation="compact",
         precomputed_reference_evaluation=evaluation,
     )

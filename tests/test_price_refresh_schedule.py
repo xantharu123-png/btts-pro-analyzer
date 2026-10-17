@@ -31,6 +31,31 @@ def _football():
     return row, _quote(signal)
 
 
+@pytest.mark.parametrize('failed', [False, True])
+def test_price_refresh_hands_received_quotes_to_evidence_without_model_run(tmp_path, monkeypatch, failed):
+    row, quote = _football()
+    path, original = _state(tmp_path, [row])
+    seen = []
+    def capture(document, *, db_path, model_version):
+        seen.append((document['generated_at'], document['model_candidates'][0]['reference_quote'], db_path))
+        if failed:
+            raise ValueError('not-for-publication')
+        return {'status': 'completed', 'recorded': 3, 'rejected': 0}
+    monkeypatch.setattr('forecast_evidence.record_current_closing_quotes', capture)
+    monkeypatch.setattr(automation, 'run_wettfinder', lambda **kw: pytest.fail('model run'))
+    evidence_path = tmp_path/'evidence.db'
+    result = automation.refresh_prices_only(state_path=path, now=NOW,
+        quote_loader=lambda *args, **kw: ({quote.candidate_id: quote}, []), evidence_db_path=evidence_path)
+    assert len(seen) == 1
+    assert seen[0][0] == original['generated_at']
+    assert seen[0][1] is not None
+    assert seen[0][2] == evidence_path
+    assert result['closing_evidence']['status'] == ('failed' if failed else 'completed')
+    assert int(result.get('operational_errors', 0)) == int(failed)
+    assert json.loads(path.read_text())['generated_at'] == original['generated_at']
+    assert 'not-for-publication' not in path.read_text()
+
+
 def _native_loaders(monkeypatch, football, tennis, *, outcome="quotes"):
     calls = []
     def receive(sport, quote, rows, kwargs):

@@ -111,7 +111,8 @@ def append_observation(path: Path, record: dict, *, observed_at: datetime) -> st
     return append_observation_batch(path, ((record, observed_at),))[0]
 
 
-def append_observation_batch(path: Path, records: tuple[tuple[dict, datetime], ...]) -> tuple[str, ...]:
+def append_observation_batch(path: Path, records: tuple[tuple[dict, datetime], ...], *,
+                             deduplicate_tennis_terminals=False) -> tuple[str, ...]:
     """Atomically append at most 512 actual receipts with unchanged B1 bytes.
 
     Each observation keeps its own source clock and the same normalization,
@@ -119,7 +120,10 @@ def append_observation_batch(path: Path, records: tuple[tuple[dict, datetime], .
     avoids reopening/fsyncing this database for every received status/player.
     No pruning, schema migration or historical freshness promotion occurs.
     """
-    return _append_observation_batch(path, records)[0]
+    if type(deduplicate_tennis_terminals) is not bool:
+        raise ValueError("terminal deduplication must be an explicit boolean")
+    return _append_observation_batch(path, records,
+        deduplicate_tennis_terminals=deduplicate_tennis_terminals)[0]
 
 
 def append_bounded_observation_batch(path, records, *, max_new_payload_bytes):
@@ -129,7 +133,8 @@ def append_bounded_observation_batch(path, records, *, max_new_payload_bytes):
     return _append_observation_batch(path, records, max_new_payload_bytes)
 
 
-def _append_observation_batch(path, records, max_new_payload_bytes=None):
+def _append_observation_batch(path, records, max_new_payload_bytes=None, *,
+                              deduplicate_tennis_terminals=False):
     if type(records) is not tuple or len(records) > 512:
         raise ValueError("receipt batch must be an explicit tuple of at most 512 observations")
     prepared = []
@@ -146,7 +151,24 @@ def _append_observation_batch(path, records, max_new_payload_bytes=None):
             connection.execute("BEGIN IMMEDIATE")
             index_context = _tennis_index.begin_index_append(connection)
             inserted_bytes = 0
+            reused = {}
+            if deduplicate_tennis_terminals:
+                from collections import Counter
+                from itertools import groupby
+                from context_sources.tennis_capture import _persisted_terminal_reuse
+                receptions = Counter(key for key, _ in {
+                    (row[0]['event_key'], row[1]) for row in prepared})
+                for _, group in groupby(prepared, key=lambda row: (row[0]['event_key'], row[1])):
+                    group = tuple(group)
+                    if receptions[group[0][0]['event_key']] != 1:
+                        continue  # A same-batch correction/retraction is a hard barrier.
+                    # Only this writer transaction can decide that the latest
+                    # native state is unchanged. A read-before-write race could
+                    # otherwise hide an intervening correction/retraction.
+                    reused.update(_persisted_terminal_reuse(connection, group))
             for content, observed, content_hash, receipt_hash, payload in prepared:
+                if receipt_hash in reused:
+                    continue
                 if connection.execute("SELECT 1 FROM context_contents WHERE content_digest=?", (content_hash,)).fetchone() is None:
                     inserted_bytes += len(payload)
                 if connection.execute("SELECT 1 FROM context_observations WHERE digest=?", (receipt_hash,)).fetchone() is None:
@@ -182,7 +204,7 @@ def _append_observation_batch(path, records, max_new_payload_bytes=None):
         except BaseException:
             connection.rollback()
             raise
-    return tuple(row[3] for row in prepared), inserted_bytes
+    return tuple(reused.get(row[3], row[3]) for row in prepared), inserted_bytes
 
 
 def freeze_named_receipts(path, receipt_refs: tuple[str, ...]) -> tuple[dict, ...]:

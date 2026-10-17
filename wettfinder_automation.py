@@ -4908,7 +4908,7 @@ def _refresh_scheduled_prices(document, *, path, config, now):
 
 
 def refresh_prices_only(*, state_path=STATE_PATH, config=None, now=None, quote_loader=None,
-                        quote_sport="football"):
+                        quote_sport="football", evidence_db_path=None):
     """Refresh bounded prices without models, under the daily publication lock."""
     if quote_sport not in {'football', 'tennis', 'all'}:
         raise ValueError('unsupported quote sport')
@@ -4928,6 +4928,15 @@ def refresh_prices_only(*, state_path=STATE_PATH, config=None, now=None, quote_l
             _require_price_worker_idle()
         if path.read_bytes() != original:
             raise RuntimeError('snapshot changed during price refresh; nothing published')
+        if canonical or evidence_db_path is not None:
+            from forecast_evidence import record_current_closing_quotes
+            try:
+                summary['closing_evidence'] = record_current_closing_quotes(
+                    document, db_path=evidence_db_path or ROOT / 'runtime_state' / 'forecast_evidence.db',
+                    model_version=CHALLENGE_PREDICTION_VERSION)
+            except Exception as exc:
+                summary['closing_evidence'] = {'status': 'failed', 'error_type': type(exc).__name__}
+                summary['operational_errors'] = int(summary.get('operational_errors', summary.get('errors', 0))) + 1
         write_state(document, path)
         return summary
 

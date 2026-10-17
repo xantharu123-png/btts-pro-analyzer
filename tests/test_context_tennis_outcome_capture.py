@@ -258,7 +258,8 @@ def test_outcome_stays_with_its_status_and_workload_in_bounded_batches(monkeypat
     db, _, _, _ = original_store(monkeypatch, tmp_path)
     calls = []
     actual = capture.append_observation_batch
-    def checked(path, rows):
+    def checked(path, rows, **options):
+        assert options == {'deduplicate_tennis_terminals': True}
         calls.append(len(rows))
         assert len(rows) <= 512
         by_clock = {}
@@ -266,7 +267,7 @@ def test_outcome_stays_with_its_status_and_workload_in_bounded_batches(monkeypat
             by_clock.setdefault(clock, []).append(row)
         assert all(sorted(row["kind"] for row in group) ==
             ["event_status", "match_outcome", "workload", "workload"] for group in by_clock.values())
-        return actual(path, rows)
+        return actual(path, rows, **options)
     monkeypatch.setattr(capture, "append_observation_batch", checked)
     with capture.capture_tennis_worker(path=db) as observer:
         for index in range(130):

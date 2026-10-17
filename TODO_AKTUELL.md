@@ -1,5 +1,61 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 17.10.2026 – Marktvergleich und Kontext-Datenpfad: geprüft, Veröffentlichung folgt
+
+Aktiver Checkout unverändert `.worktrees/audit-repairs-20261013`, Ausgang
+`46f1fa8f6f690e15ae7045087e0bea762be79dd4` lokal/main/VPS. Keine Backups.
+
+- [x] Tatsächlicher Marktvergleich implementiert: vollständige gleiche native
+  Märkte/Buchmacher/Zeitpunkte, proportionale Margenbereinigung, getrennte
+  Entry-/Closing-Kohorten und ereignisgewichtete Brier-/Log-Loss-Messung.
+  Keine Auswahl-, Preisfreigabe- oder Modellwahrscheinlichkeitsänderung.
+- [x] Bereits geladene Tennis-Gegenpreise unveränderlich in vorhandenen
+  Quotenbelegen speichern. Keine synthetische Gegenprognose/neue Tabelle/API.
+- [x] Separaten Preis-Worker an bestehende Closing-Erfassung angeschlossen;
+  erster kausaler Modellstand unabhängig vom alten EV-Flag, bisherige erste
+  ausführbare Revision für CLV/Rendite unverändert. Kein Entry-Backfill/Modellscan.
+- [x] Identische, vollständig gebundene normale Tennis-Finals inklusive bekanntem
+  Gewinner transaktional wiederverwenden. Jede Korrektur, Status-/Teilnehmer-
+  Änderung und unbekannte Gewinnerlage erhalten; keine alten Zeilen gelöscht.
+  Ohne ursprünglichen Ergebnisbeleg greift diese Optimierung ausdrücklich nicht.
+- [x] Gezielt Quoten-/Markt-Nachbarn 393 PASS, Tennis-Pakete 236 PASS;
+  unabhängige Reviews ohne verbleibende P1/P2 im begrenzten Paket. Zahlen
+  überlappen und sind kein addierter Vollsuite-Nachweis.
+- [x] Gesamtabdeckung verifiziert: **15.280 PASS, 98 identische SKIP,
+  147 bestandene Untertests**; alle 15.318 vorherigen IDs plus 60 neue erhalten.
+  Jede der 15.378 aktuellen Haupt-IDs genau einmal im zusammengeführten JUnit.
+  Der ursprüngliche vollständige Lauf unter `output/context-effects-20261017/
+  full-qa-01/` bleibt mit seinen 19 FAIL und Exitcodes `[0,1,1,1]` erhalten:
+  14 Subprozess-Timeouts, ein Prozess ohne JSON, ein Lock-Zeitlimit und drei
+  korrekt als veraltet abgelehnte, bei Collection erzeugte Testquoten.
+  Nur die Testdatei `tests/test_bet_finder_ui.py` wurde danach korrigiert:
+  Ausführungsuhr statt Collection-Uhr, identische Quote für Provenienz sowie
+  ein neuer RED→GREEN-Regressionsfall. Kein Produkt-TTL/Limit gelockert.
+  Alle fünf betroffenen vollständigen Module danach sequenziell **521 PASS,
+  3 gleiche SKIP**, ohne weitere Produktänderung. Die ursprünglichen Prozess-
+  und Lock-Fehler reproduzierten sich dort nicht; ihre historische Ursache ist
+  nicht als allgemeiner Speicher-/CPU-Mangel bewiesen. Maßgeblicher Abschluss:
+  `C:/Projekt/BetBoy/output/context-effects-20261017/verification-summary.json`.
+- [ ] Nach Gesamtnachweis explizit committen/main pushen und No-Backup-VPS-FF,
+  Offline-Smoke/Neustart/Health/HEAD-Abgleich, dann frischen lesenden Marktbericht.
+
+**Nicht abgeschlossen: numerische Verletzungs-, Wetter- und Müdigkeitseffekte.**
+Frisch produktiv geprüft: Fußball 115 Original-Bindings, davon nur acht vollständige
+Spiele; sieben davon scheitern am bestehenden 4-MiB-Quellenpool. Die Original-
+Erfassung steht seit 15.10. am 128-MiB-Lebenszeit-Reservierungslimit. Einfach
+weitersammeln funktioniert deshalb nicht. Es fehlen keine bloßen Textlabels.
+Tennis hat 1.000 native passende Finals älterer gemischter Generationen, aber
+nur 52 aktuelle POINT-Joint-Artefakte und weiterhin blockierte tatsächliche
+Merkmalsrekonstruktion. Keine Effekte aktiviert oder Zahlen erfunden.
+Konkrete Befunde und die verbleibende verlustfreie Quellen-/Budgetreparatur:
+[Kontext-Abnahmebereitschaft](docs/audits/2026-10-17-context-activation-readiness.md).
+[Paketabgrenzung](docs/audits/2026-10-17-market-context-release.md).
+
+Regulärer Shadow am17.10. um21:02:20CEST erfolgreich/Exit0; der ältere
+18:12UTC-Lauf war partial/Exit1. App/MainPID1218486 unverändert, keine zusätzlichen
+Sport-/API-Scans, Sicherungen, Bereinigungen oder Datenbankkopien durchgeführt.
+Die älteren Abschnitte unten behalten ihre datierten Nachweise.
+
 ## 17.10.2026 – Reparaturpaket live, tatsächlicher Endstand
 
 **Quellcommit `e8a32b83d6c0510adb798ab3c96c4a63704a4d5d` auf main und VPS.**

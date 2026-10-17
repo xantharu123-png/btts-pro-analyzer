@@ -38,6 +38,100 @@ def document(rows, decision=NOW):
     return {"generated_at":decision.isoformat(),"selection_policy_version":"catalog-v1","model_candidates":rows}
 
 
+def test_price_only_observation_reuses_frozen_forecast_without_new_model(db, monkeypatch):
+    row = candidate()
+    row['reference_quote'] = quote(row).to_dict()
+    initial = evidence.record_forecast_run(document([row]), db, 'model-v1')
+    with sqlite3.connect(db) as conn:
+        frozen = list(conn.execute('SELECT * FROM forecast_rows'))
+        runs = list(conn.execute('SELECT * FROM forecast_runs'))
+    current = START-timedelta(minutes=5)
+    monkeypatch.setattr(evidence, '_now', lambda: current)
+    row['reference_quote'] = quote(row, 1.8, current).to_dict()
+    report = evidence.record_current_closing_quotes(document([row]), db_path=db, model_version='model-v1')
+    assert report == {'status': 'completed', 'recorded': 3, 'rejected': 0}
+    assert evidence.record_current_closing_quotes(document([row]), db_path=db, model_version='model-v1')['recorded'] == 0
+    with sqlite3.connect(db) as conn:
+        assert list(conn.execute('SELECT * FROM forecast_rows')) == frozen
+        assert list(conn.execute('SELECT * FROM forecast_runs')) == runs
+        assert {r[0] for r in conn.execute("SELECT forecast_id FROM forecast_quotes WHERE kind='closing'")} == set(initial['forecast_ids'])
+
+
+def test_price_only_missing_evidence_is_not_created(db):
+    assert evidence.record_current_closing_quotes({}, db_path=db, model_version='model-v1')['status'] == 'no_existing_forecasts'
+    assert not db.exists()
+
+
+@pytest.mark.parametrize('damage', ['native_identity', 'after_start', 'old_observation', 'future_fetch'])
+def test_price_only_capture_cannot_backfill_or_cross_identity(db, monkeypatch, damage):
+    row = candidate()
+    row['reference_quote'] = quote(row).to_dict()
+    evidence.record_forecast_run(document([row]), db, 'model-v1')
+    current = START-timedelta(minutes=5)
+    if damage == 'native_identity':
+        row['provider_event_id'] = 'different'
+    fetched = current+timedelta(minutes=1) if damage == 'future_fetch' else current
+    if damage == 'old_observation':
+        fetched = NOW
+    if damage == 'after_start':
+        current = START+timedelta(seconds=1)
+    row['reference_quote'] = quote(row, 1.8, fetched).to_dict()
+    monkeypatch.setattr(evidence, '_now', lambda: current)
+    assert evidence.record_current_closing_quotes(document([row]), db_path=db, model_version='model-v1')['recorded'] == 0
+
+
+def test_market_closing_does_not_require_old_ev_entry_gate(db, monkeypatch):
+    first = candidate()
+    first['minimum_odds'] = 3.0
+    first['reference_quote'] = quote(first, 1.5).to_dict()
+    initial = evidence.record_forecast_run(document([first]), db, 'model-v1')
+    with sqlite3.connect(db) as conn:
+        assert conn.execute('SELECT SUM(executable) FROM forecast_quotes').fetchone()[0] == 0
+    later = NOW+timedelta(minutes=15)
+    monkeypatch.setattr(evidence, '_now', lambda: later)
+    second = candidate()
+    second['reference_quote'] = quote(second, 2.0, later).to_dict()
+    next_run = evidence.record_forecast_run(document([second], later), db, 'model-v1')
+    current = START-timedelta(minutes=5)
+    monkeypatch.setattr(evidence, '_now', lambda: current)
+    second['reference_quote'] = quote(second, 1.8, current).to_dict()
+    assert evidence.record_current_closing_quotes(document([second], later), db_path=db, model_version='model-v1')['recorded'] == 6
+    with sqlite3.connect(db) as conn:
+        assert {r[0] for r in conn.execute("SELECT forecast_id FROM forecast_quotes WHERE kind='closing'")} == set(initial['forecast_ids']+next_run['forecast_ids'])
+    report = evidence.build_quality_report(db, as_of=current)['groups'][0]
+    assert report['same_book_raw_clv_samples'] == 1
+    assert report['same_book_raw_clv'] == pytest.approx(2/1.8-1)
+
+
+def test_first_causal_forecast_without_entry_can_receive_closing_only(db, monkeypatch):
+    row = candidate()
+    initial = evidence.record_forecast_run(document([row]), db, 'model-v1')
+    current = START-timedelta(minutes=5)
+    monkeypatch.setattr(evidence, '_now', lambda: current)
+    row['reference_quote'] = quote(row, 1.8, current).to_dict()
+    assert evidence.record_current_closing_quotes(document([row]), db_path=db, model_version='model-v1')['recorded'] == 3
+    with sqlite3.connect(db) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM forecast_quotes WHERE kind='entry'").fetchone()[0] == 0
+        assert {r[0] for r in conn.execute('SELECT forecast_id FROM forecast_quotes')} == set(initial['forecast_ids'])
+    assert evidence.build_quality_report(db, as_of=current)['groups'][0]['same_book_raw_clv_samples'] == 0
+
+
+def test_non_due_quotes_cannot_starve_final_hour_observation(db, monkeypatch):
+    row = candidate()
+    row['reference_quote'] = quote(row).to_dict()
+    evidence.record_forecast_run(document([row]), db, 'model-v1')
+    current = START-timedelta(minutes=5)
+    monkeypatch.setattr(evidence, '_now', lambda: current)
+    distant = []
+    for i in range(201):
+        item = candidate(i+2)
+        item['scheduled_start'] = (START+timedelta(days=1)).isoformat()
+        item['reference_quote'] = quote(item, 2.0, current).to_dict()
+        distant.append(item)
+    row['reference_quote'] = quote(row, 1.8, current).to_dict()
+    assert evidence.record_current_closing_quotes(document(distant+[row]), db_path=db, model_version='model-v1')['recorded'] == 3
+
+
 def quote(row, odds=2.0, captured=NOW):
     payload = {"response":[{"fixture":{"id":row["fixture_id"],"date":row["scheduled_start"]},"update":captured.isoformat(),"bookmakers":[{"id":i,"name":f"Book {i}","bets":[{"name":"Both Teams Score","values":[{"value":"Yes","odd":str(odds)}]}]} for i in (1,2,3)]}]}
     return parse_fixture_consensus(payload,[row],fetched_at=captured)[row["candidate_id"]]
