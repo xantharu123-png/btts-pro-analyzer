@@ -10,6 +10,19 @@ from zoneinfo import ZoneInfo
 ZURICH_TIMEZONE = ZoneInfo("Europe/Zurich")
 
 
+def format_zurich_time(value: Any, *, seconds: bool = False, unknown: str = "n/a") -> str:
+    """Display an explicit instant, never a server-local or unknown timezone."""
+    try:
+        moment = value if isinstance(value, datetime) else datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if moment.tzinfo is None or moment.utcoffset() is None:
+            return unknown
+        return moment.astimezone(ZURICH_TIMEZONE).strftime(
+            "%d.%m.%Y %H:%M:%S" if seconds else "%d.%m.%Y %H:%M"
+        )
+    except (TypeError, ValueError, OverflowError):
+        return unknown
+
+
 def zurich_today(now: Optional[datetime] = None) -> date:
     reference = now or datetime.now(timezone.utc)
     if reference.tzinfo is None:
@@ -69,6 +82,7 @@ def german_date_window(
 __all__ = [
     "ZURICH_TIMEZONE",
     "calendar_date",
+    "format_zurich_time",
     "german_date_window",
     "german_day_label",
     "zurich_today",

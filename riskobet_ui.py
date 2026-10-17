@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Mapping, Optional
 
 import streamlit as st
+from date_context import format_zurich_time
 from tip_display_order import display_order_control, ordered_event_rows
 from context_links import ContextReference
 from team_sport_forecasts import TeamSportForecast
@@ -435,9 +436,7 @@ def _factor_detail_rows(snapshot: EventModelSnapshot) -> tuple[str, ...]:
     visible_factors = tuple((factor, summary) for factor, summary in visible_factors if summary)
     rows = []
     for factor, summary in visible_factors:
-        observed = factor.observed_at.astimezone(timezone.utc).strftime(
-            "%d.%m.%Y %H:%M UTC"
-        )
+        observed = format_zurich_time(factor.observed_at)
         # Streamlit write escapes text. Deliberately omit internal factor keys,
         # provider identifiers and numeric implementation roles.
         rows.append(f"{summary} · Stand: {observed}")
@@ -743,9 +742,7 @@ def render_riskobet(
         event_count = len(
             {(card.sport_key, card.event_key) for card in catalog.cards}
         )
-        completed = view.completed_at.astimezone(timezone.utc).strftime(
-            "%d.%m.%Y %H:%M UTC"
-        )
+        completed = format_zurich_time(view.completed_at)
         with st.container(key="riskobet_summary"):
             if view.status == "PARTIAL":
                 st.caption('Einzelne Sportarten: Aktualisierung offen.')
@@ -753,7 +750,7 @@ def render_riskobet(
                 scenario_label = (
                     "Szenario" if len(catalog.cards) == 1 else "Szenarien"
                 )
-                event_label = "Event" if event_count == 1 else "Events"
+                event_label = "Spiel" if event_count == 1 else "Spielen"
                 st.caption(
                     f"{len(catalog.cards)} {scenario_label} aus {event_count} "
                     f"{event_label} · Stand: {completed}"

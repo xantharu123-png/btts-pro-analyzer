@@ -38,6 +38,7 @@ from tennis.predict import (  # noqa: E402
     WINNER_PROBABILITY_HAIRCUT,
 )
 from tennis.shadow import TENNIS_MODEL_VERSION, TENNIS_POLICY_VERSION  # noqa: E402
+from tennis.simulator import LEGACY_MODEL_VERSION, POINT_MODEL_VERSION  # noqa: E402
 from runtime_paths import (  # noqa: E402
     LEGACY_TENNIS_CALIBRATION_WATCH_PATH,
     TENNIS_CALIBRATION_WATCH_PATH,
@@ -169,10 +170,26 @@ def render(cards: list[dict], green: list[dict], watch: dict | None,
                 f"<tr class='{ref}'><td>{label}</td><td>{info.get('n', 0)}</td>"
                 f"<td>{info.get('rms', 0):.4f}</td><td>{info.get('max_mid_bias', 0):.4f}</td><td>{flag}</td></tr>"
             )
-        cls = "ok" if status == "ok" else "drift"
-        title = ("Satz-M&auml;rkte kalibriert - Modell stabil."
-                 if status == "ok" else
-                 "W&Auml;CHTER-ALARM: Satz-M&auml;rkte driften - keine Satz-Wetten, Kalibrierung pr&uuml;fen!")
+        if status == "ok" and (watch.get("production_model_certified") is not True
+                               or watch.get("model_version") != POINT_MODEL_VERSION):
+            label = "Legacy-Diagnose" if watch.get("model_version") == LEGACY_MODEL_VERSION else "Modell-Diagnose"
+            contract = escape(str(watch.get("model_version") or "nicht angegeben"))
+            cls, title = "warn", (
+                f"{label} (Modellvertrag: {contract}): Diagnose innerhalb der Messgrenzen; kein Produktionsnachweis.")
+        elif status == "ok":
+            cls, title = "ok", "Satz-M&auml;rkte kalibriert - Modell stabil."
+        elif status == "drift":
+            cls, title = "drift", (
+                "W&Auml;CHTER-ALARM: Satz-M&auml;rkte driften - keine Satz-Wetten, Kalibrierung pr&uuml;fen!")
+        elif status == "unavailable":
+            cls, title = "warn", (
+                "Kalibrierungsmessung nicht verf&uuml;gbar: Daten- oder Vertragsgrundlage fehlt. Drift nicht gemessen.")
+        elif status == "insufficient":
+            cls, title = "warn", (
+                "Zu wenige auswertbare Beobachtungen: Kalibrierung und Drift nicht beurteilbar.")
+        else:
+            cls, title = "warn", (
+                "W&auml;chter-Status unbekannt: Keine best&auml;tigte Messung oder Driftbewertung.")
         watch_html = (
             f"<div class='box {cls}'><b>Kalibrierungs-W&auml;chter ({escape(str(watch.get('run_date', '?'))[:10])}):</b> {title}"
             f"<br><span class='fair'>n={watch.get('n_scored', 0)} Matches &middot; "

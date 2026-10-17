@@ -150,7 +150,31 @@ erhalten; unveränderte betroffene Module nativ wiederholt. Ein erster Gesamt-
 Zwischenlauf wurde wegen eines tatsächlichen Reviewfundes als **INCOMPLETE**
 beendet; nicht als vollständiger Pass verwenden.
 
-Der finale eingefrorene Gesamtlauf ist `full-qa-02`; Status und Releasebelege
-werden nach seinem tatsächlichen Abschluss ergänzt. Bis dahin **kein** neuer
-Vollsuite-/Deployment-Erfolg behauptet. Keine neuen Backups, Datenmigrationen,
-Sportscans oder künstliche Auffüllung von Tipps.
+`full-qa-02` ist vollständig beendet: ursprünglich15.219PASS/1FAIL/98SKIP und147
+bestandeneUntertests. Einziger Fehler: alter Test verlangte einzeiligen Bild-
+nachweis; die12px-Lesbarkeitskorrektur erlaubt bewusst Umbruch. Nur diese
+Erwartung aktualisiert; vollständiger106erOwner-Recheck bestanden. **Expliziter
+kombinierter Endstand15.220PASS/98identischeSkips/147Untertests**, keine offenen
+Testfehler; ursprünglicherFAIL und B-Exit1 nicht überschrieben. Alle816Quell-
+undFixturehashes außer dem Erwartungstest und einer zusätzlichen leeren EOF-
+Zeile im neuen Watch-Test gleich; letztere AST-identisch, vollständiger11er-
+Owner ebenfalls erneut grün. Produktionscode unverändert. Abschließender
+Supplementbeleg `final-summary-02.json` erhält den ersten Abschlussbeleg unverändert.
+Alle15.318IDs genau einmal,15.233 maßgebliche Vorläufer-IDs vollständig+85neue.
+Die alte Multigoal-Parameterumordnung ist anhand exakter Quellhashes und AST-
+Multimengen erklärt, kein verloren gegangener Fall. Unabhängiger Gegenabgleich.
+
+Frischer tatsächlicher Renderer mit synthetischen Daten bei1440/390/320px:
+Bildnachweise max78/60px, Labels12px, Wappenpolygon/-rand/-maße unverändert,
+keine Überläufe, sichtbare Angebotsquelle/Zeit, Haupt-/Nebenmarkt sowie Maus- und
+Tastaturbedienung der5-/10-Spieleansicht. Keine externen Bildabrufe freigegeben,
+kein Benutzerbrowser übernommen. Das ist keine ganze produktive Streamlit-
+oder physische Geräteabnahme. Belege: `ui-closeout-01/summary.json`, Screenshots.
+
+VPS vor Release noch4f2af4e, App/Caddy und Healthchecks gesund; regulärer
+Shadowlauf19:42Exit0. OptionalerLegacycache fehlt wie zuvor; vorhandene
+Startlogik prüft lokaleSQL-Daten und verwirft das ML am bisherigen Gate. Keine
+separate Trainingsausführung ergänzt, kein erzwungener Cache erzeugt.
+Der neueReleaseweg ist source-only mit expliziter31-Pfadliste und neun
+Jobzuständen; keine Sicherung, Migration oder zusätzlich gestarteter Sportscan.
+Release-SHA und tatsächliche Aktivierungs-/Healthbelege werden nach Deployment ergänzt.

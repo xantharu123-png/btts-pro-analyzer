@@ -453,8 +453,8 @@ def test_summary_uses_singular_for_one_scenario_and_one_event(monkeypatch):
 
     ui.render_riskobet()
 
-    assert "1 Szenario aus 1 Event · Stand:" in _all_text(fake)
-    assert "1 Szenarien aus 1 Events" not in _all_text(fake)
+    assert "1 Szenario aus 1 Spiel · Stand:" in _all_text(fake)
+    assert "1 Szenarien aus 1 Spielen" not in _all_text(fake)
 
 
 def test_corrupt_view_shows_only_consumer_safe_error(monkeypatch):
@@ -1137,5 +1137,5 @@ def test_started_scenarios_do_not_take_event_cap_featured_or_pagination_slots(mo
     ui.render_riskobet(now=START)
 
     assert _rendered_candidate_ids(fake) == [candidate.candidate_id]
-    assert "1 Szenario aus 1 Event" in _all_text(fake)
+    assert "1 Szenario aus 1 Spiel" in _all_text(fake)
     assert "riskobet_additional" not in fake.containers

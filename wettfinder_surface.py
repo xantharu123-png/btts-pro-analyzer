@@ -139,6 +139,9 @@ class WettfinderFixtureGroup:
     cards: tuple[WettfinderCard, ...]
     # Original price-blind primary, even when its offer cannot be published.
     lead: Optional[WettfinderCard] = None
+    # Best same-revision ranked market in the already coherent offered pool.
+    # This never replaces the original lead in stored catalog metadata.
+    visible_lead: Optional[WettfinderCard] = None
 
 
 @dataclass(frozen=True)
@@ -670,13 +673,19 @@ def compose_wettfinder_catalog(
 def group_wettfinder_games(catalog: WettfinderCatalog) -> tuple[WettfinderFixtureGroup, ...]:
     """Move all displayed markets of a game into one block, including highlights.
 
-    No new selection, ranking, price check or truncation. Coherence has already
-    run on the complete pool. Highlighted games come first; each card stays the
-    original object and appears once.
+    Coherence has already run on the complete pool. Retain its original leads;
+    separately rank an offered fallback only within that lead's exact cohort.
+    No new direction or price check is introduced and every card stays intact.
     """
     leads = {_fixture_identity(card): card for card in catalog.event_leads}
-    return tuple(replace(group, lead=leads.get(group.fixture_identity))
-                 for group in _group_additional((*catalog.featured, *catalog.additional)))
+    groups = _group_additional((*catalog.featured, *catalog.additional))
+    visible_leads = {_fixture_identity(card): card for card in select_event_leads(
+        (card for group in groups for card in group.cards if not card.quote_floor_excluded),
+        revision_anchors=catalog.event_leads,
+    )} if catalog.event_leads else {}
+    return tuple(replace(group, lead=leads.get(group.fixture_identity),
+                         visible_lead=visible_leads.get(group.fixture_identity))
+                 for group in groups)
 
 
 def wettfinder_game_label(group: WettfinderFixtureGroup) -> str:
@@ -959,7 +968,8 @@ def render_editorial_card_html(card: WettfinderCard, *, grouped=False, featured=
     note = quote_display_note(card)
     quote_label = 'Letzte Quote' if card.price_code == 'STALE' else 'Quote'
     quote_note = f' title="{escape(note, quote=True)}"' if note else ''
-    quote_html = f'<div class="se-number se-number-quote"{quote_note}><span>{quote_label}</span><strong>{escape(format_decimal_odds(card.observed_odds))}</strong></div>'
+    provenance = f'<small class="se-meta">{escape(note)}</small>' if note else ''
+    quote_html = f'<div class="se-number se-number-quote"{quote_note}><span>{quote_label}</span><strong>{escape(format_decimal_odds(card.observed_odds))}</strong>{provenance}</div>'
     if card.compact_analysis is not None:
         compact = card.compact_analysis
         if not supporting_fact and featured and _can_feature(card) and card.highlight_comparison is not None:

@@ -1,5 +1,38 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 17.10.2026 – Fortsetzung nach Accountwechsel: QA abgeschlossen, Release vorbereitet
+
+Dieser Abschnitt ersetzt den Übergabestatus18:25 direkt darunter.
+
+- [x] Bestehende vier Volltestgruppen vollständig beendet und gelesen. Original:
+  15.219PASS/1FAIL/98SKIP plus147 bestandene Untertests. Einziger Fehler war die
+  alte CSS-Testforderung nach `white-space:nowrap` am absichtlich vergrößerten
+  Bildnachweis; kein verschwiegenes Modell-/Buchhaltungsproblem.
+- [x] Nur diese Test-Erwartung auf lesbare12px und begrenzten Umbruch korrigiert,
+  gesamtes Besitzermodul106PASS erneut geprüft. Produktionsquellen seit Voll-
+  suite bytegleich. Expliziter kombinierter Endnachweis: **15.220PASS,98 gleiche
+  Skips,147 Untertests**,15.318 eindeutige Fälle, alle15.233 vorigen Fälle plus85neue.
+  UrsprünglicherFAIL/B-Exit1 bleiben erhalten. Nicht „vier ursprüngliche Exit0“ behaupten.
+- [x] Voriger Auto-ID-Reorder bei Multigoal sauber aufgelöst: maßgebliche alte
+  id-collection statt überholter Collection. Keine Fälle entfernt/umetikettiert.
+- [x] Echter Renderer mit synthetischen Daten bei1440/390/320px:12pxLabels,
+  unveränderte Wappen, keine Überläufe, Haupt-/Nebenmarkt, Quelle/Zeit und
+  Maus-/Tastatur5/10-Umschaltung. Kein Benutzerbrowser übernommen.
+- [x] VPS vor Release weiterhin4f2af4e, App/Caddy/Health ok,8Timer geplant,
+ 21GiB frei. Regulärer Shadowlauf19:42 erfolgreich, Exit0 (kein zusätzlich gestarteter Lauf).
+- [x] Neuer No-Backup-Releasehelfer mit exakter31-Pfadliste, neun Jobzuständen,
+  ruhigem Timerfenster, deaktivierten Git-Hooks, Offline-Smoke und exakten
+  Health/PID/Snapshot-/Scanstart-Prüfungen. Bash-Syntax und lokaler Smoke geprüft.
+- [ ] Reparaturquellen explizit committen/main pushen und No-Backup-VPS-FF,
+  App-Neustart, SHA-/Health-/Umgebungsabgleich. Noch kein Releaseerfolg behauptet.
+- [ ] Frische produktive Browserprüfung nach Deployment; Rendererprüfung allein
+  ersetzt diese nicht. Bessere Wettqualität/alle79Befunde weiterhin nicht behaupten.
+
+Endbelege: `C:/Projekt/BetBoy/output/claude-recheck-20261017/final-summary-02.json`
+(zusätzlich AST-identische leere EOF-Zeile entfernt,11erWatch-Owner erneut grün),
+`shield-recheck.xml`, `ui-closeout-01/summary.json`. Untenstehender18:25-Laufstatus
+ist historisch. Alle fremden WIP/debug.log/output bleiben erhalten.
+
 ## 17.10.2026 – beide Claude-Audits: frische Gegenprüfung und Reparatur
 
 **Accountwechsel auf Nutzerwunsch, Stand 18:25 Europe/Zurich.** Code eingefroren,

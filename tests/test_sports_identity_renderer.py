@@ -275,7 +275,10 @@ def test_shield_polygon_inner_border_and_320_390_dimensions_are_unchanged():
     assert 'object-fit:contain;padding:13px 10px 17px;' in css
     assert '.se-shield-basketball img, .se-shield-ice_hockey img, .se-shield-esports img, .se-shield-cricket img' in css
     assert '.se-shield-image.is-loaded, .se-team:last-child .se-shield-image.is-loaded {background:var(--bb-surface);}' in css
-    assert re.search(r'\.se-image-credit \{[^}]*max-width:78px;[^}]*white-space:nowrap;', css)
+    # Attribution must remain shield-width-bound, but cannot be kept tiny or
+    # forced into one overflowing line after the accessibility correction.
+    assert re.search(r'\.se-image-credit \{[^}]*max-width:78px;[^}]*font-size:\.75rem;[^}]*white-space:normal;[^}]*overflow-wrap:anywhere;', css)
+    assert '.se-image-credit {max-width:60px;font-size:.75rem;}' in css
     assert '.se-image-credit:focus-visible' in css
 
 

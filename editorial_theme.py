@@ -101,24 +101,24 @@ button:focus-visible, summary:focus-visible {outline:3px solid #a67b00 !importan
 .se-shield-football img {box-sizing:border-box;object-fit:contain;padding:13px 10px 17px;}
 .se-shield-basketball img, .se-shield-ice_hockey img, .se-shield-esports img, .se-shield-cricket img {box-sizing:border-box;object-fit:contain;padding:13px 10px 17px;}
 .se-shield-tennis img {object-fit:cover;object-position:center 22%;}
-.se-image-credit {display:block;max-width:78px;font-size:.55rem;line-height:1.25;color:var(--bb-muted);white-space:nowrap;text-decoration:none;}
+.se-image-credit {display:block;max-width:78px;font-size:.75rem;line-height:1.25;color:var(--bb-muted);white-space:normal;overflow-wrap:anywhere;text-decoration:none;}
 .se-image-credit:hover {text-decoration:underline;}
 .se-image-credit:focus-visible {outline:2px solid #a67b00;outline-offset:2px;}
-.se-match-time {display:flex;flex-direction:column;text-align:center;color:var(--bb-muted);font-size:.7rem;gap:.25rem;max-width:95px;}
+.se-match-time {display:flex;flex-direction:column;text-align:center;color:var(--bb-muted);font-size:.75rem;gap:.25rem;max-width:95px;}
 .se-match-time b {font-family:'BB Sport',sans-serif;font-size:1.2rem;color:var(--bb-ink);}
 .se-pick {display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) minmax(0,.9fr);gap:.5rem;margin-bottom:.7rem;align-items:stretch;}
 .se-pick-label {display:flex;flex-direction:column;gap:.4rem;padding:.6rem;border:1px solid #e6e6dd;border-radius:5px;min-width:0;}
-.se-pick-label span {font-size:.7rem;color:var(--bb-muted);}
+.se-pick-label span {font-size:.75rem;color:var(--bb-muted);}
 .se-pick-label strong {font-family:'BB Sport',sans-serif;font-size:1.55rem;line-height:1.04;color:var(--bb-ink);overflow-wrap:anywhere;}
 .se-number {display:flex;flex-direction:column;justify-content:center;gap:.4rem;padding:.5rem .3rem;border:1px solid #e6e6dd;background:transparent;border-radius:5px;text-align:center;min-width:0;}
-.se-number span {font-size:.65rem;color:var(--bb-muted);letter-spacing:.06em;text-transform:uppercase;}
+.se-number span {font-size:.75rem;color:var(--bb-muted);letter-spacing:.06em;text-transform:uppercase;}
 .se-number strong {font-family:'BB Sport',sans-serif;font-size:2.05rem;line-height:1.1;color:var(--bb-green);font-variant-numeric:tabular-nums;white-space:nowrap;}
 .se-number-quote strong {color:var(--bb-ink);}
 .se-reason {border-left:5px solid var(--bb-green);padding-left:.65rem;margin:.6rem 0;}
 .se-reason h4 {font-family:'BB Sport',sans-serif !important;font-size:1.2rem !important;line-height:1.1;margin:0 0 .3rem !important;}
 .se-reason p {font-size:.85rem !important;line-height:1.45;margin:.2rem 0 !important;}
 .se-reason .se-reason-support {font-size:.75rem !important;color:var(--bb-green);}
-.se-card .se-meta {font-size:.7rem;color:var(--bb-muted);}
+.se-card .se-meta {font-size:.75rem;color:var(--bb-muted);overflow-wrap:anywhere;}
 .se-card .se-event {font-family:'BB Sport',sans-serif;font-size:1.6rem;overflow-wrap:anywhere;}
 .st-key-wettfinder_v2_page .se-card .wf-analysis, .se-card .wf-analysis {display:block !important;grid-column:auto !important;border:0 !important;background:transparent !important;padding:0 !important;margin:0 !important;}
 .wf-analysis-short {font-size:.9rem !important;line-height:1.5 !important;}
@@ -227,14 +227,14 @@ details.wf-fact {padding:0 !important;}
   .st-key-wettfinder_v2_sports [data-testid="stButtonGroup"] button {flex-shrink:0;white-space:nowrap;padding:.45rem .75rem !important;}
   .se-card-top {grid-template-columns:1fr;gap:.3rem;} .se-team strong {font-size:1.5rem;}
   .se-shield {flex-basis:70px;width:60px;height:70px;font-size:1.1rem;} .se-match {padding:.5rem 0 .2rem;}
-  .se-shield-football img {padding:9px 7px 13px;} .se-image-credit {max-width:60px;font-size:.5rem;}
+  .se-shield-football img {padding:9px 7px 13px;} .se-image-credit {max-width:60px;font-size:.75rem;}
   .se-shield-basketball img, .se-shield-ice_hockey img, .se-shield-esports img, .se-shield-cricket img {padding:9px 7px 13px;}
-  .se-match-time {font-size:.7rem;max-width:72px;}
+  .se-match-time {font-size:.75rem;max-width:72px;}
   .se-pick {grid-template-columns:minmax(0,1.6fr) minmax(0,1fr) minmax(0,.8fr);gap:.4rem;}
   .se-card-top-market .se-pick {grid-template-columns:minmax(0,1.5fr) minmax(0,1fr) minmax(0,.8fr);}
   .se-pick-label {padding:.55rem .45rem;background:var(--bb-green-soft);border:0;}
   .se-pick-label strong {font-size:1.35rem;} .se-number strong {font-size:1.5rem;}
-  .se-number span {font-size:.58rem;letter-spacing:0;}
+  .se-number span {font-size:.75rem;letter-spacing:0;}
   .se-reason h4 {font-size:1.2rem !important;} .se-reason p {font-size:.8rem !important;}
   .form-window {grid-template-columns:1fr;gap:1rem;} .form-team+.form-team {border-left:0;padding-left:0;border-top:1px solid var(--bb-line);padding-top:.8rem;}
   .form-heading {gap:.4rem;} .form-heading h4 {font-size:1.4rem !important;}

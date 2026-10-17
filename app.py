@@ -77,7 +77,7 @@ from ev_signal_sources import (
 )
 from ui_components import plain_german, scan_progress_fragment
 from config_loader import load_app_config
-from date_context import german_date_window, zurich_today
+from date_context import ZURICH_TIMEZONE, format_zurich_time, german_date_window, zurich_today
 from manual_search_filters import SearchFilters, render_search_filters
 from manual_search_results import esports_search_results
 from tip_display_order import PROBABILITY, display_order_control, ordered_event_rows, recommendation_probability
@@ -336,12 +336,7 @@ def _numeric_or_zero(value) -> float:
 
 
 def _format_snapshot_time(value: Optional[str]) -> str:
-    if not value:
-        return "n/a"
-    try:
-        return datetime.fromisoformat(value).astimezone().strftime("%d.%m.%Y %H:%M:%S")
-    except (TypeError, ValueError):
-        return str(value)
+    return format_zurich_time(value, seconds=True)
 
 
 def _snapshot_age_seconds(
@@ -2019,10 +2014,10 @@ def _api_football_health(api_key: str) -> dict:
 
 def _format_stand(moment: Optional[datetime]) -> str:
     """German relative timestamp: 'heute 14:32', 'gestern 21:40', '27.07. 14:32'."""
-    if moment is None:
+    if moment is None or moment.tzinfo is None or moment.utcoffset() is None:
         return "unbekannt"
-    local = moment.astimezone()
-    now = datetime.now().astimezone()
+    local = moment.astimezone(ZURICH_TIMEZONE)
+    now = datetime.now(timezone.utc).astimezone(ZURICH_TIMEZONE)
     if local.date() == now.date():
         return f"heute {local:%H:%M}"
     if (now.date() - local.date()).days == 1:
@@ -3101,7 +3096,7 @@ def _render_live_football(analyzer, market: str) -> None:
             "Wettkandidat",
             live_detail_options,
             format_func=lambda index: (
-                f"{'Modell geprüft' if candidate_items[index][0].model_ready else 'Daten offen'} | "
+                f"{'Berechnet' if candidate_items[index][0].model_ready else 'Daten offen'} | "
                 f"{candidate_items[index][0].event_label} | {candidate_items[index][0].selection}"
             ),
             key=live_detail_key,
@@ -4664,10 +4659,18 @@ def _render_wettfinder_game(group, row_by_key, featured_keys, initially_open: bo
         wettfinder_game_label(group), expanded=initially_open, key=key,
         on_change=_remember_wettfinder_game_state, args=(key,),
     ):
+        # A removed original market is not a license to feature whichever
+        # remaining market happens to have the largest marginal probability.
+        display_lead = group.visible_lead if group.lead is not None else group.cards[0]
+        if display_lead is None:
+            from wettfinder_identity import rendered_identity_card
+            first_signal, first_card = row_by_key[group.cards[0].key]
+            header_card = rendered_identity_card(first_card, first_signal) if first_signal else first_card
+            st.markdown(render_match_header_html(header_card), unsafe_allow_html=True)
         shown_forms = set()
         for index, card in enumerate(group.cards):
-            if group.lead is not None and card.key != group.lead.key and (
-                index == 0 or group.cards[index - 1].key == group.lead.key
+            if group.lead is not None and (display_lead is None or card.key != display_lead.key) and (
+                index == 0 or (display_lead is not None and group.cards[index - 1].key == display_lead.key)
             ):
                 st.markdown('### Weitere Märkte')
             signal, card = row_by_key[card.key]
@@ -4675,12 +4678,13 @@ def _render_wettfinder_game(group, row_by_key, featured_keys, initially_open: bo
             show_form = forms not in shown_forms
             shown_forms.add(forms)
             with st.container(key=f'wettfinder_v2_game_market_{card.manual_quote_key}'):
-                if index == 0:
+                primary = display_lead is not None and card.key == display_lead.key
+                if primary:
                     from wettfinder_identity import rendered_identity_card
                     card = rendered_identity_card(card, signal)
                 st.markdown(render_editorial_card_html(
                     card, grouped=True, featured=card.key in featured_keys,
-                    show_form=show_form, include_match=index == 0,
+                    show_form=show_form, include_match=primary,
                 ), unsafe_allow_html=True)
                 if signal is not None:
                     render_tip_bookmark(
@@ -4709,14 +4713,14 @@ def _render_wettfinder_games(catalog, row_by_key, *, sport_filter: str, sort_mod
     groups = []
     for identity, cards in cards_by_group.items():
         original = original_by_identity[identity]
-        if original.lead is not None:
-            cards = ([card for card in cards if card.key == original.lead.key]
-                     + [card for card in cards if card.key != original.lead.key])
+        if original.visible_lead is not None:
+            cards = ([card for card in cards if card.key == original.visible_lead.key]
+                     + [card for card in cards if card.key != original.visible_lead.key])
         groups.append(replace(original, cards=tuple(cards)))
     groups = ordered_event_rows(
         groups, mode=sort_mode, event_key=lambda group: group.fixture_identity,
-        starts_at=lambda group: (group.lead or group.cards[0]).scheduled_start,
-        probability=lambda group: (group.lead or group.cards[0]).model_probability,
+        starts_at=lambda group: (group.visible_lead or group.cards[0]).scheduled_start,
+        probability=lambda group: (group.visible_lead or group.cards[0]).model_probability,
     )
     # Highlight membership is independent of model-probability order.
     # Highlights stay attached to cards; opening defaults follow the

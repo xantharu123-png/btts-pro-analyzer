@@ -705,6 +705,14 @@ def _fixture_datetime(fixture: dict[str, Any]) -> Optional[datetime]:
 def _fixture_score(fixture: dict[str, Any]) -> Optional[tuple[int, int]]:
     if not isinstance(fixture, dict) or not isinstance(fixture.get("goals"), dict):
         return None
+    metadata = fixture.get("fixture")
+    status = metadata.get("status") if isinstance(metadata, dict) else None
+    status_code = status.get("short") if isinstance(status, dict) else None
+    # Explicit live/AET/PEN totals are not completed regulation scores. Keep
+    # statusless legacy originals (including results-only CSV) replayable; the
+    # public history provider independently requires FT or its named CSV source.
+    if status_code is not None and status_code != "FT":
+        return None
     home = fixture["goals"].get("home")
     away = fixture["goals"].get("away")
     if isinstance(home, bool) or isinstance(away, bool):

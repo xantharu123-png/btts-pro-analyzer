@@ -26,16 +26,20 @@ def validated_selection_rank(value):
     return rank if all(math.isfinite(number) for number in rank) else None
 
 
-def select_event_leads(rows):
+def select_event_leads(rows, *, revision_anchors=None):
     """Choose one statistical lead per already coherent canonical event pool.
 
     Compare the producer's existing rank only within the first/current row's
     participant and model revision. Missing ranks preserve canonical legacy
     preference. Quotes, marginal probabilities and display sorting are absent.
+    Explicit revision anchors restrict a publication fallback to ranked rows
+    from that exact original cohort; an unknown binding admits no fallback.
     """
     grouped = {}
     for row in rows:
         grouped.setdefault(consumer_event_identity(row), []).append(row)
+    anchors = {consumer_event_identity(row): row for row in revision_anchors or ()}
+    anchored = revision_anchors is not None
     def revision(row):
         binding = _role_binding(row)
         clocks = tuple(_clock(getattr(row, field, None)) for field in (
@@ -45,14 +49,22 @@ def select_event_leads(rows):
                 or not isinstance(model, str) or not model.strip()
                 or not isinstance(policy, str) or not policy.strip()):
             return None
-        return (binding, *clocks, model, policy,
-                getattr(row, 'model_scope', None), getattr(row, 'model_eligible', None))
+        result = (binding, *clocks, model, policy,
+                  getattr(row, 'model_scope', None), getattr(row, 'model_eligible', None))
+        # Preserve the original unanchored producer contract. A publication
+        # fallback additionally requires the original native source identity.
+        return result + tuple(getattr(row, field, None) for field in (
+            'fixture_id', 'fixture_source', 'provider_event_id')) if anchored else result
     leads = []
     for pool in grouped.values():
-        first = pool[0]
+        first = anchors.get(consumer_event_identity(pool[0])) if anchored else pool[0]
+        if first is None:
+            continue
         current_revision = revision(first)
         comparable = [row for row in pool if current_revision is not None and revision(row) == current_revision
                       and validated_selection_rank(getattr(row, 'selection_rank', None)) is not None]
+        if anchored and not comparable:
+            continue
         lead = min(comparable, key=lambda row: (
             tuple(-number for number in validated_selection_rank(row.selection_rank)), _stable_key(row)
         )) if comparable else first

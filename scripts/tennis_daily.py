@@ -406,7 +406,7 @@ def fetch_results_sofascore(date: str) -> list:
         )
         if (
             is_retirement and is_walkover
-            or any(token in status_blob for token in ("defaulted", "abandoned"))
+            or any(token in status_blob for token in ("defaulted", "abandoned", "awarded"))
         ):
             continue
         common = {
@@ -534,6 +534,7 @@ def fetch_results_espn(date: str, tour: str) -> list:
                 unsupported_tokens = (
                     "defaulted",
                     "abandoned",
+                    "awarded",
                 )
                 is_retirement = any(
                     token in status_blob for token in retirement_tokens

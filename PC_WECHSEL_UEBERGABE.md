@@ -1,5 +1,19 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## 17.10.2026 – Fortsetzung: vollständige QA abgeschlossen, Release folgt
+
+Aktiv weiterhin `.worktrees/audit-repairs-20261013`; Stand18:25darunterhistorisch.
+Gesamtnachweis15.220PASS/98gleicheSkips/147Untertests: Originalvollsuite hatte
+einen alten CSS-nowrap-TestFAIL, alleinigeErwartungskorrektur+vollständiger
+106er Owner-Recheck grün, alle Produktquellen bytegleich. Alle 15.318 IDs genau einmal,
+alte15.233IDs vollständig+85neue. `output/claude-recheck-20261017/final-summary.json`.
+Renderer1440/390/320mitMaus/Tastaturgeprüft; keinevolleLive-/Geräteabnahme.
+VPS4f2af4e vorReleasegesund,regulärerShadow19:42Exit0; keinneuerScan/Backup.
+No-Backup-Deployhelperneu+31Pfadallowlist+neunJobs; fehlenderoptionalLegacycache
+istbisherigeStartlogik(lokaleML-PrüfungverwirftamGate), keinneuesFeature/Scan.
+AlsNächstesQuellcommit/main/gezieltesVPS-FF/Neustart/Health/SHA/Livebrowser.
+Alle79Audit-IDsmitoffenenModell-/Markt-/LaunchgrenzenbleibeninderAuditmatrix.
+
 ## 17.10.2026 – aktuelle Fortsetzung: beide Claude-Audits
 
 **Accountwechsel, Stand 18:25 Europe/Zurich.** Keine weitere Implementierung

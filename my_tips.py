@@ -8,6 +8,7 @@ import pandas as pd
 import streamlit as st
 
 from account_identity import storage_scope
+from date_context import format_zurich_time
 from tip_store import SavedTip, TipStore
 
 
@@ -19,12 +20,7 @@ RESULT_LABELS = {
 
 
 def _format_time(value: str | None) -> str:
-    if not value:
-        return "n/a"
-    try:
-        return datetime.fromisoformat(value).astimezone().strftime("%d.%m.%Y %H:%M")
-    except (TypeError, ValueError):
-        return str(value)
+    return format_zurich_time(value)
 
 
 def _settle(store: TipStore, tip: SavedTip, result: str) -> None:
@@ -56,7 +52,7 @@ def render_saved_tips() -> None:
             st.markdown(f"**{tip.event_label}**")
             st.caption(
                 f"{tip.sport} · {tip.market}: {tip.selection} · "
-                f"{tip.source} · {_format_time(tip.updated_at)}"
+                f"Wettfinder · {_format_time(tip.updated_at)}"
             )
             bookmark = tip.decision_status == "BOOKMARK"
             if bookmark:

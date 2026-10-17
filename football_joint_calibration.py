@@ -129,3 +129,43 @@ def calibrate_joint_distribution(raw_matrix, specs, calibration, *, law_version=
     except (ArithmeticError, ValueError, RuntimeError) as exc:
         diagnostics.update(success=False, status="raw-fallback", message=str(exc))
         return dict(raw_matrix), diagnostics
+
+
+def projection_target_diagnostics(matrix, specs, targets):
+    """Opt-in measurement of an already returned law, without fitting it again.
+
+    Values and signed residuals (attained minus target) are probability
+    fractions; the mean squared residual is in squared fractions. This report
+    is not part of frozen projection diagnostics/original bytes or a release
+    gate, and its size is not evidence of predictive quality.
+    """
+    from challenge_engine import market_outcome
+    if not isinstance(matrix, dict) or not matrix or not isinstance(targets, dict):
+        raise ValueError("projection measurement requires a law and target mapping")
+    for cell, mass in matrix.items():
+        if (not isinstance(cell, tuple) or len(cell) != 2
+                or any(isinstance(value, bool) or not isinstance(value, numbers.Integral)
+                       or value < 0 for value in cell)
+                or isinstance(mass, bool) or not isinstance(mass, numbers.Real)
+                or not math.isfinite(mass) or mass < 0):
+            raise ValueError("projection measurement requires valid score masses")
+    if not math.isclose(math.fsum(matrix.values()), 1., abs_tol=LEGACY_RECIPE["mass_tolerance"], rel_tol=0):
+        raise ValueError("projection measurement requires unit mass")
+    catalog = {}
+    for spec in specs:
+        if spec.key in catalog:
+            raise ValueError("projection measurement requires unique market keys")
+        catalog[spec.key] = spec
+    attained, residuals = {}, {}
+    for key in sorted(targets):
+        target = targets[key]
+        if (key not in catalog or isinstance(target, bool) or not isinstance(target, numbers.Real)
+                or not math.isfinite(target) or not 0 <= target <= 1):
+            raise ValueError("projection measurement target is invalid or unknown")
+        attained[key] = math.fsum(mass for cell, mass in matrix.items()
+                                  if market_outcome(catalog[key], *cell))
+        residuals[key] = attained[key] - target
+    return {"attained": attained, "residuals": residuals,
+            "max_abs_residual": max((abs(value) for value in residuals.values()), default=0.),
+            "mean_squared_residual": (math.fsum(value * value for value in residuals.values())
+                                      / len(residuals) if residuals else 0.)}

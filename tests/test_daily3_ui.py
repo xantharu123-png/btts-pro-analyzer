@@ -2,6 +2,72 @@ from streamlit.testing.v1 import AppTest
 import pytest
 
 
+@pytest.mark.parametrize(('day', 'clock', 'zone', 'expected'), [
+    ('2026-01-20', '18:45', 'Schweizer Zeit', '2026-01-20T18:45:00+01:00'),
+    ('2026-07-20', '18:45', 'Schweizer Zeit', '2026-07-20T18:45:00+02:00'),
+    ('2026-10-25', '01:30', 'UTC', '2026-10-25T01:30:00+00:00'),
+])
+def test_external_time_picker_uses_an_explicit_zone(day, clock, zone, expected):
+    from datetime import date, time
+    from daily3_ui import _external_start
+    assert _external_start(date.fromisoformat(day), time.fromisoformat(clock), zone).isoformat() == expected
+
+
+@pytest.mark.parametrize(('day', 'clock'), [
+    ('2026-03-29', '02:30'),  # Missing local hour.
+    ('2026-10-25', '02:30'),  # Repeated local hour: no silent choice of one instant.
+])
+def test_external_time_picker_does_not_guess_during_clock_change(day, clock):
+    from datetime import date, time
+    from daily3_math import Daily3Error
+    from daily3_ui import _external_start
+    with pytest.raises(Daily3Error, match='UTC'):
+        _external_start(date.fromisoformat(day), time.fromisoformat(clock), 'Schweizer Zeit')
+
+
+def _render_external_form(db_path):
+    import streamlit as st
+    from datetime import datetime, timezone
+    from daily3_ui import _external_bet
+    from daily3_store import Daily3Store
+    now = datetime(2026, 10, 17, 10, 0, tzinfo=timezone.utc)
+    scope = 'a'*32
+    store = Daily3Store(db_path, key=b'q'*32, clock=lambda: now)
+    store.command(scope, action_id='b'*32, kind='start', day='2026-10-17')
+    _external_bet(st, store, scope, store.history(scope), '2026-10-17', now)
+
+
+def test_external_bet_is_entered_with_calendar_and_clock_not_iso_text(tmp_path):
+    from datetime import date, time
+    from daily3_store import Daily3Store
+    from datetime import datetime, timezone
+    db = tmp_path/'external.db'
+    app = AppTest.from_function(_render_external_form, args=(str(db),)).run(timeout=30)
+    assert not app.exception
+    assert len(app.date_input) == len(app.time_input) == 1
+    assert not any('ISO' in item.label for item in app.text_input)
+    app.date_input[0].set_value(date(2026, 10, 17))
+    app.time_input[0].set_value(time(18, 45))
+    app.text_input(key='d3-ext-event').set_value('Bern vs Zürich')
+    app.text_input(key='d3-ext-market').set_value('Sieger inklusive Verlängerung')
+    app.text_input(key='d3-ext-selection').set_value('Bern')
+    app.text_input(key='d3-external-stake').set_value('10')
+    app.text_input(key='d3-ext-odds').set_value('1,50')
+    app.text_input(key='d3-ext-reference').set_value('Buchmacherbeleg 123')
+    app.text_input(key='d3-ext-reason').set_value('Nachgetragen')
+    app.checkbox(key='d3-ext-confirm').check()
+    _button(app, 'Reale externe Wette nachtragen').click().run()
+    assert not app.exception
+    assert not app.error
+    now = datetime(2026, 10, 17, 10, 0, tzinfo=timezone.utc)
+    history = Daily3Store(db, key=b'q'*32, clock=lambda: now).history('a'*32)
+    bet, = history['2026-10-17']['bets'].values()
+    assert bet['snapshot']['scheduled_start'] == '2026-10-17T18:45:00+02:00'
+    from decimal import Decimal
+    assert bet['stake_cents'] == 1000 and Decimal(bet['odds']) == Decimal('1.50')
+    assert bet['external_deviation'] is True
+
+
 def _render_pool(db_path, count, extreme_probability=False):
     import streamlit as st
     from types import SimpleNamespace

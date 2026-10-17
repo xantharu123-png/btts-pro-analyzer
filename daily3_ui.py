@@ -159,7 +159,10 @@ def _external_bet(st, store, scope, history, today, now):
             sports = {'Fußball': 'football', 'Tennis': 'tennis', 'Basketball': 'basketball', 'Eishockey': 'hockey', 'E-Sport': 'esports'}
             st.selectbox('Sport der externen Wette', list(sports), key='d3-ext-sport')
             st.text_input('Spiel / beide Teilnehmer', key='d3-ext-event')
-            st.text_input('Spielbeginn mit Zeitzone (ISO)', value=now.astimezone(_TZ).isoformat(timespec='minutes'), key='d3-ext-start')
+            local_now = now.astimezone(_TZ)
+            st.date_input('Spieltag', value=local_now.date(), key='d3-ext-date')
+            st.time_input('Spielbeginn', value=local_now.time().replace(second=0, microsecond=0), step=60, key='d3-ext-time')
+            st.selectbox('Zeitzone', ['Schweizer Zeit', 'UTC'], key='d3-ext-zone')
             st.text_input('Exakter Markt, Linie und Spielzeitraum', key='d3-ext-market')
             st.text_input('Tatsächlich gewettete Auswahl', key='d3-ext-selection')
             _money_input(st, 'Tatsächlicher Einsatz in CHF', 'd3-external-stake')
@@ -171,9 +174,7 @@ def _external_bet(st, store, scope, history, today, now):
             def external_args():
                 _confirmed(st, 'd3-ext-confirm', 'Bitte nur eine tatsächlich platzierte Wette nachtragen.')
                 values = st.session_state
-                start = datetime.fromisoformat(values['d3-ext-start'])
-                if start.tzinfo is None or start.utcoffset() is None:
-                    raise Daily3Error('Bitte den Spielbeginn mit Zeitzone angeben.')
+                start = _external_start(values['d3-ext-date'], values['d3-ext-time'], values['d3-ext-zone'])
                 sport, event = sports[values['d3-ext-sport']], values['d3-ext-event']
                 native = hashlib.sha256(json.dumps([sport, event.strip(), start.isoformat()]).encode()).hexdigest()
                 snap = dict(event_id='external:'+native, sport=sport, event_label=event,
@@ -189,6 +190,20 @@ def _external_bet(st, store, scope, history, today, now):
                             reference=values['d3-ext-reference'], reason=values['d3-ext-reason'])
             st.form_submit_button('Reale externe Wette nachtragen', **_callback(st, store, scope, key, 'external',
                 lambda: st.session_state['d3-ext-day'], external_args))
+
+
+def _external_start(day, clock, zone):
+    """Resolve a wall clock without guessing in Zurich's skipped/repeated hour."""
+    if zone not in ('Schweizer Zeit', 'UTC'):
+        raise Daily3Error('Bitte eine gültige Zeitzone wählen.')
+    wall = datetime.combine(day, clock).replace(tzinfo=None)
+    if zone == 'UTC':
+        return wall.replace(tzinfo=timezone.utc)
+    first = wall.replace(tzinfo=_TZ, fold=0)
+    second = wall.replace(tzinfo=_TZ, fold=1)
+    if first.utcoffset() != second.utcoffset():
+        raise Daily3Error('Diese Schweizer Uhrzeit ist wegen der Zeitumstellung nicht eindeutig. Bitte den Spielbeginn in UTC eintragen.')
+    return first
 
 
 def render_daily3(st, *, snapshot_loader=None, store_factory=None, now=None):

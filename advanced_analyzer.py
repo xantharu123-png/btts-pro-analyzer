@@ -23,6 +23,8 @@ from collections import defaultdict
 from config_loader import load_app_config
 from data_engine import DataEngine, recent_match_cutoff
 from season_utils import current_season_start_year_for_id
+from runtime_paths import (RuntimeArtifactTrustError, atomic_write_bytes,
+                           open_trusted_pickle, validate_trusted_pickle_path)
 
 
 ML_MODEL_VERSION = 4
@@ -680,14 +682,17 @@ class AdvancedBTTSAnalyzer:
             return
         
         try:
-            with open(ML_MODEL_PATH, 'wb') as f:
-                pickle.dump({
+            if ML_MODEL_PATH.is_symlink():
+                raise RuntimeArtifactTrustError('model target must not be a symlink')
+            if ML_MODEL_PATH.exists():
+                validate_trusted_pickle_path(ML_MODEL_PATH)
+            atomic_write_bytes(ML_MODEL_PATH, pickle.dumps({
                     'version': ML_MODEL_VERSION,
                     'feature_names': ML_FEATURE_NAMES,
                     'model': self.ml_model,
                     'scaler': self.scaler,
                     'metrics': self.model_metrics,
-                }, f)
+                }))
             print("Model saved")
         except Exception as e:
             print(f"WARNING: Could not save model: {e}")
@@ -700,7 +705,7 @@ class AdvancedBTTSAnalyzer:
             return False
         
         try:
-            with open(model_path, 'rb') as f:
+            with open_trusted_pickle(model_path) as f:
                 bundle = pickle.load(f)
             if not isinstance(bundle, dict):
                 return False
