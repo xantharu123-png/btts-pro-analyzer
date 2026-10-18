@@ -1,6 +1,15 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
-## 18.10.2026 – nächste Spiele zuerst: geprüft, Veröffentlichung folgt
+## 18.10.2026 – nächste Spiele zuerst: geprüft und auf dem VPS live
+
+- Quellcommit **`22af00bb79a444c3ba741b936f9ed2b8d00778a1`** auf GitHub main
+  und am 18.10. um 09:35 CEST per geprüftem Fast-forward auf dem VPS ausgerollt.
+  Offline-Chronologie-/Kontext-Smoke bestanden; nur App neu gestartet,
+  PID 1236110 → 1240541. App/Caddy aktiv, beide Healthchecks `ok`.
+  Acht Timer aktiv/aktiviert geprüft; Backup-Timer weiter inaktiv/deaktiviert.
+  Prognose-Snapshots, neun Jobstartstempel und beide Indexowner-Hashes beim
+  Deploy unverändert. Kein Backup, Scan, DB-Eingriff, Installation oder Cleanup.
+  Beleg: `output/chronology-20261018/deploy-live-20261018-0935.log` außerhalb Git.
 
 - Neueste Nutzerfreigabe: Spielblöcke überall nach vollständiger Startzeit
   aufsteigend; unbekannte/ungültige oder zeitzonenlose Termine zuletzt. Die
@@ -38,7 +47,7 @@
   Headless mit bereits installiertem Playwright; keine Browserinstallation,
   keine Produktionsdaten/API-Verbindung. Eigene Vorschau danach beendet.
   Belege: `output/chronology-20261018/browser-verified-02/` außerhalb Git.
-- Veröffentlichung als nächster Schritt, freigegebene Ausgangsbasis `b57b646`.
+- Veröffentlichung wie oben abgeschlossen, Ausgangsbasis `b57b646`.
   Exakte Release-Allowlist: zwei Produktdateien, acht Testdateien, zwei Übergaben.
   Externe Prüfbelege/No-Backup-Deployvorbereitung: `output/chronology-20261018/`.
   Kein zusätzlicher Sport-/API-Scan, keine Sicherung, DB-Kopie oder Bereinigung.

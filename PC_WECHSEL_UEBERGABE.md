@@ -1,6 +1,14 @@
 # BetBoy - Übergabe auf einen neuen PC
 
-## 18.10.2026 – aktiver kleiner Auftrag: chronologische Spielanzeige
+## 18.10.2026 – chronologische Spielanzeige live abgeschlossen
+
+Quellcommit `22af00bb79a444c3ba741b936f9ed2b8d00778a1` auf main und VPS,
+18.10.09:35 CEST: No-Backup-Fast-forward von `b57b646`, exakt zwölf Pfade,
+beide Offline-Smokes bestanden, nur App neu gestartet (1236110 → 1240541).
+App/Caddy aktiv, beide Healthchecks `ok`, acht Timer aktiv/aktiviert und
+Backup-Timer weiter aus. Snapshots, neun Jobstartstempel und beide Indexowner
+beim Deploy unverändert. Keine Sicherung, DB-Kopie/-Änderung oder Extra-Scan.
+Receipt: `output/chronology-20261018/deploy-live-20261018-0935.log` außerhalb Git.
 
 Neueste Freigabe: überall nächstes Spiel zuerst, vollständiger Beginn aufsteigend,
 unbekannte Termine zuletzt. Marktauswahl/-priorität im Spiel unverändert.
@@ -16,11 +24,11 @@ diese drei Teständerungen, keine spätere Produktänderung. Owner-Pins ausdrüc
 nach dem Lauf erfasst. Abschluss `output/chronology-20261018/owner-union-01/`.
 Echte lokale Desktop-/Mobil- und Accordionprüfung bestanden, eigene Vorschau
 danach beendet, keine Produktionsdaten/API-Verbindungen.
-Veröffentlichung folgt; Basis `b57b646`. Externe Belege und
+Veröffentlichung oben nachgewiesen; Basis war `b57b646`. Externe Belege und
 getesteter No-Backup-Deployhelper in `output/chronology-20261018/`.
-Nach geprüftem Abschluss explizit zwölf eigene Pfade committen/pushen und source-only
-auf VPS aktualisieren, App allein neu starten, Healthchecks/Datenunverändertheit
-nachweisen. Fremde `debug.log` und `output/audit-repairs/` unberührt lassen.
+Die zwölf eigenen Pfade wurden explizit committed/gepusht und source-only auf
+VPS aktualisiert. Abschlussdokumentation separat ohne erneuten App-Neustart ziehen.
+Fremde `debug.log` und `output/audit-repairs/` blieben unberührt.
 Keine Backups, Extra-Scans, Produktionsdatenkopien oder Bereinigungen.
 Nicht mit der noch ausstehenden Freigabe des schriftlichen Football-Dataset-v2-
 Vertrags vermischen. Fachliche Effekte bleiben offen, siehe darunter.
