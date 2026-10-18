@@ -1,6 +1,30 @@
 # BetBoy - Übergabe auf einen neuen PC
 
-## 18.10.2026 – Quellenreparatur geprüft, Veröffentlichung folgt
+## 18.10.2026 – Quellen-/Marktquellrelease live, fachliche Restarbeit offen
+
+Quellcode `c6fe02fdce07eae1e13368e98612c8b6bf569657` auf main und VPS live seit
+02:12:48 CEST. Kanonisch bleibt `.worktrees/audit-repairs-20261013`, kein anderer
+Checkout wurde stillschweigend aktualisiert. No-Backup-FF von `2f62e5e`, 45 Pfade,
+Offline-Smoke und beide Healthchecks `ok`, App-PID 1222039 → 1236110; App/Caddy
+aktiv, acht Timer aktiv/aktiviert. Beide Indexowner rohbytegleich,
+Prognose-Snapshots und neun Jobstartstempel beim Deploy unverändert. Keine DB-
+Kopie, Migration, Installation, Bereinigung, neue Sport-/API-Abfrage oder Sicherung.
+Receipt `output/source-repair-20261017/deploy-source-repair-01.txt` außerhalb Git.
+
+Shadow getrennt beachten: schon vor dem Release um 02:02/02:12 `partial`/Exit 1,
+fehlende frische Bet365-Providerbelege für 1550998/1550999 und zwei alte ungültige
+CLV-Zeilen; bewusste Sperre alter/unvollständiger Evidenz, nicht neuer Appcrash.
+Enge Nachprüfung: beiden Altzeilen (Fixtures 1528908/1495965) fehlen ausschließlich
+Schlussquote und ihre drei Herkunftsfelder; übrige geprüfte Ergebnis-/Profitfelder
+konsistent. „Malformed settlement“ beweist hier keine falsche Geldbuchung.
+Keine alten Zeit-/Gegenquoten erfinden oder Historie zur Freischaltung löschen.
+
+Nicht erledigt: numerisch qualifizierte Verletzungs-/Wetter-/Müdigkeitseffekte,
+Mehrfall-Fußballdataset/-fitter, spätere PLAYER_LOAD-v3-Quellen und aktueller
+POINT-Tennis-Effektvertrag. Native neue Gegenpreispaare und vollständiger neuer
+regulärer Tennislauf am 19.10., 00:05 CEST, erst künftig nachweisen, ohne Extra-Scan.
+
+### Chronologie der abgeschlossenen Prüfung vor dem Release
 
 Abschluss 02:10 CEST: großer unveränderter 13-Modul-Lauf **381 PASS/0 SKIP**,
 Exit 0, 3.490,58 s. Exakter Belegabgleich vollständig: **15.459 PASS/98 gleiche
@@ -11,8 +35,8 @@ bleibt FAIL/INCOMPLETE; seine 103 Fälle gelten nur im separat geprüften Umfang
 `output/source-repair-20261017/followup-receipt-merge-final.json` außerhalb Git.
 Finaler unabhängiger Quellreview: 834 Dateien bytegleich zur Abschluss-Collection,
 45 Releasepfade, sechs Tennis-Kernmodule und zwei Indexdateien unverändert.
-Jetzt expliziter Commit/Push/No-Backup-FF-Deploy; noch keinen erfolgten Deploy
-behaupten. Fachliche Effekte weiterhin offen: Mehrfall-Fußballtraining,
+Anschließender Commit/Push/No-Backup-FF-Deploy ist oben tatsächlich belegt.
+Fachliche Effekte weiterhin offen: Mehrfall-Fußballtraining,
 PLAYER_LOAD-v3-Nationalteam-/Transferumfang und aktueller POINT-Tennisvertrag
 fehlen zusätzlich zum ausreichenden unangetasteten Qualitätsnachweis.
 

@@ -1,7 +1,39 @@
 # Quellenverarbeitung und nativer Marktvergleich – Fortsetzung
 
-Status 18.10., 02:10 CEST: technische Quellen-/Marktreparatur geprüft;
-Veröffentlichung folgt. Keine nachgewiesene zusätzliche Modellwirkung.
+Status 18.10.: technische Quellen-/Marktreparatur geprüft und seit 02:12:48 CEST
+live, Quellrelease `c6fe02fdce07eae1e13368e98612c8b6bf569657`. Keine nachgewiesene
+zusätzliche numerische Modellwirkung.
+
+## Tatsächlicher Release-Nachweis
+
+GitHub-main und VPS standen nach dem erlaubten Fast-forward von `2f62e5e` auf
+dem genannten Quellcommit. Exakte 45-Pfad-Allowlist, sieben nativ geprüfte
+Tennis-/Historien-/Indexbesitzer stimmen unter ausschließlich CRLF→LF-
+Normalisierung. Beide Indexowner bleiben zusätzlich rohbytegleich vor/nach Pull
+und Apprestart. Offline-Smoke bestätigt neue Verträge, Legacy/v3-Abgrenzung,
+Evidenzpins, No-vig-Rechnung und fehlende-DB-No-create-Verhalten. Ausschließlich
+App neugestartet, PID 1222039 → 1236110; App/Caddy aktiv, beide Healthchecks `ok`.
+Acht Timer aktiv/aktiviert; Sicherungstimer weiterhin inaktiv/deaktiviert.
+Prognose-Snapshots und alle neun Jobstartstempel während des Deploys identisch.
+Kein Backup, Migration, Paketinstallation, Datenbankkopie oder neuer Sportscan.
+`output/source-repair-20261017/deploy-source-repair-01.txt` bleibt außerhalb Git.
+Nachfolgende Abschlussdokumentation wird separat ohne Apprestart gepullt.
+
+Separater bereits bestehender Produktionsbefund: Shadow 02:02/02:12 unter altem
+Code meldete `partial`/Exit 1, kein frischer Bet365-Providerbeleg für 1550998/1550999
+und zwei ungültige historische CLV-Belege. `shadow_clv_automation.py` und
+`clv_tracker.py` sind gegenüber 2f62 unverändert. Die Kennzahl bleibt bewusst
+gesperrt; „malformed settlement“ kann fehlende Closingquote bedeuten und beweist
+nicht allein falsche Geldabrechnung. Fehlende historische Provenienz nicht
+nachträglich erfinden. Enge produktive Nachprüfung in gehaltenem read-only-
+Snapshot: nur zwei Zeilen/400 Bytes skalare Nutzdaten; Zeile 2/Fixture 1528908
+(Romania–Bosnia, Won) und Zeile 3/Fixture 1495965 (Strommen–Sandnes, Lost) fehlen
+jeweils `closing_odds`, `closing_bookmaker`, `closing_source`, `closing_quoted_at`.
+Öffnungs-, Ergebnis- und Profitfelder erfüllen alle übrigen bestehenden Kriterien.
+Damit ist die Ursache geklärt, nicht die fehlende historische Evidenz repariert.
+Ein regulärer vollständiger Tennislauf des neuen Codes und neue gespeicherte
+native Markt-Gegenpaare bleiben zukünftiger Produktionsnachweis, kein Grund für
+einen zusätzlichen Scan. Die fachlichen Vertrags-/Qualitätslücken unten bleiben.
 
 ## Abschließender Test- und Quellabgleich
 

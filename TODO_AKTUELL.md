@@ -1,6 +1,37 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
-## 18.10.2026 – Quellenreparatur: Abschlussprüfung bestanden, Veröffentlichung folgt
+## 18.10.2026 – Quellen-/Marktreparatur live; Effekte weiterhin nicht fertig
+
+**Quellrelease `c6fe02fdce07eae1e13368e98612c8b6bf569657` ist auf main und seit
+02:12:48 CEST auf dem VPS.** Fast-forward von `2f62e5e`, exakt 45 geprüfte Pfade,
+Offline-Smoke erfolgreich, App-PID 1222039 → 1236110. App/Caddy aktiv und beide
+Healthchecks `ok`; acht Timer aktiv/aktiviert. Prognose-Snapshots, neun
+Jobstartstempel und beide rohen Index-Quelldateihashes beim Deploy unverändert.
+Kein Backup, keine Migration/Installation, keine DB-Kopie, Bereinigung oder
+zusätzlicher Sport-/API-Scan. Beleg außerhalb Git:
+`output/source-repair-20261017/deploy-source-repair-01.txt`.
+
+Separater alter Datenfehler, bereits **vor** dem Deploy: reguläre Shadow-Läufe
+02:02/02:12 `partial`/Exit 1. Für Fixtures 1550998/1550999 fehlt eine hinreichend
+frische Bet365-Quote samt Providerzeit. Zwei alte CLV-Zeilen haben ungültige
+Quotenprovenienz/Abrechnungsbelege. Das ist bewusstes Fail-closed im unveränderten
+Shadow-Code, kein Appabsturz; „malformed settlement“ allein beweist keine falsche
+Geldabrechnung. Die enge lesende Nachprüfung ist abgeschlossen: Zeile 2,
+Fixture 1528908 (Romania–Bosnia, gewonnen), und Zeile 3, Fixture 1495965
+(Strommen–Sandnes, verloren), haben jeweils NULL in `closing_odds`,
+`closing_bookmaker`, `closing_source`, `closing_quoted_at`. Öffnungs-, Ergebnis-
+und Profitfelder passieren die übrigen bestehenden Prüfungen. Keine gültige
+CLV-Aussage; damalige Schlussbelege nicht erfinden und nicht „alle Dienste
+erfolgreich“ behaupten. Nur zwei Zeilen/400 Bytes Skalardaten lesend geprüft.
+
+Nächste fachliche Schritte bleiben Mehrfall-Fußballdataset/-fitter, späterer
+PLAYER_LOAD-v3-Nationalteam-/Transferumfang und eigener POINT-Tennis-Effektvertrag.
+Danach ausreichender unangetasteter zeitgetrennter Modell-/Marktvergleich. Bessere
+Wettqualität und numerische Verletzungs-/Wetter-/Müdigkeitswirkung sind **nicht**
+belegt. Neue native Gegenpreispaare sowie der erste reguläre neue Tennisjob
+(19.10., 00:05 CEST) sind noch produktiv nachzuweisen, ohne zusätzlichen Scan.
+
+### Abgeschlossene Prüfung und frühere Vorbereitungsstände
 
 Abschluss 02:10 CEST: Die unveränderte große Fußballrunde ist mit **381 PASS**,
 null Fehlern/Skips in 3.490,58 Sekunden beendet. Zusammen mit den vollständigen
@@ -15,8 +46,8 @@ Abgleich: `output/source-repair-20261017/followup-receipt-merge-final.json`.
 Unabhängiger letzter Review: alle 834 aktuellen Source-/Test-/Configdateien
 bytegleich zur akzeptierten Abschluss-Collection; exakte 45-Pfad-Release-Allowlist,
 sechs unveränderte Tennis-Kernmodule und beide unveränderten Indexdateien.
-Source-Paket jetzt committen/pushen/ohne Backup deployen; bis zum tatsächlichen
-Deploy bleibt GitHub/VPS noch auf `2f62e5e`. **Numerische Effekte nicht fertig:**
+Source-Paket anschließend wie oben belegt committed/gepusht/ohne Backup deployed.
+**Numerische Effekte nicht fertig:**
 Mehrfall-Fußballtraining, zusätzlicher PLAYER_LOAD-v3-Umfang und eigener aktueller
 POINT-Tennis-Effektvertrag bleiben technische Restarbeit, danach empirische Prüfung.
 
@@ -110,8 +141,8 @@ DB-Kopie oder zusätzlicher Sport-/API-Scan.
   bestehende Legacy/v3-/Invalidindex-Tests unverändert. Deployhelper mit exakter
   45-Pfad-Allowlist und 7 PASS; unveränderte Index-Quelldateibytes vor/nach Pull
   und Apprestart vergleichen. Keine Umgehung des READY-Vertrags.
-- [ ] Abschlussreview, explizite Quellpfade committen, main pushen und auf VPS
-  ohne Backup/zusätzlichen Scan fast-forwarden; Commitgleichheit und Healthchecks.
+- [x] Abschlussreview, explizite Quellpfade committen, main pushen und auf VPS
+  ohne Backup/zusätzlichen Scan fast-forwarden: `c6fe02f`, beide Healthchecks `ok`.
 - [ ] Numerische Effekte bleiben bis zum tatsächlichen ausreichenden zeitgetrennten
   Qualitätsnachweis offen. Quellenleser-Tests sind keine bessere Wettqualität.
   Zusätzlich fehlen technische Teile, nicht nur Wartezeit: Football-Mehrfall-
