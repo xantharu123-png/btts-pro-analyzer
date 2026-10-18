@@ -80,7 +80,7 @@ from config_loader import load_app_config
 from date_context import ZURICH_TIMEZONE, format_zurich_time, german_date_window, zurich_today
 from manual_search_filters import SearchFilters, render_search_filters
 from manual_search_results import esports_search_results
-from tip_display_order import PROBABILITY, display_order_control, ordered_event_rows, recommendation_probability
+from tip_display_order import START_TIME, display_order_control, ordered_event_rows, recommendation_probability
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES, ANALYZER_LEAGUE_IDS
 from multi_sport_recommendations import (
     EVIDENCE_RELEASED,
@@ -4694,12 +4694,11 @@ def _render_wettfinder_game(group, row_by_key, featured_keys, initially_open: bo
                     )
 
 
-def _render_wettfinder_games(catalog, row_by_key, *, sport_filter: str, sort_mode=PROBABILITY) -> None:
+def _render_wettfinder_games(catalog, row_by_key, *, sport_filter: str, sort_mode=START_TIME) -> None:
     featured_keys = {card.key for card in catalog.featured}
     original_groups = group_wettfinder_games(catalog)
-    # Retain legacy order only where no statistical producer rank exists.
-    # For ranked games the one price-blind lead controls game sorting; a
-    # compatible broad-cover alternative must not become the primary by p.
+    # Keep the producer's existing lead inside each game. Chronological game
+    # order does not turn a broad-cover alternative into a new primary tip.
     ordered_cards = ordered_event_rows(
         ((group.fixture_identity, card) for group in original_groups for card in group.cards),
         mode=sort_mode, event_key=lambda item: item[0],
@@ -4717,12 +4716,15 @@ def _render_wettfinder_games(catalog, row_by_key, *, sport_filter: str, sort_mod
             cards = ([card for card in cards if card.key == original.visible_lead.key]
                      + [card for card in cards if card.key != original.visible_lead.key])
         groups.append(replace(original, cards=tuple(cards)))
-    groups = ordered_event_rows(
-        groups, mode=sort_mode, event_key=lambda group: group.fixture_identity,
-        starts_at=lambda group: (group.visible_lead or group.cards[0]).scheduled_start,
-        probability=lambda group: (group.visible_lead or group.cards[0]).model_probability,
-    )
-    # Highlight membership is independent of model-probability order.
+    # The first pass already used every card's known event clock. A lead with
+    # no clock must not send that whole game behind later games on this pass.
+    if sort_mode != START_TIME:
+        groups = ordered_event_rows(
+            groups, mode=sort_mode, event_key=lambda group: group.fixture_identity,
+            starts_at=lambda group: (group.visible_lead or group.cards[0]).scheduled_start,
+            probability=lambda group: (group.visible_lead or group.cards[0]).model_probability,
+        )
+    # Highlight membership is independent of chronological game order.
     # Highlights stay attached to cards; opening defaults follow the
     # visible page, while clicked preferences stay attached to fixture keys.
     if groups:

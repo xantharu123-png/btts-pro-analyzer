@@ -923,7 +923,7 @@ def test_actual_riskobet_page_ignores_old_time_state_and_ranks_model_chance(monk
     monkeypatch.setattr(ui, 'st', fake)
     monkeypatch.setattr(ui, 'load_riskobet_view', lambda _path=None: view)
     ui.render_riskobet(now=MODELED)
-    assert _rendered_candidate_ids(fake) == [late_candidate.candidate_id, early[1].candidate_id]
+    assert _rendered_candidate_ids(fake) == [early[1].candidate_id, late_candidate.candidate_id]
     assert view == before
 
 

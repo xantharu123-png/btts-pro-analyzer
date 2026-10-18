@@ -227,7 +227,7 @@ def test_filter_rerender_reuses_storage_without_scan_and_retains_current_same_si
     assert (path.read_bytes(), quote_path.read_bytes()) == before
 
 
-@pytest.mark.parametrize('mode,expected', [('Startzeit', [1, 2]), ('Wahrscheinlichkeit', [1, 2])])
+@pytest.mark.parametrize('mode,expected', [('Startzeit', [2, 1]), ('Wahrscheinlichkeit', [2, 1])])
 def test_tennis_render_uses_actual_kickoff_and_favorite_probability_without_recalculation(offline, monkeypatch, mode, expected):
     prepare, path, quote_path, _ = offline
     before = prepare()

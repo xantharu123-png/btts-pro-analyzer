@@ -114,9 +114,9 @@ def test_probability_panels_preserve_chronological_slots_ready_role_reservation_
     app = AppTest.from_function(_render_probability_sequence, args=(str(db),)).run(timeout=30)
     assert not app.exception
     cards = [item.value for item in app.markdown if 'data-key=' in item.value]
-    assert [next(game for game in (1, 2, 3) if f'Heimteam {game} vs ' in html) for html in cards] == [3, 2, 1]
+    assert [next(game for game in (1, 2, 3) if f'Heimteam {game} vs ' in html) for html in cards] == [1, 2, 3]
     slots = [item.value.split(' · ')[0] for item in app.caption if item.value.startswith('Wette ')]
-    assert slots == ['Wette 3', 'Wette 2', 'Wette 1']
+    assert slots == ['Wette 1', 'Wette 2', 'Wette 3']
     _button(app, 'CHF 50 Tagesbudget bestätigen').click().run()
     assert not app.exception
     assert ':1:RESULT_HOME:' in _field(app, 'text_input', 'stake:').key

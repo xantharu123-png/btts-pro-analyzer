@@ -195,10 +195,10 @@ def _render_game_blocks_for_test(count, featured_ids):
 
 
 @pytest.mark.parametrize('mode,page,count,expected_games', [
-    ('Startzeit', 1, 5, [5, 4, 3, 2, 1]),
-    ('Wahrscheinlichkeit', 1, 5, [5, 4, 3, 2, 1]),
-    ('Startzeit', 2, 25, [5, 4, 3, 2, 1]),
-    ('Wahrscheinlichkeit', 2, 25, [5, 4, 3, 2, 1]),
+    pytest.param('Startzeit', 1, 5, [1, 2, 3, 4, 5], id='Startzeit-1-5-expected_games0'),
+    pytest.param('Wahrscheinlichkeit', 1, 5, [1, 2, 3, 4, 5], id='Wahrscheinlichkeit-1-5-expected_games1'),
+    pytest.param('Startzeit', 2, 25, [21, 22, 23, 24, 25], id='Startzeit-2-25-expected_games2'),
+    pytest.param('Wahrscheinlichkeit', 2, 25, [21, 22, 23, 24, 25], id='Wahrscheinlichkeit-2-25-expected_games3'),
 ])
 def test_real_renderer_opens_first_three_visible_games_not_featured_membership(
     mode, page, count, expected_games,
@@ -218,7 +218,7 @@ def test_real_renderer_opens_first_three_visible_games_not_featured_membership(
 def test_real_renderer_updates_untouched_opening_defaults_when_order_changes():
     ui = AppTest.from_function(_render_game_blocks_for_test, args=(5, (4,))).run(timeout=30)
     assert not ui.exception
-    for mode, games in [('Wahrscheinlichkeit', [5, 4, 3, 2, 1]), ('Startzeit', [5, 4, 3, 2, 1])]:
+    for mode, games in [('Wahrscheinlichkeit', [1, 2, 3, 4, 5]), ('Startzeit', [1, 2, 3, 4, 5])]:
         ui.session_state['game_test_order'] = mode
         ui.run(timeout=30)
         assert not ui.exception
@@ -246,12 +246,10 @@ def _toggle_game_block(ui, fixture_id, opened):
 @pytest.mark.parametrize('count', [5, 25])
 def test_real_renderer_remembers_user_choices_after_order_page_filter_and_highlight_changes(count):
     ui = AppTest.from_function(_render_game_blocks_for_test, args=(count, (1, 2, 3)))
-    if count == 25:
-        ui.session_state['wettfinder_games_page_Alle_2'] = 2  # Probability order puts games 1–5 on page 2.
     ui.run(timeout=30)
     assert not ui.exception
-    # Probability order reverses the old initial positions. Force real state
-    # changes before retaining the same explicit closed/open assertions.
+    # Force real callback state changes before checking that chronological
+    # opening defaults cannot erase an explicit closed/open preference.
     _toggle_game_block(ui, 1, True)
     _toggle_game_block(ui, 1, False)
     _toggle_game_block(ui, 5, False)
@@ -270,8 +268,8 @@ def test_real_renderer_remembers_user_choices_after_order_page_filter_and_highli
     assert_choices()
     # Complete-game pagination removes the widget, not its remembered choice.
     if count == 25:
-        ui.selectbox(key='wettfinder_games_page_Alle_2').set_value(1).run(timeout=30)
         ui.selectbox(key='wettfinder_games_page_Alle_2').set_value(2).run(timeout=30)
+        ui.selectbox(key='wettfinder_games_page_Alle_2').set_value(1).run(timeout=30)
         assert_choices()
     ui.selectbox(key='game_test_sport').set_value('Tennis').run(timeout=30)
     assert not ui.exception and len(ui.expander) == 0

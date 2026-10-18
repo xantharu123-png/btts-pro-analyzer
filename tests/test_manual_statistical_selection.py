@@ -80,7 +80,9 @@ def test_real_manual_renderer_selects_lead_before_probability_order(monkeypatch)
     render, surface, snapshot = _render(monkeypatch, rows)
     surface.markdown = lambda text, **_: surface.messages.append(text)
     before = deepcopy(snapshot)
-    assert render(SearchFilters()) == ['2:RESULT_HOME', '1:RESULT_HOME', '1:TOTAL_UNDER_4_5']
+    # Equal kickoffs retain producer game order, not probability order. Keep
+    # the legacy ID and the statistical lead ahead of its broader secondary.
+    assert render(SearchFilters()) == ['1:RESULT_HOME', '1:TOTAL_UNDER_4_5', '2:RESULT_HOME']
     assert 'Weitere Märkte' in ' '.join(surface.messages)
     assert snapshot == before
 

@@ -16,24 +16,25 @@ class Row:
     quote: object = None
 
 
-def ordered(rows, mode=PROBABILITY):
+def ordered(rows, mode=START_TIME):
     return ordered_event_rows(rows, mode=mode, event_key=lambda r: r.event,
                               starts_at=lambda r: r.start, probability=lambda r: r.chance)
 
 
 def test_model_default_uses_probability_without_an_explicit_mode():
+    # Retain the existing node ID; the current policy is chronological games.
     rows = [Row('early', '2030-01-01T10:00:00Z', .70, 'early'),
             Row('late', '2030-01-01T18:00:00Z', .90, 'late')]
     result = ordered_event_rows(rows, event_key=lambda r: r.event,
         starts_at=lambda r: r.start, probability=lambda r: r.chance)
-    assert result == (rows[1], rows[0])
-    assert result[0] is rows[1]
+    assert result == (rows[0], rows[1])
+    assert result[0] is rows[0]
 
 
 def test_old_starttime_state_cannot_override_model_order_or_offer_a_time_toggle():
     from test_workflow_integrity import _RecordingStreamlit
     ui = _RecordingStreamlit({'view-order': START_TIME}, {'view-order': START_TIME})
-    assert display_order_control(ui, key='view-order') == PROBABILITY
+    assert display_order_control(ui, key='view-order') == START_TIME
     assert not any(label == 'Reihenfolge' and START_TIME in options
                    for label, options, _index, _key in ui.selectboxes)
     assert ui.session_state == {'view-order': START_TIME}  # No model/account state rewrite.
@@ -96,11 +97,29 @@ def test_automatic_group_rank_ignores_invalid_primary_chance_and_uses_known_even
             for value in html] == [high.key, invalid.key, late.key]
 
 
+def test_automatic_chronology_uses_known_game_clock_when_priority_market_clock_is_missing(monkeypatch):
+    import app
+    from test_workflow_integrity import _RecordingStreamlit
+    from test_wettfinder_game_groups import card
+    from wettfinder_surface import WettfinderCatalog
+    primary = replace(card(1), model_probability=.70, scheduled_start=None)
+    secondary = replace(card(1, 'AWAY_OVER_2_5'), model_probability=.60,
+                        scheduled_start='2030-01-01T10:00:00Z')
+    later = replace(card(2), model_probability=.90, scheduled_start='2030-01-01T18:00:00Z')
+    seen = []
+    monkeypatch.setattr(app, 'st', _RecordingStreamlit())
+    monkeypatch.setattr(app, '_render_wettfinder_game', lambda group, *_args: seen.append(group))
+    app._render_wettfinder_games(WettfinderCatalog((primary,), (later, secondary), ()),
+        {}, sport_filter='Alle')
+    assert [[item.key for item in group.cards] for group in seen] == [
+        [primary.key, secondary.key], [later.key]]
+
+
 def test_default_is_ascending_actual_start_not_probability_or_feature_role():
-    # Legacy node ID retained; the approved model-backed default is now probability.
+    # The upcoming game wins even when the later game has a higher chance.
     rows = [Row('late', '2026-10-11T21:00:00+02:00', .99, 'late'),
             Row('early', '2026-10-11T14:00:00+02:00', .40, 'early')]
-    assert [r.event for r in ordered(rows)] == ['late', 'early']
+    assert [r.event for r in ordered(rows)] == ['early', 'late']
 
 
 def test_probability_order_keeps_whole_events_together_and_uses_best_visible_market():
@@ -108,7 +127,7 @@ def test_probability_order_keeps_whole_events_together_and_uses_best_visible_mar
             Row('b', '2026-10-11T15:00:00Z', .70, 'b1'),
             Row('a', '2026-10-11T14:00:00Z', .80, 'a2')]
     assert [r.selection for r in ordered(rows, PROBABILITY)] == ['a2', 'a1', 'b1']
-    assert [r.selection for r in ordered(rows, START_TIME)] == ['a1', 'a2', 'b1']
+    assert [r.selection for r in ordered(rows, START_TIME)] == ['a2', 'a1', 'b1']
     assert ordered(rows, PROBABILITY)[0] is rows[2]
 
 
@@ -163,7 +182,31 @@ def test_control_defaults_to_starttime_and_explicit_choice_is_only_display_state
     class UI:
         def selectbox(self, label, options, **kwargs):
             pytest.fail('A model-backed surface must not offer a time override')
-    assert display_order_control(UI(), key='view-order') == PROBABILITY
+    assert display_order_control(UI(), key='view-order') == START_TIME
+
+
+def test_old_probability_widget_state_cannot_move_later_games_before_upcoming_games():
+    from test_workflow_integrity import _RecordingStreamlit
+    ui = _RecordingStreamlit({'view-order': PROBABILITY}, {'view-order': PROBABILITY})
+    mode = display_order_control(ui, key='view-order')
+    rows = [Row('later', '2030-01-02T01:00:00+02:00', .99, 'later'),
+            Row('today', '2030-01-01T22:00:00+02:00', .40, 'today')]
+    assert [row.event for row in ordered(rows, mode)] == ['today', 'later']
+    assert ui.session_state == {'view-order': PROBABILITY}
+    assert not ui.selectboxes
+
+
+def test_chronological_default_preserves_market_priority_and_complete_event_blocks():
+    rows = [Row('late', '2030-01-02T00:10:00Z', .99, 'late'),
+            Row('early', '2030-01-01T23:55:00Z', .55, 'early-low'),
+            Row('early', '2030-01-01T23:55:00Z', .80, 'early-high'),
+            Row('unknown', None, .999, 'unknown')]
+    before = tuple(rows)
+    result = ordered_event_rows(rows, event_key=lambda row: row.event,
+        starts_at=lambda row: row.start, probability=lambda row: row.chance)
+    assert [row.selection for row in result] == ['early-high', 'early-low', 'late', 'unknown']
+    assert tuple(rows) == before
+    assert {id(row) for row in result} == {id(row) for row in rows}
 
 
 def test_unmodelled_schedule_control_does_not_offer_probability_ranking():
@@ -212,8 +255,8 @@ def test_riskobet_orders_the_combined_catalog_not_each_section_separately():
 
 
 @pytest.mark.parametrize('mode,first,table_order', [
-    pytest.param(START_TIME, 'late', ['late', 'middle', 'early', 'excluded'], id='Startzeit-early-table_order0'),
-    pytest.param(PROBABILITY, 'late', ['late', 'middle', 'early', 'excluded'], id='Wahrscheinlichkeit-late-table_order1')])
+    pytest.param(START_TIME, 'early', ['excluded', 'early', 'middle', 'late'], id='Startzeit-early-table_order0'),
+    pytest.param(PROBABILITY, 'early', ['excluded', 'early', 'middle', 'late'], id='Wahrscheinlichkeit-late-table_order1')])
 def test_prematch_real_renderer_sorts_percent_candidates_and_table_after_selection(monkeypatch, mode, first, table_order):
     import app
     import pandas as pd
@@ -304,7 +347,7 @@ def test_manual_esports_sort_uses_percent_and_keeps_selected_original_event(monk
         assert publication_allowed(reference_quote, candidate=reference_binding_candidate, now=now)
         rendered.append(candidate.event_key)
     monkeypatch.setattr(app, 'render_model_selection', record_selection)
-    for mode, expected in [(START_TIME, (0, 1)), (PROBABILITY, (0, 1))]:
+    for mode, expected in [(START_TIME, (1, 0)), (PROBABILITY, (1, 0))]:
         ui.widget_values['manual_esport_order'] = mode
         app.render_multi_sport('E-Sport', now.date(), now.date(), SearchFilters())
         assert ui.selectboxes[-1][1] == expected
@@ -339,8 +382,8 @@ def test_manual_hockey_schedule_default_is_chronological_without_fake_chance_cho
     assert items == original  # An unpriced timetable remains intact, not a public tip.
 
 
-@pytest.mark.parametrize('mode,expected', [(START_TIME, ['1:BTTS', '2:BTTS']),
-                                         (PROBABILITY, ['1:BTTS', '2:BTTS'])])
+@pytest.mark.parametrize('mode,expected', [(START_TIME, ['2:BTTS', '1:BTTS']),
+                                         (PROBABILITY, ['2:BTTS', '1:BTTS'])])
 def test_15k_actual_card_and_ticket_options_share_display_order_without_ledger_write(monkeypatch, mode, expected):
     import challenge_15k
     from unittest.mock import Mock, MagicMock
@@ -386,9 +429,9 @@ def test_live_real_candidates_and_overview_ignore_old_time_order_without_rescan(
     monkeypatch.setattr(app.scan_jobs, 'start_job', lambda *_a, **_k: pytest.fail('Sorting cannot scan'))
     monkeypatch.setattr(app, 'render_model_selection', lambda c, **_k: rendered.append(c))
     app._render_live_football(None, market)
-    assert [row['Spiel'] for row in tables[0]] == ['Late – Opponent', 'Early – Opponent']
-    assert len(rendered) == 1 and rendered[0].event_key == '2'
-    assert rendered[0].model_probability == 90. and rendered[0].risk_adjusted_probability is None
+    assert [row['Spiel'] for row in tables[0]] == ['Early – Opponent', 'Late – Opponent']
+    assert len(rendered) == 1 and rendered[0].event_key == '1'
+    assert rendered[0].model_probability == 70. and rendered[0].risk_adjusted_probability is None
     assert rendered[0].probability_haircut == 12. and rendered[0].evidence_stage == 'RESEARCH'
     assert analyses == before
 
@@ -420,6 +463,6 @@ def test_redcard_real_candidate_selector_ignores_old_time_order_without_rescan(m
     monkeypatch.setattr('redcard_signal_log.log_signal', lambda _entry: None)  # Existing writer boundary only.
     monkeypatch.setattr(app, 'render_model_selection', lambda c, **_k: rendered.append(c))
     app._render_red_cards(SimpleNamespace(engine=SimpleNamespace(LEAGUES_CONFIG={'league': 39})))
-    assert len(rendered) == 1 and rendered[0].event_key == 'Late'
-    assert rendered[0].model_probability == 90. and rendered[0].risk_adjusted_probability == 75.
+    assert len(rendered) == 1 and rendered[0].event_key == 'Early'
+    assert rendered[0].model_probability == 70. and rendered[0].risk_adjusted_probability == 55.
     assert entries == before

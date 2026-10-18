@@ -1,4 +1,4 @@
-"""Statistical event leads precede independent presentation probability sorting."""
+"""Statistical event leads survive chronological presentation sorting."""
 from copy import deepcopy
 from dataclasses import replace
 from itertools import permutations
@@ -83,8 +83,10 @@ def test_real_renderer_orders_games_by_selected_lead_not_secondary_market_probab
     monkeypatch.setattr(app, 'st', recording)
     app._render_wettfinder_games(catalog, {item.key: (None, item) for item in cards}, sport_filter='Alle')
     html = [text for text, _, _ in recording.markdown_calls if 'data-key=' in text]
+    # Keep the legacy ID. Equal starts retain producer game order; the chosen
+    # lead and the priority among its secondary markets remain unchanged.
     assert [next(item.key for item in cards if f'data-key="{item.key}"' in text) for text in html] == [
-        middle.key, lead.key, broad.key, lower_alternative.key]
+        lead.key, broad.key, lower_alternative.key, middle.key]
     assert cards == before
 
 

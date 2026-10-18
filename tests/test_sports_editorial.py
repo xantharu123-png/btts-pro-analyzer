@@ -175,8 +175,10 @@ def test_daily3_rail_probability_presentation_keeps_original_sequence_numbers_an
     monkeypatch.setattr(app, 'st', ui)
     app._render_editorial_rail(choices, (), daily3_allowed=True, target_label='Heute')
     html = [value for value, _kwargs, _context in ui.markdown_calls if 'se-choice-rank' in value]
-    assert [next(game for game in (1, 2, 3) if f'Heimteam {game} vs ' in row) for row in html] == [3, 2, 1]
-    assert [next(slot for slot in (1, 2, 3) if f'se-choice-rank">{slot}</span>' in row) for row in html] == [3, 2, 1]
+    # Keep the legacy test ID; the approved display policy is now start-time
+    # order, while original Daily3 slot numbers and selected objects survive.
+    assert [next(game for game in (1, 2, 3) if f'Heimteam {game} vs ' in row) for row in html] == [1, 2, 3]
+    assert [next(slot for slot in (1, 2, 3) if f'se-choice-rank">{slot}</span>' in row) for row in html] == [1, 2, 3]
     assert choices == before and [c.signal.key for c in choices] == ['1:RESULT_HOME', '2:RESULT_HOME', '3:RESULT_HOME']
 
 

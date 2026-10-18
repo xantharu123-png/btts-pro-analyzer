@@ -1,5 +1,51 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 18.10.2026 – nächste Spiele zuerst: geprüft, Veröffentlichung folgt
+
+- Neueste Nutzerfreigabe: Spielblöcke überall nach vollständiger Startzeit
+  aufsteigend; unbekannte/ungültige oder zeitzonenlose Termine zuletzt. Die
+  bestehende Auswahl und Marktpriorität innerhalb eines Spiels bleiben erhalten.
+  Alte gespeicherte Wahrscheinlichkeitssortierung darf dies nicht überschreiben.
+- Kleiner Produktpatch nur in `tip_display_order.py` und `app.py`; angebunden
+  sind Automatisch, eigene Suche, RisikoBet, Daily3, 15K und Live. Keine Änderung
+  an Wahrscheinlichkeiten, Quoten, Einsätzen, Buchungen oder gespeicherten Tipps.
+- TDD: ursprüngliche falsche Reihenfolge vor dem Patch reproduziert. Anschließend
+  **167 Tests aus fünf vollständigen Modulen bestanden**. Drei neue Schutzfälle:
+  alte Sortierpräferenz, Mitternacht/fehlende Zeit und fehlende Zeit am Hauptmarkt
+  trotz bekanntem Spielbeginn eines weiteren Markts. Unabhängiger Quellreview
+  ohne Befund. Alle bisherigen Test-IDs bleiben erhalten.
+- Vollsuite vollständig: **15.560 IDs / 422 Module**, 15.459 PASS, drei FAIL,
+  98 unveränderte SKIP, null Errors; 834 Dateien über 122 Kontrollpunkte stabil.
+  Die drei FAIL verlangten noch die alte Wahrscheinlichkeitssortierung in
+  `sports_editorial`, `manual_statistical_selection` und
+  `wettfinder_statistical_leads`. Nur Reihenfolge-Erwartungen/Kommentare geändert,
+  keine Fixtures, Zahlen, IDs, Slot-/Lead-/Unverändertheitsprüfungen entfernt.
+  Ganze drei Module anschließend **172 PASS**, Exit 0, unabhängiger Diffreview
+  ohne Befund. Alle drei ursprünglichen Fehlbelege bleiben unverändert erhalten.
+- Exakter Abschlussabgleich: **15.462 PASS / 98 gleiche SKIP / 0 offene Fehler**,
+  alle 15.560 aktuellen, 15.557 zuvor belegten und 15.495 ursprünglichen IDs
+  enthalten. Vollsuite plus ganze Owner-Nachprüfung, **kein frisch wiederholter
+  einzelner vollständig grüner Gesamtlauf**. Nur die drei Testdateien unterscheiden
+  sich vom Vollsuite-Quellstand; Produktcode/übrige Tests/Config unverändert.
+  Owner-Pins wurden nach dem Ownerlauf erfasst, nicht rückwirkend davor behauptet.
+  Beleg: `output/chronology-20261018/owner-union-01/summary.json` außerhalb Git.
+- Echte lokale Browserprüfung mit dem bestehenden Renderer und isolierten
+  Testspielen: 1440×1000 und 390×844, Reihenfolge samt Datum/fehlendem Termin,
+  bestehender Hauptmarkt sowie Auf-/Zuklappen nach erneutem Rendern bestanden.
+  Kein horizontaler Überlauf/Browserfehler; bekannte Streamlit-iframe-Warnungen
+  separat protokolliert. Erster QA-Klick auf das überdeckte native Checkboxfeld
+  bleibt als Fehlbeleg erhalten; normale sichtbare Beschriftung danach bestanden.
+  Headless mit bereits installiertem Playwright; keine Browserinstallation,
+  keine Produktionsdaten/API-Verbindung. Eigene Vorschau danach beendet.
+  Belege: `output/chronology-20261018/browser-verified-02/` außerhalb Git.
+- Veröffentlichung als nächster Schritt, freigegebene Ausgangsbasis `b57b646`.
+  Exakte Release-Allowlist: zwei Produktdateien, acht Testdateien, zwei Übergaben.
+  Externe Prüfbelege/No-Backup-Deployvorbereitung: `output/chronology-20261018/`.
+  Kein zusätzlicher Sport-/API-Scan, keine Sicherung, DB-Kopie oder Bereinigung.
+- Diese Freigabe betrifft ausschließlich die Anzeige. Der schriftliche
+  Football-Dataset-v2-Vertrag darunter wartet weiterhin auf eigene Freigabe;
+  keine neue Modellwirkung oder bessere Wettqualität aus UI-Tests ableiten.
+
 ## 18.10.2026, morgens – Accountfortsetzung und echter Tageslauf geprüft
 
 - Lokal/GitHub/VPS frisch abgeglichen: `e0816622836a7b4d4755d5b0616c09084dd9253a`.

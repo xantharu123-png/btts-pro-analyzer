@@ -1,5 +1,30 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## 18.10.2026 – aktiver kleiner Auftrag: chronologische Spielanzeige
+
+Neueste Freigabe: überall nächstes Spiel zuerst, vollständiger Beginn aufsteigend,
+unbekannte Termine zuletzt. Marktauswahl/-priorität im Spiel unverändert.
+Produktpatch ausschließlich `tip_display_order.py`/`app.py`, fünf Testmodule
+angepasst/ergänzt. 167 gezielte Tests bestanden; unabhängiger Quellreview ohne
+Befund. Vollsuite abgeschlossen: 15.459 PASS/3 alte Sortier-FAIL/98 gleiche SKIP.
+Nur drei weitere Test-Owner an die freigegebene Reihenfolge angepasst, IDs,
+Fixtures, Zahlen und Schutzprüfungen erhalten; ganze Owner 172 PASS/Exit 0.
+Exakte Zusammenführung: 15.462 PASS/98 gleiche SKIP, alle 15.560 aktuellen IDs
+und alle früheren erhalten, keine offene Fehler-ID. Kein neuer einzelner grüner
+Gesamtlauf; ursprüngliche FAIL-Belege erhalten. 834-Dateien-Vergleich zeigt nur
+diese drei Teständerungen, keine spätere Produktänderung. Owner-Pins ausdrücklich
+nach dem Lauf erfasst. Abschluss `output/chronology-20261018/owner-union-01/`.
+Echte lokale Desktop-/Mobil- und Accordionprüfung bestanden, eigene Vorschau
+danach beendet, keine Produktionsdaten/API-Verbindungen.
+Veröffentlichung folgt; Basis `b57b646`. Externe Belege und
+getesteter No-Backup-Deployhelper in `output/chronology-20261018/`.
+Nach geprüftem Abschluss explizit zwölf eigene Pfade committen/pushen und source-only
+auf VPS aktualisieren, App allein neu starten, Healthchecks/Datenunverändertheit
+nachweisen. Fremde `debug.log` und `output/audit-repairs/` unberührt lassen.
+Keine Backups, Extra-Scans, Produktionsdatenkopien oder Bereinigungen.
+Nicht mit der noch ausstehenden Freigabe des schriftlichen Football-Dataset-v2-
+Vertrags vermischen. Fachliche Effekte bleiben offen, siehe darunter.
+
 ## 18.10.2026, morgens – Accountfortsetzung verifiziert
 
 Lokal/GitHub/VPS `e081662` frisch bestätigt, App/Caddy aktiv, Health `ok`.
