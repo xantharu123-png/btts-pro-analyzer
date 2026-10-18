@@ -1,5 +1,41 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 18.10.2026, morgens – Accountfortsetzung und echter Tageslauf geprüft
+
+- Lokal/GitHub/VPS frisch abgeglichen: `e0816622836a7b4d4755d5b0616c09084dd9253a`.
+  App/Caddy aktiv, öffentlicher Healthcheck `ok`. Regulärer Wettfinder mit neuem
+  Code 03:35:31–04:09:55 CEST erfolgreich/Exit 0; letzter Shadow 07:52 erfolgreich.
+  Der letzte Tennis-Volljob 00:05–00:36 nutzte noch die alte Version; neuer
+  vollständiger Tennisjob weiterhin erst 19.10., 00:05 CEST, ohne Extra-Scan.
+- Gespeicherter Tagesbericht: 473 Modellkandidaten. Seit dem Quellrelease 1.225
+  neue Fußball-Entryquotenzeilen für 64 Events, davon 1.184 Zeilen mit nativem
+  Marktanhang für 62 Events. Das ist ein Speicher-/Anschlussnachweis, noch kein
+  finaler Qualitätsvergleich dieser neuen Ereignisse. Tennis: 20 neue Entry-
+  zeilen für ein Event, ohne neuen nativen Marktanhang.
+- Rein lesender Marktvergleich nach Tageslauf: 54 vergleichbare kategoriale
+  Marktsätze aus 26 Events, darunter erstmals sechs Hockey-Closingereignisse.
+  Hockey-Modell-Brier 0,224713 gegenüber Markt 0,223732; sechs Events belegen
+  keinen Vorteil. Aktuelle Fußball-v14-Vergleichskohorte weiterhin acht Events,
+  neue binäre `selection_groups` noch leer. Keine Wirkung/Renditefreigabe.
+  Beleg: `output/source-repair-20261017/native-market-proof-02-after-daily.json`
+  außerhalb Git, Exit 0, 8,344 Sekunden, keine Sport-/API-Abfrage oder DB-Änderung.
+- Hockey-Unterbericht `operational_error_count=1` bedeutet hier einen
+  gespeicherten `ice_hockey: source_partial`, nicht einen verschluckten Crash.
+  Der Gesamtstatus trennt Teilabdeckung bewusst von `source_failed`/unavailable;
+  bestehender Regressionstest verlangt dafür Exit 0. Der öffentliche Fehler ist
+  absichtlich bereinigt; die ursprüngliche Einzelursache ist daraus nicht
+  bewiesen. Cricket `source_unconfigured` bleibt wie freigegeben ausgenommen.
+  Sieben API-Hockey-Snapshots haben 0 Trainingsspiele/keine Teamhistorie und
+  deshalb keine Basiswahrscheinlichkeit; zwei NHL-Snapshots besitzen diese.
+  NHL-Kontext separat mit neun gespeicherten Receipts erfolgreich. Abdeckung
+  und ursprünglichen Teilfehler nicht als dieselbe bewiesene Ursache ausgeben.
+- Nächster begrenzter Architekturumfang vorgeschlagen: Football-Dataset v2,
+  einmaliger Quellenkatalog plus exakte Fallmitgliedschaft, physische Prüfung
+  eines Falls nach dem anderen, nur kleine numerische Projektionen behalten.
+  Legacy-Datasets, Modellformeln und D2-Grenzen unverändert. Richtungsfreigabe
+  für den kurzen schriftlichen Vertrag angefragt, **noch kein neuer Produktcode**.
+  Separater POINT-Tennis-Effektvertrag folgt nicht automatisch aus diesem Schritt.
+
 ## 18.10.2026 – Quellen-/Marktreparatur live; Effekte weiterhin nicht fertig
 
 **Quellrelease `c6fe02fdce07eae1e13368e98612c8b6bf569657` ist auf main und seit

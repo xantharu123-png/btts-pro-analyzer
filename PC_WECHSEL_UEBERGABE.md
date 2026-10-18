@@ -1,5 +1,27 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## 18.10.2026, morgens – Accountfortsetzung verifiziert
+
+Lokal/GitHub/VPS `e081662` frisch bestätigt, App/Caddy aktiv, Health `ok`.
+Regulärer Wettfinder unter neuem Code erfolgreich 03:35:31–04:09:55 CEST,
+Shadow 07:52 erfolgreich. Kein neuer Sport-/API-Scan, Backup oder DB-Eingriff.
+Seit Quellrelease 1.184 gespeicherte native Fußball-Marktanhänge für 62 Events;
+noch kein finaler Qualitätsnachweis dieser neuen Events. Rein lesender
+Marktvergleich jetzt 54 kategoriale Marktsätze/26 Events inklusive sechs Hockey-
+Closings, kein belegter Vorteil; neue binäre Auswertungsgruppen weiterhin leer.
+`output/source-repair-20261017/native-market-proof-02-after-daily.json` extern.
+Hockey-Teilfehler konkret `source_partial`, bewusst vom operativen Gesamtfehler
+getrennt, kein nachgewiesener Crash; ursprüngliche Einzelursache öffentlich
+bereinigt und aus dem Report nicht rekonstruierbar. Tennis-Volljob des neuen
+Codes weiter erst 19.10.00:05 nachweisen, keinen zusätzlichen Lauf starten.
+
+Produktdateien unverändert. Neue Football-Dataset-v2-Architektur als nächster
+kleiner Umfang vorgeschlagen (gemeinsame Referenzen, exakte Fallmitgliedschaft,
+sequenzielle physische Projektion, bestehende Mathematik/D2 unverändert).
+Richtungsfrage für schriftlichen Vertrag gestellt; Freigabe nicht erfinden.
+POINT-Tennis braucht danach eigenen Effektvertrag, keine alten Serve-Fits auf
+neue Verteilung anwenden. Details/Nachweise ganz oben in TODO_AKTUELL.md.
+
 ## 18.10.2026 – Quellen-/Marktquellrelease live, fachliche Restarbeit offen
 
 Quellcode `c6fe02fdce07eae1e13368e98612c8b6bf569657` auf main und VPS live seit
