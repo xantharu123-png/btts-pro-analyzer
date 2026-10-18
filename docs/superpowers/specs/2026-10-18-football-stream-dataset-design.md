@@ -1,8 +1,9 @@
 # Fußball: speichersparender Trainingsdatensatz
 
 Stand: 18.10.2026. Ausgangsstand `c242a4210daafe5366760820e8a3a1419ae2380f`.
-Die Richtung „zuerst Fußball-Trainingspfad“ ist freigegeben. Diese schriftliche
-Fassung steht noch zur Prüfung; sie autorisiert noch keinen Produktpatch.
+Schriftlich freigegeben am 18.10.2026 zusammen mit dem ergänzenden
+`football-training-execution-design`. Produktänderungen folgen erst nach Prüfung
+des dazu beauftragten Umsetzungsplans.
 
 ## 1. Ziel und begrenzter Umfang
 

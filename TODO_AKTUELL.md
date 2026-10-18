@@ -1,5 +1,16 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 18.10.2026 – Fußball-Trainingsvertrag freigegeben; Umsetzungsplan zur Prüfung
+
+Nutzer hat ausdrücklich bestätigt: „Spezifikation freigegeben; Umsetzungsplan
+erstellen“. [Plan mit sieben testbaren Aufgaben](docs/superpowers/plans/2026-10-18-football-training-execution.md)
+erstellt und gegen beide Spezifikationen selbst geprüft. Reihenfolge: kanonische
+Mitgliedschaft → kompakte physische Projektion → dauerhaftes Register → echter
+Zwei-Speicher-/D2-Pfad → V4-Merkmale → eingefrorener Spielerumfang → Runtime/QA/Release.
+Bestehendes Unteragenten-/Review-Verfahren bleibt gewählt. Planprüfung durch Nutzer
+steht noch aus; kein Produktpatch, Training, zusätzlicher API-/Sportscan, Backup
+oder Aktivierung. Dokumentations-Commit/Push/VPS-Pull sind von Codefreigabe getrennt.
+
 ## 18.10.2026 – vollständiger Fußball-Trainingsauftrag: Ausführungslücke konkretisiert
 
 Neuer Auftrag: Trainingspfad und Verletzungs-/Wetter-/Müdigkeitseffekte fertigstellen,
@@ -24,11 +35,11 @@ Produktpatch, Testlauf, API-/Sportscan oder Datenbankschreibvorgang dieses Paket
 - Normale spätere V1/V2-Kader-/Wettererfassung ist bereits im Worker integriert;
   keine neue API oder weiterer Scanner nötig. Spätere V3-Belastung bleibt getrennt
   gesperrt, bis ihr zusätzlicher Spieler-/Eventumfang tatsächlich gebunden ist.
-- [Ergänzender schriftlicher Vorschlag](docs/superpowers/specs/2026-10-18-football-training-execution-design.md):
+- [Ergänzende freigegebene Spezifikation](docs/superpowers/specs/2026-10-18-football-training-execution-design.md):
   Originalquelle read-only, genau ein kleines dauerhaftes Trainingsregister ohne
   Quellkopien, definierter Prüfbereich, sichere Testöffnung und gemeinsame eigene
-  V4-Kader-/Wetter-/Belastungsprojektion. **Schriftliche Freigabe noch offen**;
-  danach kurzer Umsetzungsplan. Nicht als fertige Effekte oder Codefreigabe ausgeben.
+  V4-Kader-/Wetter-/Belastungsprojektion. **Schriftlich freigegeben am 18.10.2026**;
+  Umsetzungsplan oben zur Prüfung. Nicht als fertige Effekte oder Codefreigabe ausgeben.
 
 ## 18.10.2026 – nächste Spiele zuerst: geprüft und auf dem VPS live
 

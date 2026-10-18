@@ -1,7 +1,8 @@
 # Fußball: echter Trainingslauf ohne Kopie der Originaldaten
 
 Stand: 18.10.2026, Ausgangscode `e59bda1`.
-**Vorschlag zur schriftlichen Freigabe; noch keine Umsetzungsfreigabe.**
+**Schriftlich freigegeben am 18.10.2026:** „Spezifikation freigegeben;
+Umsetzungsplan erstellen“. Der ergänzende Plan wird vor Produktänderungen geprüft.
 
 Ergänzt den [Speichervertrag](2026-10-18-football-stream-dataset-design.md),
 ersetzt ihn nicht stillschweigend. Ziel ist der vollständige Fußballpfad für

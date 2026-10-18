@@ -1,5 +1,14 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## 18.10.2026 – Spezifikation freigegeben, Plan erstellt; noch kein Produktpatch
+
+Aktuelle ausdrückliche Antwort: „Spezifikation freigegeben; Umsetzungsplan erstellen“.
+`docs/superpowers/plans/2026-10-18-football-training-execution.md` enthält sieben
+testbare Aufgaben und Root-Selbstprüfung. Nächster Schritt: Nutzer prüft diesen
+Plan, dann bereits gewähltes Unteragenten-/Review-Verfahren anwenden; nicht erneut
+nach der Ausführungsmethode fragen. Keine Produktcode-/Quell-/Datenänderung,
+Effektaktivierung, API-Abfrage, zusätzlicher Scan oder Sicherung dieser Planphase.
+
 ## 18.10.2026 – neuer Fußball-Trainingsauftrag, noch kein Produktpatch
 
 Nur lesende Scope-/Datenprüfung durchgeführt. Drei Code-Audits bestätigen neue
@@ -11,8 +20,8 @@ Trainings-/Dataset-/Effekt-/Öffnungs-/Freigabe- und V2-Inventararten; keine Bel
 für 200 unabhängige Final-Kontextfälle zusätzlich zu Train/Tune. Bodies und großer
 öffentlicher Tagesreport nicht geladen; keine API, DB-Kopie, Sicherung oder Änderung.
 Vorschlag `docs/superpowers/specs/2026-10-18-football-training-execution-design.md`
-ergänzt den Speichervertrag. Status ausdrücklich: schriftliche Freigabe offen,
-danach kurzer Umsetzungsplan mit bestehendem Unteragenten-/Review-Verfahren.
+ergänzt den Speichervertrag. Status ausdrücklich: schriftlich freigegeben,
+Umsetzungsplan oben zur Nutzerprüfung mit bestehendem Unteragenten-/Review-Verfahren.
 Keine Effekte aktivieren oder bessere Wettqualität behaupten. Externe Diagnostik:
 `output/football-training-20261018/metadata-live-01.log` und `metadata-live-02.log`.
 
