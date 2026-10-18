@@ -1,5 +1,21 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## 18.10.2026 – neuer Fußball-Trainingsauftrag, noch kein Produktpatch
+
+Nur lesende Scope-/Datenprüfung durchgeführt. Drei Code-Audits bestätigen neue
+Ausführungsgrenze zusätzlich zum Speicherfix: gleiche DB für Originale und
+Trainingswriter, zu frühes Lesen finaler Ergebniskörper und bisher gesamter
+Quellspeicher als D2-Prüfbereich. Kein bloßes Destination-Flag oder Guard-Entfernen.
+Frische VPS-Metadaten ergeben 124 Original-Bindungen und null der abgefragten
+Trainings-/Dataset-/Effekt-/Öffnungs-/Freigabe- und V2-Inventararten; keine Belege
+für 200 unabhängige Final-Kontextfälle zusätzlich zu Train/Tune. Bodies und großer
+öffentlicher Tagesreport nicht geladen; keine API, DB-Kopie, Sicherung oder Änderung.
+Vorschlag `docs/superpowers/specs/2026-10-18-football-training-execution-design.md`
+ergänzt den Speichervertrag. Status ausdrücklich: schriftliche Freigabe offen,
+danach kurzer Umsetzungsplan mit bestehendem Unteragenten-/Review-Verfahren.
+Keine Effekte aktivieren oder bessere Wettqualität behaupten. Externe Diagnostik:
+`output/football-training-20261018/metadata-live-01.log` und `metadata-live-02.log`.
+
 ## 18.10.2026 – chronologische Spielanzeige live abgeschlossen
 
 Quellcommit `22af00bb79a444c3ba741b936f9ed2b8d00778a1` auf main und VPS,

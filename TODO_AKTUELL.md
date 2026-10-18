@@ -1,5 +1,35 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 18.10.2026 – vollständiger Fußball-Trainingsauftrag: Ausführungslücke konkretisiert
+
+Neuer Auftrag: Trainingspfad und Verletzungs-/Wetter-/Müdigkeitseffekte fertigstellen,
+vorhandene/kostenlose Daten, keine Backups. Bisher **nur lesend geprüft**, kein
+Produktpatch, Testlauf, API-/Sportscan oder Datenbankschreibvorgang dieses Pakets.
+
+- Drei unabhängige Codeprüfungen bestätigen: Speicher-Schema 2 allein reicht
+  nicht. Readiness/Dataset/Assembler/Fitter behalten Vollfälle; außerdem sind
+  Quellen und erzeugte Trainingsartefakte derzeit an dieselbe DB gekoppelt.
+- Zusätzliche konkrete Lücke: Readiness/Prepare lesen schon finale Ergebniskörper;
+  im neuen Vertrag muss dies bis zur dauerhaften Testöffnung unterbleiben.
+- D2 prüft bisher den ganzen Quellspeicher. Ein neues leeres Ziel darf diese
+  Prüfung nicht umgehen; ein begrenzter vollständiger Quellabhängigkeitsbereich
+  ist ein ausdrücklich neuer Vertrag, keine versteckte Lockerung.
+- Frische VPS-Metadaten: 124 Original-Bindungen; null Artefakte der geprüften
+  Dataset-/Fall-/Effekt-/Experiment-/Öffnungs-/Freigabearten und null native
+  V2-Headerinventare. Höchstens 124 verschiedene Originalspiele, nicht 124
+  vollständige Fälle. Das genügt noch nicht für 200 unabhängige Finalspiele
+  zusätzlich zu Training/Tuning. Keine Kausalitäts-/Merkmalsqualität daraus ableiten.
+  Original-Bodies wegen Mengenadmission nicht gelesen; 25.201.233-Byte-Tagesreport
+  ebenfalls nicht geladen. Externe Belege: `output/football-training-20261018/`.
+- Normale spätere V1/V2-Kader-/Wettererfassung ist bereits im Worker integriert;
+  keine neue API oder weiterer Scanner nötig. Spätere V3-Belastung bleibt getrennt
+  gesperrt, bis ihr zusätzlicher Spieler-/Eventumfang tatsächlich gebunden ist.
+- [Ergänzender schriftlicher Vorschlag](docs/superpowers/specs/2026-10-18-football-training-execution-design.md):
+  Originalquelle read-only, genau ein kleines dauerhaftes Trainingsregister ohne
+  Quellkopien, definierter Prüfbereich, sichere Testöffnung und gemeinsame eigene
+  V4-Kader-/Wetter-/Belastungsprojektion. **Schriftliche Freigabe noch offen**;
+  danach kurzer Umsetzungsplan. Nicht als fertige Effekte oder Codefreigabe ausgeben.
+
 ## 18.10.2026 – nächste Spiele zuerst: geprüft und auf dem VPS live
 
 - Quellcommit **`22af00bb79a444c3ba741b936f9ed2b8d00778a1`** auf GitHub main
