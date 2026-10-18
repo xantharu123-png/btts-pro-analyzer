@@ -18,7 +18,11 @@ Codes weiter erst 19.10.00:05 nachweisen, keinen zusätzlichen Lauf starten.
 Produktdateien unverändert. Neue Football-Dataset-v2-Architektur als nächster
 kleiner Umfang vorgeschlagen (gemeinsame Referenzen, exakte Fallmitgliedschaft,
 sequenzielle physische Projektion, bestehende Mathematik/D2 unverändert).
-Richtungsfrage für schriftlichen Vertrag gestellt; Freigabe nicht erfinden.
+Richtung vom Nutzer freigegeben. Schriftlicher Vertrag unter
+`docs/superpowers/specs/2026-10-18-football-stream-dataset-design.md` erstellt und
+selbst geprüft; dessen Prüfung/Freigabe noch offen. Zusätzliche produktive
+Ausführungs-/Persistenzgrenze in Abschnitt 5 ausdrücklich benannt: Speicherpatch
+allein erlaubt noch keinen neuen Real-Kohorten-D2-Lauf. Keine Offline-Sperre umgehen.
 POINT-Tennis braucht danach eigenen Effektvertrag, keine alten Serve-Fits auf
 neue Verteilung anwenden. Details/Nachweise ganz oben in TODO_AKTUELL.md.
 

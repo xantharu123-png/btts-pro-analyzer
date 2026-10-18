@@ -33,7 +33,12 @@
   einmaliger Quellenkatalog plus exakte Fallmitgliedschaft, physische Prüfung
   eines Falls nach dem anderen, nur kleine numerische Projektionen behalten.
   Legacy-Datasets, Modellformeln und D2-Grenzen unverändert. Richtungsfreigabe
-  für den kurzen schriftlichen Vertrag angefragt, **noch kein neuer Produktcode**.
+  erhalten. [Schriftlicher Vertrag](docs/superpowers/specs/2026-10-18-football-stream-dataset-design.md)
+  selbst geprüft und zur Nutzerprüfung bereit; **noch kein neuer Produktcode**.
+  Zusätzlich geklärt: Ein neuer echter Real-Kohorten-D2-Lauf benötigt eine eigene
+  Ausführungs-/Persistenzlösung, weil bestehende Offline-Sperren und Keine-Kopie-
+  Vorgaben nicht durch den Speicherfix aufgehoben werden. Abschnitt 5 trennt
+  vollständige Offline-Abnahme ausdrücklich von reiner Produktions-Leseprobe.
   Separater POINT-Tennis-Effektvertrag folgt nicht automatisch aus diesem Schritt.
 
 ## 18.10.2026 – Quellen-/Marktreparatur live; Effekte weiterhin nicht fertig
