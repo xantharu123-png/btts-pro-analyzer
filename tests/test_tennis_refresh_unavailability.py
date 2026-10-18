@@ -10,7 +10,7 @@ from context_sources.tennis_status import normalize_tennis_status
 from scripts import tennis_daily as daily
 from tennis import live_context, shadow
 from test_tennis_fixture_availability import correction
-from test_tennis_live_worker import NOW, competition, configure, run_batch
+from test_tennis_live_worker import NOW, competition, configure, run_batch, provision_ready_index
 
 
 @pytest.mark.parametrize('kind,reason', [
@@ -59,6 +59,7 @@ def test_retraction_does_not_hide_broken_original_evidence(monkeypatch, tmp_path
 def test_confirmed_restoration_can_refresh_again(monkeypatch, tmp_path):
     db, predictions, _, _ = configure(monkeypatch, tmp_path)
     run_batch(db, predictions)
+    provision_ready_index(db)
     correction(db, 'missing_player', clock=NOW+timedelta(minutes=10))
     first = daily.refresh_pending_predictions(db_path=predictions, as_of=NOW+timedelta(hours=2))
     assert first['native_unavailable']

@@ -60,7 +60,8 @@ def executed_code_identity():
                  "football_opponent_strength", "football_opponent_publication",
                  "challenge_15k", "football_model_refresh", "wettfinder_automation",
                  "context_models.football_original_publication", "context_sources.football_capture",
-                 "context_sources.football_native", "context_sources.outcomes", "context_observations"):
+                 "context_sources.football_native", "context_sources.outcomes", "context_observations",
+                 "football_context_inventory"):
         module = importlib.import_module(name)
         sources[name] = hashlib.sha256(Path(module.__file__).read_bytes()).hexdigest()
         bindings[name] = {key: value_identity(value) for key, value in vars(module).items()
@@ -92,7 +93,7 @@ def executed_code_identity():
 
 class FootballOriginalBudget:
     """One in-process budget shared by every batch of a reserved worker run."""
-    def __init__(self, *, max_worker_payload_bytes, max_source_payload_bytes):
+    def __init__(self, *, max_worker_payload_bytes, max_source_payload_bytes, context_inventory_contract=None):
         for value in (max_worker_payload_bytes, max_source_payload_bytes):
             _budget(value)
         self.max_worker_payload_bytes = self.remaining_payload_bytes = max_worker_payload_bytes
@@ -106,10 +107,21 @@ class FootballOriginalBudget:
         self._decision_bytes = 0
         self._decision_unprocessed = 0
         self._decision_report = None
+        self._decision_preparing = 0
+        self._inventory_finalizing = self._inventory_failed = False
+        self._inventory_budget = None
+        if context_inventory_contract is not None:
+            from football_context_inventory import HeaderBudget, KIND, MAX_EVENTS, MAX_HEADERS, MAX_HEADER_BYTES
+            if context_inventory_contract != KIND:
+                raise ContextContractError("unknown explicit postcapture inventory contract")
+            self._inventory_budget = HeaderBudget(max_headers=3*MAX_EVENTS*MAX_HEADERS,
+                max_bytes=3*MAX_EVENTS*MAX_HEADER_BYTES, seconds=4*MAX_EVENTS, phase_seconds=2)
 
     def defer_context_decisions(self, path, capture_report, *, decision_at):
-        """Retain one bounded compact proof per original, never spend its bytes."""
-        from football_context_decisions import MAX_DECISION_BYTES, MAX_DECISION_EVENTS, prepare_capture_decisions
+        """Legacy default unchanged; explicit v2 prepares outside the worker mutex."""
+        from football_context_decisions import prepare_capture_decisions
+        if self._inventory_budget is not None:
+            return self._defer_context_inventory(path, capture_report, decision_at=decision_at)
         with self.lock:
             if self._sealed:
                 raise ContextContractError("reserved original worker is already finished")
@@ -118,35 +130,70 @@ class FootballOriginalBudget:
                 raise ContextIntegrityError("one reserved worker cannot mix decision stores")
             prepared = prepare_capture_decisions(path, capture_report, decision_at=decision_at)
             self._decision_path = path
-            self._decision_unprocessed += prepared["unprocessed_events"]
-            for row in prepared["events"]:
-                key = row["binding_ref"]
-                old = self._decisions.get(key)
-                if old is not None and old["payload"] is not None and row["payload"] is None:
-                    continue  # An unavailable later attempt cannot erase genuine earlier evidence.
-                if old is not None and old["payload"] is not None and row["payload"] is not None:
-                    if old["payload"]["observation_refs_hash"] == row["payload"]["observation_refs_hash"]:
-                        continue  # Preserve the first actual decision of this source revision.
-                    if row["payload"]["decision_at"] <= old["payload"]["decision_at"]:
-                        raise ContextIntegrityError("deferred source revisions have conflicting clocks")
-                size = len(a1.canonical_bytes(row))
-                old_size = 0 if old is None else len(a1.canonical_bytes(old))
-                displaced = None
-                if old is None and len(self._decisions) >= MAX_DECISION_EVENTS and row["payload"] is not None:
-                    displaced = next((item for item in self._decisions
-                                      if self._decisions[item]["payload"] is None), None)
-                    if displaced is not None:
-                        old_size = len(a1.canonical_bytes(self._decisions[displaced]))
-                if ((old is None and len(self._decisions) >= MAX_DECISION_EVENTS)
-                        and displaced is None
-                        or self._decision_bytes-old_size+size > MAX_DECISION_BYTES*MAX_DECISION_EVENTS):
-                    self._decision_unprocessed += 1
-                    continue
+            self._admit_decisions_locked(prepared)
+
+    def _admit_decisions_locked(self, prepared):
+        from football_context_decisions import MAX_DECISION_BYTES, MAX_DECISION_EVENTS
+        self._decision_unprocessed += prepared["unprocessed_events"]
+        for row in prepared["events"]:
+            key = row["binding_ref"]
+            old = self._decisions.get(key)
+            if old is not None and old["payload"] is not None and row["payload"] is None:
+                continue  # An unavailable later attempt cannot erase genuine earlier evidence.
+            if old is not None and old["payload"] is not None and row["payload"] is not None:
+                revision = "header_hash" if self._inventory_budget is not None else "observation_refs_hash"
+                if old["payload"][revision] == row["payload"][revision]:
+                    if (self._inventory_budget is None
+                            or old["payload"]["decision_at"] <= row["payload"]["decision_at"]):
+                        continue  # Preserve the first actual clock, not completion order.
+                elif (self._inventory_budget is not None
+                        and row["payload"]["decision_at"] < old["payload"]["decision_at"]):
+                    continue  # A slower older preparation cannot erase a newer revision.
+                elif row["payload"]["decision_at"] <= old["payload"]["decision_at"]:
+                    raise ContextIntegrityError("deferred source revisions have conflicting clocks")
+            size = len(a1.canonical_bytes(row))
+            old_size = 0 if old is None else len(a1.canonical_bytes(old))
+            displaced = None
+            if old is None and len(self._decisions) >= MAX_DECISION_EVENTS and row["payload"] is not None:
+                displaced = next((item for item in self._decisions
+                                  if self._decisions[item]["payload"] is None), None)
                 if displaced is not None:
-                    del self._decisions[displaced]
-                    self._decision_unprocessed += 1
-                self._decisions[key] = deepcopy(row)
-                self._decision_bytes += size-old_size
+                    old_size = len(a1.canonical_bytes(self._decisions[displaced]))
+            if ((old is None and len(self._decisions) >= MAX_DECISION_EVENTS)
+                    and displaced is None
+                    or self._decision_bytes-old_size+size > MAX_DECISION_BYTES*MAX_DECISION_EVENTS):
+                self._decision_unprocessed += 1
+                continue
+            if displaced is not None:
+                del self._decisions[displaced]
+                self._decision_unprocessed += 1
+            self._decisions[key] = deepcopy(row)
+            self._decision_bytes += size-old_size
+
+    def _defer_context_inventory(self, path, capture_report, *, decision_at):
+        from football_context_inventory import prepare_capture_inventories
+        with self.lock:
+            if self._sealed:
+                raise ContextContractError("reserved original worker is already finished")
+            path = Path(path).resolve()
+            if self._decision_path is not None and self._decision_path != path:
+                raise ContextIntegrityError("one reserved worker cannot mix decision stores")
+            self._decision_path = path
+            self._decision_preparing += 1
+        try:
+            prepared = prepare_capture_inventories(path, capture_report,
+                decision_at=decision_at, budget=self._inventory_budget)
+        except BaseException:
+            with self.lock:
+                self._decision_preparing -= 1
+            raise
+        with self.lock:
+            try:
+                if self._sealed:
+                    raise ContextIntegrityError("original worker sealed while an inventory was preparing")
+                self._admit_decisions_locked(prepared)
+            finally:
+                self._decision_preparing -= 1
 
     def _defer_comparison(self, path, prepared, *, captured_at, scheduled_start):
         """Called under the shared lock; retain compact bytes, never history/owners."""
@@ -168,7 +215,8 @@ class FootballOriginalBudget:
         Idempotent and fail-closed. A failed optional transaction cannot roll
         back committed originals or regain the worker's payload/source budget.
         """
-        from context_models.football_training import _load_publication
+        if self._inventory_budget is not None:
+            return self._finish_inventory_comparisons()
         with self.lock:
             if self._sealed:
                 return deepcopy(self._decision_report)
@@ -190,54 +238,96 @@ class FootballOriginalBudget:
                     on_commit=debit)
             pending, self._optional = self._optional, {}
             self._optional_bytes = 0
-            for path, obj, captured_at, scheduled_start in pending.values():
-                # This is the actual new physical publication clock, not the
-                # earlier decision/capture clock carried by the original.
-                created = canonical_timestamp(datetime.now(timezone.utc))
-                if created < captured_at:
-                    raise ContextIntegrityError("optional publication precedes actual ORIGINAL capture")
-                if created >= scheduled_start:
-                    continue  # A late batch is not prospective research evidence.
-                if len(obj.payload_bytes) > self.remaining_payload_bytes:
-                    continue
-                payload = a1._decode_object(obj.payload_bytes, label="opponent comparison")
-                binding_ref = payload["original_binding_ref"]
-                with closing(a1._connect(path)) as connection:
-                    try:
-                        connection.execute("BEGIN IMMEDIATE")
-                        binding, _, _ = _load_publication(connection, binding_ref, latest=created)
-                        value = binding["payload"]
-                        if (value["captured_at"] != captured_at
-                                or value["native_event"]["scheduled_start"] != scheduled_start
-                                or value["original_manifest_digest"] != payload["original_manifest_ref"]
-                                or value["code_digest"] != payload["original_code_ref"]):
-                            raise ContextIntegrityError("deferred comparison differs from its stored original binding")
-                        refs = tuple(sorted({ref for group in value["inspected_receipts"].values() for ref in group}))
-                        def check_receipts():
-                            for ref in refs:
-                                raw = connection.execute(_SELECT + " WHERE r.digest=?", (ref,)).fetchone()
-                                if raw is None or _decode_receipt(raw)["digest"] != ref:
-                                    raise ContextIntegrityError("deferred comparison source dependency changed")
-                        check_receipts()
-                        _, fresh = a1._insert_artifact(connection, obj, created)
-                        inserted = len(obj.payload_bytes) if fresh else 0
-                        if inserted > self.remaining_payload_bytes:
-                            raise StorageBudgetExceeded("optional comparison leftover budget exhausted")
-                        row = connection.execute("SELECT kind,payload,created_at FROM artifacts WHERE digest=?", (obj.digest,)).fetchone()
-                        actual = a1._decode_artifact_row(obj.digest, row)
-                        if (actual["kind"] != obj.kind or a1.canonical_bytes(actual["payload"]) != obj.payload_bytes
-                                or row[2] < captured_at or row[2] >= scheduled_start or row[2] > created):
-                            raise ContextIntegrityError("deferred comparison readback or publication clock differs")
-                        # Trigger changes to existing dependencies are checked
-                        # inside the same transaction before any budget debit.
-                        _load_publication(connection, binding_ref, latest=created)
-                        check_receipts()
-                        connection.commit()
-                    except BaseException:
-                        connection.rollback()
-                        raise
-                self.remaining_payload_bytes -= inserted
+            self._publish_optional_rows(pending)
             return deepcopy(self._decision_report)
+
+    def _finish_inventory_comparisons(self):
+        """Seal after joined ORIGINAL workers; perform no source IO under mutex."""
+        from football_context_inventory import MAX_EVENTS, MAX_PAYLOAD_BYTES, publish_deferred_inventories
+        with self.lock:
+            if self._sealed:
+                if self._inventory_finalizing or self._inventory_failed:
+                    raise ContextContractError("unresolved inventory finalizer is active or previously failed")
+                return deepcopy(self._decision_report)
+            if self._decision_preparing:
+                raise ContextContractError("join inventory preparation before sealing ORIGINALs")
+            self._sealed = self._inventory_finalizing = True
+            decisions, self._decisions = self._decisions, {}
+            pending, self._optional = self._optional, {}
+            self._decision_bytes = self._optional_bytes = 0
+            remaining = self.remaining_payload_bytes
+        def debit(size):
+            with self.lock:
+                if type(size) is not int or not 0 <= size <= self.remaining_payload_bytes:
+                    raise ContextIntegrityError("invalid unresolved inventory byte debit")
+                self.remaining_payload_bytes -= size
+        try:
+            report = None
+            if self._decision_path is not None:
+                report = publish_deferred_inventories(self._decision_path,
+                    {"events": list(decisions.values()), "unprocessed_events": self._decision_unprocessed},
+                    max_run_bytes=min(remaining, MAX_EVENTS*MAX_PAYLOAD_BYTES),
+                    budget=self._inventory_budget, on_commit=debit)
+            self._publish_optional_rows(pending)
+        except BaseException:
+            with self.lock:
+                self._inventory_finalizing = False
+                self._inventory_failed = True
+            raise
+        with self.lock:
+            self._decision_report = report
+            self._inventory_finalizing = False
+            return deepcopy(report)
+
+    def _publish_optional_rows(self, pending):
+        from context_models.football_training import _load_publication
+        for path, obj, captured_at, scheduled_start in pending.values():
+            # This is the actual new physical publication clock, not the
+            # earlier decision/capture clock carried by the original.
+            created = canonical_timestamp(datetime.now(timezone.utc))
+            if created < captured_at:
+                raise ContextIntegrityError("optional publication precedes actual ORIGINAL capture")
+            if created >= scheduled_start:
+                continue  # A late batch is not prospective research evidence.
+            if len(obj.payload_bytes) > self.remaining_payload_bytes:
+                continue
+            payload = a1._decode_object(obj.payload_bytes, label="opponent comparison")
+            binding_ref = payload["original_binding_ref"]
+            with closing(a1._connect(path)) as connection:
+                try:
+                    connection.execute("BEGIN IMMEDIATE")
+                    binding, _, _ = _load_publication(connection, binding_ref, latest=created)
+                    value = binding["payload"]
+                    if (value["captured_at"] != captured_at
+                            or value["native_event"]["scheduled_start"] != scheduled_start
+                            or value["original_manifest_digest"] != payload["original_manifest_ref"]
+                            or value["code_digest"] != payload["original_code_ref"]):
+                        raise ContextIntegrityError("deferred comparison differs from its stored original binding")
+                    refs = tuple(sorted({ref for group in value["inspected_receipts"].values() for ref in group}))
+                    def check_receipts():
+                        for ref in refs:
+                            raw = connection.execute(_SELECT + " WHERE r.digest=?", (ref,)).fetchone()
+                            if raw is None or _decode_receipt(raw)["digest"] != ref:
+                                raise ContextIntegrityError("deferred comparison source dependency changed")
+                    check_receipts()
+                    _, fresh = a1._insert_artifact(connection, obj, created)
+                    inserted = len(obj.payload_bytes) if fresh else 0
+                    if inserted > self.remaining_payload_bytes:
+                        raise StorageBudgetExceeded("optional comparison leftover budget exhausted")
+                    row = connection.execute("SELECT kind,payload,created_at FROM artifacts WHERE digest=?", (obj.digest,)).fetchone()
+                    actual = a1._decode_artifact_row(obj.digest, row)
+                    if (actual["kind"] != obj.kind or a1.canonical_bytes(actual["payload"]) != obj.payload_bytes
+                            or row[2] < captured_at or row[2] >= scheduled_start or row[2] > created):
+                        raise ContextIntegrityError("deferred comparison readback or publication clock differs")
+                    # Trigger changes to existing dependencies are checked
+                    # inside the same transaction before any budget debit.
+                    _load_publication(connection, binding_ref, latest=created)
+                    check_receipts()
+                    connection.commit()
+                except BaseException:
+                    connection.rollback()
+                    raise
+            self.remaining_payload_bytes -= inserted
 
     def report(self):
         with self.lock:
@@ -540,3 +630,4 @@ def original_capture_report_fields(snapshot):
     if report["published_count"] != sum(event["binding_ref"] is not None for event in report["events"]) or report["inserted_payload_bytes"] != sum(event["inserted_payload_bytes"] for event in report["events"]):
         raise ContextContractError("inconsistent publication accounting")
     return {"football_original_capture": deepcopy(report)}
+

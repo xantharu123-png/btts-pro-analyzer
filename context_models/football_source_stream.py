@@ -187,7 +187,16 @@ def _event_pool(connection, key, cutoff, audit, *, frozen, target, include_playe
     return latest_roster, tuple(proofs.values()), latest_base, tuple(row for group in weather.values() for row in group), binding_rows, expected
 
 
-def streamed_joint_sources(connection, packet, binding, base, *, feature_version, ledger=None, retain_full=False):
+def streamed_joint_sources(connection, packet, binding, base, *, feature_version, ledger=None, retain_full=False, latest=None):
+    if canonical_timestamp(base["cutoff"]) != binding["decision_at"]:
+        from football_context_inventory import rebuild_later_sources
+        return rebuild_later_sources(connection, packet, binding, base, latest=latest,
+            feature_version=feature_version, ledger=ledger, retain_full=retain_full)
+    return _stream_joint_sources_at_cutoff(connection, packet, binding, base,
+        feature_version=feature_version, ledger=ledger, retain_full=retain_full)
+
+
+def _stream_joint_sources_at_cutoff(connection, packet, binding, base, *, feature_version, ledger=None, retain_full=False):
     """Audit all causal revisions and return lossless bounded feature branches.
 
     The compact branches are an explicit new transport, not legacy D1 evidence.
@@ -204,8 +213,8 @@ def streamed_joint_sources(connection, packet, binding, base, *, feature_version
     event = binding["native_event"]
     if event is None or event["event_key"] != base["event_key"]:
         raise ContextIntegrityError("stream source event differs from the original base")
-    if cutoff != binding["decision_at"]:
-        raise ReplayUnavailable("stream_transport_requires_original_decision")
+    if not binding["decision_at"] <= cutoff < event["scheduled_start"]:
+        raise ContextContractError("stream source cutoff must follow original and precede kickoff")
     original_rows = [packet["fixture"], *packet["league_history"], *(packet["team_history"] or [])]
     keys = ["api-football:football:" + str(native_id) for native_id in sorted({
         engine.football_base_history_record(raw)["fixture_id"] for raw in
@@ -288,3 +297,4 @@ def streamed_joint_sources(connection, packet, binding, base, *, feature_version
                   "retained_receipts": len(observed),
                   "branch_bytes": {name: sum(audit.contents[row["content_digest"]] for row in rows)
                                    for name, rows in branches.items()}}}
+

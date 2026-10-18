@@ -79,6 +79,17 @@ def configure(monkeypatch, tmp_path, *, comp=None, tours=("ATP",), same_id=False
     return db, predictions, refs, calls
 
 
+def provision_ready_index(db):
+    """Explicit local prerequisite of canonical indexed callers, never a mock."""
+    from contextlib import closing
+    from context_observations import _connect
+    from context_tennis_index_build import initialize_index, build_index
+    with closing(_connect(db)):
+        pass
+    initialize_index(db)
+    assert build_index(db).status == "ready"
+
+
 def run_batch(db, predictions, *, decision=NOW, before_finish=None, feature_version="tennis-performed-load-v4",
               append_observed_at=None):
     from context_sources.tennis_capture import capture_tennis_worker
@@ -210,6 +221,7 @@ def test_source_after_original_decision_cannot_be_backdated(monkeypatch, tmp_pat
 
 def test_daily_main_reaches_actual_postcapture_snapshot_and_shadow_store(monkeypatch, tmp_path):
     db, predictions, _, calls = configure(monkeypatch, tmp_path)
+    provision_ready_index(db)
     monkeypatch.setattr(daily, "auto_settle_completed", lambda: 0)
     monkeypatch.setattr(daily, "tournament_surface_map", lambda *a: {})
     monkeypatch.setattr(daily, "fetch_fixtures", daily.fetch_fixtures_espn)
@@ -235,6 +247,7 @@ def test_pending_refresh_uses_real_stored_native_origin_and_new_ref_without_netw
     from tennis import live_context
     db, predictions, _, calls = configure(monkeypatch, tmp_path)
     _, old = run_batch(db, predictions)
+    provision_ready_index(db)
     old_link = json.loads(old[0]["context_json"])["context_model"]
     later = NOW+timedelta(hours=2)
     monkeypatch.setattr(daily.requests, "get", lambda *a, **k: pytest.fail("pending refresh fetched"))
@@ -255,20 +268,30 @@ def test_pending_refresh_uses_real_stored_native_origin_and_new_ref_without_netw
 
 def test_pending_refresh_reads_whole_history_once_at_publication(monkeypatch, tmp_path):
     from tennis import live_context
+    from tennis.history_projection import PreparedTennisHistory
     db, predictions, _, _ = configure(monkeypatch, tmp_path)
     run_batch(db, predictions)
+    provision_ready_index(db)
     original = live_context.tennis_observations_as_of
     calls = []
     def counted(*args, **kwargs):
         calls.append(1)
         return original(*args, **kwargs)
     monkeypatch.setattr(live_context, "tennis_observations_as_of", counted)
+    physical_calls = []
+    original_case = PreparedTennisHistory._from_case_physical_rows.__func__
+    def counted_case(cls, *args, **kwargs):
+        physical_calls.append(1)
+        return original_case(cls, *args, **kwargs)
+    monkeypatch.setattr(PreparedTennisHistory, "_from_case_physical_rows", classmethod(counted_case))
     later = NOW+timedelta(hours=2)
     monkeypatch.setattr(live_context, "_now", lambda: later+timedelta(seconds=1))
     result = daily.refresh_pending_predictions(db_path=predictions, as_of=later,
         append_observed_at=later+timedelta(seconds=2))
     assert result["refreshed"] == 1 and not result["errors"]
-    assert calls == [1]
+    # Canonical refresh now resolves one actual physical case rather than
+    # loading a tour-wide history. The default legacy API is tested separately.
+    assert calls == [] and physical_calls == [1]
 
 
 @pytest.mark.parametrize("change", ["foreign_corruption", "schedule_after_bind", "players_after_bind"])
@@ -340,6 +363,7 @@ def test_pending_refresh_appends_confirmed_schedule_revision_without_rewriting_o
     from tennis import live_context
     db, predictions, _, _ = configure(monkeypatch, tmp_path)
     _, old = run_batch(db, predictions)
+    provision_ready_index(db)
     with sqlite3.connect(predictions) as conn:
         old_revisions = conn.execute("SELECT * FROM prediction_revisions ORDER BY revision_id").fetchall()
     received = NOW+timedelta(minutes=10)

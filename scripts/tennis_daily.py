@@ -959,7 +959,8 @@ def refresh_pending_predictions(
     live_batch = None
     if any(has_stored_context(row) for row in by_event.values()):
         from runtime_paths import CONTEXT_MODEL_DB_PATH
-        live_batch = LiveWorker(CONTEXT_MODEL_DB_PATH)
+        live_batch = LiveWorker(CONTEXT_MODEL_DB_PATH,
+            source_transport="tennis-live-indexed-source-v1")
     model_options = {"context_path": live_batch.path} if live_batch is not None else {}
     states, result["models"], model_errors = _load_models(
         (row["tour"] for row in by_event.values()),
@@ -1210,7 +1211,7 @@ def main() -> int:
     args = parser.parse_args()
     from context_sources.tennis_capture import capture_tennis_worker
     from tennis.live_context import live_worker
-    with live_worker(progress=lambda record: print(
+    with live_worker(source_transport="tennis-live-indexed-source-v1", progress=lambda record: print(
             "Tennis-Abschluss: " + json.dumps(record, ensure_ascii=True), flush=True)) as batch:
         with capture_tennis_worker(path=batch.path) as capture:
             batch.attach_capture(capture)

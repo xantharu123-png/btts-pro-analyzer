@@ -215,6 +215,10 @@ def decision_report_fields(snapshot):
     """Compact administration metadata only; no customer or effect claim."""
     if "football_context_decisions" not in snapshot:
         return {}
+    if (type(snapshot["football_context_decisions"]) is dict
+            and snapshot["football_context_decisions"].get("scope") == "football-postcapture-unresolved-header-inventory-v2"):
+        from football_context_inventory import inventory_report_fields
+        return inventory_report_fields(snapshot)
     report = require_object(snapshot["football_context_decisions"],
         {"schema", "scope", "events", "unprocessed_events", "inserted_payload_bytes"},
         label="football context decision report")
@@ -248,3 +252,4 @@ def decision_report_fields(snapshot):
     if report["inserted_payload_bytes"] > sum(row["status"] == "captured" for row in report["events"])*MAX_DECISION_BYTES:
         raise ContextContractError("decision report claims bytes without a new decision")
     return {"football_context_decisions": deepcopy(report)}
+

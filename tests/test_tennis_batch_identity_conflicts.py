@@ -7,7 +7,7 @@ import pytest
 
 from scripts import tennis_daily as daily
 from tennis import shadow
-from test_tennis_live_worker import NOW, competition, configure, response, run_batch
+from test_tennis_live_worker import NOW, competition, configure, response, run_batch, provision_ready_index
 
 
 def changed_response(monkeypatch, *, clock=NOW+timedelta(seconds=9)):
@@ -68,6 +68,7 @@ def test_verified_changed_pair_gets_own_lineage_without_mutating_history(monkeyp
 def test_daily_main_completes_verified_successor_and_independent_fixture(monkeypatch, tmp_path, capsys):
     db, predictions, _, _ = configure(monkeypatch, tmp_path)
     run_batch(db, predictions)
+    provision_ready_index(db)
     changed_response(monkeypatch)
     monkeypatch.setattr(daily, "auto_settle_completed", lambda: 0)
     monkeypatch.setattr(daily, "tournament_surface_map", lambda *a: {})
@@ -81,8 +82,9 @@ def test_daily_main_completes_verified_successor_and_independent_fixture(monkeyp
     progress = [json.loads(line.split(": ", 1)[1]) for line in output.splitlines()
                 if line.startswith("Tennis-Abschluss: ")]
     assert [row["phase"] for row in progress] == [
-        "history", "history_ready", "prepare", "prepare_progress", "prepare_progress",
+        "history", "prepare", "prepare_progress", "prepare_progress",
         "prepared", "published", "published", "complete"]
+    assert next(row for row in progress if row["phase"] == "prepare")["source_transport"] == "tennis-live-indexed-source-v1"
     assert all(row["elapsed_seconds"] >= 0 for row in progress)
     assert [row["processed"] for row in progress if row["phase"] == "prepare_progress"] == [1, 2]
     assert progress[0]["total"] == progress[-1]["total"] == 2

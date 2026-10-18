@@ -147,7 +147,7 @@ def joint_source_scope_kwargs(feature_version):
 
 
 def relevant_receipts(connection, packet, *, cutoff, include_player_load=False,
-                      source_transport=None, binding=None, base=None, feature_version=None):
+                      source_transport=None, binding=None, base=None, feature_version=None, source_as_of=None):
     """Complete predecision revision pool for the original's native events.
 
     Never read outcome labels here. Broader events are not silently added to
@@ -160,7 +160,7 @@ def relevant_receipts(connection, packet, *, cutoff, include_player_load=False,
         if canonical_timestamp(cutoff) != base['cutoff']:
             raise ContextIntegrityError('versioned football source cutoff differs from original base')
         return streamed_joint_sources(connection, packet, binding, base,
-            feature_version=feature_version, retain_full=True)['observations']
+            feature_version=feature_version, retain_full=True, latest=source_as_of)['observations']
     if include_player_load:
         from football_joint_worker import _bounded_receipts
         return _bounded_receipts(connection, packet, cutoff=cutoff, include_player_load=True)
@@ -186,26 +186,31 @@ def joint_case_artifacts(connection, payload, *, latest):
         from context_models.experiments import _artifact_created_at
         if _artifact_created_at(connection, payload['replay_ref']) > decision:
             raise ContextIntegrityError('later context decision precedes physical original publication')
-        from football_context_decisions import DECISION_KIND, MAX_DECISION_BYTES, resolve_decision
-        # Read only compact typed metadata before resolving complete physical
-        # bytes. A caller-selected later clock is not a captured decision.
-        invalid = connection.execute("SELECT 1 FROM artifacts WHERE kind=? "
-            "AND (typeof(payload)!='blob' OR length(payload)>? OR length(payload)=0) LIMIT 1",
-            (DECISION_KIND, MAX_DECISION_BYTES)).fetchone()
-        if invalid:
-            raise ContextIntegrityError('invalid physical context decision header')
-        try:
-            matches = connection.execute("SELECT digest FROM artifacts WHERE kind=? "
-                "AND json_extract(CAST(payload AS TEXT),'$.binding_ref')=? "
-                "AND json_extract(CAST(payload AS TEXT),'$.decision_at')=? LIMIT 2",
-                (DECISION_KIND, payload['replay_ref'], decision)).fetchall()
-        except sqlite3.DatabaseError as exc:
-            raise ContextIntegrityError('invalid physical context decision metadata') from exc
-        if not matches:
-            raise ReplayUnavailable('later_context_decision_unpublished')
-        if len(matches) != 1:
-            raise ContextIntegrityError('duplicate physical context decision')
-        decision_proof = resolve_decision(connection, matches[0][0], latest=latest)
+        if payload['schema'] == 2:
+            from football_context_inventory import find_inventory_ref, load_inventory
+            ref = find_inventory_ref(connection, payload['replay_ref'], decision, latest=latest)
+            decision_proof = load_inventory(connection, ref, latest=latest)[0]
+        else:
+            from football_context_decisions import DECISION_KIND, MAX_DECISION_BYTES, resolve_decision
+            # Read only compact typed metadata before resolving complete physical
+            # bytes. A caller-selected later clock is not a captured decision.
+            invalid = connection.execute("SELECT 1 FROM artifacts WHERE kind=? "
+                "AND (typeof(payload)!='blob' OR length(payload)>? OR length(payload)=0) LIMIT 1",
+                (DECISION_KIND, MAX_DECISION_BYTES)).fetchone()
+            if invalid:
+                raise ContextIntegrityError('invalid physical context decision header')
+            try:
+                matches = connection.execute("SELECT digest FROM artifacts WHERE kind=? "
+                    "AND json_extract(CAST(payload AS TEXT),'$.binding_ref')=? "
+                    "AND json_extract(CAST(payload AS TEXT),'$.decision_at')=? LIMIT 2",
+                    (DECISION_KIND, payload['replay_ref'], decision)).fetchall()
+            except sqlite3.DatabaseError as exc:
+                raise ContextIntegrityError('invalid physical context decision metadata') from exc
+            if not matches:
+                raise ReplayUnavailable('later_context_decision_unpublished')
+            if len(matches) != 1:
+                raise ContextIntegrityError('duplicate physical context decision')
+            decision_proof = resolve_decision(connection, matches[0][0], latest=latest)
     _same(joint_base(original, binding['payload'], decision_at=decision), payload['base'], 'case changed captured joint baseline')
     _same(binding['payload']['native_event'], payload['event'], 'case changed native event')
     identity = _artifact(connection, payload['event_identity_hash'], 'context-native-identity-map-v1', latest=latest)
@@ -228,7 +233,10 @@ def validate_joint_training_case(resolved, *, config, payload):
     expected_artifacts = {payload['replay_ref'], base['model_hash'], payload['event_identity_hash'], binding['code_digest']}
     decision_proof = None
     if decision != binding['decision_at']:
-        from football_context_decisions import DECISION_KIND, validate_decision
+        if payload['schema'] == 2:
+            from football_context_inventory import KIND as DECISION_KIND, validate_inventory as validate_decision
+        else:
+            from football_context_decisions import DECISION_KIND, validate_decision
         candidates = [value for value in artifacts.values() if value.get('kind') == DECISION_KIND]
         if len(candidates) != 1:
             raise ContextIntegrityError('later case lacks its exact captured decision')
@@ -292,6 +300,9 @@ def validate_joint_training_case(resolved, *, config, payload):
                 raise ReplayUnavailable('late_feature_receipt_is_not_predecision_evidence')
             source.append(row)
     if decision_proof is not None:
+        if payload['schema'] == 2:
+            from football_context_inventory import validate_resolved_inventory
+            validate_resolved_inventory(decision_proof, tuple(source))
         refs = sorted(row['digest'] for row in source)
         if (len(refs) != decision_proof['observation_count']
                 or digest(refs) != decision_proof['observation_refs_hash']):
@@ -410,7 +421,7 @@ def build_joint_training_case(path, *, binding_ref, outcome_ref, identity_ref, c
         source_options = joint_source_scope_kwargs(config['feature_version'])
         if source_transport is not None:
             source_options.update(source_transport=source_transport, binding=binding['payload'], base=base,
-                                  feature_version=config['feature_version'])
+                                  feature_version=config['feature_version'], source_as_of=clock)
         history = relevant_receipts(connection, original.to_dict(), cutoff=base['cutoff'], **source_options)
         features = joint_features(event, history, base, cutoff=datetime.fromisoformat(base['cutoff']),
                                   version=config['feature_version'])
@@ -431,3 +442,4 @@ def build_joint_training_case(path, *, binding_ref, outcome_ref, identity_ref, c
         # D1 records the exclusion; D2 cannot turn missing ready cases into a
         # favorable smaller evaluation. Integrity errors still propagate.
         return resolved
+

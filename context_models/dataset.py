@@ -383,7 +383,7 @@ def resolve_case(connection, item, *, config, plan, latest):
         if payload['schema'] == 2:
             source_options.update(source_transport=payload['source_transport'],
                 binding=artifacts[payload['replay_ref']]['payload'], base=payload['base'],
-                feature_version=config['feature_version'])
+                feature_version=config['feature_version'], source_as_of=_artifact_created_at(connection, case['digest']))
         physical_source_rows = {row['digest']: row for row in relevant_receipts(connection, packet, cutoff=decision,
             **source_options)}
         expected = set(physical_source_rows)
@@ -485,3 +485,4 @@ def prepare_dataset(path: Path, experiment_hash: str, *, evaluated_at: datetime)
     """Header/fit verification only; does not open final labels or approve."""
     with _reader(path) as connection:
         return _prepare(connection, experiment_hash, evaluated_at=evaluated_at)
+

@@ -154,10 +154,15 @@ class _Inventory:
 
 
 class LiveWorker:
-    def __init__(self, path, *, progress=None, feature_version="tennis-performed-load-v4"):
+    def __init__(self, path, *, progress=None, feature_version="tennis-performed-load-v4", source_transport="legacy"):
         if type(feature_version) is not str or feature_version not in {"tennis-performed-load-v3", "tennis-performed-load-v4"}:
             raise ContextContractError("unsupported live tennis feature version")
+        if type(source_transport) is not str or source_transport not in {"legacy", "tennis-live-indexed-source-v1"}:
+            raise ContextContractError("unsupported live tennis source transport")
+        if source_transport != "legacy" and feature_version != "tennis-performed-load-v4":
+            raise ContextContractError("indexed live tennis source transport requires v4")
         self.feature_version = feature_version
+        self.source_transport = source_transport
         self.path = Path(path)
         self.capture = None
         self.bindings, self.pending = {}, []
@@ -375,7 +380,19 @@ class LiveWorker:
         # Event-only pending preflight is not release evidence. Always resolve
         # a fresh COMPLETE inventory here, including intervening revisions.
         prepared = {}
-        if qualified:
+        if qualified and self.source_transport == "tennis-live-indexed-source-v1":
+            from context_models.tennis_live_source import LiveTennisReadBudget, prepare_live_v4
+            root = Path(__file__).resolve().parents[1]
+            code_hashes = {name: hashlib.sha256((root/name).read_bytes()).hexdigest() for name in CODE_PATHS}
+            budget = LiveTennisReadBudget()
+            state_refs = self._verify_states(qualified)
+            self._report("prepare", total=len(qualified), source_transport=budget.contract)
+            prepared, reasons = prepare_live_v4(self, qualified, state_refs, code_hashes, budget)
+            self.reasons.extend(reasons)
+            self._report("prepared", total=len(prepared), source_transport=budget.contract,
+                source_rows=budget.actual_rows, source_bytes=budget.actual_bytes,
+                held_output_bytes=budget.prepared_bytes)
+        if qualified and self.source_transport == "legacy":
             root = Path(__file__).resolve().parents[1]
             code_hashes = {name: hashlib.sha256((root/name).read_bytes()).hexdigest() for name in CODE_PATHS}
             histories = {}
@@ -520,13 +537,13 @@ class LiveWorker:
 
 
 @contextmanager
-def live_worker(*, path=None, progress=None, feature_version="tennis-performed-load-v4"):
+def live_worker(*, path=None, progress=None, feature_version="tennis-performed-load-v4", source_transport="legacy"):
     if _CURRENT.get() is not None:
         raise ContextContractError("live tennis worker is already owned")
     if path is None:
         from runtime_paths import CONTEXT_MODEL_DB_PATH
         path = CONTEXT_MODEL_DB_PATH
-    batch = LiveWorker(path, progress=progress, feature_version=feature_version)
+    batch = LiveWorker(path, progress=progress, feature_version=feature_version, source_transport=source_transport)
     token = _CURRENT.set(batch)
     try:
         yield batch

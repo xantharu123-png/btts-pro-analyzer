@@ -1,5 +1,167 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 18.10.2026 – Quellenreparatur: Abschlussprüfung bestanden, Veröffentlichung folgt
+
+Abschluss 02:10 CEST: Die unveränderte große Fußballrunde ist mit **381 PASS**,
+null Fehlern/Skips in 3.490,58 Sekunden beendet. Zusammen mit den vollständigen
+Nachtests sind **alle 15.557 aktuellen Haupt-IDs** belegt: **15.459 PASS und 98
+unveränderte ursprüngliche SKIP**, keine offene Fehler-ID, alle 15.495 ursprünglichen
+IDs erhalten. Das ist die exakte Zusammenführung der ursprünglichen Vollsuite
+mit späteren ganzen Ownernachtests, **kein frisch wiederholter vollständig grüner
+Gesamtlauf**. Der äußere Sourcepin-Wrapper bleibt wie unten dokumentiert
+FAIL/INCOMPLETE; seine 103 bestandenen eigenen Fälle werden nur in ihrem geprüften
+Umfang verwendet. Originalfehler und alle Nachtestbelege bleiben erhalten.
+Abgleich: `output/source-repair-20261017/followup-receipt-merge-final.json`.
+Unabhängiger letzter Review: alle 834 aktuellen Source-/Test-/Configdateien
+bytegleich zur akzeptierten Abschluss-Collection; exakte 45-Pfad-Release-Allowlist,
+sechs unveränderte Tennis-Kernmodule und beide unveränderten Indexdateien.
+Source-Paket jetzt committen/pushen/ohne Backup deployen; bis zum tatsächlichen
+Deploy bleibt GitHub/VPS noch auf `2f62e5e`. **Numerische Effekte nicht fertig:**
+Mehrfall-Fußballtraining, zusätzlicher PLAYER_LOAD-v3-Umfang und eigener aktueller
+POINT-Tennis-Effektvertrag bleiben technische Restarbeit, danach empirische Prüfung.
+
+Zwischenstand 18.10. nach Mitternacht: regulärer Tennisjob unter dem bisherigen
+Live-Commit erfolgreich (00:05:02–00:36:48 CEST, Exit 0), 72 verarbeitet/64 neu
+gespeichert, `unresolved_outcome_events=0`. Kontext dennoch teilweise: 14
+Identitätskonflikte, ein nativ nicht verfügbarer Fall und drei Aufgaben nach
+Matchaufgabe. Das ist kein Nachweis des noch unveröffentlichten Source-Pakets.
+Beleg: `output/tennis-regular-final-20261018.json` außerhalb des Repos.
+Die ursprüngliche QA03 ist vollständig beendet: 15.392 PASS, 98 unveränderte
+SKIP und fünf FAIL. Drei Fehler betrafen einen echten JSON-Containerunterschied
+der neuen Quotenbelege, zwei die alten Ganzobjekt-Hashfixtures. Korrigiert und
+alle 13 betroffenen vollständigen Module separat nachgeprüft: 439 PASS. Die
+zusammengeführte Abdeckung enthält 15.402 PASS/98 gleiche SKIP, alle 15.495
+ursprünglichen IDs plus fünf neue. Das ist kein vollständig wiederholter
+grüner Gesamtlauf nach der Korrektur; beide Original- und Nachtestbelege bleiben
+erhalten unter `output/source-repair-20261017/` außerhalb des Repos.
+Der Tennisindex ist seit Rebuild-Aufruf 32 tatsächlich READY: 2.639.584
+Originalzeilen abgedeckt, 1.303.491 logische Indexbytes. Aufruf 13 hatte den
+2-Sekunden-Writerrahmen knapp überschritten und bleibt als FAIL dokumentiert.
+Die vorhandenen Originaltabellen wurden durch den Rebuild nicht verändert.
+
+Aktiv `.worktrees/audit-repairs-20261013`. Quellen-/Marktbasis lokal committed
+als `bc6e7f2`; GitHub und VPS zuletzt bestätigt weiterhin
+`2f62e5e4fe57ac233847a8dbb52e8c35584aff98`. Noch kein Push/Deployment des
+neuen Pakets. Zusätzliche Tennis-Live- und Fußball-Headeranschlüsse werden
+getrennt integriert und geprüft; keine entsprechende Produktionsfreigabe aus
+dem alten erfolgreichen Tageslauf ableiten. Keine Sicherung, Bereinigung,
+DB-Kopie oder zusätzlicher Sport-/API-Scan.
+
+- [x] Marktvergleich erweitert: native Gegenpreise, getrennte binäre
+  `selection_groups`, Doppelte Chance aus echtem vollständigem 1X2; vorhandene
+  kategoriale `groups` nicht vermischen. Basketball/Hockey-Ergebnisse aus
+  vorhandenem Final-Cache und kanonischem Settlement. Typ-/Byte-/Konfliktprüfung
+  vor Körperlesen, einschließlich Korrektur zwischen zwei Lesern.
+- [x] Fußball-Abrechnung v2 implementiert: vorhandene eigene Artefaktbytes plus
+  künftige tatsächliche Schreibmengen statt jeden gelungenen Miniversuch dauerhaft
+  mit 4 MiB zu belasten. Expliziter neuer Umfang, kein Zurücksetzen des alten
+  Ledgers. Neue abgebrochene Versuche bleiben voll belastet. Unabhängiger Test
+  fand/fixte Zukunftsdatum-Umgehung beim ersten v2-Aufruf; 24 Tests bestanden.
+- [x] Kanonischer Fußballlauf teilt eine Reservierung und bestätigt tatsächlichen
+  Abschluss; 156 Automations-/Quoten-/Admissiontests bestanden.
+- [x] Fußball: vollständige physische Quellenrekonstruktion, kompakte Zweige,
+  Schema-v2-Fall und bestehender Fitter/D2 geprüft. Native Quelle 36.111
+  Belege/108.341.418 expandierte Bytes in 82,687 Sekunden bestanden. Noch keine
+  numerische Kader-/Wetterwirkung: aktueller ursprünglicher Stichtag zu früh.
+- [x] Tennis: expliziter verlustloser Offline-Quellenstream und Batchanschluss
+  geprüft. Alte globale Fallback-FAILs bleiben erhalten; der gültige Index wird
+  jetzt tatsächlich verwendet. Vier native Trainingsfälle haben den physischen
+  Quellenpfad durchlaufen; kombinierter Livepfad wird separat geprüft.
+- [x] Ursprüngliche Vollsuite und anschließende vollständige Quoten-Ownermodule
+  abgeschlossen, siehe Zahlen oben. Runden 01/02 bleiben unvollständig erhalten.
+- [x] Fußball: späteren tatsächlichen Kader-/Wetterstichtag als eigenes kompaktes
+  `frozen-unresolved`-Headerinventar anbinden. Externer Owner 23 PASS, unabhängiger
+  Review ohne bestätigte Blocker; canonical integriert. Neuer Owner samt echtem
+  Fit/Freeze/Evaluate/Verify-D2 und Bodymanipulationsprüfung 24 PASS; vier weitere
+  ganze Owner (Deferred, Opponent, Readiness, LOAD-v3) 91 PASS. Die 13 großen
+  Legacy-/Seammodule abgeschlossen: 381 PASS/0 SKIP, Exit 0 in 3.490,58 Sekunden.
+  Das Inventar allein bestätigt keinen Quellkörper und aktiviert keinen Effekt.
+- [x] Tennis: neuer expliziter v4-Livequellenpfad ohne riesigen globalen Spool.
+  191 vollständige Owner-/Nachbartests bestanden. Alle 72 echten heutigen
+  Originale im begrenzten Quellen-/Feature-Replay jetzt vollständig PASS:
+  870.479 tatsächliche Zeilen/930.892.969 Bytes, 72 bytegleiche Originale,
+  120.207.043 Bytes Ausgabeheap unter 128 MiB, 621,740 Sekunden Wall und
+  610,244 Sekunden CPU, RSS 370.968 KiB. Keine neue Wahrscheinlichkeit, Outcomes,
+  API oder Veröffentlichung. Dieser Replay ersetzt nicht den vollständigen
+  A1-Modellzustands-/Publikationsbesitzer; dessen eigene Tests sind separat.
+  Die sieben Tennis-/Historien-/Indexbesitzer sind bytegleich zum Replay. Seine
+  älteren dataset/evaluator-Ganzdateihashes bleiben korrekt abgegrenzt: spätere
+  Änderungen dort betreffen ungenutzte Fußball-Seams bzw. additive Pins.
+  Beide Tages-/Refreshcaller sind jetzt lokal explizit angeschlossen; neue
+  echte Callertests und ganze Tages-/Refresh-/Live-Owner **338 PASS** mit dem
+  bisherigen `.codex_test_venv`/Offline-Launcher, alle bisherigen 338 IDs erhalten.
+  Zehn vorhandene Canonical-Tests brauchten erstmals ihre echte lokale READY-
+  Indexvoraussetzung; diese wird nun explizit aufgebaut, nicht gefälscht. Die
+  erste abweichende Interpreterrunde 328 PASS/10 FAIL bleibt erhalten. Weitere
+  Importcaller abgeschlossen: 327 IDs, zusammengeführt 324 PASS/3 gleiche
+  Windows-Symlink-Skips. Initiale 13 Temp-/Hardlink-Berechtigungsfehler vor
+  Produktlogik bleiben erhalten; beide ganzen Module unverändert mit regulären
+  QA-Rechten/Projekt-TEMP nachgeprüft: 60 PASS/3 SKIP, dieselben 63 IDs. Keine
+  Produktkorrektur oder primitive Abschwächung dafür. Produktiv weiterhin alte
+  Version, kein neuer Scan zur bloßen Bestätigung gestartet.
+- [x] Gemeinsame Aktivierungs-/Consumer-/Runtime-Owner **103 PASS**, 509,32 s,
+  ohne Fehler/Skip. Äußerer ursprünglicher Wrapper bleibt **FAIL/INCOMPLETE**:
+  währenddessen wurden ausschließlich die zwei separat getesteten Daily-/
+  Callerpfade geändert. Tatsächliche drei Owner und ihre ausgeführten Produkte
+  blieben byteidentisch und rufen diese beiden Pfade nicht auf. Kein Waiver,
+  keine rückwirkende Vollquellen-Behauptung. Belege `scoped-owner-summary.json`
+  und `caller-exclusion-review.md` im externen `final-sourcepin-recheck-01/`.
+- [x] Unabhängiger finaler Caller-/Fixture-/Quellenreview ohne neuen Produktbefund;
+  bestehende Legacy/v3-/Invalidindex-Tests unverändert. Deployhelper mit exakter
+  45-Pfad-Allowlist und 7 PASS; unveränderte Index-Quelldateibytes vor/nach Pull
+  und Apprestart vergleichen. Keine Umgehung des READY-Vertrags.
+- [ ] Abschlussreview, explizite Quellpfade committen, main pushen und auf VPS
+  ohne Backup/zusätzlichen Scan fast-forwarden; Commitgleichheit und Healthchecks.
+- [ ] Numerische Effekte bleiben bis zum tatsächlichen ausreichenden zeitgetrennten
+  Qualitätsnachweis offen. Quellenleser-Tests sind keine bessere Wettqualität.
+  Zusätzlich fehlen technische Teile, nicht nur Wartezeit: Football-Mehrfall-
+  Dataset/Fitter hält noch Vollfälle und wiederholt Quellenverweise; späterer
+  PLAYER_LOAD-v3-Nationalteam-/Transferumfang ist nicht implementiert. Aktuelle
+  POINT-Tennisoriginale erhalten ausdrücklich keinen alten Serve-Effekt; ihr
+  eigener gemeinsamer Effektvertrag fehlt noch. Diese drei Punkte nicht als
+  bloßes Sammeln weiterer Ergebnisse oder schon aktivierte Wirkung darstellen.
+
+Abgrenzung/Byteeinheiten:
+[Quellenreparatur v2](docs/audits/2026-10-17-source-repair-v2.md).
+Neue vollständige native Quotensätze/Schlussbeobachtungen entstehen nur bei
+regulären künftigen Abfragen; keine alten Gegenpreise erfinden. Cricket hat im
+vorhandenen Zugang keinen nativen Preisadapter; Multigoal/Kombis weiterhin ohne
+vollständige ausschließende native Partition nicht benchmarkfähig.
+VPS lesend 17.10. 23:34/23:35 CEST: App/Caddy aktiv, öffentliche Health `ok`,
+letzte reguläre Wettfinder-/Tennis-/Shadow-Dienste `success`/Exit 0, rund 22 GB frei.
+Historische fehlgeschlagene einmalige Prüf-/Releasedienste bleiben unverändert.
+Endgültige Collection 15.557 eindeutige Haupt-IDs; alle 15.500 der vorherigen
+korrigierten Basis erhalten. Große 13-Modul-Fußballrunde abgeschlossen; die oben
+belegte Zusammenführung ist weiterhin kein frisch wiederholter Vollsuite-PASS.
+
+Nachtrag 18.10., laufend: endgültige Fußball-Ownerprüfung 26 PASS einschließlich
+echtem Schema-v2-/Fitter-/Dataset-/D2-Wiederprüfpfad, Legacy-Nachbarn 31 PASS;
+aktuelle native lesende Quellenprobe Exit 0/82,687 s, 36.111 Belege. Nur drei
+Terminmerkmale verfügbar, keine numerischen Effekte aktiviert. Unabhängige sechs
+aktuelle Paritätsfälle bestanden. Tennis endgültiger Codec-/Historienbesitzer
+56 PASS, Trainings-/Batch-/Live-Nachbarn 65 PASS. Globale native Fallback-Probe
+nach 600 s FAIL erhalten: 1.091.503 Belege geprüft, globale Vollständigkeit nicht
+abgeschlossen. Keine Wirkung/Produktionsabnahme aus diesen Tests erfinden.
+
+Der vorhandene Tennisindex wird jetzt durch seinen **bestehenden** begrenzten
+Rebuild-Owner erneuert: gleichbleibende geprüfte Codehashes, maximal 45 Sekunden
+je Aufruf/2 Sekunden je Transaktion, maximal 40 sequenzielle Aufrufe, Abbruch bei
+Integritätsfehler oder drei Aufrufen ohne Fortschritt. Ausschließlich abgeleitete
+7580 Mitgliedschaftszeilen/Indexstatus werden neu aufgebaut. Ein SQLite-
+Schreibschutz verbietet Originaltabellenänderungen/ATTACH. Kein DDL, API, Backup
+oder DB-Kopie. Tatsächliche Zwischenstände unter
+`C:/Projekt/BetBoy/output/tennis-stream-index-rebuild-20261017/`.
+Index jetzt READY; die früheren FAIL-Proben bleiben unverändert erhalten.
+Expliziten neuen Quellen-/Livevertrag mit diesem verifizierten Index prüfen,
+nicht den alten 512-/2-MiB-Vertrag als bestanden umlabeln.
+
+Wichtig verbleibend beim Fußball: Originalstichtag liegt vor späteren Kader-/
+Wetterabfragen; der neue Headeranschluss wird oben separat abgenommen. Zwei
+aktuelle große vollständig expandierte Trainingsfälle überschreiten bereits
+den neuen 128-MiB-Batchrahmen. Das ist **nicht** durch bloßes Warten erledigt.
+Der kleinste nächste Entscheidungs-/sequenzielle Fitterpfad ist im neuen Bericht
+benannt, hier nicht implementiert. Keine Aussage „alle Effekte fertig“.
+
 ## 17.10.2026 – Marktvergleich und Kontext-Datenpfad: Teilpaket live
 
 Aktiver Checkout unverändert `.worktrees/audit-repairs-20261013`, Ausgang

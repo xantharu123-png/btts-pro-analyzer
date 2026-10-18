@@ -19,7 +19,7 @@ from tennis.serve_model import ServeReturnModel
 from tennis.state_codec import encode_state
 from tennis.simulator import POINT_MODEL_VERSION
 from tennis.predict import predict_match
-from test_tennis_live_worker import NOW, configure, run_batch, competition, response
+from test_tennis_live_worker import NOW, configure, run_batch, competition, response, provision_ready_index
 from test_tennis_live_legacy_parity import exact_structure
 from test_context_tennis_outcome_capture import completed, RECEIVED
 
@@ -207,6 +207,7 @@ def test_refresh_owning_daily_callsite_captures_new_original_and_keeps_old_bytes
     from scripts import tennis_daily as daily
     db, predictions, _, _ = setup_point(monkeypatch, tmp_path)
     run_batch(db, predictions)
+    provision_ready_index(db)
     before = originals(db)
     later = NOW+timedelta(hours=2)
     monkeypatch.setattr("requests.get", lambda *a, **kw: pytest.fail("refresh fetched"))

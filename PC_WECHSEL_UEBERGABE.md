@@ -1,5 +1,55 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## 18.10.2026 – Quellenreparatur geprüft, Veröffentlichung folgt
+
+Abschluss 02:10 CEST: großer unveränderter 13-Modul-Lauf **381 PASS/0 SKIP**,
+Exit 0, 3.490,58 s. Exakter Belegabgleich vollständig: **15.459 PASS/98 gleiche
+SKIP**, alle 15.557 aktuellen und alle 15.495 ursprünglichen Haupt-IDs enthalten.
+Das ist ursprüngliche Vollsuite plus spätere ganze Ownernachtests, kein frisch
+wiederholter grüner Gesamtlauf. Der ursprüngliche Sourcepin-WholeSource-Wrapper
+bleibt FAIL/INCOMPLETE; seine 103 Fälle gelten nur im separat geprüften Umfang.
+`output/source-repair-20261017/followup-receipt-merge-final.json` außerhalb Git.
+Finaler unabhängiger Quellreview: 834 Dateien bytegleich zur Abschluss-Collection,
+45 Releasepfade, sechs Tennis-Kernmodule und zwei Indexdateien unverändert.
+Jetzt expliziter Commit/Push/No-Backup-FF-Deploy; noch keinen erfolgten Deploy
+behaupten. Fachliche Effekte weiterhin offen: Mehrfall-Fußballtraining,
+PLAYER_LOAD-v3-Nationalteam-/Transferumfang und aktueller POINT-Tennisvertrag
+fehlen zusätzlich zum ausreichenden unangetasteten Qualitätsnachweis.
+
+Kanonischer Checkout unverändert `.worktrees/audit-repairs-20261013`, lokale
+Quellen-/Marktbasis committed als `bc6e7f2`, GitHub/VPS zuletzt bestätigt
+`2f62e5e4fe57ac233847a8dbb52e8c35584aff98`. Neue Basis noch nicht gepusht/deployed;
+zusätzliche Tennis-Live-/Fußball-Headeranschlüsse in getrennter Integration. Aktuelle
+Aufgaben ganz oben in TODO_AKTUELL.md; technische Grenzen in
+`docs/audits/2026-10-17-source-repair-v2.md`. Besonders: neue v2-Speicherabrechnung
+ist ein ausdrücklich anderer Umfang, kein Zurücksetzen alter Reservierungen;
+frühere Tennis-Fallbackproben bleiben FAIL, nicht umbenennen. Bestehender
+Indexbesitzer hat mit unveränderten Grenzen in Aufruf 32 tatsächlich READY
+erreicht (Originaltail 2.639.584). Neuer expliziter Livepfad: 191 Ownertests und
+alle 72 echten Originale im Quellen-/Feature-Replay bestanden (870.479 Zeilen,
+120.207.043 Bytes Ausgabeheap unter 128 MiB, 621,740 Sekunden). Keine neue
+Sportprognose/Publikation oder vollwertige A1-Zustandsverifikation aus diesem
+reinen Replay behaupten. Beide Caller lokal explizit angeschlossen, deren
+vollständige Ownerprüfung abgeschlossen; auf dem VPS noch nicht umgestellt.
+Nachtrag: richtige Offline-Ownerprüfung abgeschlossen, 338 PASS/0 SKIP und
+keine alten IDs entfernt. Echte lokale Indexfixtures statt READY-Mock. Die
+gemeinsamen drei Sourcepin-Owner haben 103 PASS; ihr unveränderter äußerer
+WholeSource-Wrapper bleibt wegen zweier separat getesteter Callerdateideltas
+FAIL/INCOMPLETE, nicht als vollständig unveränderte Vollquelle umdeuten.
+Finaler unabhängiger Review ohne neuen Produktbefund, Deployhelper 7 PASS und
+exakte 45-Pfad-Allowlist. Finale Collection 15.557 eindeutige IDs, alle früheren
+15.500 erhalten. Große13er-Fußballrunde und letzte Caller-Nachbarn abgeschlossen.
+Alter regulärer Tageslauf erfolgreich 00:05:02–00:36:48/Exit 0, 72 verarbeitet,
+64 neue Prognosen, unresolved_outcome_events=0; Kontext teilweise. Kein Beweis
+für den noch unveröffentlichten neuen Code. QA03 komplett plus 439 Quoten-
+Ownernachtests, zusammen 15.402 PASS/98 gleiche SKIP; Original fünf FAIL erhalten.
+Neuer Fußball-Headerowner samt echtem Fit/D2 24 PASS und weitere vier ganze
+Legacy-/Readiness-/Opponent-/LOAD-Owner 91 PASS; große13er-Runde 381 PASS.
+Keine Effekte als empirisch fertig oder bessere Wettqualität darstellen.
+Fremde ungetrackte `debug.log`, `output/audit-repairs/` erhalten. Keine Backups,
+DB-Kopien, Bereinigungen oder zusätzliche Sport-/API-Scans. Erst verifizieren,
+dann explizit committen/pushen/No-Backup-Deploy, keine pauschalen Git-Aktionen.
+
 ## 17.10.2026 – aktuelle Fortsetzung: Marktvergleich und Daten-Deduplizierung
 
 Kanonisch bleibt `.worktrees/audit-repairs-20261013`. Quellcommit

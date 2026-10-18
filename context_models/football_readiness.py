@@ -154,7 +154,7 @@ def _bounded_outcome(connection, event, *, latest, ledger=None):
     return candidates[0], size
 
 
-def _actual_decision(connection, request, binding, original, *, latest, ledger=None):
+def _actual_decision(connection, request, binding, original, *, latest, ledger=None, source_transport=None):
     """A later context decision needs an actual immutable worker reference."""
     decision = binding["decision_at"]
     if request["decision_ref"] is not None:
@@ -165,7 +165,11 @@ def _actual_decision(connection, request, binding, original, *, latest, ledger=N
             raise ContextIntegrityError("native context decision is absent or exceeds its bounded envelope")
         if ledger is not None:
             ledger.admit('artifacts', ref)
-        payload = resolve_decision(connection, ref, latest=latest)["payload"]
+        if source_transport is None:
+            payload = resolve_decision(connection, ref, latest=latest)["payload"]
+        else:
+            from football_context_inventory import load_inventory
+            payload = load_inventory(connection, ref, latest=latest)[0]["payload"]
         if payload["binding_ref"] != request["binding_ref"] or payload["event_key"] != binding["native_event"]["event_key"]:
             raise ContextIntegrityError("native context decision belongs to another original")
         return payload["decision_at"], payload
@@ -198,7 +202,8 @@ def _inspect(path, requests, config, blocks, *, as_of, source_transport=None):
             try:
                 envelope, original, code = _load_publication(connection, ref, latest=clock, admit=ledger.admit)
                 binding, packet = envelope["payload"], original.to_dict()
-                decision, decision_proof = _actual_decision(connection, request, binding, original, latest=clock, ledger=ledger)
+                decision, decision_proof = _actual_decision(connection, request, binding, original,
+                    latest=clock, ledger=ledger, source_transport=source_transport)
                 base = joint_base(original, binding, decision_at=datetime.fromisoformat(decision))
                 if config['feature_version'] == PLAYER_LOAD_FEATURE_VERSION and decision_proof is not None:
                     raise ReplayUnavailable("player_load_requires_original_decision")
@@ -209,7 +214,7 @@ def _inspect(path, requests, config, blocks, *, as_of, source_transport=None):
                 else:
                     from context_models.football_source_stream import streamed_joint_sources
                     streamed = streamed_joint_sources(connection, packet, binding, base,
-                        feature_version=config['feature_version'], ledger=ledger)
+                        feature_version=config['feature_version'], ledger=ledger, latest=clock)
                     rows = streamed['observations']
                     item['source_processing'] = streamed['audit']
                 # The owning source resolver admits its unchanged per-case pool
@@ -218,11 +223,17 @@ def _inspect(path, requests, config, blocks, *, as_of, source_transport=None):
                 for row in rows:
                     ledger.admit('context_contents', row['content_digest'])
                 if decision_proof is not None:
-                    if source_transport is not None:
-                        raise ReplayUnavailable('stream_transport_requires_original_decision')
-                    refs = sorted(row["digest"] for row in rows)
-                    if (decision_proof["observation_refs_hash"] != digest(refs)
-                            or decision_proof["observation_count"] != len(refs)):
+                    if source_transport is None:
+                        refs = sorted(row["digest"] for row in rows)
+                        refs_hash, count = digest(refs), len(refs)
+                    else:
+                        # The owning physical stream has checked all bodies and
+                        # the exact stored unresolved header inventory, not only
+                        # this smaller feature projection.
+                        refs_hash = streamed["audit"]["receipt_refs_hash"]
+                        count = streamed["audit"]["receipt_count"]
+                    if (decision_proof["observation_refs_hash"] != refs_hash
+                            or decision_proof["observation_count"] != count):
                         raise ContextIntegrityError("native context decision differs from its actual predecision source pool")
                 _native_binding(binding, original, rows)
                 event = binding["native_event"]
@@ -267,7 +278,10 @@ def _inspect(path, requests, config, blocks, *, as_of, source_transport=None):
                         case = {'kind': 'context-training-case-v1', 'payload': payload}
                         artifacts = {obj['digest']: obj for obj in (envelope, _original_envelope(original), code)}
                         if decision_proof is not None:
-                            from football_context_decisions import DECISION_KIND
+                            if source_transport is None:
+                                from football_context_decisions import DECISION_KIND
+                            else:
+                                from football_context_inventory import KIND as DECISION_KIND
                             artifacts[request['decision_ref']] = dict(digest=request['decision_ref'], kind=DECISION_KIND, payload=decision_proof)
                         retained_length = len(canonical_bytes(dict(case={'digest': digest(case), **case},
                             artifacts=artifacts, observations=rows+(outcome,))))
@@ -424,3 +438,4 @@ def prepare_football_context(path, requests, config, *, test_blocks, code_revisi
         result.update(status="evaluated_not_activated", evaluation_ref=evaluation["digest"],
                       approval_count=len(evaluation["approvals"]))
     return deepcopy(result)
+

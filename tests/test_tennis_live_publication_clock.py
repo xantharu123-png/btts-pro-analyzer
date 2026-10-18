@@ -8,7 +8,7 @@ import pytest
 from context_models.contracts import ContextContractError, canonical_timestamp
 from scripts import tennis_daily as daily
 from tennis import live_context, shadow
-from test_tennis_live_worker import NOW, competition, configure, run_batch
+from test_tennis_live_worker import NOW, competition, configure, run_batch, provision_ready_index
 
 
 def stored_original(db):
@@ -71,6 +71,7 @@ def test_real_idempotent_existing_original_uses_stored_not_new_requested_clock(m
 
 def test_actual_daily_backward_append_preserves_prior_fixture_status_but_no_forecast(monkeypatch, tmp_path):
     db, predictions, _, _ = configure(monkeypatch, tmp_path)
+    provision_ready_index(db)
     monkeypatch.setattr(daily, "auto_settle_completed", lambda: 0)
     monkeypatch.setattr(daily, "tournament_surface_map", lambda *args: {})
     monkeypatch.setattr(daily, "fetch_fixtures", daily.fetch_fixtures_espn)

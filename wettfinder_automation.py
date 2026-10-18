@@ -3498,7 +3498,8 @@ def run_wettfinder(
             if limits is not None:
                 original_collection_budget = FootballOriginalBudget(
                     max_worker_payload_bytes=limits['max_worker_payload_bytes'],
-                    max_source_payload_bytes=limits['max_source_payload_bytes'])
+                    max_source_payload_bytes=limits['max_source_payload_bytes'],
+                    context_inventory_contract='football-native-context-inventory-v2')
         if original_collection_budget is None:
             return {}
         return {'original_capture_limits': original_collection_admission['limits'],
