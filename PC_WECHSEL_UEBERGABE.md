@@ -12,7 +12,10 @@ No-Vig-Closing (`scripts/market_benchmark_report.py`, Bericht
 `docs/audits/2026-10-19-marktbenchmark.md`), Dixon-Coles-MLE als Opt-in
 (`goal_model="dixon_coles"`, Default byteidentisch; Vergleich
 `docs/audits/2026-10-19-dixon-coles-vergleich.md`). Tests: 529 + 395 + 580 + 274 + 19
-gezielt grün (Windows); kein Linux-Volllauf. Offen für den Owner: Flag-Entscheidung
+gezielt grün (Windows); kein Linux-Volllauf. **Marktbenchmark-Ergebnis:** 14 Ligen,
+33 275 Spiele mit Pinnacle-Closing, 0 von 112 Liga×Markt-Zellen schlagen den No-Vig-Markt;
+Preisgate-Replay 34 484 Wetten, ROI −5,5 % [−7,2; −3,6], CLV −1,0 % [−1,2; −0,8],
+Ø Modell−Markt +11 pp (Winner's Curse, Audit K2/K3). Offen für den Owner: Flag-Entscheidung
 Daily3, Karte behalten oder zurücknehmen, Merge nach Codex' laufender Arbeit.
 
 ## 18.10.2026 – Spezifikation freigegeben, Plan erstellt; noch kein Produktpatch

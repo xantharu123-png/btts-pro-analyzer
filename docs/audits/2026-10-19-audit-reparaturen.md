@@ -112,8 +112,62 @@ Grundlage: `AUDIT_BERICHT_2026-10-16_CLAUDE.md`. Basis des Branches: `origin/mai
 
 ## Ergebnisse der Läufe
 
-Wird nach Abschluss der beiden Terminal-Läufe ergänzt (Marktbenchmark 14 Ligen,
-Dixon-Coles-Vergleich).
+### Marktbenchmark, 14 Ligen, Saisons 2019/20 bis 2025/26 (`docs/audits/2026-10-19-marktbenchmark.md`)
+
+Datenbasis: 36 369 Spiele, 33 304 Walk-forward-Prognosen, 33 275 davon mit
+Pinnacle-Closing (Closing-Anteil 100 %). Laufzeit 1355 s.
+
+| Markt (14 Zellen je Markt) | n | Brier Modell | Brier Markt | Ø Vorteil Modell−Markt | Zellen Modell schlechter | Zellen Markt geschlagen |
+|---|---:|---:|---:|---:|---:|---:|
+| Heimsieg | 33 275 | 0,2272 | 0,2131 | −0,0142 | 14/14 | 0 |
+| Remis | 33 275 | 0,1896 | 0,1875 | −0,0021 | 14/14 | 0 |
+| Auswärtssieg | 33 275 | 0,1999 | 0,1879 | −0,0120 | 14/14 | 0 |
+| Doppelte Chance (3 Zellen × 14) | 33 275 | wie Einzelmärkte | | | 42/42 | 0 |
+| Über/Unter 2,5 | 33 206 | 0,2469 | 0,2405 | −0,0065 | 28/28 | 0 |
+
+**Kein einziger Liga×Markt-Fall, in dem das Modell den No-Vig-Closing-Markt schlägt**
+(HAC-Untergrenze > 0 und BH-q ≤ 0,05): 0 von 112. In allen 112 Zellen ist das Modell im
+Mittel schlechter. Das bestätigt Audit K2: Der Basisraten-Skill des Release-Gates ist
+kein Markt-Skill.
+
+Replay der Preisgate-Policy (generischer Haircut 5 pp, 3 % Risiko-ROI, Boden 1,20,
+bester Closing-Preis, Einsatz 1 Einheit):
+
+| Teilmenge | Wetten | Trefferquote | ROI | ROI 90 %-Bootstrap | CLV | CLV 90 %-Bootstrap | Ø Modell−Markt | Anteil > 8 pp |
+|---|---:|---:|---:|---|---:|---|---:|---:|
+| alle | 34 484 | 26,3 % | −5,5 % | [−7,2; −3,6] | −1,0 % | [−1,2; −0,8] | +11,0 pp | 76 % |
+| Heimsieg | 9 189 | 25,6 % | −4,2 % | [−7,3; −1,1] | +0,4 % | [−0,0; +1,1] | +11,9 pp | 79 % |
+| Remis | 2 932 | 14,1 % | −6,8 % | [−13,9; +0,7] | −1,9 % | [−2,2; −1,6] | +8,7 pp | 56 % |
+| Auswärtssieg | 11 946 | 18,2 % | −6,8 % | [−10,1; −3,1] | −1,4 % | [−1,5; −1,3] | +11,0 pp | 75 % |
+| Über 2,5 | 4 537 | 43,2 % | −3,4 % | [−6,2; −0,6] | −1,3 % | [−1,3; −1,2] | +10,3 pp | 77 % |
+| Unter 2,5 | 5 880 | 37,3 % | −6,0 % | [−8,7; −3,2] | −1,9 % | [−2,0; −1,8] | +11,5 pp | 82 % |
+
+Lesart: Die Policy wettet im Mittel dort, wo das Modell den Markt um 11 Prozentpunkte
+übertrifft; drei Viertel der Wetten liegen über der im Audit vorgeschlagenen 8-pp-Kappung.
+Der realisierte ROI ist in jeder Teilmenge negativ, der CLV gegen die No-Vig-Closing-Line
+ebenfalls (Ausnahme Heimsieg mit +0,4 % CLV bei dennoch −4,2 % ROI). Das ist das
+Winner's-Curse-Muster aus Audit K3: Das Gate selektiert Modellfehler, keine Information.
+
+Einschränkungen, die den Befund **nicht** aufheben, aber einordnen:
+- Closing-Preise enthalten Aufstellungen und spätes Geld; ein reines Ergebnismodell
+  liegt erwartungsgemäss dahinter. Die Produktpolicy gibt jedoch genau zum Closing frei
+  (Audit B5 vom 02.09.).
+- Historie hier ohne xG (football-data liefert keine); produktive Ligen mit xG-Blend
+  könnten etwas besser sein. Erste Saison je Liga dient als Aufwärmphase.
+- Wetten desselben Spiels auf mehreren Märkten sind korreliert; die Bootstrap-
+  Intervalle sind deshalb eher zu schmal.
+- Der generische 5-pp-Haircut ist die mildeste Fassung des Gates; produktive Haircuts
+  (3 bis 20 pp) reduzieren die Wettzahl, ändern aber den Selektionsmechanismus nicht.
+- „Bester Closing-Preis“ (Max) ist für die Ausführung optimistisch.
+
+Konsequenz für den Freigabevertrag: Ohne einen Markt-Benchmark darf `RELEASED` keine
+Marktaussage transportieren. Empfehlung bleibt wie im Audit: Marktbenchmark als
+zusätzliche Bedingung in `_credible_validation`, Entscheidungs-p als Log-Odds-Mischung
+mit dem Markt plus Edge-Kappung; beides nur mit vorab definierter Hypothese.
+
+### Dixon-Coles-Vergleich (`docs/audits/2026-10-19-dixon-coles-vergleich.md`)
+
+Wird nach Abschluss des Terminal-Laufs ergänzt.
 
 ## Nicht umgesetzt (braucht den Owner)
 
