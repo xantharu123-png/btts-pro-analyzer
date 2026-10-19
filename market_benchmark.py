@@ -37,7 +37,7 @@ DOUBLE_CHANCE = {"DC_1X": ("home", "draw"), "DC_X2": ("draw", "away"), "DC_12": 
 BENCHMARK_MARKET_KEYS = tuple(RESULT_KEYS.values()) + tuple(DOUBLE_CHANCE) + tuple(TOTAL_KEYS.values())
 
 
-def walk_forward_model_probabilities(fixtures: Iterable[dict[str, Any]]) -> tuple[
+def walk_forward_model_probabilities(fixtures: Iterable[dict[str, Any]], *, goal_model: str = "legacy") -> tuple[
     dict[int, dict[str, float]], dict[int, dict[str, float]], dict[int, dict[str, int]],
 ]:
     """Mirror ``challenge_engine._walk_forward_market_records`` while keeping fixture ids.
@@ -66,7 +66,8 @@ def walk_forward_model_probabilities(fixtures: Iterable[dict[str, Any]]) -> tupl
         for fixture in day_fixtures:
             if _venue_home_edge_unknown(fixture) and fixture.get("challenge_senior_national_team") is not True:
                 continue
-            prediction = fixture_market_probabilities(fixture, prior, calibration, _validation_only=True)
+            prediction = fixture_market_probabilities(fixture, prior, calibration, _validation_only=True,
+                                                      goal_model=goal_model)
             if prediction is None:
                 continue
             fixture_id = fixture["fixture"]["id"]

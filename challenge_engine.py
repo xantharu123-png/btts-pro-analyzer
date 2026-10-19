@@ -113,6 +113,12 @@ MIN_CHALLENGE_LEG_ODDS = max(
 XG_BLEND_WEIGHT = 0.6
 XG_MIN_COVERAGE = 0.6
 XG_MAX_MATCH_VALUE = 12.0
+# Opt-in goal-rate source (audit 2026-10-16, H1). The default is the unchanged
+# additive legacy basis; the Dixon-Coles path exists for validation and
+# comparison and is never selected by a production caller.
+GOAL_MODEL_LEGACY = "legacy"
+GOAL_MODEL_DIXON_COLES = "dixon_coles"
+GOAL_MODELS = (GOAL_MODEL_LEGACY, GOAL_MODEL_DIXON_COLES)
 
 
 @dataclass(frozen=True)
@@ -747,8 +753,14 @@ def _fixture_xg(fixture: dict[str, Any]) -> Optional[tuple[float, float]]:
     return home, away
 
 
-def score_matrix(home_lambda: float, away_lambda: float, max_goals: int = 25) -> dict[tuple[int, int], float]:
-    """Return a normalized independent-Poisson score matrix."""
+def score_matrix(home_lambda: float, away_lambda: float, max_goals: int = 25,
+                 rho: float = 0.0) -> dict[tuple[int, int], float]:
+    """Return a normalized independent-Poisson score matrix.
+
+    ``rho`` (default 0, identical law) applies the Dixon-Coles low-score
+    correction to the 0:0, 1:0, 0:1 and 1:1 cells before renormalisation; it
+    is only set by the opt-in ``GOAL_MODEL_DIXON_COLES`` basis.
+    """
     home_rate = _finite_nonnegative(home_lambda)
     away_rate = _finite_nonnegative(away_lambda)
     if home_rate is None or away_rate is None or home_rate > 8 or away_rate > 8:
@@ -777,6 +789,16 @@ def score_matrix(home_lambda: float, away_lambda: float, max_goals: int = 25) ->
         for home in range(max_goals + 1)
         for away in range(max_goals + 1)
     }
+    if rho:
+        from football_dixon_coles import tau_correction
+        rho_value = float(rho)
+        if not math.isfinite(rho_value) or not -1.0 < rho_value < 1.0:
+            raise ValueError("rho must be a finite dependence parameter in (-1, 1)")
+        for cell in ((0, 0), (1, 0), (0, 1), (1, 1)):
+            factor = tau_correction(cell[0], cell[1], home_rate, away_rate, rho_value)
+            if factor <= 0.0:
+                raise ValueError("rho leaves the valid Dixon-Coles range for these rates")
+            matrix[cell] *= factor
     mass = sum(matrix.values())
     if mass <= 0:
         raise ValueError("Score matrix has no probability mass")
@@ -1209,13 +1231,20 @@ def _fixture_model(
     include_provenance: bool = False,
     native_provenance: Optional[dict[str, Any]] = None,
     native_resolver=None,
+    goal_model: str = GOAL_MODEL_LEGACY,
 ) -> Optional[dict[str, Any]]:
     """Calculate the unchanged legacy basis; optionally expose its real inputs.
 
     ``native_provenance`` is the closed internal owning-source-adapter transport
     described by ``_football_native_bindings``, never untrusted provider flags.
     Invalid or unknown linkage affects provenance only, not a computable basis.
+    ``goal_model`` selects the rate source: the legacy additive basis (default,
+    byte-identical output) or the opt-in Dixon-Coles fit, which replaces all
+    three legacy variants with one jointly fitted law and fails closed instead
+    of falling back.
     """
+    if goal_model not in GOAL_MODELS:
+        raise ValueError("goal_model is invalid")
     if native_provenance is not None and native_resolver is not None:
         raise ValueError("direct native provenance and resolver are mutually exclusive")
     if native_resolver is not None and not callable(native_resolver):
@@ -1308,6 +1337,23 @@ def _fixture_model(
     xg_coverage = min(
         cov_hs, cov_hc, cov_as, cov_ac, cov_fha, cov_fad, cov_faa, cov_fhd
     )
+    goal_model_info = None
+    if goal_model == GOAL_MODEL_DIXON_COLES:
+        if include_provenance:
+            raise ValueError("ORIGINAL provenance is bound to the legacy goal model")
+        from football_dixon_coles import DixonColesUnavailable, fit_for_fixture
+        try:
+            fit = fit_for_fixture(fixture, history)
+            dc_home, dc_away = fit.rates(
+                home_id, away_id, home_effect_known=not _venue_home_edge_unknown(fixture),
+            )
+        except DixonColesUnavailable:
+            return None  # Fail closed: the opt-in path never falls back to the legacy basis.
+        # One jointly fitted law replaces all three legacy variants; the legacy
+        # season/form disagreement does not exist for it (spread = 0).
+        active_home = season_home = form_home = dc_home
+        active_away = season_away = form_away = dc_away
+        goal_model_info = {"goal_model": GOAL_MODEL_DIXON_COLES, "rho": fit.rho, "dixon_coles": fit.summary()}
     model = {
         "active_lambdas": (active_home, active_away),
         "season_lambdas": (season_home, season_away),
@@ -1319,6 +1365,8 @@ def _fixture_model(
         "freshness_observed_at": oldest_required_observation.isoformat(),
         "xg_coverage": xg_coverage,
     }
+    if goal_model_info is not None:
+        model.update(goal_model_info)
     if include_provenance:
         from context_models.contracts import ContextContractError, ContextIntegrityError
         try:
@@ -1868,6 +1916,7 @@ def fixture_market_probabilities(
     native_provenance=None,
     native_resolver=None,
     _joint_law_version=None,
+    goal_model: str = GOAL_MODEL_LEGACY,
 ) -> Optional[dict[str, Any]]:
     # Internal walk-forward mode consumes only active predictions. The same
     # projection path returns explicitly labeled singleton values, never fake
@@ -1876,6 +1925,10 @@ def fixture_market_probabilities(
         raise ValueError("validation-only predictions cannot capture a full ORIGINAL")
     if original_capture is not None and not callable(original_capture):
         raise ValueError("original_capture must be callable or None")
+    if goal_model not in GOAL_MODELS:
+        raise ValueError("goal_model is invalid")
+    if goal_model != GOAL_MODEL_LEGACY and original_capture is not None:
+        raise ValueError("ORIGINAL capture is bound to the legacy goal model")
     history = list(league_history)
     observations = list(team_history) if team_history is not None else None
     if original_capture is not None:
@@ -1884,7 +1937,7 @@ def fixture_market_probabilities(
                                                   logical_history_cutoff=_fixture_datetime(fixture))
     if native_provenance is not None and native_resolver is not None:
         raise ValueError("direct native provenance and resolver are mutually exclusive")
-    model = (_fixture_model(fixture, history, observations) if original_capture is None
+    model = (_fixture_model(fixture, history, observations, goal_model=goal_model) if original_capture is None
              else _fixture_model(fixture, history, observations, include_provenance=True,
                  native_provenance=native_provenance, native_resolver=native_resolver))
     if model is None:
@@ -1910,7 +1963,7 @@ def fixture_market_probabilities(
         for variant in model["probability_variants"]:
             mean_key = variant + means_suffix
             raw_means = family_model[mean_key]
-            raw_matrix = (score_matrix(*raw_means) if family == "goals"
+            raw_matrix = (score_matrix(*raw_means, rho=float(model.get("rho", 0.0))) if family == "goals"
                           else family_model[variant + "_matrix"])
             effective, diagnostics = calibrate_joint_distribution(
                 raw_matrix, specs, calibration, law_version=law_version,
@@ -2301,6 +2354,8 @@ def _credible_statistical_release_validation(
 
 def _walk_forward_market_records(
     fixtures: Iterable[dict[str, Any]],
+    *,
+    goal_model: str = GOAL_MODEL_LEGACY,
 ) -> dict[str, dict[str, list[Any]]]:
     """Collect one expanding-window, leakage-free record set for all markets."""
     ordered = sorted(
@@ -2335,7 +2390,8 @@ def _walk_forward_market_records(
             if (_venue_home_edge_unknown(fixture)
                     and fixture.get("challenge_senior_national_team") is not True):
                 continue
-            prediction = fixture_market_probabilities(fixture, prior, day_calibration, _validation_only=True)
+            prediction = fixture_market_probabilities(fixture, prior, day_calibration, _validation_only=True,
+                                                      goal_model=goal_model)
             if prediction is None:
                 continue
             for spec in MARKET_SPECS:
