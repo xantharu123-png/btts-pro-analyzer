@@ -480,3 +480,21 @@ def test_rank_or_location_only_remains_a_real_observation_not_an_empty_row():
     assert 'Weltrang 12' in html and 'Auswärts' in html
     assert html.count('1 Ergebnis ohne Spieldetails') == 1
     assert '2S · 1N · 3 Spiele' in html
+
+
+def test_card_first_level_shows_minimum_odds_and_price_status():
+    from dataclasses import replace
+    from test_publication_odds_floor import priced
+    signal = priced(editorial_football(), (1.8,)*3)  # Forecast minimum 2.00, best offer 1.80.
+    card = build_wettfinder_card(signal, signal.reference_quote, now=NOW)
+    html = render_editorial_card_html(card)
+    pick = html.split('class="se-pick"', 1)[1].split('class="se-price-status', 1)[0]
+    assert 'Mindestquote' in pick and '2.00' in pick and '1.80' in pick
+    assert card.price_code == 'TOO_LOW'
+    status = html.split('class="se-price-status', 1)[1].split('</p>', 1)[0]
+    assert 'Unter Value' in status and 'Quote unter Value' in status
+    assert html.count('class="se-price-status') == 1 and html.count('Modellchance') == 1
+    unpriced = build_wettfinder_card(replace(signal, minimum_odds=None, reference_quote=None), now=NOW)
+    html = render_editorial_card_html(unpriced)
+    assert 'Mindestquote</span><strong>–' in html
+    assert html.count('Quote fehlt') == 1 and 'eigene Quote prüfen' in html

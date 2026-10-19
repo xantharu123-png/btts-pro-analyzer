@@ -283,3 +283,17 @@ def test_defensive_daily_sequence_begins_with_earliest_qualified_match():
     third = _admitted_football(403, probability=.90, start_hours=9)
     assert [choice.signal.key for choice in daily3_choices([third, second, first], now=NOW)] == [
         '401:RESULT_HOME', '402:RESULT_HOME', '403:RESULT_HOME']
+
+
+def test_choice_carries_reservation_minimum_and_admitted_offer_without_changing_selection():
+    signal = _admitted_football()  # Offer 1.80 from the shared fixture, forecast minimum 2.00.
+    choice, = daily3_choices([signal], now=NOW)
+    assert choice.minimum_odds == 2.0 and choice.offer_odds == 1.8 and choice.price_blocked
+    cheaper, = daily3_choices([replace(signal, minimum_odds=1.5)], now=NOW)
+    assert cheaper.minimum_odds == 1.5 and not cheaper.price_blocked
+    floored, = daily3_choices([replace(signal, minimum_odds=1.05)], now=NOW)
+    assert floored.minimum_odds == 1.2 and not floored.price_blocked  # The 1.20 floor still applies.
+    unknown, = daily3_choices([replace(signal, minimum_odds=None)], now=NOW)
+    assert unknown.minimum_odds is None and unknown.price_blocked  # Fail-closed, never silently 1.20.
+    assert {c.signal.key for c in (choice, cheaper, floored, unknown)} == {signal.key}
+    assert 'minimum_odds' not in choice.snapshot() and 'offer_odds' not in choice.snapshot()

@@ -79,7 +79,8 @@ def _render_pool(db_path, count, extreme_probability=False):
     pool = [football(1), football(2, 'BTTS_YES', start_hours=6), football(3, 'HOME_OVER_0_5', start_hours=9)][:count]
     if extreme_probability:
         pool = [football(1, probability=0.999999)]
-    pool = [priced(signal, (1.8,)*3) for signal in pool]
+    from dataclasses import replace
+    pool = [replace(priced(signal, (1.8,)*3), minimum_odds=1.5) for signal in pool]  # Offer above the choice minimum.
     render_daily3(st, now=NOW, snapshot_loader=lambda **kw: SimpleNamespace(forecasts=pool),
                   store_factory=lambda: Daily3Store(db_path, key=b'q'*32, clock=lambda: NOW))
 
@@ -97,7 +98,8 @@ def _render_probability_sequence(db_path):
     pool = [football(1, probability=.75, start_hours=3),
             football(2, probability=.80, start_hours=6),
             football(3, probability=.90, start_hours=9)]
-    pool = [priced(signal, (1.8,)*3) for signal in pool]
+    from dataclasses import replace
+    pool = [replace(priced(signal, (1.8,)*3), minimum_odds=1.5) for signal in pool]  # Offer above the choice minimum.
     with patch('tip_publication.DEFAULT_HISTORY_DB', Path(db_path).with_suffix('.tips.db')), \
          patch('tip_publication.DEFAULT_FORECAST_DB', Path(db_path).with_suffix('.absent.db')), \
          patch('consumer_tip_history._now', lambda: NOW):
@@ -190,7 +192,7 @@ def _render(db_path, missing_identity=False, price_state=None):
     def loader(**kwargs):
         st.session_state['snapshot_loads'] = st.session_state.get('snapshot_loads', 0)+1
         probability = .8 if st.session_state.get('changed_model') else .75
-        signal = priced(football(probability=probability), (1.8,)*3)
+        signal = replace(priced(football(probability=probability), (1.8,)*3), minimum_odds=1.2)  # Flow tests reserve at the floor.
         if price_state in ('too_low', 'stale'):
             observed_at = NOW - timedelta(hours=2) if price_state == 'stale' else NOW
             offer = 1.50 if price_state == 'stale' else 1.12
@@ -376,3 +378,53 @@ def test_day_close_does_not_hide_pending_real_bet_or_refill(tmp_path):
     assert any(button.label == 'Als platziert bestätigen' for button in app.button)
     assert not any(button.label == 'CHF 50 Tagesbudget bestätigen' for button in app.button)
     assert any(m.label == 'Verfügbar' and m.value == 'CHF 0.00' for m in app.metric)
+
+
+def _render_priced(db_path, minimum, offer):
+    import streamlit as st
+    from dataclasses import replace
+    from types import SimpleNamespace
+    from test_daily3_selection import NOW, football
+    from test_publication_odds_floor import priced
+    from daily3_ui import render_daily3
+    from daily3_store import Daily3Store
+    st.session_state['_betboy_account_scope'] = 'a'*32
+    pool = [replace(priced(football(), (offer,)*3), minimum_odds=minimum)]
+    render_daily3(st, now=NOW, snapshot_loader=lambda **kw: SimpleNamespace(forecasts=pool),
+                  store_factory=lambda: Daily3Store(db_path, key=b'q'*32, clock=lambda: NOW))
+
+
+def test_offer_below_the_choice_minimum_blocks_reservation_but_keeps_the_forecast_visible(tmp_path):
+    app = AppTest.from_function(_render_priced, args=(str(tmp_path/'blocked.db'), 2.0, 1.8)).run(timeout=30)
+    assert not app.exception
+    assert any('Heimteam 1' in item.value and 'se-match' in item.value for item in app.markdown)
+    assert any('Mindestquote 2,00' in item.value and 'beobachtete Quote 1,80' in item.value for item in app.warning)
+    _button(app, 'CHF 50 Tagesbudget bestätigen').click().run()
+    assert not app.exception
+    assert not any(button.label == 'Einsatz vormerken' for button in app.button)
+
+
+def test_entered_quote_below_the_choice_minimum_is_rejected_without_budget_debit(tmp_path):
+    app = AppTest.from_function(_render_priced, args=(str(tmp_path/'minimum.db'), 1.5, 1.8)).run(timeout=30)
+    assert not app.exception
+    assert any('Mindestquote für diese Auswahl: 1,50' in item.value for item in app.caption)
+    _button(app, 'CHF 50 Tagesbudget bestätigen').click().run()
+    _field(app, 'text_input', 'stake:').set_value('20')
+    _field(app, 'text_input', 'odds:').set_value('1,30')
+    _field(app, 'checkbox', 'exact:').check()
+    _button(app, 'Einsatz vormerken').click().run()
+    assert not app.exception
+    assert any('unter der Mindestquote 1,50' in error.value for error in app.error)
+    assert any(m.label == 'Verfügbar' and m.value == 'CHF 50.00' for m in app.metric)
+
+
+def test_entered_quote_at_the_choice_minimum_is_accepted(tmp_path):
+    app = AppTest.from_function(_render_priced, args=(str(tmp_path/'accepted.db'), 1.5, 1.8)).run(timeout=30)
+    _button(app, 'CHF 50 Tagesbudget bestätigen').click().run()
+    _field(app, 'text_input', 'stake:').set_value('20')
+    _field(app, 'text_input', 'odds:').set_value('1,50')
+    _field(app, 'checkbox', 'exact:').check()
+    _button(app, 'Einsatz vormerken').click().run()
+    assert not app.exception
+    assert not any('Mindestquote' in error.value for error in app.error)
+    assert any(m.label == 'Verfügbar' and m.value == 'CHF 30.00' for m in app.metric)

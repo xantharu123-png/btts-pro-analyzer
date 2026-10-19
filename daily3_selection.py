@@ -6,14 +6,19 @@ two-percentage-point change is not necessary for a defensive day selection.
 Haircut, odds, RELEASED flags, target profit and account money are not ranking
 inputs. After coherent model selection, a real exactly matched offer from 1.20
 is required. Unknown prices remain background-only; admitted prices do not change ranking.
+Each choice additionally carries its own risk-adjusted minimum odds and the admitted
+offer. Both are reservation and display information only, never a selection input:
+real money may only be reserved at or above that minimum (audit 2026-10-16, K4).
 Time admission checks each actual leg, not imaginary future bets. Published choices are
 chronological planning, not guaranteed match durations or future cash credits.
 """
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import math
 from zoneinfo import ZoneInfo
 
+from betting_math import MINIMUM_RECOMMENDED_DECIMAL_ODDS
 from challenge_engine import MARKET_BY_KEY
 from daily3_identity import event_guard, events_overlap
 from daily3_comparison import Comparison, daily3_comparison
@@ -22,7 +27,7 @@ from forecast_analysis import (DAILY_MODEL_HIGHLIGHT_MAX_AGE, build_forecast_ana
     football_context_highlight_reason, forecast_highlight_reason, read_football_analysis)
 from forecast_selection import select_consumer_forecasts
 from forecast_price_checks import has_current_price_check
-from quote_publication import publication_allowed
+from quote_publication import publication_quote
 from selection_coherence import consumer_event_identity
 
 POLICY_VERSION = 'daily3-defensive-day-sequence-checked-prices-v13'
@@ -45,6 +50,14 @@ class Daily3Choice:
     start: datetime
     family: str
     comparison: Comparison
+    # Reservation/display facts, never selection inputs (see module docstring).
+    minimum_odds: float | None = None
+    offer_odds: float | None = None
+
+    @property
+    def price_blocked(self) -> bool:
+        """No real-money reservation without a credible minimum met by the admitted offer."""
+        return self.minimum_odds is None or self.offer_odds is None or self.offer_odds < self.minimum_odds
 
     def snapshot(self):
         s = self.signal
@@ -61,6 +74,26 @@ def _clock(value):
         return instant.astimezone(timezone.utc) if instant.tzinfo and instant.utcoffset() is not None else None
     except (TypeError, ValueError, OverflowError):
         return None
+
+
+def reservation_minimum_odds(signal):
+    """Stricter of the 1.20 floor and the forecast's own risk-adjusted minimum.
+
+    The forecast minimum is the price at which the cautious model probability
+    (model minus haircut) reaches the 3 % risk-adjusted ROI target. An unknown
+    minimum stays unknown; it is never replaced by the floor (fail-closed).
+    """
+    minimum = getattr(signal, 'minimum_odds', None)
+    if (isinstance(minimum, bool) or not isinstance(minimum, (int, float))
+            or not math.isfinite(minimum) or minimum <= 1.0):
+        return None
+    return round(max(float(MINIMUM_RECOMMENDED_DECIMAL_ODDS), float(minimum)), 2)
+
+
+def admitted_offer_odds(signal, *, now):
+    """Best current exact real offer behind the publication proof, or None."""
+    quote = publication_quote(getattr(signal, 'reference_quote', None), candidate=signal, now=now)
+    return None if quote is None else max(point.odds for point in quote.points)
 
 
 def _explanation(signal, sport, now):
@@ -97,7 +130,8 @@ def daily3_choices(signals, *, now, occupied_events=(), occupied_guards=(), used
     for s in select_consumer_forecasts(signals, now=now):
         if not has_current_price_check(s, now=now):
             continue
-        if not publication_allowed(s.reference_quote, candidate=s, now=now):
+        offer = admitted_offer_odds(s, now=now)
+        if offer is None:
             continue
         sport = _SPORTS.get(str(s.sport or '').strip().casefold())
         start, sampled = _clock(s.scheduled_start), _clock(s.modeled_at)
@@ -117,7 +151,8 @@ def daily3_choices(signals, *, now, occupied_events=(), occupied_guards=(), used
             continue
         spec = MARKET_BY_KEY.get(s.market_key) if sport == 'football' else None
         family = spec.kind if spec else s.market_key
-        prepared.append(Daily3Choice(s, event, sport, *explanation, sampled, start, family, comparison))
+        prepared.append(Daily3Choice(s, event, sport, *explanation, sampled, start, family, comparison,
+                                     reservation_minimum_odds(s), offer))
     unique = prepared
     selected, sport_count, family_count = [], Counter(), Counter()
     while unique and len(selected) < max(0, 3-used_slots):

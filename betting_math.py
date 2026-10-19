@@ -42,12 +42,13 @@ class ValueMetrics:
 
 @dataclass(frozen=True)
 class NoVigMarket:
-    """Proportional no-vig probabilities for one complete outcome market."""
+    """No-vig probabilities for one complete outcome market (see ``method``)."""
 
     odds: tuple[float, ...]
     raw_implied_probabilities: tuple[float, ...]
     no_vig_probabilities: tuple[float, ...]
     overround: float
+    method: str = "proportional"
 
 
 def validate_probability_percent(probability: float) -> float:
@@ -183,13 +184,7 @@ def minimum_recommendation_odds(
     return max(publication_floor, mathematical_minimum)
 
 
-def proportional_no_vig_market(odds: Iterable[float]) -> NoVigMarket:
-    """Remove bookmaker margin proportionally from a complete market.
-
-    The output is a market benchmark, never a substitute for the model.
-    At least two mutually exclusive and exhaustive outcome prices are needed.
-    """
-
+def _validated_market_prices(odds: Iterable[float]) -> tuple[tuple[float, ...], tuple[float, ...], float]:
     prices = tuple(validate_decimal_odds(price) for price in odds)
     if len(prices) < 2:
         raise BettingMathError("A no-vig market needs at least two prices")
@@ -197,13 +192,113 @@ def proportional_no_vig_market(odds: Iterable[float]) -> NoVigMarket:
     overround = sum(raw)
     if not math.isfinite(overround) or overround <= 0.0:
         raise BettingMathError("Market overround is invalid")
+    return prices, raw, overround
+
+
+def proportional_no_vig_market(odds: Iterable[float]) -> NoVigMarket:
+    """Remove bookmaker margin proportionally from a complete market.
+
+    The output is a market benchmark, never a substitute for the model.
+    At least two mutually exclusive and exhaustive outcome prices are needed.
+    Proportional removal ignores the favourite-longshot bias and therefore
+    overstates outsider probabilities; prefer ``shin`` (three or more
+    outcomes) or ``power`` (two outcomes) for a fair-value benchmark.
+    """
+
+    prices, raw, overround = _validated_market_prices(odds)
     normalized = tuple(probability / overround for probability in raw)
     return NoVigMarket(
         odds=prices,
         raw_implied_probabilities=raw,
         no_vig_probabilities=normalized,
         overround=overround,
+        method="proportional",
     )
+
+
+def _bisect_root(total, low: float, high: float, *, iterations: int = 200) -> float:
+    """Root of a decreasing function on [low, high] where total(low) > 0 > total(high)."""
+    for _ in range(iterations):
+        mid = 0.5 * (low + high)
+        if total(mid) > 0.0:
+            low = mid
+        else:
+            high = mid
+    return 0.5 * (low + high)
+
+
+def shin_no_vig_market(odds: Iterable[float]) -> NoVigMarket:
+    """Shin (1993) no-vig: the insider share ``z`` corrects the longshot bias.
+
+    With ``q_i = 1/odds_i`` and ``B = sum(q_i)`` the fair probabilities are
+    ``p_i = (sqrt(z^2 + 4(1-z) q_i^2 / B) - z) / (2(1-z))``; ``z`` in [0, 1)
+    is solved so that the probabilities sum to one. A margin-free market
+    returns the raw implied probabilities unchanged.
+    """
+
+    prices, raw, overround = _validated_market_prices(odds)
+    if overround <= 1.0 + 1e-12:
+        normalized = tuple(q / overround for q in raw)
+        return NoVigMarket(prices, raw, normalized, overround, "shin")
+
+    def probabilities(z: float) -> tuple[float, ...]:
+        return tuple(
+            (math.sqrt(z * z + 4.0 * (1.0 - z) * q * q / overround) - z) / (2.0 * (1.0 - z))
+            for q in raw
+        )
+
+    def total(z: float) -> float:
+        return sum(probabilities(z)) - 1.0
+
+    high = 1.0 - 1e-9
+    if total(high) > 0.0:  # Degenerate market: no insider share explains the margin.
+        normalized = tuple(q / overround for q in raw)
+        return NoVigMarket(prices, raw, normalized, overround, "shin")
+    z = _bisect_root(total, 0.0, high)
+    fitted = probabilities(z)
+    mass = sum(fitted)
+    return NoVigMarket(prices, raw, tuple(p / mass for p in fitted), overround, "shin")
+
+
+def power_no_vig_market(odds: Iterable[float]) -> NoVigMarket:
+    """Power no-vig: ``p_i = q_i ** k`` with ``k >= 1`` solved so the sum is one.
+
+    Like Shin it removes more margin from longshots than from favourites and
+    is the usual choice for two-way markets (totals, handicaps).
+    """
+
+    prices, raw, overround = _validated_market_prices(odds)
+    if overround <= 1.0 + 1e-12:
+        normalized = tuple(q / overround for q in raw)
+        return NoVigMarket(prices, raw, normalized, overround, "power")
+
+    def total(k: float) -> float:
+        return sum(q ** k for q in raw) - 1.0
+
+    high = 2.0
+    while total(high) > 0.0 and high < 1e6:
+        high *= 2.0
+    if total(high) > 0.0:
+        normalized = tuple(q / overround for q in raw)
+        return NoVigMarket(prices, raw, normalized, overround, "power")
+    k = _bisect_root(total, 1.0, high)
+    fitted = tuple(q ** k for q in raw)
+    mass = sum(fitted)
+    return NoVigMarket(prices, raw, tuple(p / mass for p in fitted), overround, "power")
+
+
+NO_VIG_METHODS = ("proportional", "shin", "power")
+
+
+def no_vig_market(odds: Iterable[float], method: str = "proportional") -> NoVigMarket:
+    """Dispatch to one named margin-removal method (benchmark use only)."""
+    if method == "proportional":
+        return proportional_no_vig_market(odds)
+    if method == "shin":
+        return shin_no_vig_market(odds)
+    if method == "power":
+        return power_no_vig_market(odds)
+    raise BettingMathError(f"Unknown no-vig method: {method!r}")
 
 
 def evaluate_market_price(
