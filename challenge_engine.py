@@ -1341,7 +1341,7 @@ def _fixture_model(
     if goal_model == GOAL_MODEL_DIXON_COLES:
         if include_provenance:
             raise ValueError("ORIGINAL provenance is bound to the legacy goal model")
-        from football_dixon_coles import DixonColesUnavailable, fit_for_fixture
+        from football_dixon_coles import DixonColesUnavailable, clamp_rho, fit_for_fixture
         try:
             fit = fit_for_fixture(fixture, history)
             dc_home, dc_away = fit.rates(
@@ -1350,10 +1350,14 @@ def _fixture_model(
         except DixonColesUnavailable:
             return None  # Fail closed: the opt-in path never falls back to the legacy basis.
         # One jointly fitted law replaces all three legacy variants; the legacy
-        # season/form disagreement does not exist for it (spread = 0).
+        # season/form disagreement does not exist for it (spread = 0). The
+        # fitted rho is projected into the range valid for these two rates.
         active_home = season_home = form_home = dc_home
         active_away = season_away = form_away = dc_away
-        goal_model_info = {"goal_model": GOAL_MODEL_DIXON_COLES, "rho": fit.rho, "dixon_coles": fit.summary()}
+        goal_model_info = {
+            "goal_model": GOAL_MODEL_DIXON_COLES, "rho": clamp_rho(fit.rho, dc_home, dc_away),
+            "fitted_rho": fit.rho, "dixon_coles": fit.summary(),
+        }
     model = {
         "active_lambdas": (active_home, active_away),
         "season_lambdas": (season_home, season_away),

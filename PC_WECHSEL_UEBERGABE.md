@@ -1,5 +1,20 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## 19.10.2026 – Claude-Audit-Reparaturen auf Branch `claude/audit-repairs-20261019`
+
+Eigener Worktree `.worktrees/claude-audit-repairs-20261019` von `origin/main` @ `be5e441`;
+Hauptcheckout und Codex-Worktree unberührt, nichts gepusht oder deployt. Protokoll:
+`docs/audits/2026-10-19-audit-reparaturen.md`; Einstieg für Agenten: `AGENTS.md`.
+Umgesetzt: Daily3-Mindestquote und Angebot je Auswahl (Vormerk-Gate nur mit
+`BETBOY_DAILY3_RESERVATION_MINIMUM=1`, Default = Nutzerregel vom 17.10.), Mindestquote
+und Preisstatus auf der gemeinsamen Karte, Shin/Power-De-Vig, Marktbenchmark Modell vs.
+No-Vig-Closing (`scripts/market_benchmark_report.py`, Bericht
+`docs/audits/2026-10-19-marktbenchmark.md`), Dixon-Coles-MLE als Opt-in
+(`goal_model="dixon_coles"`, Default byteidentisch; Vergleich
+`docs/audits/2026-10-19-dixon-coles-vergleich.md`). Tests: 529 + 395 + 580 + 274 + 19
+gezielt grün (Windows); kein Linux-Volllauf. Offen für den Owner: Flag-Entscheidung
+Daily3, Karte behalten oder zurücknehmen, Merge nach Codex' laufender Arbeit.
+
 ## 18.10.2026 – Spezifikation freigegeben, Plan erstellt; noch kein Produktpatch
 
 Aktuelle ausdrückliche Antwort: „Spezifikation freigegeben; Umsetzungsplan erstellen“.

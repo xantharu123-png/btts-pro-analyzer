@@ -11,7 +11,7 @@ from account_identity import AccountScopeUnavailable, storage_scope
 from betting_math import MINIMUM_RECOMMENDED_DECIMAL_ODDS
 from daily3_math import Daily3Error, decimal_odds, format_chf, parse_chf
 from daily3_identity import event_guard
-from daily3_selection import MIN_MODEL_PROBABILITY, daily3_choices
+from daily3_selection import MIN_MODEL_PROBABILITY, daily3_choices, reservation_minimum_enforced
 from daily3_schedule import pending_ready_at, planning_allowance
 from daily3_store import Daily3Store, day_balance, expected_return_cents, payout_needs_confirmation
 from forecast_compact import render_compact_analysis_html
@@ -28,6 +28,8 @@ def _odds_text(value):
 
 def _reservation_block_reason(choice):
     """Why real money may not be reserved on this choice right now ('' = allowed)."""
+    if not reservation_minimum_enforced():
+        return ''
     if choice.minimum_odds is None:
         return 'Für diese Auswahl liegt keine belastbare Mindestquote vor. Keine Vormerkung.'
     if choice.price_blocked:
@@ -42,6 +44,8 @@ def _require_reservation_price(choice, entered):
     reason = _reservation_block_reason(choice)
     if reason:
         raise Daily3Error(reason)
+    if not reservation_minimum_enforced():
+        return
     odds = Decimal(decimal_odds(entered))
     if Decimal(str(MINIMUM_RECOMMENDED_DECIMAL_ODDS)) <= odds < Decimal(f'{choice.minimum_odds:.2f}'):
         raise Daily3Error(f'Die angegebene Quote {_odds_text(odds)} liegt unter der Mindestquote '
@@ -334,10 +338,14 @@ def render_daily3(st, *, snapshot_loader=None, store_factory=None, now=None):
             block_reason = _reservation_block_reason(choice)
             if block_reason:
                 st.warning(block_reason)
-            else:
+            elif reservation_minimum_enforced():
                 st.caption(f'Mindestquote für diese Auswahl: {_odds_text(choice.minimum_odds)} · zuletzt beobachtet '
                            f'{_odds_text(choice.offer_odds)}. Preis, ab dem die vorsichtige Modellrechnung 3 % '
                            'Risiko-Erwartungswert erreicht; keine erwartete Buchmacherquote.')
+            else:
+                st.caption(f'Deine Mindestquote für eine tatsächliche Wette: 1,20 · rechnerische Mindestquote dieser '
+                           f'Auswahl {_odds_text(choice.minimum_odds)} · zuletzt beobachtet {_odds_text(choice.offer_odds)}. '
+                           'Die rechnerische Mindestquote ist eine Information, keine Sperre.')
             if can_reserve and index == 0 and not block_reason:
                 with st.form('d3-reserve:'+key):
                     _money_input(st, 'Eigener Einsatz in CHF', 'stake:'+key)

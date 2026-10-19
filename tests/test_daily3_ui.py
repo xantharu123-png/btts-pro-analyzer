@@ -394,7 +394,8 @@ def _render_priced(db_path, minimum, offer):
                   store_factory=lambda: Daily3Store(db_path, key=b'q'*32, clock=lambda: NOW))
 
 
-def test_offer_below_the_choice_minimum_blocks_reservation_but_keeps_the_forecast_visible(tmp_path):
+def test_offer_below_the_choice_minimum_blocks_reservation_but_keeps_the_forecast_visible(tmp_path, monkeypatch):
+    monkeypatch.setenv('BETBOY_DAILY3_RESERVATION_MINIMUM', '1')
     app = AppTest.from_function(_render_priced, args=(str(tmp_path/'blocked.db'), 2.0, 1.8)).run(timeout=30)
     assert not app.exception
     assert any('Heimteam 1' in item.value and 'se-match' in item.value for item in app.markdown)
@@ -404,7 +405,8 @@ def test_offer_below_the_choice_minimum_blocks_reservation_but_keeps_the_forecas
     assert not any(button.label == 'Einsatz vormerken' for button in app.button)
 
 
-def test_entered_quote_below_the_choice_minimum_is_rejected_without_budget_debit(tmp_path):
+def test_entered_quote_below_the_choice_minimum_is_rejected_without_budget_debit(tmp_path, monkeypatch):
+    monkeypatch.setenv('BETBOY_DAILY3_RESERVATION_MINIMUM', '1')
     app = AppTest.from_function(_render_priced, args=(str(tmp_path/'minimum.db'), 1.5, 1.8)).run(timeout=30)
     assert not app.exception
     assert any('Mindestquote für diese Auswahl: 1,50' in item.value for item in app.caption)
@@ -418,7 +420,8 @@ def test_entered_quote_below_the_choice_minimum_is_rejected_without_budget_debit
     assert any(m.label == 'Verfügbar' and m.value == 'CHF 50.00' for m in app.metric)
 
 
-def test_entered_quote_at_the_choice_minimum_is_accepted(tmp_path):
+def test_entered_quote_at_the_choice_minimum_is_accepted(tmp_path, monkeypatch):
+    monkeypatch.setenv('BETBOY_DAILY3_RESERVATION_MINIMUM', '1')
     app = AppTest.from_function(_render_priced, args=(str(tmp_path/'accepted.db'), 1.5, 1.8)).run(timeout=30)
     _button(app, 'CHF 50 Tagesbudget bestätigen').click().run()
     _field(app, 'text_input', 'stake:').set_value('20')
@@ -427,4 +430,19 @@ def test_entered_quote_at_the_choice_minimum_is_accepted(tmp_path):
     _button(app, 'Einsatz vormerken').click().run()
     assert not app.exception
     assert not any('Mindestquote' in error.value for error in app.error)
+    assert any(m.label == 'Verfügbar' and m.value == 'CHF 30.00' for m in app.metric)
+
+
+def test_without_the_flag_the_minimum_is_informational_and_the_owner_rule_applies(tmp_path, monkeypatch):
+    monkeypatch.delenv('BETBOY_DAILY3_RESERVATION_MINIMUM', raising=False)
+    app = AppTest.from_function(_render_priced, args=(str(tmp_path/'rule.db'), 2.0, 1.8)).run(timeout=30)
+    assert not app.exception and not app.warning
+    assert any('rechnerische Mindestquote dieser Auswahl 2,00' in item.value and 'keine Sperre' in item.value
+               for item in app.caption)
+    _button(app, 'CHF 50 Tagesbudget bestätigen').click().run()
+    _field(app, 'text_input', 'stake:').set_value('20')
+    _field(app, 'text_input', 'odds:').set_value('1,30')
+    _field(app, 'checkbox', 'exact:').check()
+    _button(app, 'Einsatz vormerken').click().run()
+    assert not app.exception and not any('Mindestquote' in error.value for error in app.error)
     assert any(m.label == 'Verfügbar' and m.value == 'CHF 30.00' for m in app.metric)

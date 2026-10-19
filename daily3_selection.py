@@ -76,6 +76,21 @@ def _clock(value):
         return None
 
 
+RESERVATION_MINIMUM_FLAG = 'BETBOY_DAILY3_RESERVATION_MINIMUM'
+
+
+def reservation_minimum_enforced() -> bool:
+    """Whether a real-money reservation must meet the choice's own minimum odds.
+
+    Audit 2026-10-16 K4 recommends the gate; the owner's recorded product rule
+    of 2026-10-17 keeps Daily3 without an EV price release (1.20 floor only).
+    The minimum and the admitted offer are always shown; enforcement is opt-in
+    via the environment until the owner decides (``=1`` enables it).
+    """
+    import os
+    return os.environ.get(RESERVATION_MINIMUM_FLAG, '0').strip() == '1'
+
+
 def reservation_minimum_odds(signal):
     """Stricter of the 1.20 floor and the forecast's own risk-adjusted minimum.
 

@@ -10,6 +10,9 @@ Gewinnzusagen; Softwaretests belegen keine Überrendite.
   `codex/audit-repairs-20261013`. Der ältere Hauptcheckout enthält fremde WIP.
 - **Aktueller Abgleich:** [Audit vom 17.10.2026](docs/audits/2026-10-17-claude-gegenpruefung.md).
 - **Aufbau, Start und Prüfung:** [ARCHITECTURE.md](ARCHITECTURE.md).
+- **Arbeitsregeln für Codex/Claude und Audit-Stand:** [AGENTS.md](AGENTS.md); Reparatur-Branch
+  `claude/audit-repairs-20261019` (Worktree `.worktrees/claude-audit-repairs-20261019`),
+  Protokoll [docs/audits/2026-10-19-audit-reparaturen.md](docs/audits/2026-10-19-audit-reparaturen.md).
 - **Restarbeiten:** jeweils oberster datierter Abschnitt in
   [TODO_AKTUELL.md](TODO_AKTUELL.md). Darunter steht historische Evidenz,
   keine zusätzliche aktuelle Freigabe.

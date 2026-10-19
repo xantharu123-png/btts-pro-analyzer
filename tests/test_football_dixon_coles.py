@@ -139,3 +139,15 @@ def test_fit_for_fixture_uses_only_matches_before_the_kickoff_day():
     assert fit.cutoff == kickoff.replace(hour=0, minute=0, second=0, microsecond=0)
     assert fit.matches == sum(1 for row in rows if row.played_at < fit.cutoff)
     assert fit_for_fixture(target, fixtures) is fit  # Cached per league, day and history.
+
+
+def test_rho_is_projected_into_the_range_valid_for_extreme_rates():
+    from football_dixon_coles import clamp_rho, valid_rho_range
+    lower, upper = valid_rho_range(5.0, 0.8)
+    assert lower == pytest.approx(-0.2, abs=1e-5) and upper == pytest.approx(0.25, abs=1e-5)
+    assert clamp_rho(-0.25, 5.0, 0.8) == pytest.approx(lower)
+    assert clamp_rho(-0.05, 5.0, 0.8) == -0.05
+    law = engine.score_matrix(5.0, 0.8, rho=clamp_rho(-0.25, 5.0, 0.8))
+    assert math.isclose(sum(law.values()), 1.0, abs_tol=1e-12) and all(v >= 0 for v in law.values())
+    with pytest.raises(ValueError):
+        engine.score_matrix(5.0, 0.8, rho=-0.25)

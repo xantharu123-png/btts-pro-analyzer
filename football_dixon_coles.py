@@ -94,7 +94,8 @@ class DixonColesFit:
     def score_matrix(self, home_id: int, away_id: int, *, max_goals: int = 25,
                      home_effect_known: bool = True) -> dict[tuple[int, int], float]:
         home_rate, away_rate = self.rates(home_id, away_id, home_effect_known=home_effect_known)
-        return dixon_coles_score_matrix(home_rate, away_rate, self.rho, max_goals=max_goals)
+        return dixon_coles_score_matrix(home_rate, away_rate, clamp_rho(self.rho, home_rate, away_rate),
+                                        max_goals=max_goals)
 
     def summary(self) -> dict[str, Any]:
         return {
@@ -123,6 +124,26 @@ def tau_correction(home_goals: int, away_goals: int, home_rate: float, away_rate
     if home_goals == 1 and away_goals == 1:
         return 1.0 - rho
     return 1.0
+
+
+def valid_rho_range(home_rate: float, away_rate: float, *, margin: float = 1e-6) -> tuple[float, float]:
+    """Open interval of ``rho`` keeping every low-score correction factor positive.
+
+    ``tau(1,0) = 1 + mu*rho`` and ``tau(0,1) = 1 + lambda*rho`` bound rho from
+    below by ``-1/max(lambda, mu)``; ``tau(0,0) = 1 - lambda*mu*rho`` bounds it
+    from above by ``1/(lambda*mu)``; ``tau(1,1) = 1 - rho`` needs ``rho < 1``.
+    """
+    top = max(float(home_rate), float(away_rate))
+    product = float(home_rate) * float(away_rate)
+    lower = (-1.0 / top + margin) if top > 0.0 else -1.0 + margin
+    upper = min(1.0 - margin, (1.0 / product - margin) if product > 0.0 else 1.0 - margin)
+    return max(lower, -1.0 + margin), upper
+
+
+def clamp_rho(rho: float, home_rate: float, away_rate: float) -> float:
+    """Fitted rho projected into the valid range for one fixture's rates."""
+    lower, upper = valid_rho_range(home_rate, away_rate)
+    return min(max(float(rho), lower), upper)
 
 
 def _poisson_pmf(rate: float, max_goals: int) -> list[float]:
@@ -339,6 +360,7 @@ def fit_for_fixture(fixture: dict[str, Any], league_history: Iterable[dict[str, 
 
 __all__ = [
     "DC_VERSION", "DEFAULT_HALF_LIFE_DAYS", "DixonColesFit", "DixonColesMatch", "DixonColesUnavailable",
-    "MIN_MATCHES", "MIN_TEAM_MATCHES", "RHO_BOUNDS", "decay_weights", "dixon_coles_score_matrix",
+    "MIN_MATCHES", "MIN_TEAM_MATCHES", "RHO_BOUNDS", "clamp_rho", "decay_weights", "dixon_coles_score_matrix",
     "fit_dixon_coles", "fit_for_fixture", "matches_from_fixtures", "negative_log_likelihood", "tau_correction",
+    "valid_rho_range",
 ]
