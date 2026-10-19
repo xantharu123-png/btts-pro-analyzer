@@ -167,7 +167,37 @@ mit dem Markt plus Edge-Kappung; beides nur mit vorab definierter Hypothese.
 
 ### Dixon-Coles-Vergleich (`docs/audits/2026-10-19-dixon-coles-vergleich.md`)
 
-Wird nach Abschluss des Terminal-Laufs ergänzt.
+14 Ligen, gleiche Saisons, 29 512 gemeinsam prognostizierte Spiele (Dixon-Coles fällt
+bei Teams mit weniger als vier Spielen im 730-Tage-Fenster aus, z. B. Aufsteiger zu
+Saisonbeginn; Legacy 33 304 Prognosen, DC 29 512). Beide Modelle roh (unkalibriert),
+Halbwertszeit 120 Tage, Laufzeit 2388 s.
+
+| Markt (14 Zellen) | Brier DC | Brier Legacy | Vorteil DC−Legacy | DC schlechter | DC signifikant besser (q ≤ 0,05) |
+|---|---:|---:|---:|---:|---:|
+| Heimsieg | 0,2223 | 0,2287 | +0,0064 | 2/14 | 9 |
+| Remis | 0,1896 | 0,1898 | +0,0001 | 8/14 | 0 |
+| Auswärtssieg / DC 1X | 0,1954 | 0,2007 | +0,0053 | 3/14 | 8 |
+| BTTS Ja/Nein | 0,2526 | 0,2480 | −0,0046 | 14/14 | 0 |
+| Über/Unter 2,5 | 0,2516 | 0,2469 | −0,0047 | 13/14 | 0 |
+| Über 1,5 / Unter 3,5 | 0,1858 / 0,2067 | 0,1820 / 0,2026 | −0,0038 / −0,0041 | 13–14/14 | 0 |
+| Teamtore (über 0,5, unter 1,5) | ≈ gleich | ≈ gleich | −0,001 bis +0,001 | 3–8/14 | 1–3 |
+
+Alle 40 Tormärkte × 14 Ligen: 560 Zellen, DC in 52 signifikant besser, in 346 im Mittel
+schlechter. Gefittete ρ je Liga zwischen −0,25 (Griechenland, Türkei, am Rand der
+Schranke) und +0,06; Heimvorteil +0,11 bis +0,31 (log), plausibel.
+
+Gegen den No-Vig-Closing-Markt (gleiche 29 487 Spiele): Heimsieg Legacy −0,0156,
+DC −0,0093; Auswärtssieg Legacy −0,0132, DC −0,0079 (DC schliesst rund 40 % der Lücke
+zum Markt); Über/Unter 2,5 Legacy −0,0065, DC −0,0113 (DC vergrössert die Lücke).
+Beide Modelle bleiben in jeder Zelle hinter dem Markt.
+
+Lesart: Die multiplikative Gegnerbereinigung mit ρ verbessert die **Relativstärke**
+(Sieg/Niederlage) klar; das zeitgewichtete Niveau (Intercept, Halbwertszeit 120 Tage,
+effektiv rund eine Saison Gewicht) ist für das **absolute Torniveau** (Totals, BTTS)
+schlechter als der Liga-Prior der Legacy-Mittelwerte. Dixon-Coles ist in dieser
+Konfiguration kein Drop-in-Ersatz. Nächste vorab definierbare Hypothesen: längere
+Halbwertszeit oder getrennter Niveau-Prior für die Summe, DC nur für die
+Ergebnisfamilie, Walk-forward-Kalibrierung auf der DC-Basis.
 
 ## Nicht umgesetzt (braucht den Owner)
 

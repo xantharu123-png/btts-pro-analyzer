@@ -75,9 +75,12 @@ unter `runtime_state/market_benchmark/` ab (ignoriert). Berichte:
    (HAC-Untergrenze gegen den Markt > 0), erst nach Lektüre des Benchmark-Berichts.
 4. Entscheidungs-p als Log-Odds-Mischung mit dem Markt plus Edge-Cap statt festem
    Prozentpunkt-Haircut (Audit K3/H2); Haircut aus Schätzunsicherheit.
-5. Dixon-Coles nur aktivieren, wenn `docs/audits/2026-10-19-dixon-coles-vergleich.md`
-   einen signifikanten Vorteil zeigt; dann walk-forward-Validierung, Kalibrierung und
-   Pin-/ORIGINAL-Verträge für die neue Basis nachziehen.
+5. Dixon-Coles: Vergleich (`docs/audits/2026-10-19-dixon-coles-vergleich.md`) zeigt
+   klaren Vorteil bei 1X2/Doppelter Chance (9 von 14 Ligen signifikant), aber
+   Nachteil bei Totals/BTTS (13–14 von 14 Ligen). Nicht als Drop-in aktivieren. Nächste
+   vorab definierte Hypothesen: längere Halbwertszeit oder getrennter Niveau-Prior,
+   DC nur für die Ergebnisfamilie; danach Walk-forward-Kalibrierung, Pin-/ORIGINAL-
+   Verträge für die neue Basis.
 6. Tennis: Kalibrierung auf der gewetteten Population, `market_model_version` v2 als
    Default, Belagsregel durch vorregistrierte Ablation ersetzen.
 7. Hauptkarte/UX: Sportarten ohne Evidenzfreigabe aus der Standardansicht, Aussenseiter
