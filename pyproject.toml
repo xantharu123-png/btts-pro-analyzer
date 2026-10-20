@@ -1,0 +1,38 @@
+# Projektkonfiguration für Tests und Lint (Audit 16.10.2026, H8: reproduzierbare
+# Abhängigkeiten und minimale CI). Kein Build-Backend: das Projekt wird nicht
+# als Paket installiert, sondern aus dem Checkout-Root gestartet.
+
+[tool.pytest.ini_options]
+# rootdir bleibt der Checkout (diese Datei). pythonpath = "." sorgt dafür, dass
+# `pytest` und `python -m pytest` gleich funktionieren: tests/conftest.py importiert
+# Root-Module (tip_publication), die sonst nur mit `python -m` auf sys.path liegen.
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+# Bewusst minimale Regelauswahl, die auf dem heutigen Code grün ist. Erweiterungen
+# (Import-Hygiene, Stil, Komplexität) sind ein eigener, separat geprüfter Schritt.
+target-version = "py312"
+# extend-exclude behält Ruffs Standardausschlüsse (.git, __pycache__, .ruff_cache …).
+extend-exclude = [
+    ".worktrees",
+    ".venv",
+    ".portal-venv",
+    ".codex_test_venv",
+    "output",
+    "runtime_state",
+    ".pytest_tmp",
+    "Backup",
+]
+
+[tool.ruff.lint]
+# E9  = Syntax-/IO-Fehler, F63 = ungültige Vergleiche/Asserts,
+# F7  = fehlerhafte Statements (break/continue/return ausserhalb, yield in Modul …),
+# F82 = undefinierte Namen.
+select = ["E9", "F63", "F7", "F82"]
+
+[tool.ruff.lint.per-file-ignores]
+# Eingefrorene Funktionsauszüge aus Commit 5d5bab6 ohne eigene Imports; die
+# Globals liefert tests/test_tennis_shared_consumer.py beim Laden. F821 wäre dort
+# nur Rauschen (114 Treffer am 20.10.2026), der Rest des Repos bleibt unter F82.
+"tests/fixtures/*_5d5bab6.py" = ["F821"]
