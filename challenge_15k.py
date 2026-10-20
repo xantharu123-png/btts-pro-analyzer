@@ -84,6 +84,7 @@ from challenge_engine import (
     ticket_stress_probability,
 )
 from challenge_model_cache import load_model_artifact, save_model_artifact
+from cross_league_fdr import apply_cross_league_fdr
 from challenge_store import ChallengeLedger, SETTLEMENT_RULE_VERSION
 from config_loader import load_app_config
 from quote_publication import publication_allowed, latest_reference_quotes, quote_receipt, read_shared_quote_rows
@@ -806,6 +807,35 @@ def _cached_market_calibration(
     history: list[dict[str, Any]],
 ):
     return _cached_market_artifact(league_id, season, history)[1]
+
+
+CROSS_LEAGUE_FDR_FLAG = "BETBOY_CROSS_LEAGUE_FDR"
+
+
+def cross_league_fdr_enabled() -> bool:
+    """Whether BH-FDR runs once over leagues x markets (Audit 2026-10-16, M5).
+
+    Each per-league artifact adjusts its paired-loss p-values only within its
+    own market catalogue, while candidates are selected across every scanned
+    league.  Default on; ``BETBOY_CROSS_LEAGUE_FDR=0`` restores the
+    per-league families (previous behaviour).
+    """
+    import os
+    return os.environ.get(CROSS_LEAGUE_FDR_FLAG, "1").strip() != "0"
+
+
+def _family_adjusted_validations(
+    validations: dict[tuple[int, int], dict[str, Any]],
+) -> dict[tuple[int, int], dict[str, Any]]:
+    """Re-adjust one run's per-league validations over the whole family.
+
+    In-memory only: the result depends on the league set of this run and is
+    never written to the per-league model cache.  With the switch off the
+    input is returned unchanged.
+    """
+    if not validations or not cross_league_fdr_enabled():
+        return validations
+    return apply_cross_league_fdr(validations)
 
 
 class ChallengeDataProvider:
@@ -2617,6 +2647,9 @@ def scan_daily_challenge(
             season,
             history,
         )
+    # Audit 2026-10-16 M5: all leagues of this run are known here, so the
+    # BH family becomes leagues x markets before any candidate is built.
+    validations = _family_adjusted_validations(validations)
     if progress_cb:
         progress_cb(0.61, "Wahrscheinlichkeiten werden kalibriert")
     calibrations: dict[tuple[int, int], dict[str, Any]] = {}

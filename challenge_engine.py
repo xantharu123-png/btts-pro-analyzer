@@ -2355,8 +2355,11 @@ def _credible_statistical_release_validation(
         )
     ):
         return False
+    # The family is either this league's market catalog or, with the cross-league
+    # correction (cross_league_fdr.py), a whole multiple of it: leagues x markets.
     return bool(
-        metric.tested_hypotheses == len(MARKET_SPECS)
+        metric.tested_hypotheses >= len(MARKET_SPECS)
+        and metric.tested_hypotheses % len(MARKET_SPECS) == 0
         and -1.0 <= mean_advantage <= 1.0
         and 0.0 <= standard_error <= 1.0
         and lower_bound > 0.0
