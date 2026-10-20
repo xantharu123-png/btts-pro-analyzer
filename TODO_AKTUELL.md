@@ -16,8 +16,12 @@ gezielt grün (Windows); kein Linux-Volllauf. **Marktbenchmark-Ergebnis:** 14 Li
 33 275 Spiele mit Pinnacle-Closing, 0 von 112 Liga×Markt-Zellen schlagen den No-Vig-Markt;
 Preisgate-Replay 34 484 Wetten, ROI −5,5 % [−7,2; −3,6], CLV −1,0 % [−1,2; −0,8],
 Ø Modell−Markt +11 pp (Winner's Curse, Audit K2/K3). **Dixon-Coles-Vergleich:** 29 512 Spiele,
-1X2 klar besser (Heimsieg Brier 0,2223 vs. 0,2287, 9/14 Ligen signifikant), Totals/BTTS
-schlechter (13–14/14 Ligen); kein Drop-in, Halbwertszeit/Niveau-Prior als nächste Hypothese.
+1X2 klar besser, Totals/BTTS schlechter; Varianten 20.10.: Halbwertszeit 240/365 d hilft, Niveau-Prior
+nicht, Hybrid (DC Ergebnis + Legacy Tore) dominiert (56 sig. besser/32 schlechter von 560), kein Drop-in.
+Mischungsgewicht Modell/Markt out-of-sample 0,00; Edge-Cap 8 pp hebt Policy auf +0,8 % ROI (KI enthält 0).
+FDR über Ligen×Märkte aktiv (Engine-Gate angepasst). Rechtsfooter 18+/Spielsucht, Kundenzugang fail-closed bei
+gesetztem Portal-Token (VOR DEPLOY ENV PRÜFEN, deploy/README.md). CI quick/full, Lockfiles. Tennis-Populationsfit
+ohne nachweisbaren Vorteil (nur 2024 prüfbar). PR #1 auf GitHub, CI grün.
 Owner am 20.10.2026: Daily3-Gate aktiv, Karte mit Mindestquote/Preisstatus bleibt. Offen:
 Merge nach Codex' laufender Arbeit, Linux-Volllauf. Folgeauftrag Dixon-Coles-Niveau:
 `docs/superpowers/plans/2026-10-20-dixon-coles-niveau.md`.

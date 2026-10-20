@@ -79,12 +79,15 @@ unter `runtime_state/market_benchmark/` ab (ignoriert). Berichte:
    (HAC-Untergrenze gegen den Markt > 0), erst nach Lektüre des Benchmark-Berichts.
 4. Entscheidungs-p als Log-Odds-Mischung mit dem Markt plus Edge-Cap statt festem
    Prozentpunkt-Haircut (Audit K3/H2); Haircut aus Schätzunsicherheit.
-5. Dixon-Coles: Vergleich (`docs/audits/2026-10-19-dixon-coles-vergleich.md`) zeigt
-   klaren Vorteil bei 1X2/Doppelter Chance (9 von 14 Ligen signifikant), aber
-   Nachteil bei Totals/BTTS (13–14 von 14 Ligen). Nicht als Drop-in aktivieren. Nächste
-   vorab definierte Hypothesen: längere Halbwertszeit oder getrennter Niveau-Prior,
-   DC nur für die Ergebnisfamilie; danach Walk-forward-Kalibrierung, Pin-/ORIGINAL-
-   Verträge für die neue Basis.
+5. Dixon-Coles: H1 (Halbwertszeit 240/365 d) bestätigt, H2 (Niveau-Prior) widerlegt,
+   H3 Hybrid (DC für Ergebnismärkte, Legacy für Tormärkte) dominiert beide Modelle
+   (56 Zellen signifikant besser, 32 schlechter, von 560); Berichte
+   `docs/audits/2026-10-20-dixon-coles-*.md`. Kein Drop-in: für die Produktion fehlt eine
+   kohärente gemeinsame Verteilung beider Gesetze. Nächste Hypothese H4: venue-spezifische
+   Parameter im DC-Fit. Danach Walk-forward-Kalibrierung, Pin-/ORIGINAL-Verträge.
+   Mischungsgewicht Modell/Markt ist out-of-sample 0,00 (`2026-10-20-marktmischung.md`):
+   Entscheidungen sollten dem Markt folgen; der Edge-Cap 8 pp hebt die Policy von −5,5 %
+   auf +0,8 % ROI (Intervall enthält 0).
 6. Tennis: Kalibrierung auf der gewetteten Population, `market_model_version` v2 als
    Default, Belagsregel durch vorregistrierte Ablation ersetzen.
 7. Hauptkarte/UX: Sportarten ohne Evidenzfreigabe aus der Standardansicht, Aussenseiter

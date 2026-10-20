@@ -271,12 +271,48 @@ zum Markt); Über/Unter 2,5 Legacy −0,0065, DC −0,0113 (DC vergrössert die 
 Beide Modelle bleiben in jeder Zelle hinter dem Markt.
 
 Lesart: Die multiplikative Gegnerbereinigung mit ρ verbessert die **Relativstärke**
-(Sieg/Niederlage) klar; das zeitgewichtete Niveau (Intercept, Halbwertszeit 120 Tage,
-effektiv rund eine Saison Gewicht) ist für das **absolute Torniveau** (Totals, BTTS)
-schlechter als der Liga-Prior der Legacy-Mittelwerte. Dixon-Coles ist in dieser
-Konfiguration kein Drop-in-Ersatz. Nächste vorab definierbare Hypothesen: längere
-Halbwertszeit oder getrennter Niveau-Prior für die Summe, DC nur für die
-Ergebnisfamilie, Walk-forward-Kalibrierung auf der DC-Basis.
+(Sieg/Niederlage) klar; für das **absolute Torniveau** (Totals, BTTS) ist die Basis-
+Konfiguration schlechter als die Legacy-Mittelwerte. Dixon-Coles ist so kein Drop-in-Ersatz.
+
+### Dixon-Coles-Varianten H1–H3 (20.10.2026, `docs/audits/2026-10-20-dixon-coles-*.md`)
+
+Vorregistriert in `docs/superpowers/plans/2026-10-20-dixon-coles-niveau.md`; gleiche 14 Ligen,
+29 487 bis 29 512 gemeinsame Spiele. Brier(Kandidat) − Brier(Legacy) über alle Ligen,
+negativ = Kandidat besser; Klammern: Ligen schlechter / Ligen signifikant besser (von 14).
+
+| Variante | Heimsieg | Auswärtssieg | BTTS Ja | Über 2,5 | Unter 3,5 | Heim unter 1,5 | Zellen sig. besser / schlechter (von 560) |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| H0 hl120 (Basis) | −0,0064 (2/9) | −0,0053 (3/8) | +0,0046 (14/0) | +0,0047 (13/0) | +0,0041 (14/0) | −0,0013 (5/3) | 52 / 346 |
+| H1 hl240 | −0,0074 (2/10) | −0,0062 (3/11) | +0,0029 (12/0) | +0,0021 (12/0) | +0,0020 (13/0) | −0,0031 (3/3) | 84 / 279 |
+| H1 hl365 | −0,0073 (2/10) | −0,0061 (3/10) | +0,0026 (12/0) | +0,0017 (12/0) | +0,0016 (11/0) | −0,0033 (3/3) | 91 / 271 |
+| H2 level120 | −0,0064 (2/9) | −0,0053 (3/8) | +0,0047 (14/0) | +0,0049 (14/0) | +0,0041 (14/0) | −0,0013 (5/3) | 50 / 348 |
+| H2 hl240+level | −0,0074 (2/10) | −0,0062 (3/11) | +0,0030 (13/0) | +0,0023 (12/0) | +0,0021 (13/0) | −0,0031 (3/3) | 88 / 281 |
+| H3 hybrid (hl365) | −0,0073 (2/10) | −0,0061 (3/10) | 0 | 0 | 0 | 0 | 56 / 32 |
+
+Befunde:
+- **H1 bestätigt:** Eine längere Halbwertszeit (240/365 Tage) verbessert 1X2 weiter und
+  halbiert den Rückstand der Tormärkte, hebt ihn aber nicht auf (Totals/BTTS in 11 bis
+  13 von 14 Ligen weiterhin schlechter).
+- **H2 widerlegt:** Das Niveau ist nicht das Problem; der Momentenabgleich auf das
+  ungewichtete Fenstermittel ändert praktisch nichts.
+- **H3 bestätigt:** Der Hybrid (Dixon-Coles für Ergebnis-, Doppelte-Chance- und
+  Ergebnis+Total-Märkte, Legacy-Matrix für Totals, BTTS, Teamtore) ist in 56 Zellen
+  signifikant besser als Legacy und nur in 32 schlechter; er dominiert beide Einzelmodelle.
+- Gegen den Markt (hl365, alle Ligen): Heimsieg-Lücke Legacy +0,0156, DC/Hybrid +0,0083;
+  Auswärtssieg +0,0132 → +0,0071; Über 2,5 Legacy +0,0065, DC +0,0082, Hybrid +0,0065.
+  Der Hybrid schliesst rund die Hälfte der 1X2-Lücke zum Closing-Markt und bleibt bei
+  Totals auf Legacy-Niveau. Kein Modell schlägt den Markt.
+- Gefittete ρ (hl365) zwischen −0,19 (Türkei) und +0,03; Heimvorteil +0,11 bis +0,28 (log).
+- Der Tormarkt-Nachteil von Dixon-Coles liegt also weder am Niveau noch nur am Decay.
+  Plausibler Mechanismus: Legacy nutzt venue-spezifische Serien (12 Heim-, 12 Auswärts-
+  spiele je Team) und erfasst teamspezifische Heimtor-Profile, die ein einziger Liga-
+  Heimvorteil nicht abbildet. Nächste vorregistrierbare Hypothese H4: venue-spezifische
+  Angriffs-/Abwehrparameter im DC-Fit (oder Legacy-Venue-Faktor auf die DC-Summe).
+
+Produktionsfolge: Für eine kohärente Umsetzung des Hybrids braucht der Engine-Pfad eine
+Konstruktion, die beide Gesetze in einer gemeinsamen Verteilung vereint (die gemeinsame
+Kalibrierung projiziert heute eine Matrix je Familie); bis dahin bleibt der Hybrid eine
+Analyse und `GOAL_MODEL_LEGACY` der Default.
 
 ## Nicht umgesetzt (braucht den Owner)
 
