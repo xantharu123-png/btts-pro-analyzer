@@ -59,6 +59,23 @@ from .simulator import simulate_match, LEGACY_MODEL_VERSION, POINT_MODEL_VERSION
 MIN_SERVE_GAMES = 60.0   # both players need this many tracked service games
 MIN_ELO_MATCHES = 20     # experience gate: below this we do not bet
 RETIRED_FLAGS = {"retired", "ret", "walkover", "w/o", "def", "default"}
+# Production surface gate (``predict.ALLOWED_SURFACES`` re-exports this).
+BETTING_SURFACES = ("Hard",)
+
+# Which rows the walk-forward Platt calibrator may learn from.
+# ``all``     - legacy: every scored, non-abnormal row (all surfaces, Elo-only
+#               rows without serve data, rows below the experience gate).
+# ``betting`` - only rows that satisfy the production model gates replayed by
+#               ``policy_summary``: surface in ``BETTING_SURFACES``, a serve
+#               estimate exists (both >= MIN_SERVE_GAMES) and both players
+#               >= ``min_elo_matches``. Audit 2026-10-16 H3.
+CALIBRATION_POPULATION_ALL = "all"
+CALIBRATION_POPULATION_BETTING = "betting"
+CALIBRATION_POPULATIONS = (CALIBRATION_POPULATION_ALL, CALIBRATION_POPULATION_BETTING)
+# Calibrator family used inside the walk-forward loop.
+CALIBRATION_MODEL_PLATT = "platt"
+CALIBRATION_MODEL_COVARIATE = "covariate"
+CALIBRATION_MODELS = (CALIBRATION_MODEL_PLATT, CALIBRATION_MODEL_COVARIATE)
 
 # No bookmaker columns, even for sample eligibility in the separated models.
 RESULT_COLUMNS = ("Date", "Tournament", "Surface", "Court", "Best of",
@@ -71,12 +88,37 @@ class CalibrationRow:
     tour: str
     p_alpha_raw: float
     y_alpha: int
+    # Population markers (defaults keep older consumers unchanged).
+    surface: Optional[str] = None
+    has_serve: bool = False
+    gated: bool = False
+    betting_population: bool = False
 
 
 @dataclass
 class CalibrationReport:
     """Sport-only observations, deliberately not an odds evaluation report."""
     rows: List[CalibrationRow] = field(default_factory=list)
+
+
+def in_betting_population(
+    surface: Optional[str],
+    p_serve: Optional[float],
+    gated: bool,
+    allowed_surfaces: Tuple[str, ...] = BETTING_SURFACES,
+) -> bool:
+    """True when a backtest row meets the production model gates.
+
+    Mirrors ``predict.predict_match`` (ATP gates "Belag", "Erfahrung",
+    "Aufschlag-Daten") and the default model-gate replay of
+    ``BacktestReport.policy_summary``: Hard court, a serve-model estimate
+    (both players >= MIN_SERVE_GAMES) and both players past the experience
+    gate. Prices never enter this decision.
+    """
+    has_serve = p_serve is not None and not (
+        isinstance(p_serve, float) and math.isnan(p_serve)
+    )
+    return bool(gated) and has_serve and surface in allowed_surfaces
 
 
 def stable_flip(key: str) -> bool:
@@ -127,12 +169,14 @@ class WalkForwardCalibrator:
     def trained(self) -> bool:
         return len(self._xs) >= self.min_samples
 
-    def predict(self, p: float) -> float:
+    def predict(self, p: float, **covariates) -> float:
+        # ``covariates`` are accepted for interface parity with the
+        # covariate calibrator and deliberately ignored here.
         if not self.trained:
             return p
         return _sigmoid(self.a * _logit(p) + self.b)
 
-    def add(self, p: float, y: float) -> None:
+    def add(self, p: float, y: float, **covariates) -> None:
         self._xs.append(_logit(p))
         self._ys.append(float(y))
         self._since_fit += 1
@@ -171,6 +215,152 @@ class WalkForwardCalibrator:
         self.b = min(max(b, -3.0), 3.0)
 
 
+def calibration_features(p: float, *, surface: Optional[str], has_serve: bool,
+                         allowed_surfaces: Tuple[str, ...] = BETTING_SURFACES) -> List[float]:
+    """Design row for the covariate calibrator (hypothesis 2 of audit H3).
+
+    Slope and intercept may differ by serve availability (the blend with the
+    serve simulator changes the raw-probability spread) and by betting
+    surface; everything else is shared across rows.
+    """
+    x = _logit(p)
+    serve = 1.0 if has_serve else 0.0
+    hard = 1.0 if surface in allowed_surfaces else 0.0
+    return [x, x * serve, x * hard, 1.0, serve, hard]
+
+
+class CovariateWalkForwardCalibrator:
+    """Walk-forward logistic recalibration with surface/serve covariates.
+
+    logit(q) = (a0 + a1*serve + a2*hard) * logit(p) + b0 + b1*serve + b2*hard
+
+    Experimental: it is NOT persisted in ``ModelState`` (which carries only
+    Platt ``cal_a``/``cal_b``); it exists to test the second H3 hypothesis
+    inside ``run_backtest``. Same causal contract as ``WalkForwardCalibrator``:
+    ``predict`` only ever uses parameters fitted on past rows and is the
+    identity until ``min_samples`` exist.
+    """
+
+    SLOPE_BOUNDS = (0.2, 8.0)
+    INTERCEPT_BOUND = 3.0
+
+    def __init__(self, min_samples: int = 1500, refit_every: int = 500,
+                 allowed_surfaces: Tuple[str, ...] = BETTING_SURFACES) -> None:
+        self.min_samples = min_samples
+        self.refit_every = refit_every
+        self.allowed_surfaces = tuple(allowed_surfaces)
+        self._rows: List[List[float]] = []
+        self._ys: List[float] = []
+        self._since_fit = 0
+        self.coef: List[float] = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+    @property
+    def trained(self) -> bool:
+        return len(self._rows) >= self.min_samples
+
+    def _features(self, p: float, covariates: dict) -> List[float]:
+        return calibration_features(
+            p, surface=covariates.get("surface"),
+            has_serve=bool(covariates.get("has_serve", False)),
+            allowed_surfaces=self.allowed_surfaces,
+        )
+
+    def predict(self, p: float, **covariates) -> float:
+        if not self.trained:
+            return p
+        z = sum(c * f for c, f in zip(self.coef, self._features(p, covariates)))
+        return _sigmoid(z)
+
+    def add(self, p: float, y: float, **covariates) -> None:
+        self._rows.append(self._features(p, covariates))
+        self._ys.append(float(y))
+        self._since_fit += 1
+        if self._since_fit >= self.refit_every:
+            self._fit()
+
+    def _fit(self) -> None:
+        import numpy as np
+
+        self._since_fit = 0
+        n = len(self._rows)
+        if n < self.min_samples:
+            return
+        X = np.asarray(self._rows, dtype=float)
+        y = np.asarray(self._ys, dtype=float)
+        coef = np.asarray(self.coef, dtype=float)
+        ridge = 1e-6 * np.eye(X.shape[1])
+        for _ in range(25):
+            z = X @ coef
+            p = 1.0 / (1.0 + np.exp(-np.clip(z, -35.0, 35.0)))
+            w = p * (1.0 - p) + 1e-9
+            grad = X.T @ (p - y)
+            hess = (X * w[:, None]).T @ X + ridge
+            try:
+                step = np.linalg.solve(hess, grad)
+            except np.linalg.LinAlgError:
+                return
+            coef = coef - step
+            if float(np.abs(step).sum()) < 1e-8:
+                break
+        if not np.all(np.isfinite(coef)):
+            return
+        a0, a1, a2, b0, b1, b2 = (float(v) for v in coef)
+        lo, hi = self.SLOPE_BOUNDS
+        for serve in (0.0, 1.0):
+            for hard in (0.0, 1.0):
+                slope = a0 + a1 * serve + a2 * hard
+                intercept = b0 + b1 * serve + b2 * hard
+                if not lo <= slope <= hi or abs(intercept) > self.INTERCEPT_BOUND:
+                    return  # keep the previous admissible parameters
+        self.coef = [a0, a1, a2, b0, b1, b2]
+
+    def effective_platt(self, *, surface: Optional[str], has_serve: bool) -> Tuple[float, float]:
+        """(slope, intercept) the model applies to rows with these covariates."""
+        serve = 1.0 if has_serve else 0.0
+        hard = 1.0 if surface in self.allowed_surfaces else 0.0
+        a0, a1, a2, b0, b1, b2 = self.coef
+        return a0 + a1 * serve + a2 * hard, b0 + b1 * serve + b2 * hard
+
+
+def _make_calibrator(model: str):
+    if model == CALIBRATION_MODEL_COVARIATE:
+        return CovariateWalkForwardCalibrator()
+    return WalkForwardCalibrator()
+
+
+def fit_platt_calibrator(
+    rows: Iterable[object],
+    *,
+    calibration_population: str = CALIBRATION_POPULATION_ALL,
+    min_samples: int = 1500,
+    refit_every: int = 250,
+) -> Tuple[WalkForwardCalibrator, int]:
+    """Final Platt fit over reported rows, the way the state builders do it
+    (``model_state.build_state`` / ``tour_state.build_tour_state``: add every
+    row in order, then ``_fit``).
+
+    ``betting`` keeps only rows flagged ``betting_population``; rows need
+    ``p_alpha_raw`` and ``y_alpha``. Returns the calibrator and the number of
+    fitted rows (what ``cal_samples`` of a state built from it must record).
+    Deliberately not wired into the builders: ``tennis/predict.py`` and
+    ``tennis/model_state.py`` are source-pinned replay owners
+    (``context_runtime_tennis.CODE_PATHS``); adopting it there needs a new
+    reviewed manifest entry and a population marker in the state contract.
+    """
+    if calibration_population not in CALIBRATION_POPULATIONS:
+        raise ValueError("unknown calibration population")
+    cal = WalkForwardCalibrator(min_samples=min_samples, refit_every=refit_every)
+    fitted = 0
+    for row in rows:
+        if (calibration_population == CALIBRATION_POPULATION_BETTING
+                and not getattr(row, "betting_population", False)):
+            continue
+        cal.add(row.p_alpha_raw, row.y_alpha)
+        fitted += 1
+    cal._fit()
+    return cal, fitted
+
+
 # --------------------------------------------------------------------------
 # report
 # --------------------------------------------------------------------------
@@ -203,6 +393,11 @@ class BacktestRow:
     p_alpha_raw: float       # raw prob for alphabetically-first player
     settlement_status: str = "standing"
     termination: str = "normal"
+    # Production model gates (surface, serve estimate, experience) replayed
+    # per row; ``calibrator_trained`` records whether the walk-forward
+    # calibrator had reached ``min_samples`` when this row was predicted.
+    betting_population: bool = False
+    calibrator_trained: bool = False
 
 
 @dataclass
@@ -434,6 +629,60 @@ class BacktestReport:
             "n": len(frame),
         }
 
+    def population_calibration(
+        self,
+        *,
+        population: str = CALIBRATION_POPULATION_BETTING,
+        trained_only: bool = True,
+        since=None,
+        bins: int = 10,
+    ) -> Dict[str, Optional[float]]:
+        """Calibration error on one population of normally completed rows.
+
+        ``population`` is ``betting`` (rows that pass the production model
+        gates) or ``all``. ``trained_only`` keeps rows predicted after the
+        walk-forward calibrator had enough history; ``since`` (date-like)
+        additionally drops earlier rows. ECE uses ``bins`` equal-width bins
+        over the alphabetical-orientation probability.
+        """
+        if population not in CALIBRATION_POPULATIONS:
+            raise ValueError("unknown calibration population")
+        if not isinstance(bins, int) or isinstance(bins, bool) or bins < 2:
+            raise ValueError("bins must be an integer >= 2")
+        frame = self.to_frame()
+        if not frame.empty:
+            frame = frame[frame["termination"].eq("normal") & frame["settlement_status"].eq("standing")]
+            if population == CALIBRATION_POPULATION_BETTING:
+                frame = frame[frame["betting_population"].astype(bool)]
+            if trained_only:
+                frame = frame[frame["calibrator_trained"].astype(bool)]
+            if since is not None and not frame.empty:
+                frame = frame[pd.to_datetime(frame["date"]) >= pd.Timestamp(since)]
+        keys = ("brier_raw", "brier_cal", "brier_market", "logloss_raw", "logloss_cal",
+                "logloss_market", "ece_raw", "ece_cal", "ece_market")
+        if frame.empty:
+            return {**dict.fromkeys(keys), "n": 0, "population": population}
+        y = frame["y_alpha"].astype(float)
+
+        def _scores(pcol: str) -> Tuple[float, float, float]:
+            p = frame[pcol].astype(float).clip(1e-6, 1 - 1e-6)
+            brier = float(((p - y) ** 2).mean())
+            logloss = float(-(y * p.map(math.log) + (1 - y) * (1 - p).map(math.log)).mean())
+            edges = [i / bins for i in range(bins + 1)]
+            bucket = pd.cut(p, bins=edges, labels=False, include_lowest=True)
+            ece = 0.0
+            for _, idx in bucket.groupby(bucket).groups.items():
+                ece += len(idx) / len(p) * abs(float(p.loc[idx].mean()) - float(y.loc[idx].mean()))
+            return round(brier, 5), round(logloss, 5), round(ece, 5)
+
+        out: Dict[str, Optional[float]] = {"n": int(len(frame)), "population": population}
+        for label, col in (("raw", "p_alpha_raw"), ("cal", "p_alpha"), ("market", "p_market_alpha")):
+            brier, logloss, ece = _scores(col)
+            out[f"brier_{label}"] = brier
+            out[f"logloss_{label}"] = logloss
+            out[f"ece_{label}"] = ece
+        return out
+
     def bias_table(self) -> pd.DataFrame:
         frame = self.to_frame()
         if frame.empty:
@@ -516,6 +765,8 @@ def run_backtest(
     calibration_only: bool = False,
     diagnostics: dict | None = None,
     market_model_version: str = LEGACY_MODEL_VERSION,
+    calibration_population: str = CALIBRATION_POPULATION_ALL,
+    calibration_model: str = CALIBRATION_MODEL_PLATT,
 ) -> BacktestReport | CalibrationReport:
     """Full walk-forward backtest.
 
@@ -540,6 +791,14 @@ def run_backtest(
     returns sport-only raw observations for exactly one tour: prices neither
     enter its copied input columns nor decide its sample population. The
     default remains the legacy odds-evaluation report and eligibility policy.
+
+    ``calibration_population`` decides which rows the walk-forward calibrator
+    learns from (``all`` = legacy, ``betting`` = only rows passing the
+    production model gates; see ``in_betting_population``). Every row is still
+    predicted and reported; in ``calibration_only`` mode only the learning
+    population is returned. ``calibration_model`` selects the in-loop
+    calibrator family: ``platt`` (persisted contract) or the experimental
+    ``covariate`` calibrator, which needs the full population.
     """
     # An explicit cutoff bounds every input before causal pointer traversal.
     # Default evaluation preserves the established price/eligibility behavior.
@@ -555,6 +814,14 @@ def run_backtest(
     admission = ServeAdmissionDiagnostics(diagnostics) if calibration_only else None
     if market_model_version not in (LEGACY_MODEL_VERSION, POINT_MODEL_VERSION):
         raise ValueError("unknown tennis calibration simulator version")
+    if calibration_population not in CALIBRATION_POPULATIONS:
+        raise ValueError("unknown calibration population")
+    if calibration_model not in CALIBRATION_MODELS:
+        raise ValueError("unknown calibration model")
+    if (calibration_model == CALIBRATION_MODEL_COVARIATE
+            and calibration_population != CALIBRATION_POPULATION_ALL):
+        raise ValueError("covariate calibration needs the full population")
+    learn_all = calibration_population == CALIBRATION_POPULATION_ALL
 
     def bounded(frame, column, tour):
         if calibration_only and "tour" in frame and not frame["tour"].eq(tour.upper()).all():
@@ -605,8 +872,8 @@ def run_backtest(
         if "wta" in tours
         else None
     )
-    calibrators: Dict[str, WalkForwardCalibrator] = {
-        t: WalkForwardCalibrator() for t in tours
+    calibrators: Dict[str, object] = {
+        t: _make_calibrator(calibration_model) for t in tours
     }
     stats_ptr = 0
     wta_ptr = 0
@@ -717,11 +984,18 @@ def run_backtest(
                 if p_serve is not None
                 else p_elo
             )
+            gated = (
+                elo.overall.matches(w_key) >= min_elo_matches
+                and elo.overall.matches(l_key) >= min_elo_matches
+            )
+            in_population = in_betting_population(surface, p_serve, gated)
+            learns = learn_all or in_population
+            covariates = {"surface": surface, "has_serve": p_serve is not None}
 
             if calibration_only:
                 if abnormal:
                     continue
-                if score_from_ts is None or row.Date >= score_from_ts:
+                if learns and (score_from_ts is None or row.Date >= score_from_ts):
                     alpha_first_is_w = w_key <= l_key
                     p_alpha_raw = p_model if alpha_first_is_w else 1.0 - p_model
                     if not math.isfinite(p_alpha_raw) or not 0. <= p_alpha_raw <= 1.:
@@ -730,6 +1004,8 @@ def run_backtest(
                         date=row.Date, tour=tour.upper(),
                         p_alpha_raw=round(p_alpha_raw, 4),
                         y_alpha=1 if alpha_first_is_w else 0,
+                        surface=surface, has_serve=p_serve is not None,
+                        gated=gated, betting_population=in_population,
                     ))
                 if tour == "wta" and not abnormal:
                     elo.update(w_key, l_key, surface)
@@ -758,15 +1034,11 @@ def run_backtest(
             # 3) walk-forward recalibration: the calibrator is trained in
             #    alphabetical orientation, so prediction must use that same
             #    orientation before converting back to winner/loser order.
+            calibrator_trained = bool(recalibrate and cal.trained)
             p_alpha_cal = (
-                cal.predict(p_alpha_raw) if recalibrate else p_alpha_raw
+                cal.predict(p_alpha_raw, **covariates) if recalibrate else p_alpha_raw
             )
             p_cal = p_alpha_cal if alpha_first_is_w else 1.0 - p_alpha_cal
-
-            gated = (
-                elo.overall.matches(w_key) >= min_elo_matches
-                and elo.overall.matches(l_key) >= min_elo_matches
-            )
 
             edge_w = p_cal - implied_w
             edge_l = (1.0 - p_cal) - implied_l
@@ -802,12 +1074,14 @@ def run_backtest(
                     p_alpha_raw=round(p_alpha_raw, 4),
                     settlement_status=settlement_status,
                     termination=termination,
+                    betting_population=in_population,
+                    calibrator_trained=calibrator_trained,
                 )
             )
 
             # 4) only now may anything learn from this result
-            if recalibrate and not abnormal:
-                cal.add(p_alpha_raw, 1 if alpha_first_is_w else 0)
+            if recalibrate and not abnormal and learns:
+                cal.add(p_alpha_raw, 1 if alpha_first_is_w else 0, **covariates)
             if tour == "wta" and not abnormal:
                 elo.update(w_key, l_key, surface)
 

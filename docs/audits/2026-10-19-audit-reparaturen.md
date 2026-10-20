@@ -185,6 +185,65 @@ Marktaussage transportieren. Empfehlung bleibt wie im Audit: Marktbenchmark als
 zusätzliche Bedingung in `_credible_validation`, Entscheidungs-p als Log-Odds-Mischung
 mit dem Markt plus Edge-Kappung; beides nur mit vorab definierter Hypothese.
 
+### Mischungsgewicht Modell/Markt (`docs/audits/2026-10-20-marktmischung.md`)
+
+266 062 Benchmarkzeilen (14 Ligen, fünf Direktmärkte plus Doppelte Chance), Gewicht w per
+Log-Loss-Raster auf den chronologisch ersten 70 %, Bewertung auf den letzten 30 %:
+
+| Markt | Test-Zeilen | w* (Modellanteil) | LogLoss Modell | LogLoss Markt | LogLoss Mischung |
+|---|---:|---:|---:|---:|---:|
+| alle | 49 872 | **0,00** | 0,6346 | 0,6158 | 0,6158 |
+| Heimsieg | 9 983 | 0,00 | 0,6465 | 0,6135 | 0,6135 |
+| Remis | 9 983 | 0,00 | 0,5700 | 0,5647 | 0,5647 |
+| Auswärtssieg | 9 983 | 0,00 | 0,5816 | 0,5525 | 0,5525 |
+| Über/Unter 2,5 | 9 962 | 0,00 | 0,6875 | 0,6742 | 0,6742 |
+
+**Das Modell trägt out-of-sample keine Information über den No-Vig-Closing-Markt hinaus
+bei.** Das ist die schärfste Form des Befunds K2: Nicht nur schlägt das Modell den Markt
+nicht, eine optimale Entscheidung ignoriert es vollständig.
+
+Replays (Haircut 5 pp, 3 % Risiko-ROI, Boden 1,20, bester Closing-Preis):
+
+| Variante | Wetten | ROI | ROI 90 % | CLV | CLV 90 % | Ø Modell−Markt |
+|---|---:|---:|---|---:|---|---:|
+| heutige Policy (w = 1) | 34 420 | −5,5 % | [−7,2; −3,8] | −1,0 % | [−1,2; −0,8] | +11,0 pp |
+| + Edge-Cap 8 pp | 8 380 | +0,8 % | [−2,5; +3,9] | +1,5 % | [+1,0; +2,3] | +6,7 pp |
+| Mischung w* = 0 (Markt-p) | 236 | +31,6 % | [+17,6; +46,1] | +44,1 % | [+26,7; +72,7] | −6,4 pp |
+| Mischung w* = 0 ohne Haircut | 17 389 | +5,1 % | [+3,0; +7,2] | +6,4 % | [+6,1; +6,8] | −0,5 pp |
+
+Lesart, ausdrücklich: Mit w* = 0 ist die „Entscheidungswahrscheinlichkeit“ der Pinnacle-
+No-Vig-Preis selbst. Die positiven Replays sind deshalb **kein Modellvorteil**, sondern
+Preis-Shopping: Es wird gewettet, wenn irgendein Buchmacher (Max-Spalte, Closing) deutlich
+über dem fairen Pinnacle-Preis liegt. Solche Preise sind im echten Betrieb limitiert,
+oft Minuten später weg, und Softbooks schliessen Konten, die so wetten. Als Produkt-
+versprechen taugt das nicht; als Diagnose zeigt es, wo der einzige messbare Vorteil im
+Datensatz liegt. Der Edge-Cap allein (8 pp) hebt die heutige Policy von −5,5 % auf
++0,8 % ROI, weil er die extremsten Modellfehler entfernt; das Intervall enthält 0.
+
+### Tennis-Kalibrierung auf der gewetteten Population (`docs/audits/2026-10-20-tennis-kalibrierung-population.md`)
+
+Hypothese H3 vorregistriert, Umsetzung als Option in `tennis/backtest.py`
+(`calibration_population="betting"`, Default Legacy byteidentisch), 16 neue Tests.
+Datenbefund: Turnier-Endtermine liegen erst ab 2024 vor, davor ist jeder Backtest
+informationslos; prüfbar ist nur 2024 (674 gewettete Zeilen ab 22.07.). Mit den
+Produktionsschwellen ist der Populationsfit nicht trainierbar; mit reduzierten
+Schwellen ist der Brier-Unterschied zur Gesamtkalibrierung nicht von null verschieden
+(−0,0027 [−0,0069; +0,0015] bei n = 174). Das rohe Modell ist auf der Wettpopulation
+besser kalibriert als der Legacy-Kalibrator (Brier 0,2179 vs. 0,2200), Pinnacle 0,2050.
+**Kein Vorteil nachweisbar, keine Produktionsänderung.** `predict.py`/`model_state.py`
+blieben unangetastet (quellgepinnte Replay-Owner). Nebenbefund: `_devig` lässt
+NaN-Preise durch (12 Zeilen 2024).
+
+### FDR über Ligen × Märkte (`docs/audits/2026-10-20-fdr-ligen.md`)
+
+`cross_league_fdr.apply_cross_league_fdr` korrigiert q-Werte und
+`statistical_release_passed` einmal über alle Ligen eines Laufs (Default an,
+`BETBOY_CROSS_LEAGUE_FDR=0` = alt); Einbau in `challenge_15k.scan_daily_challenge` nach der
+Validierungsschleife, Cache bleibt je Liga. Das Engine-Gate verlangte genau 96 Hypothesen
+und hätte mit der Familie Ligen × 96 jede Freigabe abgelehnt; es akzeptiert jetzt ein
+ganzzahliges Vielfaches des Katalogs. Synthetik: 5 Ligen × 96 Zellen, Grenzfall-Ligen
+verlieren ihre Freigaben (7 → 0), eine klar starke Liga behält sie (11 → 10).
+
 ### Dixon-Coles-Vergleich (`docs/audits/2026-10-19-dixon-coles-vergleich.md`)
 
 14 Ligen, gleiche Saisons, 29 512 gemeinsam prognostizierte Spiele (Dixon-Coles fällt
