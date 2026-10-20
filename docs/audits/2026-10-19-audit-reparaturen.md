@@ -102,6 +102,24 @@ Grundlage: `AUDIT_BERICHT_2026-10-16_CLAUDE.md`. Basis des Branches: `origin/mai
 - Vergleich: `scripts/compare_goal_models.py` →
   `docs/audits/2026-10-19-dixon-coles-vergleich.md`.
 
+### 6. Nachtrag 20.10.2026: Markt-Freigabebedingung, Mischung, Varianten
+
+- `market_release_gate.py`: optionale zweite Freigabebedingung. `build_fixture_candidates`
+  fügt den Sperrgrund „Marktbenchmark gegen No-Vig-Closing nicht bestanden“ hinzu, wenn
+  `BETBOY_RELEASE_MARKET_BENCHMARK=1` gesetzt ist und die Zelle im Verdikt-Dokument
+  (`--gate-json` des Benchmarks, Pfad `BETBOY_MARKET_GATE_PATH`, höchstens 120 Tage alt)
+  nicht als „Markt geschlagen“ steht. Default aus, weil die Nutzerregel vom 17.10. ein
+  hartes Marktgate ablehnt und weil derzeit 0 von 112 Zellen bestehen: Aktivieren leert
+  jeden Echtgeldpfad. Tests `tests/test_market_release_gate.py`.
+- `betting_math.blended_decision_probability`, `market_blend.py`,
+  `scripts/estimate_market_blend.py`: Entscheidungs-p als Log-Odds-Mischung, Gewicht per
+  Log-Loss-Raster auf den ersten 70 % der Benchmarkzeilen, Bewertung auf den letzten 30 %;
+  Replay der Policy mit Mischung und Edge-Cap 8 pp. Bericht
+  `docs/audits/2026-10-20-marktmischung.md`. Tests `tests/test_market_blend.py`.
+- Dixon-Coles-Varianten (`GOAL_MODEL_OPTIONS`): Halbwertszeit 240/365 Tage, Niveau-Prior
+  (Momentenabgleich auf das ungewichtete Fenstermittel), Hybrid H3 im Vergleichsskript.
+  Berichte `docs/audits/2026-10-20-dixon-coles-*.md`.
+
 ## Testläufe (Windows, Worktree)
 
 | Lauf | Ergebnis |
