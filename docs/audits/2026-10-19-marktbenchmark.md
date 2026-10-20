@@ -156,4 +156,4 @@ Zellen gesamt: 112 · Markt geschlagen (HAC-Untergrenze > 0 und q ≤ 0,05): 0 �
 Lesart: Ein negativer CLV bei positivem Modellvorsprung bedeutet, dass die Policy genau die Spiele auswählt, in denen das Modell vom Markt abweicht (Winner's Curse, Audit K3). Der generische Haircut ist die *mildeste* Form des Produktgates; produktive Haircuts sind höher.
 
 
-Laufzeit 1355 s.
+Laufzeit 1729 s.
