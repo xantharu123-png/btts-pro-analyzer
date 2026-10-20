@@ -48,8 +48,10 @@ importiert Root-Module, deshalb immer `python -m pytest` aus dem Checkout-Root.
 ## Audit 16.10.2026 und Reparaturen 19.10.2026
 
 Vollständiger Befund: `AUDIT_BERICHT_2026-10-16_CLAUDE.md`. Reparaturprotokoll:
-`docs/audits/2026-10-19-audit-reparaturen.md`. Branch `claude/audit-repairs-20261019`,
-Worktree `.worktrees/claude-audit-repairs-20261019`, Basis `origin/main` @ `be5e441`.
+`docs/audits/2026-10-19-audit-reparaturen.md`. Code-Übergabe (Commits, Dateien, Schalter,
+Befehle, Risiken): `docs/handoffs/2026-10-20-claude-uebergabe.md`. Branch
+`claude/audit-repairs-20261019`, Worktree `.worktrees/claude-audit-repairs-20261019`,
+Basis `origin/main` @ `be5e441`, PR #1.
 
 Umgesetzt auf diesem Branch (Default-Verhalten der Produktion unverändert):
 
