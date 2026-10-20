@@ -287,6 +287,26 @@ def power_no_vig_market(odds: Iterable[float]) -> NoVigMarket:
     return NoVigMarket(prices, raw, tuple(p / mass for p in fitted), overround, "power")
 
 
+def blended_decision_probability(model_probability: float, market_probability: float,
+                                 model_weight: float) -> float:
+    """Log-odds mixture of a model and a no-vig market probability (both in [0, 1]).
+
+    ``logit(p) = w * logit(model) + (1 - w) * logit(market)``. The model
+    probability itself is never changed by this; the blend is a separate
+    decision quantity for staking and gates (audit 2026-10-16, K3). ``w = 1``
+    returns the model, ``w = 0`` the market.
+    """
+    for name, value in (("model", model_probability), ("market", market_probability)):
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0.0 < value < 1.0:
+            raise BettingMathError(f"{name} probability must be strictly between 0 and 1")
+    if isinstance(model_weight, bool) or not isinstance(model_weight, (int, float)) or not math.isfinite(model_weight) \
+            or not 0.0 <= model_weight <= 1.0:
+        raise BettingMathError("model weight must be between 0 and 1")
+    logit = model_weight * math.log(model_probability / (1.0 - model_probability)) \
+        + (1.0 - model_weight) * math.log(market_probability / (1.0 - market_probability))
+    return 1.0 / (1.0 + math.exp(-logit))
+
+
 NO_VIG_METHODS = ("proportional", "shin", "power")
 
 

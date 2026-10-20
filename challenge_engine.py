@@ -2796,6 +2796,11 @@ def build_fixture_candidates(
             blocked.append("Saison- und Formmodell widersprechen sich")
         if not validation_passed:
             blocked.append("Markt hat das Walk-forward-Gate nicht bestanden")
+        elif spec.kind not in COUNT_MARKET_KINDS:
+            # Optional second gate (audit K2): base-rate skill is not market skill.
+            from market_release_gate import BLOCK_REASON, market_benchmark_passed, market_benchmark_required
+            if market_benchmark_required() and not market_benchmark_passed(identity["league_id"], spec.key):
+                blocked.append(BLOCK_REASON)
         if evidence < 72.0:
             blocked.append("Evidenzscore unter 72")
         if freshness_days > (180.0 if national else 35.0):
