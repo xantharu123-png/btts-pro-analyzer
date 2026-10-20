@@ -151,3 +151,31 @@ def test_rho_is_projected_into_the_range_valid_for_extreme_rates():
     assert math.isclose(sum(law.values()), 1.0, abs_tol=1e-12) and all(v >= 0 for v in law.values())
     with pytest.raises(ValueError):
         engine.score_matrix(5.0, 0.8, rho=-0.25)
+
+
+def test_level_prior_matches_the_unweighted_scoring_level_of_the_window():
+    import numpy as np
+    rows, _, _ = _sample_matches(teams=8, double_round_robins=6, seed=9)
+    cutoff = max(row.played_at for row in rows) + timedelta(days=1)
+    pinned = fit_dixon_coles(rows, cutoff, half_life_days=30.0, max_history_days=10_000, level_prior=True)
+    free = fit_dixon_coles(rows, cutoff, half_life_days=30.0, max_history_days=10_000)
+    def mean_predicted(fit):
+        return np.mean([sum(fit.rates(r.home_id, r.away_id)) for r in rows])
+    observed = np.mean([r.home_goals + r.away_goals for r in rows])
+    assert mean_predicted(pinned) == pytest.approx(observed, rel=1e-6)
+    assert pinned.version.endswith("-level") and not free.version.endswith("-level")
+    assert pinned.converged and pinned.rho == free.rho and pinned.attack == free.attack  # Only the level moves.
+    assert abs(sum(pinned.attack)) < 1e-9 and abs(sum(pinned.defence)) < 1e-9
+
+
+def test_engine_accepts_every_registered_variant_and_keeps_the_default_identical():
+    fixtures = synthetic_league(rounds=6)
+    history, target = fixtures[:-1], fixtures[-1]
+    baseline = engine.fixture_market_probabilities(target, history, None, _validation_only=True)
+    for name, options in engine.GOAL_MODEL_OPTIONS.items():
+        result = engine.fixture_market_probabilities(target, history, None, _validation_only=True, goal_model=name)
+        assert result is not None and result["goal_model"] == name
+        assert result["dixon_coles"]["half_life_days"] == options["half_life_days"]
+        assert result["dixon_coles"]["version"].endswith("-level") is options["level_prior"]
+    again = engine.fixture_market_probabilities(target, history, None, _validation_only=True)
+    assert again["probabilities"] == baseline["probabilities"] and "goal_model" not in again

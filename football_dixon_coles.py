@@ -272,8 +272,15 @@ def negative_log_likelihood(params: np.ndarray, home: np.ndarray, away: np.ndarr
 def fit_dixon_coles(matches: Iterable[DixonColesMatch], cutoff: datetime, *,
                     half_life_days: float = DEFAULT_HALF_LIFE_DAYS, league_id: Optional[int] = None,
                     initial: Optional[DixonColesFit] = None, max_history_days: int = MAX_HISTORY_DAYS,
-                    ridge: float = RIDGE) -> DixonColesFit:
-    """Fit on completed matches strictly before ``cutoff`` (fail-closed on thin data)."""
+                    ridge: float = RIDGE, level_prior: bool = False) -> DixonColesFit:
+    """Fit on completed matches strictly before ``cutoff`` (fail-closed on thin data).
+
+    ``level_prior=True`` keeps the time-weighted relative strengths but re-anchors
+    the intercept so that the *unweighted* mean predicted goals over the whole
+    history window equal the unweighted observed mean (moment matching; the
+    weighted MLE alone follows recent scoring levels). Hypothesis H2 of the
+    2026-10-20 plan: long-run level, recent relative strengths.
+    """
     if cutoff.tzinfo is None or cutoff.utcoffset() is None:
         raise ValueError("cutoff must be timezone-aware")
     cutoff = cutoff.astimezone(timezone.utc)
@@ -315,8 +322,16 @@ def fit_dixon_coles(matches: Iterable[DixonColesMatch], cutoff: datetime, *,
     attack = attack - shift_attack
     defence = defence - shift_defence
     intercept = float(fitted[0]) + shift_attack + shift_defence
+    if level_prior:
+        eta_h = intercept + attack[home] + defence[away] + float(fitted[1]) * known
+        eta_a = intercept + attack[away] + defence[home]
+        predicted = float(np.sum(np.exp(eta_h) + np.exp(eta_a)))
+        observed = float(np.sum(x + y))
+        if predicted > 0.0 and observed > 0.0:
+            intercept += math.log(observed / predicted)
     return DixonColesFit(
-        version=DC_VERSION, league_id=league_id, cutoff=cutoff, half_life_days=float(half_life_days),
+        version=DC_VERSION + ("-level" if level_prior else ""), league_id=league_id, cutoff=cutoff,
+        half_life_days=float(half_life_days),
         teams=teams, attack=tuple(float(v) for v in attack), defence=tuple(float(v) for v in defence),
         intercept=intercept, home_advantage=float(fitted[1]), rho=float(fitted[2]),
         matches=len(usable), weight_sum=float(weights.sum()), log_likelihood=-float(result.fun),
@@ -324,23 +339,29 @@ def fit_dixon_coles(matches: Iterable[DixonColesMatch], cutoff: datetime, *,
     )
 
 
-_LAST_FIT: dict[Optional[int], DixonColesFit] = {}
+_LAST_FIT: dict[tuple[Optional[int], float, bool], DixonColesFit] = {}
 
 
 @lru_cache(maxsize=64)
 def _cached_fit(league_id: Optional[int], cutoff_day: str, matches: tuple[DixonColesMatch, ...],
-                half_life_days: float) -> DixonColesFit:
+                half_life_days: float, level_prior: bool = False) -> DixonColesFit:
     cutoff = datetime.fromisoformat(cutoff_day)
+    key = (league_id, float(half_life_days), bool(level_prior))
     fit = fit_dixon_coles(matches, cutoff, half_life_days=half_life_days, league_id=league_id,
-                          initial=_LAST_FIT.get(league_id))
+                          initial=_LAST_FIT.get(key), level_prior=level_prior)
     if fit.converged:
-        _LAST_FIT[league_id] = fit
+        _LAST_FIT[key] = fit
     return fit
 
 
+def last_fit(league_id: Optional[int], *, half_life_days: float = DEFAULT_HALF_LIFE_DAYS,
+             level_prior: bool = False) -> Optional[DixonColesFit]:
+    return _LAST_FIT.get((league_id, float(half_life_days), bool(level_prior)))
+
+
 def fit_for_fixture(fixture: dict[str, Any], league_history: Iterable[dict[str, Any]], *,
-                    half_life_days: float = DEFAULT_HALF_LIFE_DAYS) -> DixonColesFit:
-    """League fit at the fixture's kickoff day, cached per (league, day, history)."""
+                    half_life_days: float = DEFAULT_HALF_LIFE_DAYS, level_prior: bool = False) -> DixonColesFit:
+    """League fit at the fixture's kickoff day, cached per (league, day, history, options)."""
     data = fixture.get("fixture") if isinstance(fixture, dict) else None
     raw_date = data.get("date") if isinstance(data, dict) else None
     if not isinstance(raw_date, str):
@@ -355,12 +376,12 @@ def fit_for_fixture(fixture: dict[str, Any], league_history: Iterable[dict[str, 
     league = fixture.get("league") if isinstance(fixture, dict) else None
     league_id = league.get("id") if isinstance(league, dict) and isinstance(league.get("id"), int) else None
     matches = tuple(row for row in matches_from_fixtures(league_history) if row.played_at < cutoff)
-    return _cached_fit(league_id, cutoff.isoformat(), matches, float(half_life_days))
+    return _cached_fit(league_id, cutoff.isoformat(), matches, float(half_life_days), bool(level_prior))
 
 
 __all__ = [
     "DC_VERSION", "DEFAULT_HALF_LIFE_DAYS", "DixonColesFit", "DixonColesMatch", "DixonColesUnavailable",
     "MIN_MATCHES", "MIN_TEAM_MATCHES", "RHO_BOUNDS", "clamp_rho", "decay_weights", "dixon_coles_score_matrix",
-    "fit_dixon_coles", "fit_for_fixture", "matches_from_fixtures", "negative_log_likelihood", "tau_correction",
-    "valid_rho_range",
+    "fit_dixon_coles", "fit_for_fixture", "last_fit", "matches_from_fixtures", "negative_log_likelihood",
+    "tau_correction", "valid_rho_range",
 ]

@@ -18,7 +18,9 @@ import time
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from football_data_history import FOOTBALL_DATA_DIVISIONS  # noqa: E402
-from market_benchmark import BenchmarkReport, GENERIC_HAIRCUT_PP, benchmark_league, finalise, render_markdown  # noqa: E402
+from market_benchmark import (  # noqa: E402
+    BenchmarkReport, GENERIC_HAIRCUT_PP, benchmark_league, finalise, gate_document, render_markdown,
+)
 from market_benchmark_history import load_league  # noqa: E402
 from runtime_paths import RUNTIME_STATE_DIR  # noqa: E402
 
@@ -31,10 +33,14 @@ def main() -> int:
     parser.add_argument("--haircut-pp", type=float, default=GENERIC_HAIRCUT_PP)
     parser.add_argument("--output", type=Path, default=None, help="markdown report path")
     parser.add_argument("--json", type=Path, default=None, help="optional machine-readable cell dump")
+    parser.add_argument("--rows", type=Path, default=None, help="optional JSONL dump of fixture/market rows")
+    parser.add_argument("--gate-json", type=Path, default=None,
+                        help="optional per-cell verdict file for market_release_gate")
     args = parser.parse_args()
     leagues = [int(x) for x in args.leagues.split(",") if x.strip()]
     seasons = [int(x) for x in args.seasons.split(",") if x.strip()]
     report = BenchmarkReport(haircut_pp=args.haircut_pp)
+    rows_sink = [] if args.rows is not None else None
     started = time.time()
     for league_id in leagues:
         fixtures, benchmark, loaded = load_league(args.data_dir, league_id, seasons)
@@ -42,7 +48,8 @@ def main() -> int:
             print(f"league {league_id}: no saved seasons in {args.data_dir}")
             continue
         league_started = time.time()
-        benchmark_league(report, league_id=league_id, fixtures=fixtures, benchmark=benchmark, seasons=loaded)
+        benchmark_league(report, league_id=league_id, fixtures=fixtures, benchmark=benchmark, seasons=loaded,
+                         rows_sink=rows_sink)
         info = report.leagues[league_id]
         print(f"league {league_id}: seasons {loaded}, fixtures {info['fixtures']}, predicted {info['predicted']}, "
               f"joined {info['joined_with_benchmark']}, {time.time() - league_started:.0f}s")
@@ -62,6 +69,16 @@ def main() -> int:
             "haircut_pp": report.haircut_pp,
         }
         args.json.write_text(json.dumps(payload, indent=1, sort_keys=True), encoding="utf-8")
+    if rows_sink is not None:
+        args.rows.parent.mkdir(parents=True, exist_ok=True)
+        with args.rows.open("w", encoding="utf-8") as stream:
+            for row in rows_sink:
+                stream.write(json.dumps(row, sort_keys=True) + "\n")
+        print(f"rows written: {args.rows} ({len(rows_sink)})")
+    if args.gate_json is not None:
+        args.gate_json.parent.mkdir(parents=True, exist_ok=True)
+        args.gate_json.write_text(json.dumps(gate_document(report), indent=1, sort_keys=True), encoding="utf-8")
+        print(f"gate document written: {args.gate_json}")
     return 0
 
 

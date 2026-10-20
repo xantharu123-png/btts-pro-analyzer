@@ -118,7 +118,16 @@ XG_MAX_MATCH_VALUE = 12.0
 # comparison and is never selected by a production caller.
 GOAL_MODEL_LEGACY = "legacy"
 GOAL_MODEL_DIXON_COLES = "dixon_coles"
-GOAL_MODELS = (GOAL_MODEL_LEGACY, GOAL_MODEL_DIXON_COLES)
+# Pre-registered comparison variants (plan 2026-10-20): half-life in days and
+# whether the intercept is pinned to the league level (hypotheses H1 and H2).
+GOAL_MODEL_OPTIONS = {
+    GOAL_MODEL_DIXON_COLES: {"half_life_days": 120.0, "level_prior": False},
+    "dixon_coles_hl240": {"half_life_days": 240.0, "level_prior": False},
+    "dixon_coles_hl365": {"half_life_days": 365.0, "level_prior": False},
+    "dixon_coles_level": {"half_life_days": 120.0, "level_prior": True},
+    "dixon_coles_hl240_level": {"half_life_days": 240.0, "level_prior": True},
+}
+GOAL_MODELS = (GOAL_MODEL_LEGACY,) + tuple(GOAL_MODEL_OPTIONS)
 
 
 @dataclass(frozen=True)
@@ -1338,12 +1347,14 @@ def _fixture_model(
         cov_hs, cov_hc, cov_as, cov_ac, cov_fha, cov_fad, cov_faa, cov_fhd
     )
     goal_model_info = None
-    if goal_model == GOAL_MODEL_DIXON_COLES:
+    if goal_model != GOAL_MODEL_LEGACY:
         if include_provenance:
             raise ValueError("ORIGINAL provenance is bound to the legacy goal model")
         from football_dixon_coles import DixonColesUnavailable, clamp_rho, fit_for_fixture
+        options = GOAL_MODEL_OPTIONS[goal_model]
         try:
-            fit = fit_for_fixture(fixture, history)
+            fit = fit_for_fixture(fixture, history, half_life_days=options["half_life_days"],
+                                  level_prior=options["level_prior"])
             dc_home, dc_away = fit.rates(
                 home_id, away_id, home_effect_known=not _venue_home_edge_unknown(fixture),
             )
@@ -1355,7 +1366,7 @@ def _fixture_model(
         active_home = season_home = form_home = dc_home
         active_away = season_away = form_away = dc_away
         goal_model_info = {
-            "goal_model": GOAL_MODEL_DIXON_COLES, "rho": clamp_rho(fit.rho, dc_home, dc_away),
+            "goal_model": goal_model, "rho": clamp_rho(fit.rho, dc_home, dc_away),
             "fitted_rho": fit.rho, "dixon_coles": fit.summary(),
         }
     model = {

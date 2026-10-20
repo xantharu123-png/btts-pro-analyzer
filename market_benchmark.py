@@ -350,8 +350,34 @@ class BenchmarkReport:
         return summaries
 
 
+def benchmark_rows(predictions: dict[int, dict[str, float]], outcomes: dict[int, dict[str, int]],
+                   benchmark: dict[int, dict[str, Any]], *, league_id: int) -> list[dict[str, Any]]:
+    """One flat row per fixture and benchmark market (for blend/edge-cap studies)."""
+    rows: list[dict[str, Any]] = []
+    for fixture_id, markets in predictions.items():
+        entry = benchmark.get(fixture_id)
+        if entry is None:
+            continue
+        provider, market_p, closing = reference_probabilities(entry)
+        if provider is None:
+            continue
+        offers = offered_odds(entry)
+        for key, market_probability in market_p.items():
+            if key not in markets or key not in outcomes.get(fixture_id, {}):
+                continue
+            offer = offers.get(key)
+            rows.append({
+                "league_id": league_id, "fixture_id": fixture_id, "market_key": key, "date": entry.get("date"),
+                "model_p": markets[key], "market_p": market_probability, "y": outcomes[fixture_id][key],
+                "closing": bool(closing.get(key)), "provider": provider,
+                "offer_odds": offer[0] if offer else None, "offer_provider": offer[1] if offer else None,
+            })
+    return rows
+
+
 def benchmark_league(report: BenchmarkReport, *, league_id: int, fixtures: list[dict[str, Any]],
-                     benchmark: dict[int, dict[str, Any]], seasons: list[int]) -> None:
+                     benchmark: dict[int, dict[str, Any]], seasons: list[int],
+                     rows_sink: Optional[list[dict[str, Any]]] = None) -> None:
     predictions, raw_predictions, outcomes = walk_forward_model_probabilities(fixtures)
     cells = evaluate_cells(predictions, raw_predictions, outcomes, benchmark, league_id=league_id)
     bets = policy_bets(predictions, outcomes, benchmark, league_id=league_id, haircut_pp=report.haircut_pp)
@@ -362,6 +388,27 @@ def benchmark_league(report: BenchmarkReport, *, league_id: int, fixtures: list[
     }
     report.cells.extend(cells)
     report.bets.extend(bets)
+    if rows_sink is not None:
+        rows_sink.extend(benchmark_rows(predictions, outcomes, benchmark, league_id=league_id))
+
+
+def gate_document(report: BenchmarkReport) -> dict[str, Any]:
+    """Machine-readable per-cell verdicts for an optional market release condition."""
+    from datetime import datetime, timezone
+    return {
+        "version": BENCHMARK_VERSION, "generated_at": datetime.now(timezone.utc).isoformat(),
+        "haircut_pp": report.haircut_pp, "leagues": {str(k): v for k, v in report.leagues.items()},
+        "cells": {
+            cell.cell_id: {
+                "league_id": cell.league_id, "market_key": cell.market_key, "observations": cell.observations,
+                "brier_model": cell.brier_model, "brier_market": cell.brier_market,
+                "advantage_mean": cell.advantage_mean, "advantage_lower": cell.advantage_lower,
+                "p_value": cell.p_value, "q_value": cell.q_value,
+                "market_beaten": bool(cell.market_beaten and (cell.q_value if cell.q_value is not None else 1.0) <= 0.05),
+            }
+            for cell in report.cells
+        },
+    }
 
 
 def finalise(report: BenchmarkReport) -> BenchmarkReport:
@@ -424,7 +471,7 @@ def render_markdown(report: BenchmarkReport, *, title: str = "Marktbenchmark: Mo
 
 __all__ = [
     "BENCHMARK_MARKET_KEYS", "BENCHMARK_VERSION", "BenchmarkReport", "CellResult", "EDGE_CAP_PP",
-    "GENERIC_HAIRCUT_PP", "PolicyBet", "PolicySummary", "apply_fdr", "benchmark_league", "evaluate_cells",
-    "finalise", "offered_odds", "policy_bets", "reference_probabilities", "render_markdown",
-    "summarise_policy", "walk_forward_model_probabilities",
+    "GENERIC_HAIRCUT_PP", "PolicyBet", "PolicySummary", "apply_fdr", "benchmark_league", "benchmark_rows",
+    "evaluate_cells", "finalise", "gate_document", "offered_odds", "policy_bets", "reference_probabilities",
+    "render_markdown", "summarise_policy", "walk_forward_model_probabilities",
 ]
