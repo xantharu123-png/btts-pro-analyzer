@@ -395,7 +395,7 @@ def _render_priced(db_path, minimum, offer):
 
 
 def test_offer_below_the_choice_minimum_blocks_reservation_but_keeps_the_forecast_visible(tmp_path, monkeypatch):
-    monkeypatch.setenv('BETBOY_DAILY3_RESERVATION_MINIMUM', '1')
+    monkeypatch.delenv('BETBOY_DAILY3_RESERVATION_MINIMUM', raising=False)  # Default: gate active (owner, 2026-10-20).
     app = AppTest.from_function(_render_priced, args=(str(tmp_path/'blocked.db'), 2.0, 1.8)).run(timeout=30)
     assert not app.exception
     assert any('Heimteam 1' in item.value and 'se-match' in item.value for item in app.markdown)
@@ -406,7 +406,7 @@ def test_offer_below_the_choice_minimum_blocks_reservation_but_keeps_the_forecas
 
 
 def test_entered_quote_below_the_choice_minimum_is_rejected_without_budget_debit(tmp_path, monkeypatch):
-    monkeypatch.setenv('BETBOY_DAILY3_RESERVATION_MINIMUM', '1')
+    monkeypatch.delenv('BETBOY_DAILY3_RESERVATION_MINIMUM', raising=False)  # Default: gate active (owner, 2026-10-20).
     app = AppTest.from_function(_render_priced, args=(str(tmp_path/'minimum.db'), 1.5, 1.8)).run(timeout=30)
     assert not app.exception
     assert any('Mindestquote für diese Auswahl: 1,50' in item.value for item in app.caption)
@@ -421,7 +421,7 @@ def test_entered_quote_below_the_choice_minimum_is_rejected_without_budget_debit
 
 
 def test_entered_quote_at_the_choice_minimum_is_accepted(tmp_path, monkeypatch):
-    monkeypatch.setenv('BETBOY_DAILY3_RESERVATION_MINIMUM', '1')
+    monkeypatch.delenv('BETBOY_DAILY3_RESERVATION_MINIMUM', raising=False)  # Default: gate active (owner, 2026-10-20).
     app = AppTest.from_function(_render_priced, args=(str(tmp_path/'accepted.db'), 1.5, 1.8)).run(timeout=30)
     _button(app, 'CHF 50 Tagesbudget bestätigen').click().run()
     _field(app, 'text_input', 'stake:').set_value('20')
@@ -433,8 +433,8 @@ def test_entered_quote_at_the_choice_minimum_is_accepted(tmp_path, monkeypatch):
     assert any(m.label == 'Verfügbar' and m.value == 'CHF 30.00' for m in app.metric)
 
 
-def test_without_the_flag_the_minimum_is_informational_and_the_owner_rule_applies(tmp_path, monkeypatch):
-    monkeypatch.delenv('BETBOY_DAILY3_RESERVATION_MINIMUM', raising=False)
+def test_flag_zero_makes_the_minimum_informational_only(tmp_path, monkeypatch):
+    monkeypatch.setenv('BETBOY_DAILY3_RESERVATION_MINIMUM', '0')
     app = AppTest.from_function(_render_priced, args=(str(tmp_path/'rule.db'), 2.0, 1.8)).run(timeout=30)
     assert not app.exception and not app.warning
     assert any('rechnerische Mindestquote dieser Auswahl 2,00' in item.value and 'keine Sperre' in item.value

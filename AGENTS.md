@@ -22,9 +22,11 @@ Code, dann `PROJECT_HANDBUCH.md`, dann die Bibel. Historische Logs: `TODO_AKTUEL
   Hauptcheckout trägt noch die alten Werte in `config.ini`.
 - **Nutzerentscheidungen vom 17.10.2026 gelten** (Gegenabgleich, Abschnitt
   „Abgleich Audit 16.10.2026“): keine neuen Backups, obere Hauptnavigation,
-  Einstellungen nicht in der Kundennavigation, Daily3 ohne Echtgeld-Preisfreigabe,
-  keine Badge-Wand auf der Karte. Audit-Empfehlungen, die dem widersprechen,
-  werden nur als abschaltbare Option umgesetzt und dem Owner vorgelegt.
+  Einstellungen nicht in der Kundennavigation, keine Badge-Wand auf der Karte.
+  Die Regel „Daily3 ohne Echtgeld-Preisfreigabe“ hat der Owner am 20.10.2026
+  aufgehoben: das Vormerk-Gate ist aktiv. Audit-Empfehlungen, die einer
+  Nutzerentscheidung widersprechen, werden als abschaltbare Option umgesetzt
+  und dem Owner vorgelegt.
 - **Keine Backups, Produktions-DB-Kopien oder API-Scans** ohne ausdrücklichen Auftrag.
 - **Checkout-Disziplin.** Hauptcheckout `betboy-app` trägt fremdes WIP und liegt hinter
   `origin/main`; eigene Arbeit in einem eigenen Worktree unter `.worktrees/` auf einem
@@ -52,7 +54,7 @@ Umgesetzt auf diesem Branch (Default-Verhalten der Produktion unverändert):
 
 | Thema | Dateien | Vertrag |
 |---|---|---|
-| Daily3: rechnerische Mindestquote (max(1,20; Risiko-Minimum)) und beobachtetes Angebot je Auswahl sichtbar; Vormerk-Gate darauf **nur** mit `BETBOY_DAILY3_RESERVATION_MINIMUM=1` (Default folgt der Nutzerregel vom 17.10.: nur 1,20-Boden) | `daily3_selection.py` (`Daily3Choice.minimum_odds/offer_odds/price_blocked`, `reservation_minimum_enforced`), `daily3_ui.py` (`_require_reservation_price`) | Auswahl bleibt preisblind (Tests sichern das); Gate greift, wenn aktiviert, nur beim Geld |
+| Daily3: rechnerische Mindestquote (max(1,20; Risiko-Minimum)) und beobachtetes Angebot je Auswahl sichtbar; Echtgeld-Vormerkung nur ab dieser Mindestquote, **standardmässig aktiv** (Owner-Entscheidung 20.10.2026, ersetzt die Regel vom 17.10.); `BETBOY_DAILY3_RESERVATION_MINIMUM=0` schaltet ab | `daily3_selection.py` (`Daily3Choice.minimum_odds/offer_odds/price_blocked`, `reservation_minimum_enforced`), `daily3_ui.py` (`_require_reservation_price`) | Auswahl bleibt preisblind (Tests sichern das); Gate greift nur beim Geld |
 | Karte zeigt Mindestquote und Preisstatus auf erster Ebene (Wettfinder, Daily3, 15K) | `wettfinder_surface.render_editorial_card_html`, `editorial_theme.py` | `.se-number-threshold`, `.se-price-status` |
 | Shin- und Power-De-Vig neben proportional | `betting_math.no_vig_market(odds, method)` | nur Benchmark, nie Modellinput |
 | Marktbenchmark Modell vs. No-Vig-Closing (Pinnacle, Shin/Power), HAC, BH über Ligen×Märkte, Replay der Preisgate-Policy mit Bootstrap-ROI/CLV | `market_benchmark.py`, `market_benchmark_history.py`, `scripts/download_market_benchmark_data.py`, `scripts/market_benchmark_report.py` | Preise getrennt nach Fixture-ID gejoint; Modell-Loader bleibt quotenblind |
@@ -64,9 +66,9 @@ unter `runtime_state/market_benchmark/` ab (ignoriert). Berichte:
 
 ## Offen (Reihenfolge aus dem Audit)
 
-1. Owner-Entscheidungen zu diesem Branch: Daily3-Vormerk-Gate aktivieren oder Flag
-   entfernen; Mindestquote und Preisstatus auf der Karte behalten oder zurücknehmen
-   (Gegenabgleich 17.10. K4/H10 gegen Audit 16.10.). Backup-Timer bleibt auf
+1. Owner-Entscheidung zu diesem Branch: Mindestquote und Preisstatus auf der Karte
+   behalten oder zurücknehmen (Gegenabgleich 17.10. H10 gegen Audit 16.10.); das
+   Daily3-Gate ist entschieden (aktiv). Backup-Timer bleibt auf
    Nutzerwunsch deaktiviert; das Wiederherstellungsrisiko ist real. Widerruf der
    alten API-Schlüssel beim Anbieter bestätigen.
 2. Impressum, Datenschutz, 18+, Spielsucht-Hinweis in der App; Kundenzugang vor einem

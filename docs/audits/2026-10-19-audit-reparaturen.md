@@ -28,10 +28,12 @@ Grundlage: `AUDIT_BERICHT_2026-10-16_CLAUDE.md`. Basis des Branches: `origin/mai
   Anpfiff keine Vormerkung erfolgen (fail-closed, dokumentiert im UI-Text).
 - **Konflikt mit der Nutzerregel vom 17.10.2026** (`docs/audits/2026-10-17-claude-
   gegenpruefung.md`, A1/K4: „Daily3 ohne EV-/Echtgeld-Preisfreigabe; 1,20-Boden
-  bleibt“): Das Vormerk-Gate ist deshalb nur mit `BETBOY_DAILY3_RESERVATION_MINIMUM=1`
-  aktiv (`daily3_selection.reservation_minimum_enforced`). Ohne Flag gilt die
-  Nutzerregel unverändert; Mindestquote und Angebot werden nur informativ angezeigt.
-  Entscheidung des Owners: Flag setzen, Flag entfernen oder Gate verwerfen.
+  bleibt“): Das Vormerk-Gate wurde zunächst als abschaltbare Option gebaut und dem
+  Owner vorgelegt. **Entscheidung des Owners am 20.10.2026: Gate standardmässig
+  aktiv.** `daily3_selection.reservation_minimum_enforced` liest
+  `BETBOY_DAILY3_RESERVATION_MINIMUM`; nur der Wert `0` schaltet ab, dann werden
+  Mindestquote und Angebot nur informativ angezeigt (Test
+  `test_flag_zero_makes_the_minimum_informational_only`).
 - Tests: `tests/test_daily3_selection.py` (+1), `tests/test_daily3_ui.py` (+3; die
   Flow-Fixtures setzen das Minimum nun explizit, damit ein Angebot 1,80 über dem
   Minimum liegt), bestehende Daily3-Module grün.
