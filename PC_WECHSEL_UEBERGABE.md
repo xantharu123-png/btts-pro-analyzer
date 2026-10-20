@@ -18,7 +18,9 @@ Preisgate-Replay 34 484 Wetten, ROI −5,5 % [−7,2; −3,6], CLV −1,0 % [−
 Ø Modell−Markt +11 pp (Winner's Curse, Audit K2/K3). **Dixon-Coles-Vergleich:** 29 512 Spiele,
 1X2 klar besser (Heimsieg Brier 0,2223 vs. 0,2287, 9/14 Ligen signifikant), Totals/BTTS
 schlechter (13–14/14 Ligen); kein Drop-in, Halbwertszeit/Niveau-Prior als nächste Hypothese.
-Offen für den Owner: Karte behalten oder zurücknehmen, Merge nach Codex' laufender Arbeit.
+Owner am 20.10.2026: Daily3-Gate aktiv, Karte mit Mindestquote/Preisstatus bleibt. Offen:
+Merge nach Codex' laufender Arbeit, Linux-Volllauf. Folgeauftrag Dixon-Coles-Niveau:
+`docs/superpowers/plans/2026-10-20-dixon-coles-niveau.md`.
 
 ## 18.10.2026 – Spezifikation freigegeben, Plan erstellt; noch kein Produktpatch
 

@@ -24,7 +24,8 @@ Code, dann `PROJECT_HANDBUCH.md`, dann die Bibel. Historische Logs: `TODO_AKTUEL
   „Abgleich Audit 16.10.2026“): keine neuen Backups, obere Hauptnavigation,
   Einstellungen nicht in der Kundennavigation, keine Badge-Wand auf der Karte.
   Die Regel „Daily3 ohne Echtgeld-Preisfreigabe“ hat der Owner am 20.10.2026
-  aufgehoben: das Vormerk-Gate ist aktiv. Audit-Empfehlungen, die einer
+  aufgehoben: das Vormerk-Gate ist aktiv. Mindestquote und Preisstatus auf der
+  Karte sind am 20.10.2026 ausdrücklich bestätigt. Audit-Empfehlungen, die einer
   Nutzerentscheidung widersprechen, werden als abschaltbare Option umgesetzt
   und dem Owner vorgelegt.
 - **Keine Backups, Produktions-DB-Kopien oder API-Scans** ohne ausdrücklichen Auftrag.
@@ -66,9 +67,8 @@ unter `runtime_state/market_benchmark/` ab (ignoriert). Berichte:
 
 ## Offen (Reihenfolge aus dem Audit)
 
-1. Owner-Entscheidung zu diesem Branch: Mindestquote und Preisstatus auf der Karte
-   behalten oder zurücknehmen (Gegenabgleich 17.10. H10 gegen Audit 16.10.); das
-   Daily3-Gate ist entschieden (aktiv). Backup-Timer bleibt auf
+1. Owner-Entscheidungen vom 20.10.2026 zu diesem Branch: Daily3-Gate aktiv, Karte
+   mit Mindestquote und Preisstatus bleibt. Backup-Timer bleibt auf
    Nutzerwunsch deaktiviert; das Wiederherstellungsrisiko ist real. Widerruf der
    alten API-Schlüssel beim Anbieter bestätigen.
 2. Impressum, Datenschutz, 18+, Spielsucht-Hinweis in der App; Kundenzugang vor einem

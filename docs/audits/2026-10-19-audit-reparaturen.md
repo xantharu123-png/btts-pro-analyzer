@@ -208,10 +208,9 @@ Ergebnisfamilie, Walk-forward-Kalibrierung auf der DC-Basis.
   Hauptcheckout trägt die alten Werte noch in `config.ini`.
 - Backup-Timer: auf ausdrücklichen Nutzerwunsch deaktiviert (Gegenabgleich K6); das
   Wiederherstellungsrisiko zwischen Deploys bleibt.
-- Kartenänderung (Mindestquote, Preisstatus) gegen die UX-Entscheidung „keine
-  Badge-Wand, keine Preisfreigabe-Aktion“ (Gegenabgleich U1/H10) abwägen: es ist eine
-  Zahl und eine Zeile, keine Aktion; zurücknehmen ist ein Revert von
-  `wettfinder_surface.render_editorial_card_html` und `editorial_theme.py`.
+- Kartenänderung (Mindestquote, Preisstatus): am 20.10.2026 vom Owner ausdrücklich
+  bestätigt („behalten“); kein Widerspruch mehr zur UX-Entscheidung vom 17.10., da es
+  eine Zahl und eine Zeile ohne Aktion ist.
 - Impressum, Datenschutz, Altershinweis, Spielsucht-Link (Rechtstexte).
 - Aktivierung von Dixon-Coles oder des Marktbenchmarks als Release-Bedingung: beides
   erst nach Lektüre der Berichte und mit vorab definierter Hypothese (Bibel §3.5).
