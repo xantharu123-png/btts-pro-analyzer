@@ -80,6 +80,26 @@ the probe backup, including when `/var/tmp` and `/var/backups` are separate
 filesystems. A pre-start rollback materializes and verifies a sibling tree
 before atomically exchanging it with the live tree.
 
+## Secrets and environment flags (`/etc/betboy/betboy.env`)
+
+Runtime secrets and flags are read from the environment only
+(`config_loader.py`); never commit values. Since 20 October 2026 the customer
+boundary of the Streamlit app is fail-closed: `BETBOY_CUSTOMER_ACCESS_REQUIRED=1`
+enforces the portal login, `BETBOY_CUSTOMER_ACCESS_REQUIRED=0` is the explicit
+personal mode, and when the flag is absent the login is enforced exactly when
+`BETBOY_PORTAL_INTERNAL_TOKEN` is set (`customer_access.access_mode()`).
+Migration for the existing personal VPS: before deploying this change, check
+`betboy.env` for `BETBOY_PORTAL_INTERNAL_TOKEN`; if it is present while the
+portal cutover is not live, either remove it from the app environment or set
+`BETBOY_CUSTOMER_ACCESS_REQUIRED=0`, otherwise the app stops at the login prompt
+and the browser-local account is no longer loaded. While the login is not
+enforced the footer shows "Persönlicher Modus · kein Kundenzugang aktiv".
+The legal footer links come from `BETBOY_LEGAL_URL`, `BETBOY_PRIVACY_URL` and
+`BETBOY_TERMS_URL` (https or site-relative; all three or none); until they are
+set the footer states that operator information and privacy notice are not yet
+published. The portal reads the same names from `/etc/betboy/portal.env` and
+additionally needs `BETBOY_LEGAL_READY=1` (see `check_customer_launch`).
+
 ## Initial installation
 
 The application checkout and its `.git` directory are writable by the

@@ -1,5 +1,33 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## 19.10.2026 – Claude-Audit-Reparaturen auf Branch `claude/audit-repairs-20261019`
+
+Eigener Worktree `.worktrees/claude-audit-repairs-20261019` von `origin/main` @ `be5e441`;
+Hauptcheckout und Codex-Worktree unberührt, nichts gepusht oder deployt. Protokoll:
+`docs/audits/2026-10-19-audit-reparaturen.md`; Einstieg für Agenten: `AGENTS.md`;
+Code-Übergabe: `docs/handoffs/2026-10-20-claude-uebergabe.md`; Auftrag an Codex:
+`docs/handoffs/2026-10-21-codex-auftrag.md` (Kopie `CODEX_UEBERGABE_2026-10-21.md` im Hauptcheckout).
+Umgesetzt: Daily3-Mindestquote und Angebot je Auswahl (Vormerk-Gate standardmässig
+aktiv, Owner-Entscheidung 20.10.2026; `BETBOY_DAILY3_RESERVATION_MINIMUM=0` schaltet ab), Mindestquote
+und Preisstatus auf der gemeinsamen Karte, Shin/Power-De-Vig, Marktbenchmark Modell vs.
+No-Vig-Closing (`scripts/market_benchmark_report.py`, Bericht
+`docs/audits/2026-10-19-marktbenchmark.md`), Dixon-Coles-MLE als Opt-in
+(`goal_model="dixon_coles"`, Default byteidentisch; Vergleich
+`docs/audits/2026-10-19-dixon-coles-vergleich.md`). Tests: 529 + 395 + 580 + 274 + 19
+gezielt grün (Windows); kein Linux-Volllauf. **Marktbenchmark-Ergebnis:** 14 Ligen,
+33 275 Spiele mit Pinnacle-Closing, 0 von 112 Liga×Markt-Zellen schlagen den No-Vig-Markt;
+Preisgate-Replay 34 484 Wetten, ROI −5,5 % [−7,2; −3,6], CLV −1,0 % [−1,2; −0,8],
+Ø Modell−Markt +11 pp (Winner's Curse, Audit K2/K3). **Dixon-Coles-Vergleich:** 29 512 Spiele,
+1X2 klar besser, Totals/BTTS schlechter; Varianten 20.10.: Halbwertszeit 240/365 d hilft, Niveau-Prior
+nicht, Hybrid (DC Ergebnis + Legacy Tore) dominiert (56 sig. besser/32 schlechter von 560), kein Drop-in.
+Mischungsgewicht Modell/Markt out-of-sample 0,00; Edge-Cap 8 pp hebt Policy auf +0,8 % ROI (KI enthält 0).
+FDR über Ligen×Märkte aktiv (Engine-Gate angepasst). Rechtsfooter 18+/Spielsucht, Kundenzugang fail-closed bei
+gesetztem Portal-Token (VOR DEPLOY ENV PRÜFEN, deploy/README.md). CI quick/full, Lockfiles. Tennis-Populationsfit
+ohne nachweisbaren Vorteil (nur 2024 prüfbar). PR #1 auf GitHub, CI grün.
+Owner am 20.10.2026: Daily3-Gate aktiv, Karte mit Mindestquote/Preisstatus bleibt. Offen:
+Merge nach Codex' laufender Arbeit, Linux-Volllauf. Folgeauftrag Dixon-Coles-Niveau:
+`docs/superpowers/plans/2026-10-20-dixon-coles-niveau.md`.
+
 ## 18.10.2026 – Spezifikation freigegeben, Plan erstellt; noch kein Produktpatch
 
 Aktuelle ausdrückliche Antwort: „Spezifikation freigegeben; Umsetzungsplan erstellen“.

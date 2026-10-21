@@ -1,7 +1,10 @@
-"""Opt-in customer boundary for Streamlit; personal deployments stay unchanged.
+"""Customer boundary for Streamlit: fail-closed once the portal is configured.
 
 Session cookies are checked against the portal on the server, never decoded in
-JavaScript. Do not enable until the portal and reverse proxy are configured.
+JavaScript. ``BETBOY_CUSTOMER_ACCESS_REQUIRED="1"`` enforces the login, ``"0"``
+is the explicit personal mode; without the flag the login is enforced exactly
+when ``BETBOY_PORTAL_INTERNAL_TOKEN`` is set (see ``access_mode``). A personal
+deployment without portal token keeps its browser-local identity.
 """
 from __future__ import annotations
 
@@ -26,8 +29,27 @@ class CustomerAccessDenied(ValueError):
     pass
 
 
+def access_mode() -> str:
+    """Return ``"enforced"``, ``"personal"`` or ``"personal_explicit"``.
+
+    ``BETBOY_CUSTOMER_ACCESS_REQUIRED="1"`` enforces the portal login and ``"0"``
+    is the explicit personal mode. When the flag is absent, the portal token
+    decides: a configured ``BETBOY_PORTAL_INTERNAL_TOKEN`` means the customer
+    boundary exists and access is enforced; without a token the deployment is
+    personal. Any other non-empty flag value counts as ``"1"`` (fail-closed).
+    """
+    required = (os.environ.get("BETBOY_CUSTOMER_ACCESS_REQUIRED") or "").strip()
+    if required == "0":
+        return "personal_explicit"
+    if required:
+        return "enforced"
+    if (os.environ.get("BETBOY_PORTAL_INTERNAL_TOKEN") or "").strip():
+        return "enforced"
+    return "personal"
+
+
 def enabled() -> bool:
-    return os.environ.get("BETBOY_CUSTOMER_ACCESS_REQUIRED") == "1"
+    return access_mode() == "enforced"
 
 
 def fetch_access(cookies) -> dict:

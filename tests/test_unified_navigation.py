@@ -17,6 +17,7 @@ def _navigation_namespace(st, features):
     from types import SimpleNamespace
     from account_identity import account_scope_ready
     from customer_access import PAGE_FEATURES
+    from legal_notice import render_legal_footer
     from manual_search_filters import render_search_filters
     from tip_display_order import ordered_event_rows
 
@@ -43,6 +44,7 @@ def _navigation_namespace(st, features):
         "date": date, "datetime": datetime, "timedelta": timedelta, "timezone": timezone,
         "escape": escape, "PAGE_FEATURES": PAGE_FEATURES,
         "account_scope_ready": account_scope_ready,
+        "render_legal_footer": render_legal_footer,
         "render_search_filters": render_search_filters,
         "ordered_event_rows": ordered_event_rows,
         "_REQUIRED_ANALYZER_MODULE_VERSION": 1,

@@ -20,6 +20,7 @@ import streamlit as st
 import league_catalog as _league_catalog
 from account_identity import account_scope_ready, ensure_account_scope
 from customer_access import PAGE_FEATURES, bind_customer, require_feature
+from legal_notice import render_legal_footer
 from api_budget import APIBudgetPriority, api_football_get
 
 
@@ -5104,9 +5105,9 @@ def main() -> None:
         st.error("Dieser Bereich ist nicht verfügbar.")
 
     st.divider()
-    st.caption(
-        "Modellwerte sind Schätzungen. Wetten können zum Verlust des Einsatzes führen."
-    )
+    # Pflichthinweise (18+, Risiko, Spielsucht-Hilfe, Rechtslinks) und der
+    # Zugangsmodus: ohne erzwungenen Kundenzugang steht das sichtbar im Footer.
+    render_legal_footer(st)
 
 
 if __name__ == "__main__":

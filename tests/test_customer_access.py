@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from customer_access import (
-    ACCESS_KEY, PLAN_FEATURES, CustomerAccessDenied, assert_current_scope,
+    ACCESS_KEY, PLAN_FEATURES, CustomerAccessDenied, access_mode, assert_current_scope,
     bind_customer, enabled, fetch_access, require_feature,
 )
 
@@ -24,6 +24,8 @@ def configured(monkeypatch):
 
 def test_personal_deployment_unchanged(monkeypatch):
     monkeypatch.delenv("BETBOY_CUSTOMER_ACCESS_REQUIRED", raising=False)
+    monkeypatch.delenv("BETBOY_PORTAL_INTERNAL_TOKEN", raising=False)
+    assert access_mode() == "personal"
     assert not enabled()
     assert bind_customer(None) is False
     require_feature(None, "15k")
@@ -116,3 +118,41 @@ def test_feature_catalog_matches_portal_without_importing_django():
     from pathlib import Path
     plans = runpy.run_path(str(Path(__file__).resolve().parents[1] / "portal/members/plans.py"))["PLANS"]
     assert {key: frozenset(value["features"]) for key, value in plans.items()} == PLAN_FEATURES
+
+
+@pytest.mark.parametrize(("required", "token", "mode"), [
+    ("1", None, "enforced"), ("1", "test-only", "enforced"), ("yes", None, "enforced"),
+    ("0", None, "personal_explicit"), ("0", "test-only", "personal_explicit"),
+    (None, None, "personal"), ("", None, "personal"), (None, "test-only", "enforced"),
+])
+def test_access_mode_is_fail_closed_once_the_portal_token_exists(monkeypatch, required, token, mode):
+    for name, value in (("BETBOY_CUSTOMER_ACCESS_REQUIRED", required), ("BETBOY_PORTAL_INTERNAL_TOKEN", token)):
+        if value is None:
+            monkeypatch.delenv(name, raising=False)
+        else:
+            monkeypatch.setenv(name, value)
+    assert access_mode() == mode
+    assert enabled() is (mode == "enforced")
+
+
+def test_configured_token_without_flag_enforces_login_and_drops_the_browser_scope(monkeypatch):
+    monkeypatch.delenv("BETBOY_CUSTOMER_ACCESS_REQUIRED", raising=False)
+    monkeypatch.setenv("BETBOY_PORTAL_INTERNAL_TOKEN", "test-only")
+    st = MagicMock()
+    st.session_state = {"_betboy_account_scope": "b" * 32, "tickets": ["private"]}
+    with patch("customer_access.fetch_access", side_effect=CustomerAccessDenied("Login required.")):
+        assert bind_customer(st) is False
+    assert st.session_state == {}
+    st.stop.assert_called_once()
+    with patch("customer_access.fetch_access", side_effect=CustomerAccessDenied("Login required.")), pytest.raises(CustomerAccessDenied):
+        assert_current_scope({}, "b" * 32)
+
+
+def test_explicit_personal_mode_keeps_the_owner_in_even_with_a_token(monkeypatch):
+    monkeypatch.setenv("BETBOY_CUSTOMER_ACCESS_REQUIRED", "0")
+    monkeypatch.setenv("BETBOY_PORTAL_INTERNAL_TOKEN", "test-only")
+    assert access_mode() == "personal_explicit"
+    with patch("customer_access.fetch_access", side_effect=AssertionError("must not be called")):
+        assert bind_customer(None) is False
+        require_feature(None, "daily3")
+        assert_current_scope({}, "b" * 32)

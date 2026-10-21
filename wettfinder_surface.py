@@ -970,6 +970,16 @@ def render_editorial_card_html(card: WettfinderCard, *, grouped=False, featured=
     quote_note = f' title="{escape(note, quote=True)}"' if note else ''
     provenance = f'<small class="se-meta">{escape(note)}</small>' if note else ''
     quote_html = f'<div class="se-number se-number-quote"{quote_note}><span>{quote_label}</span><strong>{escape(format_decimal_odds(card.observed_odds))}</strong>{provenance}</div>'
+    # The minimum odds and the price status belong on the first level: a reader
+    # must see whether the shown quote is enough (audit 2026-10-16, H10/K5).
+    threshold_html = ('<div class="se-number se-number-threshold" title="Preis, ab dem die vorsichtige '
+                      'Modellrechnung 3 % Risiko-Erwartungswert erreicht; keine erwartete Buchmacherquote.">'
+                      f'<span>Mindestquote</span><strong>{escape(format_decimal_odds(card.value_threshold))}</strong></div>')
+    price_note = _PRICE_NOTES.get(card.price_code, 'Wettpreis separat prüfen.')
+    status_text = (price_note if price_note.startswith(card.price_label)
+                   else f'{card.price_label} · {price_note}')
+    status_html = (f'<p class="se-price-status se-tone-{escape(card.price_tone, quote=True)}">'
+                   f'<strong>{escape(card.price_label)}</strong>{escape(status_text[len(card.price_label):])}</p>')
     if card.compact_analysis is not None:
         compact = card.compact_analysis
         if not supporting_fact and featured and _can_feature(card) and card.highlight_comparison is not None:
@@ -996,7 +1006,7 @@ def render_editorial_card_html(card: WettfinderCard, *, grouped=False, featured=
         + '<div class="se-pick-and-reason"><div class="se-pick"><div class="se-pick-label">'
         f'<span>{escape(card.market)}</span><strong>{escape(card.display_selection or card.selection)}</strong></div>'
         f'<div class="se-number"><span aria-label="Modellchance">Modell</span><strong>{escape(format_probability(card.model_probability))}</strong></div>'
-        f'{quote_html}</div>{reason_html}</div></div>{analysis_html}</article>'
+        f'{quote_html}{threshold_html}</div>{status_html}{reason_html}</div></div>{analysis_html}</article>'
     )
 
 

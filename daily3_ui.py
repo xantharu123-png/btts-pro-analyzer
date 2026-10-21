@@ -1,5 +1,6 @@
 """Flat, manually confirmed real-stake Daily3 UI; no new scanner or timer."""
 from datetime import datetime, timezone
+from decimal import Decimal
 import hashlib
 import json
 import sqlite3
@@ -7,9 +8,10 @@ import uuid
 from zoneinfo import ZoneInfo
 
 from account_identity import AccountScopeUnavailable, storage_scope
+from betting_math import MINIMUM_RECOMMENDED_DECIMAL_ODDS
 from daily3_math import Daily3Error, decimal_odds, format_chf, parse_chf
 from daily3_identity import event_guard
-from daily3_selection import MIN_MODEL_PROBABILITY, daily3_choices
+from daily3_selection import MIN_MODEL_PROBABILITY, daily3_choices, reservation_minimum_enforced
 from daily3_schedule import pending_ready_at, planning_allowance
 from daily3_store import Daily3Store, day_balance, expected_return_cents, payout_needs_confirmation
 from forecast_compact import render_compact_analysis_html
@@ -18,6 +20,36 @@ from tip_display_order import ordered_event_rows
 from wettfinder_surface import build_wettfinder_card, format_probability
 
 _TZ = ZoneInfo('Europe/Zurich')
+
+
+def _odds_text(value):
+    return '–' if value is None else f'{float(value):.2f}'.replace('.', ',')
+
+
+def _reservation_block_reason(choice):
+    """Why real money may not be reserved on this choice right now ('' = allowed)."""
+    if not reservation_minimum_enforced():
+        return ''
+    if choice.minimum_odds is None:
+        return 'Für diese Auswahl liegt keine belastbare Mindestquote vor. Keine Vormerkung.'
+    if choice.price_blocked:
+        return (f'Die zuletzt beobachtete Quote {_odds_text(choice.offer_odds)} liegt unter der Mindestquote '
+                f'{_odds_text(choice.minimum_odds)} dieser Auswahl. Zu diesem Preis keine Vormerkung; die '
+                'Prognose bleibt sichtbar. Nach Spielbeginn wird die Tagesfolge neu geplant.')
+    return ''
+
+
+def _require_reservation_price(choice, entered):
+    """Real money needs the choice's own minimum; the global 1,20 floor stays in the store."""
+    reason = _reservation_block_reason(choice)
+    if reason:
+        raise Daily3Error(reason)
+    if not reservation_minimum_enforced():
+        return
+    odds = Decimal(decimal_odds(entered))
+    if Decimal(str(MINIMUM_RECOMMENDED_DECIMAL_ODDS)) <= odds < Decimal(f'{choice.minimum_odds:.2f}'):
+        raise Daily3Error(f'Die angegebene Quote {_odds_text(odds)} liegt unter der Mindestquote '
+                          f'{_odds_text(choice.minimum_odds)} dieser Auswahl. Keine Vormerkung.')
 
 
 def _token(st, key):
@@ -220,7 +252,7 @@ def render_daily3(st, *, snapshot_loader=None, store_factory=None, now=None):
         st.write('Planungsabstand: 3 Stunden für Fußball, Basketball und Eishockey; 4 Stunden für Tennis und E-Sport. Das sind Zeitpuffer, keine garantierten Spiel- oder Abrechnungszeiten. Die nächste Wette wird erst nach tatsächlicher Abrechnung verfügbar.')
         st.write('Fußball: Formvergleich. ATP-Tennis: Vergleich mit und ohne Belaggewichtung, mit ausreichender Spielerhistorie. Keine unabhängigen Zweitmodelle. Für weitere Sportarten fehlen noch qualifizierte Vergleiche; ihre normalen Prognosen bleiben sichtbar.')
         st.write('Diese Auswahl nutzt den Prognosepool des Wettfinders, aber eine eigene Auswahlregel. Sie ist keine unabhängige Zweitbestätigung und keine nachgewiesene Sicherheitsrangliste. Fehlende Kontextdaten bleiben am Spiel sichtbar.')
-        st.write('Die Auswahlen entstehen ohne Buchmacherquote. Für tatsächlich erfasste Wetten gilt deine Mindestquote 1,20. Das CHF-150-Ziel verändert die Auswahl nicht; drei passende Auswahlen sind nicht täglich verfügbar.')
+        st.write('Die Auswahlen entstehen ohne Buchmacherquote. Für eine tatsächliche Vormerkung gilt die Mindestquote der jeweiligen Auswahl, mindestens 1,20: der Preis, ab dem die vorsichtige Modellrechnung (Modellwahrscheinlichkeit abzüglich Unsicherheitsabschlag) 3 % Risiko-Erwartungswert erreicht. Sie ist keine erwartete Buchmacherquote. Das CHF-150-Ziel verändert die Auswahl nicht; drei passende Auswahlen sind nicht täglich verfügbar.')
         st.write('Maximal CHF 50 eigene Mittel pro Tag, kein Nachschuss. Nur endgültig abgerechnete Rückzahlungen werden wieder verfügbar. Verfügbar ist eine Obergrenze, keine Einsatzempfehlung. Auch Gewinne können wieder verloren gehen.')
         st.write('Echte Wetten werden manuell erfasst; keine Buchmacheranbindung. Das Limit gilt nur für diesen Browserbereich, nicht für externe Wetten oder spätere Buchmacherkorrekturen. Wetten sind kein verlässliches Einkommen.')
     if snapshot_loader is None:
@@ -303,8 +335,18 @@ def render_daily3(st, *, snapshot_loader=None, store_factory=None, now=None):
             card = rendered_identity_card(card, choice.signal)
             st.markdown(render_editorial_card_html(card,
                 supporting_fact=choice.comparison.summary), unsafe_allow_html=True)
-            st.caption('Deine Mindestquote für eine tatsächliche Wette: 1,20')
-            if can_reserve and index == 0:
+            block_reason = _reservation_block_reason(choice)
+            if block_reason:
+                st.warning(block_reason)
+            elif reservation_minimum_enforced():
+                st.caption(f'Mindestquote für diese Auswahl: {_odds_text(choice.minimum_odds)} · zuletzt beobachtet '
+                           f'{_odds_text(choice.offer_odds)}. Preis, ab dem die vorsichtige Modellrechnung 3 % '
+                           'Risiko-Erwartungswert erreicht; keine erwartete Buchmacherquote.')
+            else:
+                st.caption(f'Deine Mindestquote für eine tatsächliche Wette: 1,20 · rechnerische Mindestquote dieser '
+                           f'Auswahl {_odds_text(choice.minimum_odds)} · zuletzt beobachtet {_odds_text(choice.offer_odds)}. '
+                           'Die rechnerische Mindestquote ist eine Information, keine Sperre.')
+            if can_reserve and index == 0 and not block_reason:
                 with st.form('d3-reserve:'+key):
                     _money_input(st, 'Eigener Einsatz in CHF', 'stake:'+key)
                     st.text_input('Tatsächlich angebotene Dezimalquote', value='', placeholder='z. B. 1,95', key='odds:'+key)
@@ -324,6 +366,7 @@ def render_daily3(st, *, snapshot_loader=None, store_factory=None, now=None):
                                                if len(matching) == 1 else None)
                         if current_fingerprint != fingerprint:
                             raise Daily3Error('Die Analyse hat sich seit der Anzeige verändert. Bitte den neuen Stand prüfen und erneut bestätigen.')
+                        _require_reservation_price(matching[0], st.session_state['odds:'+key])
                         return dict(bet_id=_token(st, 'bet:'+key+fingerprint), snapshot=snap,
                                     stake_cents=parse_chf(st.session_state['stake:'+key], positive=True),
                                     odds=decimal_odds(st.session_state['odds:'+key]))

@@ -1,0 +1,23 @@
+# portal/requirements.lock – exakte Versionen der Portal-Abhängigkeiten (portal/requirements.txt).
+#
+# Erzeugt am 20.10.2026 aus betboy-app/.portal-venv (Python 3.12.10, Windows 11):
+#   .portal-venv\Scripts\python.exe -m pip freeze
+# Alle 11 gelisteten Pakete liegen in der transitiven Hülle von Django, stripe und requests.
+# gunicorn ist auf Windows per Marker ausgeschlossen und darum nicht aus einem Freeze gepinnt;
+# die Zeile unten übernimmt den exakten Pin aus portal/requirements.txt. Seine Abhängigkeit
+# `packaging` ist dadurch auf Linux nicht gepinnt.
+#
+# Nutzung (eigene venv, nicht die App-venv):  python -m pip install -r portal/requirements.lock
+# Neu erzeugen: docs/audits/2026-10-20-ci-lockfile.md.
+asgiref==3.12.1
+certifi==2026.7.22
+charset-normalizer==3.5.1
+Django==5.2.17
+idna==3.20
+requests==2.34.2
+sqlparse==0.6.0
+stripe==15.6.1
+typing_extensions==4.16.0
+tzdata==2026.4
+urllib3==2.8.0
+gunicorn==23.0.0; sys_platform != "win32"
