@@ -500,11 +500,61 @@ class ReferencePriceStatus:
     observed_at: Optional[str] = None
 
 
+EDGE_CAP_FLAG = "BETBOY_EDGE_CAP_PP"
+
+
+def edge_cap_pp() -> Optional[float]:
+    """Optional cap on the admissible model-minus-market edge in percentage points.
+
+    Audit 2026-10-16 K3 and the benchmark replay of 2026-10-20: the price gate
+    selects the fixtures where the model deviates most from the market; a cap
+    of 8 pp lifted the replayed policy from -5.5 % to +0.8 % ROI (interval
+    contains zero, in-sample). Off unless ``BETBOY_EDGE_CAP_PP`` holds a
+    positive number; pre-registered in docs/superpowers/plans/2026-10-21-edge-cap.md.
+    """
+    import os
+    raw = os.environ.get(EDGE_CAP_FLAG, "").strip()
+    if not raw:
+        return None
+    try:
+        value = float(raw.replace(",", "."))
+    except ValueError:
+        return None
+    return value if math.isfinite(value) and value > 0.0 else None
+
+
+def _edge_cap_status(quote: MarketConsensus, model_probability: Optional[float]) -> Optional[ReferencePriceStatus]:
+    """Demote a playable price when the model sits too far above the market consensus."""
+    cap = edge_cap_pp()
+    if cap is None or model_probability is None:
+        return None
+    try:
+        probability = float(model_probability)
+    except (TypeError, ValueError):
+        return None
+    if isinstance(model_probability, bool) or not math.isfinite(probability) or not 0.0 < probability < 1.0:
+        return None
+    consensus = quote.consensus_odds
+    if consensus is None or not math.isfinite(consensus) or consensus <= 1.0:
+        return None
+    # The consensus implied probability still contains the margin, so this
+    # proxy overstates the market probability and makes the cap slightly stricter.
+    edge = 100.0 * (probability - 1.0 / consensus)
+    if edge <= cap:
+        return None
+    return ReferencePriceStatus(
+        "EDGE_CAP",
+        f"Modell liegt {edge:.1f} Prozentpunkte ueber dem Marktkonsens; Kappung bei {cap:.0f}",
+        None,
+    )
+
+
 def reference_price_status(
     quote: Optional[MarketConsensus],
     minimum_odds: Optional[float],
     *,
     now: Optional[datetime] = None,
+    model_probability: Optional[float] = None,
 ) -> ReferencePriceStatus:
     """Classify a reference price without changing the model forecast."""
     if quote is None:
@@ -538,6 +588,9 @@ def reference_price_status(
         )
     executable = quote.executable_point
     if quote.conservative_odds + 1e-9 >= threshold and executable is not None:
+        capped = _edge_cap_status(quote, model_probability)
+        if capped is not None:
+            return capped
         return ReferencePriceStatus(
             "PLAYABLE",
             "Marktpreis liegt konservativ ueber der Mindestquote",
@@ -753,6 +806,7 @@ def wettfinder_reference_price_status(
     *,
     candidate: object = None,
     now: Optional[datetime] = None,
+    model_probability: Optional[float] = None,
 ) -> ReferencePriceStatus:
     """Classify a quote under the normal Wettfinder execution contract.
 
@@ -805,7 +859,9 @@ def wettfinder_reference_price_status(
             "Quotenstand hat keinen vollstaendigen Anbieter- und Zeitbeleg",
             None,
         )
-    status = reference_price_status(effective_quote, minimum_odds, now=now)
+    if model_probability is None and candidate is not None:
+        model_probability = _candidate_value(candidate, "probability")
+    status = reference_price_status(effective_quote, minimum_odds, now=now, model_probability=model_probability)
     if status.code != "PLAYABLE":
         return status
     if not _wettfinder_quote_has_execution_proof(effective_quote):

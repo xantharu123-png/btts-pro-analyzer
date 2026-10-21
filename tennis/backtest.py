@@ -720,7 +720,8 @@ def _devig(odds_w: float, odds_l: float) -> Optional[Tuple[float, float]]:
         ow, ol = float(odds_w), float(odds_l)
     except (TypeError, ValueError):
         return None
-    if ow <= 1.0 or ol <= 1.0:
+    # NaN compares False against 1.0 and used to pass through (12 rows in 2024).
+    if not math.isfinite(ow) or not math.isfinite(ol) or ow <= 1.0 or ol <= 1.0:
         return None
     total = 1.0 / ow + 1.0 / ol
     return (1.0 / ow) / total, (1.0 / ol) / total

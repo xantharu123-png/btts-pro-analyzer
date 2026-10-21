@@ -4864,6 +4864,7 @@ def _render_challenge_candidate(
             "STALE": "Der Marktvergleich ist nicht mehr aktuell",
             "UNAVAILABLE": "Aktuell liegt keine exakt passende Vergleichsquote vor",
             "INVALID_MINIMUM": "Die Value-Grenze ist nicht belastbar",
+            "EDGE_CAP": "Das Modell liegt zu weit über dem Marktkonsens (Kappung aktiv)",
         }.get(status.code, "Keine automatische Preisfreigabe")
         st.info(
             f"MODELL-AUSWAHL: {candidate.selection}. {reason}. Ohne "

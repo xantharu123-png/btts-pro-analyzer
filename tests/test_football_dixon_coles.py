@@ -179,3 +179,84 @@ def test_engine_accepts_every_registered_variant_and_keeps_the_default_identical
         assert result["dixon_coles"]["version"].endswith("-level") is options["level_prior"]
     again = engine.fixture_market_probabilities(target, history, None, _validation_only=True)
     assert again["probabilities"] == baseline["probabilities"] and "goal_model" not in again
+
+
+def _sample_venue_matches(*, teams=8, double_round_robins=10, seed=21):
+    """Teams score differently at home and away: separate venue strengths."""
+    generator = random.Random(seed)
+    att_h = [generator.gauss(0.0, 0.3) for _ in range(teams)]
+    att_a = [generator.gauss(0.0, 0.3) for _ in range(teams)]
+    dfc = [generator.gauss(0.0, 0.2) for _ in range(teams)]
+    rows, day = [], 0
+    for _ in range(double_round_robins):
+        for home in range(teams):
+            for away in range(teams):
+                if home == away:
+                    continue
+                lam = math.exp(math.log(1.4) + att_h[home] + dfc[away] + 0.2)
+                mu = math.exp(math.log(1.4) + att_a[away] + dfc[home])
+                law = dixon_coles_score_matrix(lam, mu, -0.1, max_goals=10)
+                cells, weights = zip(*law.items())
+                hg, ag = generator.choices(cells, weights=weights)[0]
+                rows.append(DixonColesMatch(len(rows) + 1, START + timedelta(days=day), 200 + home, 200 + away, hg, ag, True))
+                day += 0.25
+    return rows, att_h, att_a
+
+
+def test_venue_specific_fit_separates_home_and_away_attack():
+    import numpy as np
+    rows, att_h, att_a = _sample_venue_matches()
+    cutoff = max(r.played_at for r in rows) + timedelta(days=1)
+    fit = fit_dixon_coles(rows, cutoff, half_life_days=1e9, max_history_days=10_000, venue_specific=True)
+    assert fit.converged and fit.venue_specific and fit.version.endswith("-venue")
+    assert np.corrcoef(np.array(fit.attack), np.array(att_h))[0, 1] > 0.8
+    assert np.corrcoef(np.array(fit.attack_away), np.array(att_a))[0, 1] > 0.8
+    assert abs(sum(fit.attack)) < 1e-9 and abs(sum(fit.attack_away)) < 1e-9
+    assert 0.05 < fit.home_advantage < 0.4  # Generated with 0.2.
+    plain = fit_dixon_coles(rows, cutoff, half_life_days=1e9, max_history_days=10_000)
+    assert not plain.venue_specific and plain.attack_away is None
+    assert fit.log_likelihood > plain.log_likelihood  # More parameters fit the venue data better.
+    # Analytic gradient of the venue likelihood matches finite differences.
+    from football_dixon_coles import _design
+    teams, home, away, x, y, known, weights = _design(tuple(rows[:120]), cutoff, 90.0)
+    params = np.concatenate(([0.3, 0.0, -0.1], np.random.default_rng(2).normal(0, 0.2, 4 * len(teams))))
+    _, grad = negative_log_likelihood(params, home, away, x, y, known, weights, len(teams), venue_specific=True)
+    numeric = np.zeros_like(params)
+    for i in range(len(params)):
+        step = np.zeros_like(params); step[i] = 1e-6
+        up, _ = negative_log_likelihood(params + step, home, away, x, y, known, weights, len(teams), venue_specific=True)
+        down, _ = negative_log_likelihood(params - step, home, away, x, y, known, weights, len(teams), venue_specific=True)
+        numeric[i] = (up - down) / 2e-6
+    assert np.allclose(grad, numeric, rtol=1e-4, atol=1e-5)
+
+
+def test_hybrid_matrix_keeps_the_legacy_total_law_and_the_dixon_coles_split():
+    from football_dixon_coles import reweight_totals
+    legacy = engine.score_matrix(1.6, 1.2)
+    dixon = engine.score_matrix(1.9, 0.9, rho=-0.1)
+    hybrid = reweight_totals(legacy, dixon)
+    assert math.isclose(sum(hybrid.values()), 1.0, abs_tol=1e-12)
+    def totals(matrix):
+        out = {}
+        for (h, a), p in matrix.items():
+            out[h + a] = out.get(h + a, 0.0) + p
+        return out
+    for total, mass in totals(legacy).items():
+        assert math.isclose(totals(hybrid)[total], mass, abs_tol=1e-12)
+    # Within a total line the split follows Dixon-Coles, not legacy.
+    assert math.isclose(hybrid[(2, 0)] / hybrid[(0, 2)], dixon[(2, 0)] / dixon[(0, 2)], rel_tol=1e-9)
+    assert hybrid[(2, 0)] / hybrid[(0, 2)] > legacy[(2, 0)] / legacy[(0, 2)]
+
+
+def test_engine_hybrid_variant_uses_the_override_and_keeps_totals_at_legacy():
+    fixtures = synthetic_league(rounds=6)
+    history, target = fixtures[:-1], fixtures[-1]
+    legacy = engine.fixture_market_probabilities(target, history, None, _validation_only=True)
+    hybrid = engine.fixture_market_probabilities(target, history, None, _validation_only=True, goal_model="dixon_coles_hl365_hybrid")
+    assert hybrid["goal_model"] == "dixon_coles_hl365_hybrid" and hybrid.get("goal_matrix_override") is not None
+    for key in ("TOTAL_OVER_2_5", "TOTAL_UNDER_1_5", "BTTS_YES"):
+        if key in ("TOTAL_OVER_2_5", "TOTAL_UNDER_1_5"):
+            assert hybrid["raw_probabilities"][key][0] == pytest.approx(legacy["raw_probabilities"][key][0], abs=1e-9)
+    assert hybrid["raw_probabilities"]["RESULT_HOME"][0] != pytest.approx(legacy["raw_probabilities"]["RESULT_HOME"][0], abs=1e-6)
+    venue = engine.fixture_market_probabilities(target, history, None, _validation_only=True, goal_model="dixon_coles_venue")
+    assert venue is not None and venue["dixon_coles"]["venue_specific"] is True
