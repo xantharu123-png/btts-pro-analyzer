@@ -26,7 +26,7 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 
 - 0 von 112 Liga×Markt-Zellen schlagen den No-Vig-Closing-Markt; Preispolicy-Replay ROI −5,5 %.
 - Mischungsgewicht Modell/Markt out-of-sample 0,00.
-- Hybrid Dixon-Coles (Ergebnis) + Legacy (Tore) ist das beste Modell (56 Zellen signifikant besser, 32 schlechter); kein Modell schlägt den Markt.
+- Kohärenter Hybrid `dixon_coles_hl365_hybrid` (eine Matrix: DC-Struktur, Legacy-Torsumme) ist das beste Modell (148 Zellen signifikant besser als Legacy, 111 schlechter); venue-spezifisches DC (H4) widerlegt; kein Modell schlägt den Markt.
 
 ## Offen
 
@@ -38,7 +38,7 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 | Owner | VPS-Release über den geprüften No-Backup-Weg |
 | Codex | Branch integrieren, Konflikte lösen, Prüfbefehle, Release vorbereiten (`docs/handoffs/2026-10-21-codex-auftrag.md`) |
 | Codex/Claude | Linux-Vollnachweis (GitHub-Job `full` scheitert am Speicherlimit; Suite halbieren) |
-| Codex/Claude | Hypothese H4 (venue-spezifische DC-Parameter), kohärenter Hybrid, Quotenabruf aller Seiten, Edge-Cap als Produktregel |
+| Codex/Claude | Hybrid-Aktivierung vorbereiten (Walk-forward, Kalibrierung, Pins), Quotenabruf aller Seiten, Edge-Cap prospektiv prüfen (`docs/superpowers/plans/2026-10-21-edge-cap.md`) |
 
 ## Wo nachlesen
 

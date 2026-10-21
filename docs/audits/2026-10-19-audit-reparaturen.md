@@ -314,6 +314,41 @@ Konstruktion, die beide Gesetze in einer gemeinsamen Verteilung vereint (die gem
 Kalibrierung projiziert heute eine Matrix je Familie); bis dahin bleibt der Hybrid eine
 Analyse und `GOAL_MODEL_LEGACY` der Default.
 
+### Nachtrag 21.10.2026: kohärenter Hybrid und H4 (`docs/audits/2026-10-21-dixon-coles-*.md`)
+
+Umsetzung des Hybrids als **eine** Score-Matrix (`football_dixon_coles.reweight_totals`):
+Dixon-Coles-Aufteilung innerhalb jeder Torsumme, Legacy-Verteilung der Torsumme;
+Engine-Variante `dixon_coles_hl365_hybrid` über `goal_matrix_override`. H4 als
+`dixon_coles_venue` (getrennte Heim-/Auswärts-Angriffs- und Abwehrparameter, Halbwertszeit
+365 Tage) und `dixon_coles_venue_hybrid`. Gleiche 14 Ligen, 29 486 bis 29 487 Spiele.
+
+| Variante | Heimsieg | Auswärtssieg | BTTS Ja | Über 2,5 | Heim unter 1,5 | Zellen sig. besser / schlechter (560) |
+|---|---:|---:|---:|---:|---:|---:|
+| hl365 (Referenz) | −0,0073 (2/10) | −0,0061 (3/10) | +0,0026 (12/0) | +0,0017 (12/0) | −0,0033 (3/3) | 91 / 271 |
+| **hl365_hybrid (kohärent)** | −0,0073 (2/11) | −0,0057 (3/9) | +0,0010 (10/0) | 0 (Legacy) | −0,0041 (2/7) | **148 / 111** |
+| venue (H4) | −0,0018 (4/2) | −0,0013 (4/3) | +0,0086 (14/0) | +0,0076 (14/0) | +0,0019 (8/0) | 10 / 444 |
+| venue_hybrid | −0,0014 (4/3) | −0,0011 (4/3) | +0,0031 (14/0) | 0 (Legacy) | −0,0014 (4/3) | 48 / 219 |
+
+Befunde:
+- **Kohärenter Hybrid bestätigt:** Eine einzige Matrix mit DC-Struktur und Legacy-Torsumme
+  ist in 148 von 560 Zellen signifikant besser als Legacy und in 111 im Mittel schlechter
+  (fast ausschliesslich BTTS mit kleinem, nicht signifikantem Nachteil). 1X2-Vorteil wie DC,
+  Totals exakt Legacy, Teamtore besser als beide. Gegen den Markt: Heimsieg-Lücke 0,0083
+  (Legacy 0,0156), Über 2,5 0,0065 (= Legacy). Das ist die beste Konfiguration im Datensatz.
+- **H4 widerlegt:** Venue-spezifische Parameter verschlechtern alles, auch 1X2
+  (−0,0018 statt −0,0073) und Totals deutlich (+0,0076, 14 von 14 Ligen); mit vier
+  Parameterblöcken je Team reicht die Historie nicht, die Ridge-Schrumpfung 0,02 ist
+  dafür zu schwach. Der Tormarkt-Nachteil von Dixon-Coles lag also nicht an fehlenden
+  Venue-Effekten, sondern an der Torsummen-Verteilung selbst, die der Hybrid vom
+  Legacy-Prior übernimmt.
+- Kein Modell schlägt den Markt. Das ändert nichts am Freigabevertrag.
+
+Nächster Schritt für eine Produktionsaktivierung des Hybrids: Walk-forward-Validierung
+und Kalibrierung mit `goal_model="dixon_coles_hl365_hybrid"` über `_walk_forward_market_records`,
+Vergleich der Validierungsmetriken je Markt mit dem Legacy-Artefakt, danach Pin-/ORIGINAL-
+Verträge und `CHALLENGE_PREDICTION_VERSION` für die neue Basis. Aktivierung bleibt eine
+Owner-Entscheidung mit vorregistrierter Hypothese.
+
 ## Nicht umgesetzt (braucht den Owner)
 
 - API-Schlüssel: laut Gegenabgleich am 17.10.2026 bereits ersetzt und auf dem VPS
