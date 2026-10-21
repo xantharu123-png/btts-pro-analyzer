@@ -37,7 +37,7 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 | Owner | Impressum/Datenschutz/AGB ausfüllen, prüfen lassen, URLs setzen |
 | Owner | VPS-Release über den geprüften No-Backup-Weg |
 | Codex | Branch integrieren, Konflikte lösen, Prüfbefehle, Release vorbereiten (`docs/handoffs/2026-10-21-codex-auftrag.md`) |
-| Codex/Claude | Linux-Vollnachweis (GitHub-Job `full` scheitert am Speicherlimit; Suite halbieren) |
+| Codex | Linux-Vollnachweis über die VPS-QA-Launcher (Gruppen A/B); der 7-GB-GitHub-Runner trägt die Suite auch halbiert nicht (Exit 137), zusätzlich 21 runner-spezifische Fehlschläge in `test_native_context_*` |
 | Codex/Claude | Hybrid-Aktivierung vorbereiten (Walk-forward, Kalibrierung, Pins), Quotenabruf aller Seiten, Edge-Cap prospektiv prüfen (`docs/superpowers/plans/2026-10-21-edge-cap.md`) |
 
 ## Wo nachlesen
