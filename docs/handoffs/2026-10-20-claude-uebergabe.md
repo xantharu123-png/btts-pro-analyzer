@@ -150,7 +150,7 @@ cd C:\Projekt\BetBoy\betboy-app\.worktrees\claude-audit-repairs-20261019
 | No-Vig, Benchmark, Dixon-Coles, Gate, Mischung | 31 passed |
 | Ruff (817 Dateien) | 0 Befunde |
 | GitHub Actions `quick` (Linux, Ruff + 180 Tests) | grün |
-| GitHub Actions `full` (Linux, Vollsuite) | nach 27 min bei 36 % mit Exit 137 vom Runner beendet (Speicherlimit), bis dahin kein Fehlschlag. Vollnachweis auf Linux weiterhin offen; Vorschlag: Suite in den Job in zwei Hälften teilen wie in der bisherigen Linux-QA, oder WSL mit pip (Distribution hat kein `ensurepip`). |
+| GitHub Actions `full` / `full-a`+`full-b` (Linux) | Einzelprozess: Exit 137 bei 36 %. Zwei Hälften (21.10.): B 7 660 bestanden / 21 runner-spezifische Fehlschläge, A erneut Exit 137. Der Linux-Vollnachweis bleibt die VPS-QA (Gruppen A/B); siehe Protokoll. |
 
 Alle Windows-Läufe aus dem Worktree mit `..\..\.venv\Scripts\python.exe -m pytest`.
 

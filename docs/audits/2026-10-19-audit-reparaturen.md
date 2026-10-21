@@ -128,7 +128,10 @@ Grundlage: `AUDIT_BERICHT_2026-10-16_CLAUDE.md`. Basis des Branches: `origin/mai
 | Kartenrenderer und Konsumenten (13 Module) | 395 passed |
 | No-Vig, Benchmark, Dixon-Coles | 18 passed |
 | Engine-Module (Kalibrierung, Joint, Kontext, Replay, ORIGINAL) | 274 passed |
-| Grosse Module (15K, Wettfinder-Automation, Workflow-Integrität, …) | siehe Nachtrag |
+| Grosse Module (15K, Wettfinder-Automation, Workflow-Integrität, …) | 580 passed |
+| GitHub Actions `quick` (Linux, Ruff + 180 Tests) | grün (PR #1 und PR #2) |
+| GitHub Actions `full` (Linux, Vollsuite, 20.10.) | nach 27 min bei 36 % mit Exit 137 vom Runner beendet (Speicherlimit), bis dahin kein Fehlschlag |
+| GitHub Actions `full-a`/`full-b` (Linux, zwei Hälften, 21.10.) | B: 7 660 bestanden, 21 fehlgeschlagen in 16:43 (`git show <sha>` im flachen Checkout, danach `fetch-depth: 0`; runner-spezifische Deskriptor-, Ressourcen- und Zeitzonen-Diagnostik in `test_native_context_*`, `test_team_form_transport`). A: erneut Exit 137 nach 8 min. Der 7-GB-Runner trägt die Suite nicht; der Linux-Vollnachweis bleibt die VPS-QA (Gruppen A/B). Keines der fehlgeschlagenen Module wurde in diesen Branches verändert |
 
 ## Ergebnisse der Läufe
 
