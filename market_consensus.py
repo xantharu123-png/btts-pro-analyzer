@@ -490,6 +490,52 @@ def _football_native_partitions(market_key, fixture_id, points, quotes):
     return tuple(result)
 
 
+_DOUBLE_CHANCE_SIDES = {'DC_1X': ('HOME', 'DRAW'), 'DC_X2': ('DRAW', 'AWAY'), 'DC_12': ('HOME', 'AWAY')}
+
+
+def no_vig_market_probability(quote: "MarketConsensus") -> Optional[float]:
+    """Median no-vig probability of the quote's selected side across bookmaker partitions.
+
+    Each ``native_market_partitions`` entry holds one bookmaker's complete,
+    exhaustive market (all sides, same observation). Shin removes the margin
+    for three or more outcomes, Power for two (betting_math). Double chance is
+    the sum of its two 1X2 sides. ``None`` without complete partitions: the
+    caller must then fall back explicitly, never to a one-sided implied price.
+    This is a market benchmark; it never changes a model probability.
+    """
+    from statistics import median
+    from betting_math import no_vig_market
+    contract = native_partition_contract(quote)
+    if contract is None or not quote.native_market_partitions:
+        return None
+    family, period, expected, selected = contract
+    name_key = _tennis_identity_name if period == 'tennis_match' else (lambda value: value)
+    if selected is None:
+        sides = _DOUBLE_CHANCE_SIDES.get(quote.market_key)
+        if sides is None:
+            return None
+        wanted = [name_key(side) for side in sides]
+    else:
+        wanted = [name_key(selected)]
+    values = []
+    for part in quote.native_market_partitions:
+        outcomes = part.get('outcomes') if isinstance(part, Mapping) else None
+        if not isinstance(outcomes, (list, tuple)) or len(outcomes) < 2:
+            continue
+        try:
+            law = no_vig_market([item['odds'] for item in outcomes], 'shin' if len(outcomes) >= 3 else 'power')
+        except (BettingMathError, KeyError, TypeError):
+            continue
+        by_name = {name_key(item['selection']): probability
+                   for item, probability in zip(outcomes, law.no_vig_probabilities)}
+        if not all(name in by_name for name in wanted):
+            continue
+        values.append(sum(by_name[name] for name in wanted))
+    if not values:
+        return None
+    return float(median(values))
+
+
 @dataclass(frozen=True)
 class ReferencePriceStatus:
     code: str
@@ -498,6 +544,9 @@ class ReferencePriceStatus:
     bookmaker: Optional[str] = None
     bookmaker_id: Optional[str] = None
     observed_at: Optional[str] = None
+    # Transparency for the edge cap: which market probability was compared.
+    market_probability: Optional[float] = None
+    market_basis: Optional[str] = None
 
 
 EDGE_CAP_FLAG = "BETBOY_EDGE_CAP_PP"
@@ -534,18 +583,24 @@ def _edge_cap_status(quote: MarketConsensus, model_probability: Optional[float])
         return None
     if isinstance(model_probability, bool) or not math.isfinite(probability) or not 0.0 < probability < 1.0:
         return None
-    consensus = quote.consensus_odds
-    if consensus is None or not math.isfinite(consensus) or consensus <= 1.0:
-        return None
-    # The consensus implied probability still contains the margin, so this
-    # proxy overstates the market probability and makes the cap slightly stricter.
-    edge = 100.0 * (probability - 1.0 / consensus)
+    market_probability = no_vig_market_probability(quote)
+    basis = "no-vig"
+    if market_probability is None:
+        consensus = quote.consensus_odds
+        if consensus is None or not math.isfinite(consensus) or consensus <= 1.0:
+            return None
+        # Fallback: the consensus implied probability still contains the margin,
+        # so it overstates the market probability and makes the cap stricter.
+        market_probability, basis = 1.0 / consensus, "consensus-implied"
+    edge = 100.0 * (probability - market_probability)
     if edge <= cap:
         return None
     return ReferencePriceStatus(
         "EDGE_CAP",
-        f"Modell liegt {edge:.1f} Prozentpunkte ueber dem Marktkonsens; Kappung bei {cap:.0f}",
+        f"Modell liegt {edge:.1f} Prozentpunkte ueber dem Markt ({basis}); Kappung bei {cap:.0f}",
         None,
+        market_probability=market_probability,
+        market_basis=basis,
     )
 
 

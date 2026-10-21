@@ -2629,23 +2629,33 @@ def _calibration_maps_from_records(
 
 def validate_league_markets(
     fixtures: Iterable[dict[str, Any]],
+    *,
+    goal_model: str = GOAL_MODEL_LEGACY,
 ) -> dict[str, ValidationMetrics]:
     """Run an expanding-window, leakage-free market validation."""
-    return _validation_metrics_from_records(_walk_forward_market_records(fixtures))
+    return _validation_metrics_from_records(_walk_forward_market_records(fixtures, goal_model=goal_model))
 
 
 def fit_market_calibration(
     fixtures: Iterable[dict[str, Any]],
+    *,
+    goal_model: str = GOAL_MODEL_LEGACY,
 ) -> dict[str, MarketCalibration]:
     """Fit final, leakage-free calibration maps for future candidates."""
-    return _calibration_maps_from_records(_walk_forward_market_records(fixtures))
+    return _calibration_maps_from_records(_walk_forward_market_records(fixtures, goal_model=goal_model))
 
 
 def build_market_model_artifact(
     fixtures: Iterable[dict[str, Any]],
+    *,
+    goal_model: str = GOAL_MODEL_LEGACY,
 ) -> tuple[dict[str, ValidationMetrics], dict[str, MarketCalibration]]:
-    """Build validation and final calibration from one identical walk-forward pass."""
-    records = _walk_forward_market_records(fixtures)
+    """Build validation and final calibration from one identical walk-forward pass.
+
+    ``goal_model`` selects the opt-in rate basis for analysis artifacts; the
+    production cache keeps building the legacy artifact.
+    """
+    records = _walk_forward_market_records(fixtures, goal_model=goal_model)
     return (
         _validation_metrics_from_records(records),
         _calibration_maps_from_records(records),

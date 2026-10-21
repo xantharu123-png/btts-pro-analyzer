@@ -43,9 +43,11 @@ enthält die Zahlen.
 
 1. **Eigenes WIP sichern.** In `.worktrees/audit-repairs-20261013` alle 18 offenen
    Änderungen auf `codex/audit-repairs-20261013` committen. Kein `git stash`.
-2. **Quelle wählen.** Ist PR #1 bereits gemerged: `git merge origin/main`. Sonst:
-   `git merge origin/claude/audit-repairs-20261019`. Nicht rebasen, die Commits des
-   Branches sind referenziert.
+2. **Quelle wählen.** PR #1 und PR #2 sind seit 22.10.2026 in `origin/main`
+   (`24837c3`): `git fetch origin && git merge origin/main`. Nicht rebasen, die Commits
+   sind referenziert. Ein dritter Branch `claude/followups-2-20261022` (PR #3: No-Vig-
+   Marktwahrscheinlichkeit aus Partitionen, Validierungsvergleich Hybrid) folgt; `STATUS.md`
+   zeigt den jeweils aktuellen Stand.
 3. **Erwartete Konflikte.**
    - `TODO_AKTUELL.md`, `PC_WECHSEL_UEBERGABE.md`: beide Seiten haben oben neue Blöcke
      eingefügt. Beide Blöcke behalten, der neuere Block steht oben; keinen Text
