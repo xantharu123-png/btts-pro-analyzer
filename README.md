@@ -6,6 +6,7 @@ Gewinnzusagen; Softwaretests belegen keine Überrendite.
 
 ## Wo weiterarbeiten?
 
+- **Aktueller Stand auf einer Seite:** [STATUS.md](STATUS.md).
 - **Aktiver Checkout:** `.worktrees/audit-repairs-20261013`, Branch
   `codex/audit-repairs-20261013`. Der ältere Hauptcheckout enthält fremde WIP.
 - **Aktueller Abgleich:** [Audit vom 17.10.2026](docs/audits/2026-10-17-claude-gegenpruefung.md).

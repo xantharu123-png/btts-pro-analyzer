@@ -1,7 +1,7 @@
 # AGENTS.md – Arbeitsregeln und aktueller Stand für Codex und Claude
 
-Stand: 19.10.2026. Dieser Einstieg ergänzt `ARCHITECTURE.md` (Datenfluss, Persistenz,
-Betrieb) und `PROJEKTBIBEL.md` (Produktgesetze). Bei Widersprüchen gilt zuerst der
+Stand: 21.10.2026. Dieser Einstieg ergänzt `STATUS.md` (aktueller Stand auf einer Seite),
+`ARCHITECTURE.md` (Datenfluss, Persistenz, Betrieb) und `PROJEKTBIBEL.md` (Produktgesetze). Bei Widersprüchen gilt zuerst der
 Code, dann `PROJECT_HANDBUCH.md`, dann die Bibel. Historische Logs: `TODO_AKTUELL.md`,
 `PC_WECHSEL_UEBERGABE.md` (append-only, oberster Block ist der aktuelle).
 
