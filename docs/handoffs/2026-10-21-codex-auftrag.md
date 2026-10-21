@@ -43,11 +43,10 @@ enthält die Zahlen.
 
 1. **Eigenes WIP sichern.** In `.worktrees/audit-repairs-20261013` alle 18 offenen
    Änderungen auf `codex/audit-repairs-20261013` committen. Kein `git stash`.
-2. **Quelle wählen.** PR #1 und PR #2 sind seit 22.10.2026 in `origin/main`
-   (`24837c3`): `git fetch origin && git merge origin/main`. Nicht rebasen, die Commits
-   sind referenziert. Ein dritter Branch `claude/followups-2-20261022` (PR #3: No-Vig-
-   Marktwahrscheinlichkeit aus Partitionen, Validierungsvergleich Hybrid) folgt; `STATUS.md`
-   zeigt den jeweils aktuellen Stand.
+2. **Quelle wählen.** PR #1, PR #2 und PR #3 sind seit 22.10.2026 in `origin/main`
+   (`08b7473`): `git fetch origin && git merge origin/main`. Nicht rebasen, die Commits
+   sind referenziert. Es gibt keinen offenen Claude-Branch mehr; `STATUS.md` zeigt den
+   jeweils aktuellen Stand.
 3. **Erwartete Konflikte.**
    - `TODO_AKTUELL.md`, `PC_WECHSEL_UEBERGABE.md`: beide Seiten haben oben neue Blöcke
      eingefügt. Beide Blöcke behalten, der neuere Block steht oben; keinen Text
@@ -133,7 +132,8 @@ VPS-Launcher laufen lassen. Ein Windows-Lauf ersetzt den Linux-Nachweis nicht.
    hat Endtermine erst ab 2024; `cross_league_fdr` behandelt UEFA-Heimatligen ausserhalb
    der Familie (siehe `docs/audits/2026-10-20-fdr-ligen.md`).
 7. **Owner-Aufgaben, nicht Codex:** Rechtstexte ausfüllen und prüfen lassen,
-   Provider-Widerruf der alten API-Schlüssel bestätigen, Merge-Entscheidung PR #1.
+   Provider-Widerruf der alten API-Schlüssel bestätigen, Entscheidung zur
+   Hybrid-Aktivierung (`docs/audits/2026-10-22-hybrid-validierung.md`).
 
 ## 8. Rückmeldung
 

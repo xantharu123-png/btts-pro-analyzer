@@ -9,8 +9,8 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 | Bereich | Status |
 |---|---|
 | Produktion (VPS) | unverändert auf dem Stand vom 17.10.2026; `main` ist noch nicht deployt (Env-Prüfung vorher, `deploy/README.md`) |
-| `origin/main` | `24837c3` = Merge von PR #2 (Folgearbeiten) am 22.10.2026; enthält PR #1 (`62e6e73`) |
-| Folge-Branch 2 | `claude/followups-2-20261022` (PR #3): No-Vig-Marktwahrscheinlichkeit aus Buchmacher-Partitionen, Edge-Kappung darauf, `goal_model` im Artefakt-Builder, Release-Gate-Validierung des Hybrids (262/257 Zellen) |
+| `origin/main` | `08b7473` = Merge von PR #3 (Folgearbeiten 2) am 22.10.2026; enthält PR #1 (`62e6e73`) und PR #2 (`24837c3`); Quick-CI grün |
+| Offene Claude-Branches | keine; alles aus dem Audit ist in `main` |
 | Codex-Worktree | `.worktrees/audit-repairs-20261013`, 7 unveröffentlichte Commits, 18 ungesicherte Änderungen; muss `main` einmergen (`docs/handoffs/2026-10-21-codex-auftrag.md`) |
 | Hauptcheckout `betboy-app` | veraltet, fremdes WIP; nicht benutzen |
 
@@ -33,7 +33,6 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 
 | Wer | Was |
 |---|---|
-| Owner | Merge-Entscheidung PR #1 (jetzt oder nach Codex) |
 | Owner | Env auf dem VPS prüfen, bevor die neue App startet (`deploy/README.md`, Portal-Token) |
 | Owner | Impressum/Datenschutz/AGB ausfüllen, prüfen lassen, URLs setzen |
 | Owner | VPS-Release über den geprüften No-Backup-Weg |
