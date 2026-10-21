@@ -4,13 +4,13 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 „Stand“ ersetzen, nicht anhängen; Historie steht in `TODO_AKTUELL.md` und
 `PC_WECHSEL_UEBERGABE.md`. Regeln und Einstieg: `AGENTS.md`.
 
-## Stand: 21.10.2026 (abends)
+## Stand: 22.10.2026
 
 | Bereich | Status |
 |---|---|
 | Produktion (VPS) | unverändert auf dem Stand vom 17.10.2026; `main` ist noch nicht deployt (Env-Prüfung vorher, `deploy/README.md`) |
-| `origin/main` | `62e6e73` = Merge von PR #1 (Audit-Reparaturen) am 21.10.2026 |
-| Folge-Branch | `claude/followups-20261021` (PR #2): CI-Vollsuite in zwei Hälften, Edge-Cap-Preisregel (aus), venue-spezifisches Dixon-Coles und kohärenter Hybrid, Tennis-De-Vig-Fix; Vergleichsläufe laufen |
+| `origin/main` | `24837c3` = Merge von PR #2 (Folgearbeiten) am 22.10.2026; enthält PR #1 (`62e6e73`) |
+| Folge-Branch 2 | `claude/followups-2-20261022`: No-Vig-Marktwahrscheinlichkeit aus Buchmacher-Partitionen (`market_consensus.no_vig_market_probability`), Edge-Kappung darauf, `goal_model` im Artefakt-Builder, Validierungsvergleich Hybrid vs. Legacy (läuft) |
 | Codex-Worktree | `.worktrees/audit-repairs-20261013`, 7 unveröffentlichte Commits, 18 ungesicherte Änderungen; muss `main` einmergen (`docs/handoffs/2026-10-21-codex-auftrag.md`) |
 | Hauptcheckout `betboy-app` | veraltet, fremdes WIP; nicht benutzen |
 
