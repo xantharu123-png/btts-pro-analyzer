@@ -100,6 +100,9 @@ unter `runtime_state/market_benchmark/` ab (ignoriert). Berichte:
 
 ## Konventionen für Änderungen
 
+- **Jede Session beginnt mit `STATUS.md` und endet mit `STATUS.md`:** zu Beginn lesen, am
+  Ende den Abschnitt „Stand“ ersetzen (Datum, Branch/PR, Erledigtes, Offenes nach
+  Zuständigkeit); nicht anhängen, Historie gehört in `TODO_AKTUELL.md`.
 - Jede Verhaltensänderung zuerst als roter Test, dann grün; Fixtures nicht lockern.
 - Keine neuen Felder in persistierten Snapshots ohne Schema-/Validierungsänderung
   (`daily3_store._snapshot`, ORIGINAL-Capture, HMAC-Ledger).
