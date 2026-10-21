@@ -4,15 +4,15 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 „Stand“ ersetzen, nicht anhängen; Historie steht in `TODO_AKTUELL.md` und
 `PC_WECHSEL_UEBERGABE.md`. Regeln und Einstieg: `AGENTS.md`.
 
-## Stand: 21.10.2026
+## Stand: 21.10.2026 (abends)
 
 | Bereich | Status |
 |---|---|
-| Produktion (VPS) | unverändert auf dem Stand vom 17.10.2026; nichts aus dem Audit-Branch deployt |
-| `origin/main` | `be5e441` (18.10.2026) |
-| Audit-Branch | `claude/audit-repairs-20261019`, 18 Commits vor `main`, PR #1 offen und mergefähig, CI-Schnelljob grün |
-| Codex-Worktree | `.worktrees/audit-repairs-20261013`, 7 unveröffentlichte Commits, 18 ungesicherte Änderungen; Auftrag in `docs/handoffs/2026-10-21-codex-auftrag.md` |
-| Hauptcheckout `betboy-app` | veraltet (60 Commits hinter `main`), fremdes WIP; nicht benutzen |
+| Produktion (VPS) | unverändert auf dem Stand vom 17.10.2026; `main` ist noch nicht deployt (Env-Prüfung vorher, `deploy/README.md`) |
+| `origin/main` | `62e6e73` = Merge von PR #1 (Audit-Reparaturen) am 21.10.2026 |
+| Folge-Branch | `claude/followups-20261021` (PR #2): CI-Vollsuite in zwei Hälften, Edge-Cap-Preisregel (aus), venue-spezifisches Dixon-Coles und kohärenter Hybrid, Tennis-De-Vig-Fix; Vergleichsläufe laufen |
+| Codex-Worktree | `.worktrees/audit-repairs-20261013`, 7 unveröffentlichte Commits, 18 ungesicherte Änderungen; muss `main` einmergen (`docs/handoffs/2026-10-21-codex-auftrag.md`) |
+| Hauptcheckout `betboy-app` | veraltet, fremdes WIP; nicht benutzen |
 
 ## Erledigt auf dem Audit-Branch
 
