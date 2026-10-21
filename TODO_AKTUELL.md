@@ -5,7 +5,8 @@
 Eigener Worktree `.worktrees/claude-audit-repairs-20261019` von `origin/main` @ `be5e441`;
 Hauptcheckout und Codex-Worktree unberührt, nichts gepusht oder deployt. Protokoll:
 `docs/audits/2026-10-19-audit-reparaturen.md`; Einstieg für Agenten: `AGENTS.md`;
-Code-Übergabe: `docs/handoffs/2026-10-20-claude-uebergabe.md`.
+Code-Übergabe: `docs/handoffs/2026-10-20-claude-uebergabe.md`; Auftrag an Codex:
+`docs/handoffs/2026-10-21-codex-auftrag.md` (Kopie `CODEX_UEBERGABE_2026-10-21.md` im Hauptcheckout).
 Umgesetzt: Daily3-Mindestquote und Angebot je Auswahl (Vormerk-Gate standardmässig
 aktiv, Owner-Entscheidung 20.10.2026; `BETBOY_DAILY3_RESERVATION_MINIMUM=0` schaltet ab), Mindestquote
 und Preisstatus auf der gemeinsamen Karte, Shin/Power-De-Vig, Marktbenchmark Modell vs.
