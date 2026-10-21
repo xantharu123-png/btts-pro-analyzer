@@ -346,11 +346,41 @@ Befunde:
   Legacy-Prior übernimmt.
 - Kein Modell schlägt den Markt. Das ändert nichts am Freigabevertrag.
 
-Nächster Schritt für eine Produktionsaktivierung des Hybrids: Walk-forward-Validierung
-und Kalibrierung mit `goal_model="dixon_coles_hl365_hybrid"` über `_walk_forward_market_records`,
-Vergleich der Validierungsmetriken je Markt mit dem Legacy-Artefakt, danach Pin-/ORIGINAL-
-Verträge und `CHALLENGE_PREDICTION_VERSION` für die neue Basis. Aktivierung bleibt eine
-Owner-Entscheidung mit vorregistrierter Hypothese.
+### Nachtrag 22.10.2026: Release-Gate-Validierung des Hybrids (`docs/audits/2026-10-22-hybrid-validierung.md`)
+
+Gleicher Artefakt-Builder wie der Produktionscache (`build_market_model_artifact`, jetzt mit
+`goal_model`): Walk-forward, Kalibrierung aus Vortagen, Brier gegen Laplace-Basisrate,
+Kalibrierdiagnostik, HAC und Benjamini-Hochberg je Liga. 14 Ligen, Laufzeit 3738 s.
+
+| Zellen (Märkte × Ligen) | Legacy | Hybrid `dixon_coles_hl365_hybrid` |
+|---|---:|---:|
+| `_credible_validation` bestanden | 224 | **262** |
+| zusätzlich statistische Freigabe | 224 | **257** |
+| Heimsieg: Ligen glaubwürdig / Brier / rel. Verbesserung | 10 / 0,2255 / +8,1 % | 13 / 0,2191 / +10,8 % |
+| Auswärtssieg | 12 / 0,1988 / +7,8 % | 13 / 0,1932 / +10,3 % |
+| Remis | 0 / 0,1890 / +0,5 % | 2 / 0,1883 / +0,9 % |
+| Heim unter 1,5 | 12 / 0,2330 / +5,0 % | 12 / 0,2286 / +6,8 % |
+| Auswärts unter 1,5 | 11 / 0,2175 / +4,0 % | 12 / 0,2130 / +5,7 % |
+| Über/Unter 2,5, BTTS | 0 / 0,2464 / +0,6 % | 0 / 0,2458 / +0,8 % (Legacy-Torsumme, unverändert) |
+
+Kein Markt verliert Freigaben (einzige Abweichung: Auswärtssieg 13 glaubwürdig, 12
+freigegeben wie zuvor). Der Hybrid ist damit auch unter dem bestehenden Vertrag die bessere
+Basis. Für eine Produktionsaktivierung fehlen: neue `CHALLENGE_PREDICTION_VERSION` und
+Modell-Vertragssignatur, Pin-/ORIGINAL-Verträge und `capture_football_original` für die
+neue Basis (heute ausdrücklich Legacy-gebunden), Cache-Schema und ein Shadow-Lauf mit
+beiden Basen. Das bleibt eine Owner-Entscheidung; das Marktergebnis (kein Modell schlägt
+den Closing-Markt) ändert sich dadurch nicht.
+
+### Nachtrag 22.10.2026: No-Vig-Marktwahrscheinlichkeit aus Partitionen
+
+`MarketConsensus.native_market_partitions` enthält bereits je Buchmacher alle Seiten eines
+Marktes. `market_consensus.no_vig_market_probability` berechnet daraus den Median der
+No-Vig-Wahrscheinlichkeit der gewetteten Seite (Shin ab drei, Power bei zwei Ausgängen;
+Doppelte Chance als Summe). Die Edge-Kappung vergleicht gegen diesen Wert und nutzt den
+Konsens-Proxy nur noch ohne Partitionen (`ReferencePriceStatus.market_probability`,
+`market_basis`). Der Audit-Punkt „Quotenabruf aller Seiten“ ist damit ohne zusätzlichen
+API-Aufruf erledigt; eine Mischung der Entscheidungswahrscheinlichkeit mit dem Markt bleibt
+wegen w* = 0 und der Nutzerregel vom 17.10. nicht umgesetzt.
 
 ## Nicht umgesetzt (braucht den Owner)
 
