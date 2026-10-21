@@ -4,15 +4,15 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 „Stand“ ersetzen, nicht anhängen; Historie steht in `TODO_AKTUELL.md` und
 `PC_WECHSEL_UEBERGABE.md`. Regeln und Einstieg: `AGENTS.md`.
 
-## Stand: 21.10.2026
+## Stand: 21.10.2026 (abends)
 
 | Bereich | Status |
 |---|---|
-| Produktion (VPS) | unverändert auf dem Stand vom 17.10.2026; nichts aus dem Audit-Branch deployt |
-| `origin/main` | `be5e441` (18.10.2026) |
-| Audit-Branch | `claude/audit-repairs-20261019`, 18 Commits vor `main`, PR #1 offen und mergefähig, CI-Schnelljob grün |
-| Codex-Worktree | `.worktrees/audit-repairs-20261013`, 7 unveröffentlichte Commits, 18 ungesicherte Änderungen; Auftrag in `docs/handoffs/2026-10-21-codex-auftrag.md` |
-| Hauptcheckout `betboy-app` | veraltet (60 Commits hinter `main`), fremdes WIP; nicht benutzen |
+| Produktion (VPS) | unverändert auf dem Stand vom 17.10.2026; `main` ist noch nicht deployt (Env-Prüfung vorher, `deploy/README.md`) |
+| `origin/main` | `62e6e73` = Merge von PR #1 (Audit-Reparaturen) am 21.10.2026 |
+| Folge-Branch | `claude/followups-20261021` (PR #2): CI-Vollsuite in zwei Hälften, Edge-Cap-Preisregel (aus), venue-spezifisches Dixon-Coles und kohärenter Hybrid, Tennis-De-Vig-Fix; Vergleichsläufe laufen |
+| Codex-Worktree | `.worktrees/audit-repairs-20261013`, 7 unveröffentlichte Commits, 18 ungesicherte Änderungen; muss `main` einmergen (`docs/handoffs/2026-10-21-codex-auftrag.md`) |
+| Hauptcheckout `betboy-app` | veraltet, fremdes WIP; nicht benutzen |
 
 ## Erledigt auf dem Audit-Branch
 
@@ -26,7 +26,7 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 
 - 0 von 112 Liga×Markt-Zellen schlagen den No-Vig-Closing-Markt; Preispolicy-Replay ROI −5,5 %.
 - Mischungsgewicht Modell/Markt out-of-sample 0,00.
-- Hybrid Dixon-Coles (Ergebnis) + Legacy (Tore) ist das beste Modell (56 Zellen signifikant besser, 32 schlechter); kein Modell schlägt den Markt.
+- Kohärenter Hybrid `dixon_coles_hl365_hybrid` (eine Matrix: DC-Struktur, Legacy-Torsumme) ist das beste Modell (148 Zellen signifikant besser als Legacy, 111 schlechter); venue-spezifisches DC (H4) widerlegt; kein Modell schlägt den Markt.
 
 ## Offen
 
@@ -37,8 +37,8 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 | Owner | Impressum/Datenschutz/AGB ausfüllen, prüfen lassen, URLs setzen |
 | Owner | VPS-Release über den geprüften No-Backup-Weg |
 | Codex | Branch integrieren, Konflikte lösen, Prüfbefehle, Release vorbereiten (`docs/handoffs/2026-10-21-codex-auftrag.md`) |
-| Codex/Claude | Linux-Vollnachweis (GitHub-Job `full` scheitert am Speicherlimit; Suite halbieren) |
-| Codex/Claude | Hypothese H4 (venue-spezifische DC-Parameter), kohärenter Hybrid, Quotenabruf aller Seiten, Edge-Cap als Produktregel |
+| Codex | Linux-Vollnachweis über die VPS-QA-Launcher (Gruppen A/B); der 7-GB-GitHub-Runner trägt die Suite auch halbiert nicht (Exit 137), zusätzlich 21 runner-spezifische Fehlschläge in `test_native_context_*` |
+| Codex/Claude | Hybrid-Aktivierung vorbereiten (Walk-forward, Kalibrierung, Pins), Quotenabruf aller Seiten, Edge-Cap prospektiv prüfen (`docs/superpowers/plans/2026-10-21-edge-cap.md`) |
 
 ## Wo nachlesen
 

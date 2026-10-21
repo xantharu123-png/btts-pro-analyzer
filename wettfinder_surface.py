@@ -382,6 +382,7 @@ def _price_copy(
         "STALE": ("Veraltet", "muted"),
         "UNAVAILABLE": ("Quote fehlt", "muted"),
         "INVALID_MINIMUM": ("Quote offen", "warning"),
+        "EDGE_CAP": ("Abstand zum Markt zu gross", "warning"),
         "OBSERVED": ("Quote abgerufen", "neutral"),
     }
     if status.code == "PLAYABLE":
@@ -392,7 +393,7 @@ def _price_copy(
             status.usable_odds, status.bookmaker,
         )
     label, tone = labels.get(status.code, ("Quote offen", "warning"))
-    if status.code in {"TOO_LOW", "BORDERLINE", "THIN", "STALE", "OBSERVED"} and quote is not None:
+    if status.code in {"TOO_LOW", "BORDERLINE", "THIN", "STALE", "OBSERVED", "EDGE_CAP"} and quote is not None:
         best = max(quote.points, key=lambda point: point.odds, default=None)
         return (
             label,
@@ -704,6 +705,7 @@ _PRICE_NOTES = {
     "STALE": "Letzter Quotenstand · beim Buchmacher prüfen.",
     "UNAVAILABLE": "Quote fehlt · eigene Quote prüfen.",
     "INVALID_MINIMUM": "Die Value-Grenze ist aktuell nicht belastbar.",
+    "EDGE_CAP": "Modell liegt zu weit über dem Marktkonsens · kein Tipp.",
 }
 
 

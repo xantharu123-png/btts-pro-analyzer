@@ -126,6 +126,12 @@ GOAL_MODEL_OPTIONS = {
     "dixon_coles_hl365": {"half_life_days": 365.0, "level_prior": False},
     "dixon_coles_level": {"half_life_days": 120.0, "level_prior": True},
     "dixon_coles_hl240_level": {"half_life_days": 240.0, "level_prior": True},
+    # Plan 2026-10-21: H4 venue-specific strengths and the coherent hybrid
+    # (one matrix: Dixon-Coles result structure, legacy total-goal law).
+    "dixon_coles_venue": {"half_life_days": 365.0, "level_prior": False, "venue_specific": True},
+    "dixon_coles_hl365_hybrid": {"half_life_days": 365.0, "level_prior": False, "hybrid_totals": True},
+    "dixon_coles_venue_hybrid": {"half_life_days": 365.0, "level_prior": False, "venue_specific": True,
+                                 "hybrid_totals": True},
 }
 GOAL_MODELS = (GOAL_MODEL_LEGACY,) + tuple(GOAL_MODEL_OPTIONS)
 
@@ -1350,25 +1356,33 @@ def _fixture_model(
     if goal_model != GOAL_MODEL_LEGACY:
         if include_provenance:
             raise ValueError("ORIGINAL provenance is bound to the legacy goal model")
-        from football_dixon_coles import DixonColesUnavailable, clamp_rho, fit_for_fixture
+        from football_dixon_coles import DixonColesUnavailable, clamp_rho, fit_for_fixture, reweight_totals
         options = GOAL_MODEL_OPTIONS[goal_model]
         try:
             fit = fit_for_fixture(fixture, history, half_life_days=options["half_life_days"],
-                                  level_prior=options["level_prior"])
+                                  level_prior=options["level_prior"],
+                                  venue_specific=options.get("venue_specific", False))
             dc_home, dc_away = fit.rates(
                 home_id, away_id, home_effect_known=not _venue_home_edge_unknown(fixture),
             )
         except DixonColesUnavailable:
             return None  # Fail closed: the opt-in path never falls back to the legacy basis.
+        legacy_active = (active_home, active_away)
         # One jointly fitted law replaces all three legacy variants; the legacy
         # season/form disagreement does not exist for it (spread = 0). The
         # fitted rho is projected into the range valid for these two rates.
         active_home = season_home = form_home = dc_home
         active_away = season_away = form_away = dc_away
+        effective_rho = clamp_rho(fit.rho, dc_home, dc_away)
         goal_model_info = {
-            "goal_model": goal_model, "rho": clamp_rho(fit.rho, dc_home, dc_away),
+            "goal_model": goal_model, "rho": effective_rho,
             "fitted_rho": fit.rho, "dixon_coles": fit.summary(),
         }
+        if options.get("hybrid_totals"):
+            # Coherent hybrid: Dixon-Coles split within each total, legacy total law.
+            goal_model_info["goal_matrix_override"] = reweight_totals(
+                score_matrix(*legacy_active), score_matrix(dc_home, dc_away, rho=effective_rho),
+            )
     model = {
         "active_lambdas": (active_home, active_away),
         "season_lambdas": (season_home, season_away),
@@ -1978,8 +1992,12 @@ def fixture_market_probabilities(
         for variant in model["probability_variants"]:
             mean_key = variant + means_suffix
             raw_means = family_model[mean_key]
-            raw_matrix = (score_matrix(*raw_means, rho=float(model.get("rho", 0.0))) if family == "goals"
-                          else family_model[variant + "_matrix"])
+            if family == "goals":
+                override = model.get("goal_matrix_override")
+                raw_matrix = (dict(override) if override is not None
+                              else score_matrix(*raw_means, rho=float(model.get("rho", 0.0))))
+            else:
+                raw_matrix = family_model[variant + "_matrix"]
             effective, diagnostics = calibrate_joint_distribution(
                 raw_matrix, specs, calibration, law_version=law_version,
             )

@@ -54,13 +54,16 @@ jobs:
           tests/test_model_loss_statistics.py
           -q
 
-  full:
-    name: Vollsuite (manuell)
+  full-a:
+    name: Vollsuite Hälfte A (manuell)
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 150
     steps:
+      # Volle Historie: einige Tests lesen eingefrorene Quellstände per `git show <sha>`.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -71,7 +74,42 @@ jobs:
       - name: Abhängigkeiten installieren
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt pytest ruff
+          python -m pip install -r requirements.txt pytest pytest-subtests
 
-      - name: Vollsuite
-        run: python -m pytest tests -q
+      # Die Suite in einem Prozess überschreitet das Speicherlimit des Runners
+      # (Exit 137 bei 36 % am 20.10.2026). Zwei Hälften nach sortierter Dateiliste,
+      # wie die bisherige Linux-QA (Gruppen A/B); beide müssen grün sein.
+      - name: Vollsuite Hälfte A
+        run: |
+          files=$(ls tests/test_*.py | sort | awk 'NR % 2 == 1')
+          python -m pytest $files -q -p no:cacheprovider
+
+  full-b:
+    name: Vollsuite Hälfte B (manuell)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      # Volle Historie: einige Tests lesen eingefrorene Quellstände per `git show <sha>`.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Abhängigkeiten installieren
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pytest pytest-subtests
+
+      # Die Suite in einem Prozess überschreitet das Speicherlimit des Runners
+      # (Exit 137 bei 36 % am 20.10.2026). Zwei Hälften nach sortierter Dateiliste,
+      # wie die bisherige Linux-QA (Gruppen A/B); beide müssen grün sein.
+      - name: Vollsuite Hälfte B
+        run: |
+          files=$(ls tests/test_*.py | sort | awk 'NR % 2 == 0')
+          python -m pytest $files -q -p no:cacheprovider

@@ -82,11 +82,12 @@ unter `runtime_state/market_benchmark/` ab (ignoriert). Berichte:
 4. Entscheidungs-p als Log-Odds-Mischung mit dem Markt plus Edge-Cap statt festem
    Prozentpunkt-Haircut (Audit K3/H2); Haircut aus Schätzunsicherheit.
 5. Dixon-Coles: H1 (Halbwertszeit 240/365 d) bestätigt, H2 (Niveau-Prior) widerlegt,
-   H3 Hybrid (DC für Ergebnismärkte, Legacy für Tormärkte) dominiert beide Modelle
-   (56 Zellen signifikant besser, 32 schlechter, von 560); Berichte
-   `docs/audits/2026-10-20-dixon-coles-*.md`. Kein Drop-in: für die Produktion fehlt eine
-   kohärente gemeinsame Verteilung beider Gesetze. Nächste Hypothese H4: venue-spezifische
-   Parameter im DC-Fit. Danach Walk-forward-Kalibrierung, Pin-/ORIGINAL-Verträge.
+   H4 (venue-spezifisch) widerlegt. Der **kohärente Hybrid** `dixon_coles_hl365_hybrid`
+   (eine Matrix: DC-Struktur je Torsumme, Legacy-Torsummenverteilung; `reweight_totals`,
+   `goal_matrix_override`) ist die beste Konfiguration: 148 Zellen signifikant besser als
+   Legacy, 111 schlechter (von 560); Berichte `docs/audits/2026-10-2[01]-dixon-coles-*.md`.
+   Vor einer Aktivierung: Walk-forward-Validierung und Kalibrierung mit dieser Basis,
+   Pin-/ORIGINAL-Verträge, neue `CHALLENGE_PREDICTION_VERSION`; Owner-Entscheidung.
    Mischungsgewicht Modell/Markt ist out-of-sample 0,00 (`2026-10-20-marktmischung.md`):
    Entscheidungen sollten dem Markt folgen; der Edge-Cap 8 pp hebt die Policy von −5,5 %
    auf +0,8 % ROI (Intervall enthält 0).

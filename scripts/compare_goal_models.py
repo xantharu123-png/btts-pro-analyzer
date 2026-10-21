@@ -219,7 +219,8 @@ def main() -> int:
         for name, raw in (("legacy", legacy_raw), (args.variant, variant_raw), ("hybrid", hybrid_raw)):
             market_rows += market_cells(league_id, name, raw, outcomes, benchmark, shared)
         leagues[league_id] = {"seasons": loaded, "fixtures": len(fixtures), "shared": len(shared)}
-        fit = last_fit(league_id, half_life_days=options["half_life_days"], level_prior=options["level_prior"])
+        fit = last_fit(league_id, half_life_days=options["half_life_days"], level_prior=options["level_prior"],
+                       venue_specific=options.get("venue_specific", False))
         fits[league_id] = fit.summary() if fit else None
         print(f"league {league_id}: fixtures {len(fixtures)}, legacy {len(legacy_raw)}, variant {len(variant_raw)}, "
               f"shared {len(shared)}, {time.time() - league_started:.0f}s")
