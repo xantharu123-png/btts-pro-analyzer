@@ -399,6 +399,16 @@ abgerechnete Spiele, untere Konfidenzgrenze der paarweisen CLV-Differenz über 0
 schlechtere Kalibrierung. Erst dann wird die Produktionsbasis umgestellt (eigener Commit,
 Cache-Neuaufbau, Pins für Tickets und Publikation).
 
+### Nachtrag 22.10.2026: Edge-Cap-Protokoll im Shadow-Pfad
+
+Prüfplan-Schritt 1 der Vorregistrierung `docs/superpowers/plans/2026-10-21-edge-cap.md`:
+`shadow_clv_automation` hält je protokolliertem Tipp beider Kohorten fest, ob die
+vorregistrierte Kappung von 8 pp bestanden wäre (`shadow_edge_cap`: Modell-p, No-Vig-Markt-p
+aus derselben Bet365-Partition, Abstand, `passed`), und wertet im Run-Artefakt `edge_cap`
+die Gruppen bestanden/nicht bestanden je Kohorte aus (CLV, Trefferquote, abgerechnete
+Tipps). Kein Tipp wird gefiltert; `BETBOY_EDGE_CAP_PP` bleibt ungesetzt.
+`tests/test_shadow_edge_cap.py`.
+
 ## Nicht umgesetzt (braucht den Owner)
 
 - API-Schlüssel: laut Gegenabgleich am 17.10.2026 bereits ersetzt und auf dem VPS
