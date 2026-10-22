@@ -43,7 +43,8 @@ erreichbar. Beide Punkte brauchen Owner-Entscheidungen:
    7 500er-Plan laufen Spielplan, Details, Historien und Quoten wieder. Alternativ die
    Reserven in `api_budget` für einen 100er-Plan neu festlegen; damit liesse sich aber nur ein
    Bruchteil der Ligen bedienen.
-2. **Frischeregel:** Entscheiden, ob eine provider-gestempelte Öffnungsquote auch älter als
+2. **Frischeregel** (entschieden am 23.10.2026: drei Stunden, Alter je Tipp, Policy v6;
+   `docs/audits/2026-10-23-oeffnungsquote-frischeregel.md`): Entscheiden, ob eine provider-gestempelte Öffnungsquote auch älter als
    zehn Minuten als Evidenz gilt (etwa bis drei Stunden, Alter wird mitprotokolliert) oder ob
    eine zweite Quelle mit häufigeren Aktualisierungen nötig ist. Das ändert einen
    Evidenzvertrag (`clv_tracker`) und wird daher nicht ohne Freigabe umgesetzt.

@@ -28,7 +28,7 @@ def _make_recorded_fixture_settleable(db: Path, prediction_id: int) -> None:
             '''
             UPDATE predictions
             SET quoted_at = ?, created_at = ?, closing_quoted_at = ?,
-                fixture_kickoff = ?
+                fixture_kickoff = ?, opening_quote_age_seconds = ?
             WHERE id = ?
             ''',
             (
@@ -36,6 +36,7 @@ def _make_recorded_fixture_settleable(db: Path, prediction_id: int) -> None:
                 (now - timedelta(minutes=29)).isoformat(),
                 (now - timedelta(minutes=11)).isoformat(),
                 (now - timedelta(minutes=10)).isoformat(),
+                60,  # the rewritten clocks: one minute between opening stamp and ledger clock
                 prediction_id,
             ),
         )

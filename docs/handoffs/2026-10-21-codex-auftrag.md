@@ -120,7 +120,8 @@ VPS-Launcher laufen lassen. Ein Windows-Lauf ersetzt den Linux-Nachweis nicht.
 > **Befund 22.10.2026** (`docs/audits/2026-10-22-shadow-befund.md`): Der Shadow sammelt seit
 > Anfang Oktober keine Evidenz (API-Football-Limit 100 je Tag seit 19.10., Zehn-Minuten-
 > Frischeregel der Öffnungsquote). Beides sind Owner-Entscheidungen; nichts davon eigenmächtig
-> lockern.
+> lockern. Die Frischeregel wurde am 23.10. vom Owner auf drei Stunden gesetzt
+> (`docs/audits/2026-10-23-oeffnungsquote-frischeregel.md`, Policy v6); das Kontingent ist offen.
 
 1. **Linux-Vollnachweis** (Abschnitt 4).
 2. **H4 Dixon-Coles:** erledigt am 21.10. (widerlegt, `docs/audits/2026-10-21-dixon-coles-venue.md`).

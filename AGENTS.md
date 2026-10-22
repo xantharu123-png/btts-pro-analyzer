@@ -27,7 +27,10 @@ Code, dann `PROJECT_HANDBUCH.md`, dann die Bibel. Historische Logs: `TODO_AKTUEL
   aufgehoben: das Vormerk-Gate ist aktiv. Mindestquote und Preisstatus auf der
   Karte sind am 20.10.2026 ausdrücklich bestätigt. Audit-Empfehlungen, die einer
   Nutzerentscheidung widersprechen, werden als abschaltbare Option umgesetzt
-  und dem Owner vorgelegt.
+  und dem Owner vorgelegt. Am 23.10.2026 hat der Owner die Frischeregel der
+  Öffnungsquote im CLV-Ledger von zehn Minuten auf drei Stunden Provider-Alter
+  gelockert (Alter je Tipp gespeichert, Policy `shadow-model-first-v6`;
+  `docs/audits/2026-10-23-oeffnungsquote-frischeregel.md`).
 - **Keine Backups, Produktions-DB-Kopien oder API-Scans** ohne ausdrücklichen Auftrag.
 - **Checkout-Disziplin.** Hauptcheckout `betboy-app` trägt fremdes WIP und liegt hinter
   `origin/main`; eigene Arbeit in einem eigenen Worktree unter `.worktrees/` auf einem
