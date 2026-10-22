@@ -92,7 +92,10 @@ SETTLE_GRACE = timedelta(hours=2)
 FT_STATUSES = {"FT"}
 MIN_HISTORY_GAMES = 220  # darunter wird die Vorsaison vorangestellt (Cold-Start)
 SHADOW_MODEL_VERSION = "challenge-engine-coherent-joint-calibration-v14"
-SHADOW_POLICY_VERSION = "shadow-model-first-v5"
+# Policy v6 (23.10.2026): the opening quote may carry a provider stamp up to
+# three hours old (CLVTracker.OPENING_QUOTE_MAX_AGE) and its age is stored per
+# row; v5 required ten minutes. Rows of v5 stay in their own cohort.
+SHADOW_POLICY_VERSION = "shadow-model-first-v6"
 # Second cohort (docs/superpowers/plans/2026-10-22-hybrid-aktivierung.md): the
 # coherent hybrid is evaluated on the same fixtures with the same quote response
 # and logged under its own model version. The legacy cohort is written first
@@ -1489,6 +1492,7 @@ def _recent(tracker: CLVTracker) -> list[dict]:
             "result": item["result"],
             "profit": item["profit"],
             "kickoff": item["fixture_kickoff"],
+            "opening_quote_age_seconds": item.get("opening_quote_age_seconds"),
         })
     return recent
 
@@ -1660,6 +1664,7 @@ def run(ctx):
         "quote_source": QUOTE_SOURCE,
         "model_version": SHADOW_MODEL_VERSION,
         "policy_version": SHADOW_POLICY_VERSION,
+        "opening_quote_max_age_seconds": int(CLVTracker.OPENING_QUOTE_MAX_AGE.total_seconds()),
         "hybrid_cohort": {
             "enabled": hybrid_cohort_enabled(),
             "goal_model": SHADOW_HYBRID_GOAL_MODEL,

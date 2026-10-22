@@ -225,7 +225,11 @@ class ModelFirstShadowTest(unittest.TestCase):
         now = datetime(2026, 9, 24, 12, 0, tzinfo=timezone.utc)
         candidate = self._candidate("BTTS_NO", 0.55)
         self.assertEqual(shadow._model_first_observations([candidate], _odds_response(), now), [])
-        stale = _odds_response(updated_at=(now - timedelta(minutes=11)).isoformat())
+        # Contract change 23.10.2026: three hours of provider age are evidence, more is not.
+        aged = _odds_response(updated_at=(now - timedelta(hours=2, minutes=59)).isoformat())
+        with patch.object(shadow, "candidate_selection_rank", side_effect=lambda c: (c.evidence_score,)):
+            self.assertEqual(len(shadow._model_first_observations([candidate], aged, now)), 1)
+        stale = _odds_response(updated_at=(now - timedelta(hours=3, minutes=1)).isoformat())
         self.assertEqual(shadow._model_first_observations([candidate], stale, now), [])
 
     def test_extra_time_results_are_not_auto_settled_as_regulation(self):

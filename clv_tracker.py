@@ -25,7 +25,15 @@ class CLVEvidenceIntegrityError(RuntimeError):
 class CLVTracker:
     """Store pre-event predictions, verified prices, closers, and settlement."""
 
-    OPENING_QUOTE_MAX_AGE = timedelta(minutes=10)
+    # Opening-quote freshness (evidence contract). Until 22.10.2026 the opening
+    # price had to carry a provider timestamp at most ten minutes old, which the
+    # provider's pre-match update cadence almost never met (two logged tips
+    # since September; docs/audits/2026-10-22-shadow-befund.md). Owner decision
+    # 23.10.2026 (docs/audits/2026-10-23-oeffnungsquote-frischeregel.md): three
+    # hours, and the actual age is stored with every row. Rows recorded under the
+    # old rule keep their policy version and satisfy the relaxed check as well.
+    OPENING_QUOTE_MAX_AGE_V1 = timedelta(minutes=10)
+    OPENING_QUOTE_MAX_AGE = timedelta(hours=3)
     CLOSING_WINDOW = timedelta(minutes=15)
     SHADOW_SETTLEABLE_MARKETS = frozenset({
         'RESULT_HOME',
@@ -101,6 +109,9 @@ class CLVTracker:
                 'fixture_kickoff': 'TEXT',
                 'model_version': 'TEXT',
                 'policy_version': 'TEXT',
+                # Seconds between the provider stamp of the opening quote and the
+                # ledger clock (contract change 23.10.2026); NULL for older rows.
+                'opening_quote_age_seconds': 'INTEGER',
             }
             for column, column_type in additions.items():
                 if column not in existing:
@@ -285,6 +296,7 @@ class CLVTracker:
         if kickoff_datetime <= now or quote_datetime >= kickoff_datetime:
             raise ValueError("prediction and opening quote must be pre-kickoff")
         created_at = now.isoformat()
+        opening_quote_age_seconds = max(0, int((now - quote_datetime).total_seconds()))
 
         with self._connect() as conn:
             try:
@@ -293,14 +305,15 @@ class CLVTracker:
                         fixture_id, home_team, away_team, market_type, prediction,
                         odds, model_probability, confidence, created_at, bookmaker,
                         quote_source, quoted_at, data_quality, fixture_kickoff,
-                        model_version, policy_version
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        model_version, policy_version, opening_quote_age_seconds
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     fixture_id, values['home_team'], values['away_team'],
                     values['market_type'], values['prediction'], price, probability,
                     confidence, created_at, values['bookmaker'], values['quote_source'],
                     quote_time, str(data_quality or '').strip() or None, kickoff_time,
                     normalized_model_version, normalized_policy_version,
+                    opening_quote_age_seconds,
                 ))
             except sqlite3.IntegrityError as exc:
                 if (
@@ -540,7 +553,7 @@ class CLVTracker:
                        odds, closing_odds, result, profit, created_at, settled_at,
                        home_score, away_score, bookmaker, quote_source, quoted_at,
                        closing_bookmaker, closing_source, closing_quoted_at,
-                       fixture_kickoff
+                       fixture_kickoff, opening_quote_age_seconds
                 FROM predictions
                 {settled_where}
             ''', tuple(integrity_params)).fetchall()
@@ -597,6 +610,7 @@ class CLVTracker:
             closing_source,
             closing_time,
             kickoff,
+            stored_opening_age,
         ) in rows:
             row_issues: set[str] = set()
             try:
@@ -694,6 +708,16 @@ class CLVTracker:
                     and settled_datetime <= current_time + timedelta(seconds=60)
                 ):
                     raise ValueError("quote_timing")
+                if stored_opening_age is not None:
+                    # A stored age must restate the row's own clocks (within a second).
+                    if (
+                        isinstance(stored_opening_age, bool)
+                        or not isinstance(stored_opening_age, int)
+                        or stored_opening_age < 0
+                        or abs(stored_opening_age
+                               - (created_datetime - opening_datetime).total_seconds()) > 1.0
+                    ):
+                        raise ValueError("opening_quote_age")
             except (TypeError, ValueError):
                 row_issues.add('invalid_quote_provenance')
 
@@ -769,7 +793,7 @@ class CLVTracker:
                 SELECT id, fixture_id, home_team, away_team, market_type,
                        prediction, odds, closing_odds, result, profit, created_at,
                        bookmaker, quote_source, quoted_at, closing_quoted_at,
-                       fixture_kickoff
+                       fixture_kickoff, opening_quote_age_seconds
                 FROM predictions
                 {where}
                 ORDER BY created_at DESC
@@ -806,6 +830,7 @@ class CLVTracker:
                 'quoted_at': row[13],
                 'closing_quoted_at': row[14],
                 'fixture_kickoff': row[15],
+                'opening_quote_age_seconds': row[16],
                 'clv': round(
                     (opening_price / closing_price - 1.0) * 100.0,
                     2,
