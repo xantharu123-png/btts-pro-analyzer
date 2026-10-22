@@ -87,10 +87,12 @@ unter `runtime_state/market_benchmark/` ab (ignoriert). Berichte:
    `goal_matrix_override`) ist die beste Konfiguration: 148 Zellen signifikant besser als
    Legacy, 111 schlechter (von 560); Berichte `docs/audits/2026-10-2[01]-dixon-coles-*.md`.
    Release-Gate-Validierung (`docs/audits/2026-10-22-hybrid-validierung.md`): 262 statt
-   224 glaubwürdige und 257 statt 224 freigegebene Zellen, kein Markt verliert. Vor einer
-   Aktivierung: neue `CHALLENGE_PREDICTION_VERSION`/Vertragssignatur, Pin-/ORIGINAL-
-   Verträge und `capture_football_original` für die neue Basis, Cache-Schema, Shadow-Lauf
-   mit beiden Basen; Owner-Entscheidung.
+   224 glaubwürdige und 257 statt 224 freigegebene Zellen, kein Markt verliert. Seit
+   22.10.2026 vorbereitet (`docs/superpowers/plans/2026-10-22-hybrid-aktivierung.md`):
+   eigene Pins (`prediction_version_for_goal_model`), ORIGINAL-Erfassung/Replay für die
+   Hybrid-Basis, Shadow-Kohorte neben Legacy (`BETBOY_SHADOW_HYBRID_BASIS`, Default an).
+   Produktionsbasis bleibt Legacy; Umstellung nur nach dem Prüfplan und als eigener
+   Owner-Commit.
    Mischungsgewicht Modell/Markt ist out-of-sample 0,00 (`2026-10-20-marktmischung.md`):
    Entscheidungen sollten dem Markt folgen; der Edge-Cap 8 pp hebt die Policy von −5,5 %
    auf +0,8 % ROI (Intervall enthält 0).

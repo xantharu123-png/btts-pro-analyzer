@@ -500,6 +500,36 @@ def _weighted_refs(value: list, available: set[str], label: str) -> float:
     return math.fsum(weights)
 
 
+def _validate_dixon_coles_reference(value: dict, available: set[str]) -> None:
+    """Fit window of the coherent hybrid: every row is a declared history reference."""
+    require_object(value, {"version", "half_life_days", "cutoff", "max_history_days", "options", "window",
+                           "fitted_rho", "effective_rho", "home_effect_known", "rates", "legacy_lambdas"},
+                   label="Dixon-Coles reference")
+    require_text(value["version"], "Dixon-Coles version", code=True)
+    if require_number(value["half_life_days"], "Dixon-Coles half-life") <= 0:
+        raise ContextContractError("Dixon-Coles half-life must be positive")
+    if type(value["cutoff"]) is not str or canonical_timestamp(value["cutoff"]) != value["cutoff"]:
+        raise ContextContractError("Dixon-Coles cutoff must be a canonical UTC timestamp")
+    if type(value["max_history_days"]) is not int or isinstance(value["max_history_days"], bool) \
+            or value["max_history_days"] <= 0:
+        raise ContextContractError("Dixon-Coles history horizon must be a positive day count")
+    require_object(value["options"], {"level_prior", "venue_specific", "hybrid_totals"}, label="Dixon-Coles options")
+    if any(type(flag) is not bool for flag in value["options"].values()) or type(value["home_effect_known"]) is not bool:
+        raise ContextContractError("Dixon-Coles flags must be actual booleans")
+    if type(value["window"]) is not list or not value["window"]:
+        raise ContextContractError("Dixon-Coles window needs the actual fitted rows")
+    _weighted_refs(value["window"], available, "Dixon-Coles window")
+    for name in ("fitted_rho", "effective_rho"):
+        require_number(value[name], "Dixon-Coles " + name, minimum=-1, maximum=1)
+    for name in ("rates", "legacy_lambdas"):
+        pair = value[name]
+        if type(pair) is not list or len(pair) != 2:
+            raise ContextContractError("Dixon-Coles " + name + " must be one home/away pair")
+        for number in pair:
+            if require_number(number, "Dixon-Coles " + name) <= 0:
+                raise ContextContractError("Dixon-Coles " + name + " must be positive")
+
+
 def validate_reference_weights(value: dict, history_refs: list[dict], *, family: str) -> dict:
     if type(value) is dict and type(value.get("kind")) is str and value["kind"] in {"basketball-live-margin-origin-v1", "hockey-live-poisson-origin-v1"}:
         expected = "basketball:margin:including_ot" if value["kind"] == "basketball-live-margin-origin-v1" else "ice_hockey:regulation_goals"
@@ -531,16 +561,18 @@ def validate_reference_weights(value: dict, history_refs: list[dict], *, family:
         from context_models.esports import validate_esports_reference, validate_esports_comparison_reference
         validator = validate_esports_comparison_reference if value.get("kind") == "esports-series-comparison-reference-v1" else validate_esports_reference
         return validator(value, history_refs)
-    require_object(value, {"schema", "kind"}, optional={"reason", "heads"}, label="reference weights")
+    require_object(value, {"schema", "kind"}, optional={"reason", "heads", "dixon_coles"}, label="reference weights")
     if type(value["schema"]) is not int or value["schema"] != 1:
         raise ContextContractError("unknown reference weights schema")
     if value["kind"] == "unavailable":
         require_object(value, {"schema", "kind", "reason"}, label="unavailable reference")
         require_text(value["reason"], "reference unavailability reason", code=True)
         return dict(value)
-    if value["kind"] != "football-goals-v1" or family != "football:goals:90min":
+    hybrid = value["kind"] == "football-goals-hybrid-dc-v1"
+    if value["kind"] not in {"football-goals-v1", "football-goals-hybrid-dc-v1"} or family != "football:goals:90min":
         raise ContextContractError("unsupported reference weights variant")
-    require_object(value, {"schema", "kind", "heads"}, label="football reference weights")
+    require_object(value, {"schema", "kind", "heads"} | ({"dixon_coles"} if hybrid else set()),
+                   label="football reference weights")
     require_object(value["heads"], {"home", "away"}, label="reference heads")
     available = {row["ref"] for row in validate_history_refs(history_refs)}
     identities = {}
@@ -600,6 +632,8 @@ def validate_reference_weights(value: dict, history_refs: list[dict], *, family:
     home_id, away_id = identities[("home", "venue_attack")][0], identities[("away", "venue_attack")][0]
     if home_id is not None and home_id == away_id:
         raise ContextContractError("reference must distinguish the two actual teams")
+    if hybrid:
+        _validate_dixon_coles_reference(value["dixon_coles"], available)
     return _sport_json(value, label="reference weights")
 
 

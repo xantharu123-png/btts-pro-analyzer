@@ -99,6 +99,12 @@ The legal footer links come from `BETBOY_LEGAL_URL`, `BETBOY_PRIVACY_URL` and
 set the footer states that operator information and privacy notice are not yet
 published. The portal reads the same names from `/etc/betboy/portal.env` and
 additionally needs `BETBOY_LEGAL_READY=1` (see `check_customer_launch`).
+The football shadow runner (`shadow_clv_automation`) evaluates every fixture a
+second time with the coherent Dixon-Coles hybrid and logs that cohort under its
+own model version next to the legacy cohort; `BETBOY_SHADOW_HYBRID_BASIS=0`
+switches the second cohort off. It changes no production decision, but the
+hybrid walk-forward costs minutes of CPU per league and day (built at most for
+three leagues per run, cached under `.shadow_cache`).
 
 ## Initial installation
 

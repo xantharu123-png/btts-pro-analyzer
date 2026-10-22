@@ -16,6 +16,7 @@ import challenge_engine as engine
 from context_models.contracts import ContextContractError, ContextIntegrityError, require_number, require_object
 from context_models.football_joint_comparison import compare_captured_joint
 from context_models.offset import ContextModelError, _array
+from football_original import original_goal_basis
 from model_artifacts import canonical_bytes
 
 VERSION = "football-joint-log-tilt-v1"
@@ -67,7 +68,8 @@ def replay_joint_calculation(original):
     captures = []
     engine.fixture_market_probabilities(packet["fixture"], packet["league_history"], curves,
         team_history=packet["team_history"], original_capture=captures.append,
-        _joint_law_version=packet["distribution_capture"]["law_version"])
+        _joint_law_version=packet["distribution_capture"]["law_version"],
+        goal_model=original_goal_basis(packet))
     if len(captures) != 1:
         raise ContextIntegrityError("captured football calculation cannot be reproduced")
     recalculated = captures[0].to_dict()

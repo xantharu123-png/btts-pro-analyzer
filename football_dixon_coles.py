@@ -432,6 +432,15 @@ def _cached_fit(league_id: Optional[int], cutoff_day: str, matches: tuple[DixonC
     return fit
 
 
+@lru_cache(maxsize=16)
+def _cold_fit(league_id: Optional[int], cutoff_day: str, matches: tuple[DixonColesMatch, ...],
+              half_life_days: float, level_prior: bool = False, venue_specific: bool = False) -> DixonColesFit:
+    """Replayable fit without warm start: identical inputs give identical bytes."""
+    cutoff = datetime.fromisoformat(cutoff_day)
+    return fit_dixon_coles(matches, cutoff, half_life_days=half_life_days, league_id=league_id,
+                           initial=None, level_prior=level_prior, venue_specific=venue_specific)
+
+
 def last_fit(league_id: Optional[int], *, half_life_days: float = DEFAULT_HALF_LIFE_DAYS,
              level_prior: bool = False, venue_specific: bool = False) -> Optional[DixonColesFit]:
     return _LAST_FIT.get((league_id, float(half_life_days), bool(level_prior), bool(venue_specific)))
@@ -439,8 +448,11 @@ def last_fit(league_id: Optional[int], *, half_life_days: float = DEFAULT_HALF_L
 
 def fit_for_fixture(fixture: dict[str, Any], league_history: Iterable[dict[str, Any]], *,
                     half_life_days: float = DEFAULT_HALF_LIFE_DAYS, level_prior: bool = False,
-                    venue_specific: bool = False) -> DixonColesFit:
-    """League fit at the fixture's kickoff day, cached per (league, day, history, options)."""
+                    venue_specific: bool = False, cold_start: bool = False) -> DixonColesFit:
+    """League fit at the fixture's kickoff day, cached per (league, day, history, options).
+
+    ``cold_start`` ignores the warm-start history (ORIGINAL capture/replay).
+    """
     data = fixture.get("fixture") if isinstance(fixture, dict) else None
     raw_date = data.get("date") if isinstance(data, dict) else None
     if not isinstance(raw_date, str):
@@ -455,8 +467,9 @@ def fit_for_fixture(fixture: dict[str, Any], league_history: Iterable[dict[str, 
     league = fixture.get("league") if isinstance(fixture, dict) else None
     league_id = league.get("id") if isinstance(league, dict) and isinstance(league.get("id"), int) else None
     matches = tuple(row for row in matches_from_fixtures(league_history) if row.played_at < cutoff)
-    return _cached_fit(league_id, cutoff.isoformat(), matches, float(half_life_days), bool(level_prior),
-                       bool(venue_specific))
+    fitter = _cold_fit if cold_start else _cached_fit
+    return fitter(league_id, cutoff.isoformat(), matches, float(half_life_days), bool(level_prior),
+                  bool(venue_specific))
 
 
 __all__ = [

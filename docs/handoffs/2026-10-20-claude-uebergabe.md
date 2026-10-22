@@ -109,6 +109,7 @@ Für Codex, den Owner und jede weitere Session. Ergänzt `AGENTS.md` (Regeln, St
 | `BETBOY_CROSS_LEAGUE_FDR` | `1` | BH über Ligen × Märkte; `0` = je Liga wie bisher | `challenge_15k.cross_league_fdr_enabled` |
 | `BETBOY_RELEASE_MARKET_BENCHMARK` | `0` | Sperrgrund, wenn Liga×Markt den Closing-Markt nicht geschlagen hat; `1` leert derzeit jeden Echtgeldpfad | `market_release_gate` |
 | `BETBOY_MARKET_GATE_PATH` | `runtime_state/market_benchmark/market_gate.json` | Verdikt-Dokument (höchstens 120 Tage alt) | `market_release_gate.gate_path` |
+| `BETBOY_SHADOW_HYBRID_BASIS` | `1` | zweite Shadow-Kohorte mit dem Hybrid; `0` schaltet ab (22.10.2026) | `shadow_clv_automation.hybrid_cohort_enabled` |
 | `goal_model=` (Funktionsparameter) | `legacy` | DC-Varianten nur per expliziter Übergabe; kein Produktionsaufrufer setzt ihn | `challenge_engine` |
 
 **Vor dem nächsten Deploy prüfen:** Steht `BETBOY_PORTAL_INTERNAL_TOKEN` bereits in

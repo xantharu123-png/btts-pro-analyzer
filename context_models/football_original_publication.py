@@ -88,7 +88,26 @@ def executed_code_identity():
         "runtime_bindings": bindings, "authority": "execution-fingerprint-not-replay-qualification",
         "python": platform.python_version(), "numpy": numpy.__version__, "scipy": scipy.__version__,
         "prediction_version": engine.CHALLENGE_PREDICTION_VERSION,
-        "model_contract_signature": engine.CHALLENGE_MODEL_CONTRACT_SIGNATURE}
+        "model_contract_signature": engine.CHALLENGE_MODEL_CONTRACT_SIGNATURE,
+        # Pins of every registered non-legacy rate basis (shadow candidates).
+        "goal_basis_identities": {
+            basis: {"prediction_version": engine.prediction_version_for_goal_model(basis),
+                    "model_contract_signature": engine.model_contract_signature_for_goal_model(basis)}
+            for basis in engine.GOAL_MODEL_PREDICTION_VERSIONS if basis != engine.GOAL_MODEL_LEGACY}}
+
+
+def _code_identity_for_basis(code, packet):
+    """Pins the executed code declares for the packet's rate basis (None if undeclared)."""
+    from football_original import LEGACY_GOAL_BASIS, original_goal_basis
+    try:
+        basis = original_goal_basis(packet)
+    except ValueError:
+        return None
+    if basis == LEGACY_GOAL_BASIS:
+        return code
+    declared = code.get("goal_basis_identities")
+    identity = declared.get(basis) if type(declared) is dict else None
+    return identity if type(identity) is dict else None
 
 
 class FootballOriginalBudget:
@@ -481,7 +500,9 @@ class FootballOriginalPublication:
         prepared = prepare_original(original)
         packet = original.to_dict()
         code = a1._decode_object(self._code.payload_bytes, label="executed code")
-        if any(packet[name] != code[name] for name in ("prediction_version", "model_contract_signature")):
+        identity = _code_identity_for_basis(code, packet)
+        if identity is None or any(packet[name] != identity.get(name)
+                                   for name in ("prediction_version", "model_contract_signature")):
             raise ContextIntegrityError("ORIGINAL differs from executed code/model identity")
         if decision > packet["captured_at"]:
             raise ContextIntegrityError("decision follows actual ORIGINAL capture")

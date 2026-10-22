@@ -25,9 +25,24 @@ _FIXTURE = {
     "challenge_venue_unknown": _SCALAR,
     "challenge_senior_national_team": _SCALAR,
 }
+# The last five fields exist only for a non-legacy rate basis (coherent hybrid):
+# legacy captures stay byte-identical because absent keys are never written.
 _GOAL_FIELDS = ("active_lambdas", "season_lambdas", "form_lambdas", "venue_samples",
                 "national_samples", "form_samples", "league_sample", "freshness_days",
-                "freshness_observed_at", "xg_coverage")
+                "freshness_observed_at", "xg_coverage",
+                "goal_model", "rho", "fitted_rho", "dixon_coles", "legacy_lambdas")
+LEGACY_GOAL_BASIS = "legacy"
+
+
+def original_goal_basis(packet):
+    """Rate basis named by a captured packet; legacy packets carry no basis field."""
+    goal = packet.get("goal_model") if type(packet) is dict else None
+    if type(goal) is not dict:
+        raise ValueError("captured goal model must be an object")
+    basis = goal.get("goal_model", LEGACY_GOAL_BASIS)
+    if type(basis) is not str or not basis:
+        raise ValueError("captured goal basis must be text")
+    return basis
 _COUNT_FIELDS = ("active_counts", "season_counts", "form_counts", "venue_samples", "form_samples",
                  "league_sample", "dispersion", "referee_sample", "referee_mean")
 

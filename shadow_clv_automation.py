@@ -35,6 +35,8 @@ from api_budget import (  # noqa: E402
     api_football_get,
 )
 from challenge_engine import (  # noqa: E402
+    GOAL_MODEL_LEGACY,
+    GOAL_MODEL_SHADOW_CANDIDATE,
     MODEL_SCOPE_CROSS_COMPETITION_UNVALIDATED,
     MODEL_SCOPE_SENIOR_NATIONAL,
     apply_candidate_context,
@@ -43,6 +45,7 @@ from challenge_engine import (  # noqa: E402
     candidate_selection_rank,
     fit_market_calibration,
     market_is_basic_forecast,
+    prediction_version_for_goal_model,
     validate_league_markets,
 )
 from clv_tracker import CLVTracker, DuplicatePredictionError  # noqa: E402
@@ -88,6 +91,26 @@ FT_STATUSES = {"FT"}
 MIN_HISTORY_GAMES = 220  # darunter wird die Vorsaison vorangestellt (Cold-Start)
 SHADOW_MODEL_VERSION = "challenge-engine-coherent-joint-calibration-v14"
 SHADOW_POLICY_VERSION = "shadow-model-first-v5"
+# Second cohort (docs/superpowers/plans/2026-10-22-hybrid-aktivierung.md): the
+# coherent hybrid is evaluated on the same fixtures with the same quote response
+# and logged under its own model version. The legacy cohort is written first
+# and never depends on it; only an explicit "0" switches the cohort off.
+SHADOW_HYBRID_GOAL_MODEL = GOAL_MODEL_SHADOW_CANDIDATE
+SHADOW_HYBRID_MODEL_VERSION = prediction_version_for_goal_model(SHADOW_HYBRID_GOAL_MODEL).replace(":", "-")
+SHADOW_HYBRID_FLAG = "BETBOY_SHADOW_HYBRID_BASIS"
+SHADOW_HYBRID_WARMUP_LEAGUES_PER_RUN = 3
+
+
+def hybrid_cohort_enabled() -> bool:
+    """Default on; only an explicit ``0`` disables the second shadow cohort."""
+    return os.environ.get(SHADOW_HYBRID_FLAG, "1").strip() != "0"
+
+
+def _basis_cache_version(goal_model: str):
+    """Cache name component of a rate basis; ``None`` keeps the legacy file names."""
+    if goal_model == GOAL_MODEL_LEGACY:
+        return None
+    return prediction_version_for_goal_model(goal_model).replace(":", "-")
 SHADOW_REVIEW_MIN_CLV_BETS = 300
 SCHEDULE_MAX_ATTEMPTS = 3
 SCHEDULE_RETRY_DELAY = timedelta(minutes=20)
@@ -562,12 +585,10 @@ def _meta_set(connection, key: str, value: str) -> None:
 # Per-day caches (history + walk-forward validation are expensive)
 # --------------------------------------------------------------------------
 
-def _cache_path(kind: str, league_id: int, season: int, day: str) -> Path:
+def _cache_path(kind: str, league_id: int, season: int, day: str, model_version=None) -> Path:
     CACHE_DIR.mkdir(exist_ok=True)
-    version = (
-        f"{SHADOW_MODEL_VERSION}-national-pooled-v1"
-        if league_id == 5 else SHADOW_MODEL_VERSION
-    )
+    base = SHADOW_MODEL_VERSION if model_version is None else str(model_version)
+    version = f"{base}-national-pooled-v1" if league_id == 5 else base
     return CACHE_DIR / (
         f"{kind}_{version}_{league_id}_{season}_{day}.pkl"
     )
@@ -641,8 +662,8 @@ def _cached_history(provider, league_id, season, fixture, day):
     return history
 
 
-def _cached_validation(league_id, season, history, day):
-    path = _cache_path("validation", league_id, season, day)
+def _cached_validation(league_id, season, history, day, goal_model=GOAL_MODEL_LEGACY):
+    path = _cache_path("validation", league_id, season, day, _basis_cache_version(goal_model))
     if path.exists():
         try:
             with open_trusted_pickle(path) as handle:
@@ -655,7 +676,8 @@ def _cached_validation(league_id, season, history, day):
             ImportError,
         ):
             path.unlink(missing_ok=True)
-    validation = validate_league_markets(history)
+    validation = (validate_league_markets(history) if goal_model == GOAL_MODEL_LEGACY
+                  else validate_league_markets(history, goal_model=goal_model))
     atomic_write_bytes(
         path,
         pickle.dumps(validation, protocol=pickle.HIGHEST_PROTOCOL),
@@ -663,8 +685,8 @@ def _cached_validation(league_id, season, history, day):
     return validation
 
 
-def _cached_calibration(league_id, season, history, day):
-    path = _cache_path("calibration", league_id, season, day)
+def _cached_calibration(league_id, season, history, day, goal_model=GOAL_MODEL_LEGACY):
+    path = _cache_path("calibration", league_id, season, day, _basis_cache_version(goal_model))
     if path.exists():
         try:
             with open_trusted_pickle(path) as handle:
@@ -677,7 +699,8 @@ def _cached_calibration(league_id, season, history, day):
             ImportError,
         ):
             path.unlink(missing_ok=True)
-    calibration = fit_market_calibration(history)
+    calibration = (fit_market_calibration(history) if goal_model == GOAL_MODEL_LEGACY
+                   else fit_market_calibration(history, goal_model=goal_model))
     atomic_write_bytes(
         path,
         pickle.dumps(calibration, protocol=pickle.HIGHEST_PROTOCOL),
@@ -937,18 +960,128 @@ def step_schedule(provider: ShadowProvider, league_ids: list[int], zurich_today:
     return loaded
 
 
-def _current_prediction_exists(fixture_id: int) -> bool:
+def _current_prediction_exists(fixture_id: int, model_version=None) -> bool:
     connection = _connect()
     try:
         row = connection.execute(
             """SELECT 1 FROM predictions
                WHERE fixture_id = ? AND model_version = ? AND policy_version = ?
                LIMIT 1""",
-            (fixture_id, SHADOW_MODEL_VERSION, SHADOW_POLICY_VERSION),
+            (fixture_id, SHADOW_MODEL_VERSION if model_version is None else model_version,
+             SHADOW_POLICY_VERSION),
         ).fetchone()
     finally:
         connection.close()
     return row is not None
+
+
+def step_warm_hybrid(provider: ShadowProvider, zurich_today: date,
+                     max_leagues: int = SHADOW_HYBRID_WARMUP_LEAGUES_PER_RUN) -> int:
+    """Build the hybrid walk-forward artifacts for today's leagues outside the window.
+
+    The Dixon-Coles walk-forward costs minutes per league; building it here
+    keeps the evaluation window (75-20 minutes before kickoff) for the ledger.
+    Bounded per run; the file cache makes every later call free.
+    """
+    if not hybrid_cohort_enabled():
+        return 0
+    day = zurich_today.isoformat()
+    version = _basis_cache_version(SHADOW_HYBRID_GOAL_MODEL)
+    with _connect() as connection:
+        rows = connection.execute(
+            """SELECT league_id, season, MIN(fixture_id) FROM shadow_fixtures
+               WHERE zurich_date = ? AND evaluated = 0 AND league_id != 5
+               GROUP BY league_id, season ORDER BY league_id""",
+            (day,),
+        ).fetchall()
+    warmed = 0
+    for league_id, season, fixture_id in rows:
+        if all(_cache_path(kind, league_id, season, day, version).exists()
+               for kind in ("validation", "calibration")):
+            continue
+        if warmed >= max_leagues:
+            break
+        try:
+            detail = provider.fixture_details(fixture_id)
+            if not detail:
+                errors.append(f"Hybrid-Vorbereitung Liga {league_id}: Fixture-Details fehlen")
+                continue
+            history = _cached_history(provider, league_id, season, detail, day)
+            _cached_validation(league_id, season, history, day, goal_model=SHADOW_HYBRID_GOAL_MODEL)
+            _cached_calibration(league_id, season, history, day, goal_model=SHADOW_HYBRID_GOAL_MODEL)
+            warmed += 1
+        except Exception as exc:  # The warm-up is optional; the ledger run must continue.
+            errors.append(f"Hybrid-Vorbereitung Liga {league_id}: {exc}")
+    return warmed
+
+
+def _evaluate_hybrid_cohort(tracker: CLVTracker, provider: ShadowProvider, detail: dict, history,
+                            league_id: int, season: int, zurich_today: date, now: datetime, *,
+                            fixture_id: int, home_team: str, away_team: str, kickoff_text: str,
+                            context: dict, odds_response, result: dict) -> dict:
+    """Second cohort on the same fixture and quote response; never touches the legacy ledger.
+
+    Returns whether the fixture is terminal for this cohort (logged, already
+    present, or nothing offered) exactly like the legacy rule, so a fixture is
+    retried only while either cohort can still gain a quote or context.
+    """
+    outcome = {"terminal": True, "logged": False}
+    if not hybrid_cohort_enabled() or league_id == 5:
+        return outcome  # Fail closed: no club-league fit for senior internationals.
+    try:
+        day = zurich_today.isoformat()
+        validation = _cached_validation(league_id, season, history, day, goal_model=SHADOW_HYBRID_GOAL_MODEL)
+        calibration = _cached_calibration(league_id, season, history, day, goal_model=SHADOW_HYBRID_GOAL_MODEL)
+        candidates = build_fixture_candidates(detail, history, validation, calibration,
+                                              goal_model=SHADOW_HYBRID_GOAL_MODEL)
+        base_candidates = [
+            candidate for candidate in candidates
+            if candidate.base_eligible and candidate.market_key in _QUOTE_BETS
+        ]
+        credible = []
+        for candidate in base_candidates:
+            apply_candidate_context(candidate, **context)
+            if candidate_is_forecast_credible(candidate):
+                credible.append(candidate)
+        result["hybrid_credible_candidates"] = result.get("hybrid_credible_candidates", 0) + len(credible)
+        if not base_candidates:
+            return outcome
+        if _current_prediction_exists(fixture_id, SHADOW_HYBRID_MODEL_VERSION):
+            return outcome
+        if credible and odds_response is None:
+            odds_response = provider.odds(fixture_id)
+        observed = _model_first_observations(credible, odds_response, now)
+        if not observed:
+            if credible:
+                result["hybrid_quote_missing"] = result.get("hybrid_quote_missing", 0) + 1
+            outcome["terminal"] = False  # Quote or context may still arrive before kickoff.
+            return outcome
+        pick, quote, quoted_at = observed[0]
+        try:
+            tracker.record_prediction(
+                fixture_id=fixture_id,
+                home_team=home_team,
+                away_team=away_team,
+                market_type=pick.market_key,
+                prediction=pick.selection,
+                odds=quote,
+                model_probability=pick.probability * 100.0,
+                confidence=int(round(min(100.0, max(0.0, pick.evidence_score)))),
+                bookmaker=BOOKMAKER_NAME,
+                quote_source=QUOTE_SOURCE,
+                quoted_at=quoted_at,
+                fixture_kickoff=kickoff_text,
+                data_quality="shadow",
+                model_version=SHADOW_HYBRID_MODEL_VERSION,
+                policy_version=SHADOW_POLICY_VERSION,
+            )
+            result["hybrid_logged"] = result.get("hybrid_logged", 0) + 1
+            outcome["logged"] = True
+        except DuplicatePredictionError:
+            pass
+    except Exception as exc:  # The second cohort must never block the legacy ledger.
+        errors.append(f"Hybrid {fixture_id}: {exc}")
+    return outcome
 
 
 def step_evaluate(tracker: CLVTracker, provider: ShadowProvider, now: datetime,
@@ -1055,6 +1188,13 @@ def step_evaluate(tracker: CLVTracker, provider: ShadowProvider, now: datetime,
                 f"Fixture {fixture_id}: keine aktuelle {BOOKMAKER_NAME}-Quote mit Providerzeit; Retry"
             )
             result["quote_missing"] = result.get("quote_missing", 0) + 1
+        hybrid = _evaluate_hybrid_cohort(
+            tracker, provider, detail, history, league_id, season, zurich_today, now,
+            fixture_id=fixture_id, home_team=home_team, away_team=away_team, kickoff_text=kickoff_text,
+            context=dict(h2h_fixtures=h2h, injuries=injuries, injury_coverage=bool(coverage.get("injuries")),
+                         weather=weather, lineups=lineups),
+            odds_response=odds_response, result=result,
+        )
         # Terminal-Logik: nur endgültig abhaken, wenn (a) ein Pick geloggt wurde
         # oder (b) das Modell grundsätzlich nichts anbietet (ändert sich heute
         # nicht mehr) oder (c) der Anpfiff so nah ist, dass kein Retry mehr
@@ -1065,7 +1205,7 @@ def step_evaluate(tracker: CLVTracker, provider: ShadowProvider, now: datetime,
             logged
             or bool(existing)
             or not base_candidates
-        )
+        ) and hybrid["terminal"]
         if not terminal:
             kickoff_dt = _fixture_kickoff({"fixture": {"date": kickoff_text}})
             minutes_left = (
@@ -1108,6 +1248,48 @@ def _counts() -> tuple[int, int]:
     finally:
         connection.close()
     return open_count, pending_closing
+
+
+def _paired_cohort_statistics() -> dict:
+    """Same fixtures, both cohorts, both closed and settled: paired CLV (hybrid minus legacy)."""
+    connection = _connect()
+    try:
+        rows = connection.execute(
+            """SELECT a.odds, a.closing_odds, b.odds, b.closing_odds,
+                      a.market_type = b.market_type AND a.prediction = b.prediction,
+                      a.result, b.result
+               FROM predictions a JOIN predictions b
+                 ON a.fixture_id = b.fixture_id AND a.policy_version = b.policy_version
+               WHERE a.model_version = ? AND b.model_version = ?
+                 AND a.closing_odds IS NOT NULL AND b.closing_odds IS NOT NULL
+                 AND a.result IS NOT NULL AND b.result IS NOT NULL""",
+            (SHADOW_MODEL_VERSION, SHADOW_HYBRID_MODEL_VERSION),
+        ).fetchall()
+    finally:
+        connection.close()
+    legacy, hybrid, same, wins = [], [], 0, [0, 0]
+    for legacy_open, legacy_close, hybrid_open, hybrid_close, identical, legacy_result, hybrid_result in rows:
+        prices = (legacy_open, legacy_close, hybrid_open, hybrid_close)
+        if any(type(price) not in (int, float) or not math.isfinite(price) or price <= 1.0 for price in prices):
+            continue
+        legacy.append((legacy_open / legacy_close - 1.0) * 100.0)
+        hybrid.append((hybrid_open / hybrid_close - 1.0) * 100.0)
+        same += 1 if identical else 0
+        wins[0] += 1 if str(legacy_result).upper() == "WIN" else 0
+        wins[1] += 1 if str(hybrid_result).upper() == "WIN" else 0
+    pairs = len(legacy)
+    mean = lambda values: round(sum(values) / len(values), 2) if values else None  # noqa: E731
+    differences = [h - l for l, h in zip(legacy, hybrid)]
+    return {
+        "pairs": pairs,
+        "minimum_pairs": SHADOW_REVIEW_MIN_CLV_BETS,
+        "same_selection": same,
+        "legacy_avg_clv": mean(legacy),
+        "hybrid_avg_clv": mean(hybrid),
+        "avg_difference": mean(differences),
+        "legacy_hit_rate": round(wins[0] / pairs, 4) if pairs else None,
+        "hybrid_hit_rate": round(wins[1] / pairs, 4) if pairs else None,
+    }
 
 
 def _recent(tracker: CLVTracker) -> list[dict]:
@@ -1256,6 +1438,7 @@ def run(ctx):
         step_schedule(provider, league_ids, day, force_schedule)
         for day in (zurich_today, zurich_today + timedelta(days=1))
     ) if _zurich_time(now).hour >= 9 or force_schedule else 0
+    warmed = step_warm_hybrid(provider, zurich_today)
     evaluation = step_evaluate(tracker, provider, now, zurich_today, max_fixtures)
 
     stats_30 = tracker.get_clv_statistics(
@@ -1295,6 +1478,21 @@ def run(ctx):
         "quote_source": QUOTE_SOURCE,
         "model_version": SHADOW_MODEL_VERSION,
         "policy_version": SHADOW_POLICY_VERSION,
+        "hybrid_cohort": {
+            "enabled": hybrid_cohort_enabled(),
+            "goal_model": SHADOW_HYBRID_GOAL_MODEL,
+            "model_version": SHADOW_HYBRID_MODEL_VERSION,
+            "policy_version": SHADOW_POLICY_VERSION,
+            "artifacts_warmed": warmed,
+            "credible_model_candidates": evaluation.get("hybrid_credible_candidates", 0),
+            "fixtures_without_fresh_quote": evaluation.get("hybrid_quote_missing", 0),
+            "predictions_logged": evaluation.get("hybrid_logged", 0),
+            "stats_30d": tracker.get_clv_statistics(
+                days=30, model_version=SHADOW_HYBRID_MODEL_VERSION, policy_version=SHADOW_POLICY_VERSION),
+            "stats_all": tracker.get_clv_statistics(
+                days=36500, model_version=SHADOW_HYBRID_MODEL_VERSION, policy_version=SHADOW_POLICY_VERSION),
+            "paired": _paired_cohort_statistics(),
+        },
     }
     wrapper = {"artifact": artifact}
     output_file = os.environ.get("DAIMON_BLUEPRINT_AUTOMATION_OUTPUT_FILE")

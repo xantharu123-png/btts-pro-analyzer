@@ -57,6 +57,9 @@ def _sources(original, binding, receipts):
     if type(original) is not FootballOriginal or type(receipts) is not tuple:
         raise ContextContractError("opponent comparison needs a captured original and frozen source tuple")
     packet = original.to_dict()
+    from football_original import LEGACY_GOAL_BASIS, original_goal_basis
+    if original_goal_basis(packet) != LEGACY_GOAL_BASIS:
+        raise opponent.ComparisonUnavailable("original-basis-not-legacy")
     require_object(binding, {
         "schema", "source_state", "code_state", "empirical_state", "native_event",
         "decision_at", "captured_at", "original_manifest_digest", "original_logical_digest",
