@@ -120,9 +120,10 @@ VPS-Launcher laufen lassen. Ein Windows-Lauf ersetzt den Linux-Nachweis nicht.
    Nicht anfassen: Produktionsbasis bleibt Legacy, bis der Prüfplan erfüllt ist.
 4. **Quotenabruf aller Seiten:** erledigt am 22.10. (`market_consensus.no_vig_market_probability`
    aus den vorhandenen Partitionen).
-5. **Edge-Cap als Produktregel prüfen:** Im Replay hebt eine Kappung von 8 pp die Policy
-   von −5,5 % auf +0,8 % ROI (Intervall enthält 0). Als Hypothese vorregistrieren, dann im
-   Preisgate (`market_consensus`/`build_fixture_candidates`) als Sperrgrund umsetzen.
+5. **Edge-Cap als Produktregel prüfen:** vorregistriert (`docs/superpowers/plans/2026-10-21-edge-cap.md`),
+   als Sperrgrund `EDGE_CAP` eingebaut (Default aus) und seit 22.10. im Shadow je Tipp
+   protokolliert (`shadow_edge_cap`, Run-Artefakt `edge_cap`). Nicht aktivieren; die
+   Auswertung folgt dem Prüfplan.
 6. **Nebenbefunde:** `tennis/backtest._devig` lässt NaN-Preise durch; `atp_tournaments.csv`
    hat Endtermine erst ab 2024; `cross_league_fdr` behandelt UEFA-Heimatligen ausserhalb
    der Familie (siehe `docs/audits/2026-10-20-fdr-ligen.md`).

@@ -34,6 +34,7 @@ from api_budget import (  # noqa: E402
     APIBudgetPriority,
     api_football_get,
 )
+from betting_math import BettingMathError, no_vig_market  # noqa: E402
 from challenge_engine import (  # noqa: E402
     GOAL_MODEL_LEGACY,
     GOAL_MODEL_SHADOW_CANDIDATE,
@@ -99,6 +100,13 @@ SHADOW_HYBRID_GOAL_MODEL = GOAL_MODEL_SHADOW_CANDIDATE
 SHADOW_HYBRID_MODEL_VERSION = prediction_version_for_goal_model(SHADOW_HYBRID_GOAL_MODEL).replace(":", "-")
 SHADOW_HYBRID_FLAG = "BETBOY_SHADOW_HYBRID_BASIS"
 SHADOW_HYBRID_WARMUP_LEAGUES_PER_RUN = 3
+# Pre-registered edge cap (docs/superpowers/plans/2026-10-21-edge-cap.md): the
+# shadow records per tip whether the model/market distance would have passed
+# the cap, from the same Bet365 partition the tip was quoted from. It is a
+# research record: no tip is filtered and BETBOY_EDGE_CAP_PP stays unset.
+SHADOW_EDGE_CAP_PP = 8.0
+_PARTITION_SIDES = {"Match Winner": ("Home", "Draw", "Away"), "Both Teams Score": ("Yes", "No")}
+_DOUBLE_CHANCE_SIDES = {"DC_1X": ("Home", "Draw"), "DC_X2": ("Draw", "Away"), "DC_12": ("Home", "Away")}
 
 
 def hybrid_cohort_enabled() -> bool:
@@ -565,6 +573,18 @@ def _connect() -> sqlite3.Connection:
             value TEXT NOT NULL
         )"""
     )
+    connection.execute(
+        """CREATE TABLE IF NOT EXISTS shadow_edge_cap (
+            prediction_id INTEGER PRIMARY KEY,
+            model_version TEXT NOT NULL,
+            model_probability REAL NOT NULL,
+            market_probability REAL,
+            edge_pp REAL,
+            cap_pp REAL NOT NULL,
+            passed INTEGER,
+            recorded_at TEXT NOT NULL
+        )"""
+    )
     return connection
 
 
@@ -760,6 +780,131 @@ def _market_quote_observation(odds_response, market_key: str):
             if quoted_at is not None:
                 return quote, quoted_at
     return None
+
+
+def _bet_values(odds_response, bet_name: str):
+    """All quoted sides of one Bet365 bet block, or ``None`` without that block."""
+    if not isinstance(odds_response, list):
+        return None
+    for entry in odds_response:
+        if not isinstance(entry, dict):
+            continue
+        for bookmaker in entry.get("bookmakers") or []:
+            if not isinstance(bookmaker, dict):
+                continue
+            if str(bookmaker.get("name") or "").casefold() != BOOKMAKER_NAME.casefold():
+                continue
+            for bet in bookmaker.get("bets") or []:
+                if not isinstance(bet, dict) or bet.get("name") != bet_name:
+                    continue
+                values = {}
+                for value in bet.get("values") or []:
+                    if not isinstance(value, dict):
+                        continue
+                    try:
+                        quote = float(str(value.get("odd")).strip())
+                    except (TypeError, ValueError):
+                        continue
+                    if math.isfinite(quote) and quote > 1.0:
+                        values[str(value.get("value"))] = quote
+                return values
+    return None
+
+
+def _no_vig_market_probability(odds_response, market_key: str):
+    """No-vig probability of the tip's side from the complete Bet365 partition.
+
+    Shin for three outcomes (1X2, double chance as the sum of two sides), Power
+    for two (totals, BTTS); ``None`` whenever a side of the partition is not
+    quoted. Mirrors ``market_consensus.no_vig_market_probability``.
+    """
+    target = _QUOTE_BETS.get(market_key)
+    if target is None:
+        return None
+    bet_name, value_name = target
+    if market_key in _DOUBLE_CHANCE_SIDES:
+        bet_name, sides, wanted = "Match Winner", _PARTITION_SIDES["Match Winner"], _DOUBLE_CHANCE_SIDES[market_key]
+    elif bet_name == "Goals Over/Under":
+        line = value_name.split(" ", 1)[1]
+        sides, wanted = (f"Over {line}", f"Under {line}"), (value_name,)
+    else:
+        sides, wanted = _PARTITION_SIDES[bet_name], (value_name,)
+    values = _bet_values(odds_response, bet_name)
+    if values is None or any(side not in values for side in sides):
+        return None
+    try:
+        law = no_vig_market([values[side] for side in sides], "shin" if len(sides) >= 3 else "power")
+    except BettingMathError:
+        return None
+    by_side = dict(zip(sides, law.no_vig_probabilities))
+    return float(sum(by_side[side] for side in wanted))
+
+
+def _log_edge_cap(prediction_id: int, model_version: str, pick, odds_response, now: datetime) -> None:
+    """Record per tip whether the pre-registered cap would have passed; never filters."""
+    try:
+        market_probability = _no_vig_market_probability(odds_response, pick.market_key)
+        model_probability = float(pick.probability)
+        edge_pp = None if market_probability is None else 100.0 * (model_probability - market_probability)
+        passed = None if edge_pp is None else int(edge_pp <= SHADOW_EDGE_CAP_PP)
+        with _connect() as connection:
+            connection.execute(
+                """INSERT OR REPLACE INTO shadow_edge_cap
+                   (prediction_id, model_version, model_probability, market_probability,
+                    edge_pp, cap_pp, passed, recorded_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (prediction_id, model_version, model_probability, market_probability,
+                 edge_pp, SHADOW_EDGE_CAP_PP, passed, _utc_iso(now)),
+            )
+            connection.commit()
+    except Exception as exc:  # Research record only; the ledger row stays untouched.
+        errors.append(f"Edge-Cap {prediction_id}: {exc}")
+
+
+def _edge_cap_statistics() -> dict:
+    """Per cohort: tips that would have passed the cap against the rest (closed and settled)."""
+    connection = _connect()
+    try:
+        rows = connection.execute(
+            """SELECT p.model_version, e.passed, p.odds, p.closing_odds, p.result
+               FROM shadow_edge_cap e JOIN predictions p ON p.id = e.prediction_id
+               WHERE p.policy_version = ?""",
+            (SHADOW_POLICY_VERSION,),
+        ).fetchall()
+    finally:
+        connection.close()
+    cohorts: dict[str, dict] = {}
+    for model_version, passed, opening, closing, result in rows:
+        cohort = cohorts.setdefault(model_version, {
+            "recorded": 0, "passed": 0, "failed": 0, "unknown": 0,
+            "clv": {"passed": [], "failed": []}, "wins": {"passed": 0, "failed": 0},
+        })
+        cohort["recorded"] += 1
+        if passed is None:
+            cohort["unknown"] += 1
+            continue
+        group = "passed" if passed else "failed"
+        cohort[group] += 1
+        prices = (opening, closing)
+        if result is None or any(type(price) not in (int, float) or not math.isfinite(price) or price <= 1.0
+                                 for price in prices):
+            continue
+        cohort["clv"][group].append((opening / closing - 1.0) * 100.0)
+        cohort["wins"][group] += 1 if str(result).upper() == "WIN" else 0
+    mean = lambda values: round(sum(values) / len(values), 2) if values else None  # noqa: E731
+    summary = {}
+    for model_version, cohort in cohorts.items():
+        closed = {group: len(values) for group, values in cohort["clv"].items()}
+        summary[model_version] = {
+            "recorded": cohort["recorded"], "passed": cohort["passed"], "failed": cohort["failed"],
+            "unknown": cohort["unknown"],
+            "closed_passed": closed["passed"], "closed_failed": closed["failed"],
+            "passed_avg_clv": mean(cohort["clv"]["passed"]), "failed_avg_clv": mean(cohort["clv"]["failed"]),
+            "passed_hit_rate": round(cohort["wins"]["passed"] / closed["passed"], 4) if closed["passed"] else None,
+            "failed_hit_rate": round(cohort["wins"]["failed"] / closed["failed"], 4) if closed["failed"] else None,
+        }
+    return {"cap_pp": SHADOW_EDGE_CAP_PP, "minimum_closed_per_group": SHADOW_REVIEW_MIN_CLV_BETS,
+            "applied": False, "cohorts": summary}
 
 
 def _model_first_observations(credible, odds_response, now: datetime):
@@ -1058,7 +1203,7 @@ def _evaluate_hybrid_cohort(tracker: CLVTracker, provider: ShadowProvider, detai
             return outcome
         pick, quote, quoted_at = observed[0]
         try:
-            tracker.record_prediction(
+            prediction_id = tracker.record_prediction(
                 fixture_id=fixture_id,
                 home_team=home_team,
                 away_team=away_team,
@@ -1077,6 +1222,7 @@ def _evaluate_hybrid_cohort(tracker: CLVTracker, provider: ShadowProvider, detai
             )
             result["hybrid_logged"] = result.get("hybrid_logged", 0) + 1
             outcome["logged"] = True
+            _log_edge_cap(prediction_id, SHADOW_HYBRID_MODEL_VERSION, pick, odds_response, now)
         except DuplicatePredictionError:
             pass
     except Exception as exc:  # The second cohort must never block the legacy ledger.
@@ -1156,7 +1302,7 @@ def step_evaluate(tracker: CLVTracker, provider: ShadowProvider, now: datetime,
             existing = _current_prediction_exists(fixture_id)
             if not existing:
                 try:
-                    tracker.record_prediction(
+                    prediction_id = tracker.record_prediction(
                         fixture_id=fixture_id,
                         home_team=home_team,
                         away_team=away_team,
@@ -1175,6 +1321,7 @@ def step_evaluate(tracker: CLVTracker, provider: ShadowProvider, now: datetime,
                     )
                     result["logged"] += 1
                     logged = True
+                    _log_edge_cap(prediction_id, SHADOW_MODEL_VERSION, pick, odds_response, now)
                 except DuplicatePredictionError:
                     existing = _current_prediction_exists(fixture_id)
                     if not existing:
@@ -1493,6 +1640,7 @@ def run(ctx):
                 days=36500, model_version=SHADOW_HYBRID_MODEL_VERSION, policy_version=SHADOW_POLICY_VERSION),
             "paired": _paired_cohort_statistics(),
         },
+        "edge_cap": _edge_cap_statistics(),
     }
     wrapper = {"artifact": artifact}
     output_file = os.environ.get("DAIMON_BLUEPRINT_AUTOMATION_OUTPUT_FILE")

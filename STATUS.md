@@ -9,7 +9,7 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 | Bereich | Status |
 |---|---|
 | Produktion (VPS) | unverändert auf dem Stand vom 17.10.2026; `main` ist noch nicht deployt (Env-Prüfung vorher, `deploy/README.md`) |
-| `origin/main` | Stand nach Merge von PR #5 (Hybrid-Aktivierung vorbereitet) am 22.10.2026; enthält PR #1 (`62e6e73`), PR #2 (`24837c3`), PR #3 (`08b7473`), PR #4 (`9b0382f`); Quick-CI grün |
+| `origin/main` | Stand nach Merge von PR #6 (Edge-Cap-Protokoll im Shadow) am 22.10.2026; enthält PR #5 (`be6258c`, Hybrid-Aktivierung vorbereitet), enthält PR #1 (`62e6e73`), PR #2 (`24837c3`), PR #3 (`08b7473`), PR #4 (`9b0382f`); Quick-CI grün |
 | Offene Claude-Branches | keine |
 | Codex-Worktree | `.worktrees/audit-repairs-20261013`, 7 unveröffentlichte Commits, 18 ungesicherte Änderungen; muss `main` einmergen (`docs/handoffs/2026-10-21-codex-auftrag.md`) |
 | Hauptcheckout `betboy-app` | veraltet, fremdes WIP; nicht benutzen |
@@ -21,6 +21,7 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 - Rechtsfooter mit 18+ und Spielsucht-Hilfe; Rechtslinks aus Env, sonst Platzhalter.
 - Kundenzugang fail-closed, sobald `BETBOY_PORTAL_INTERNAL_TOKEN` gesetzt ist.
 - Marktbenchmark, Mischungsgewicht, optionales Markt-Gate (aus), Dixon-Coles mit Varianten (Opt-in), FDR über Ligen (an), Tennis-Populationsfit (Option), CI, Lockfiles.
+- Shadow-Pfad: zweite Kohorte mit dem Hybrid (`BETBOY_SHADOW_HYBRID_BASIS`, an) und Edge-Cap-Protokoll je Tipp (`shadow_edge_cap`, 8 pp, nie angewendet).
 
 ## Kernbefunde
 
@@ -40,7 +41,7 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 | Codex | Branch integrieren, Konflikte lösen, Prüfbefehle, Release vorbereiten (`docs/handoffs/2026-10-21-codex-auftrag.md`) |
 | Codex | Linux-Vollnachweis über die VPS-QA-Launcher (Gruppen A/B); der 7-GB-GitHub-Runner trägt die Suite auch halbiert nicht (Exit 137), zusätzlich 21 runner-spezifische Fehlschläge in `test_native_context_*` |
 | Owner | Nach dem Deploy: Shadow-Artefakt `hybrid_cohort` beobachten; Aktivierung erst nach dem Prüfplan (300 Paare, positive untere CLV-Differenz) |
-| Codex/Claude | Edge-Cap prospektiv prüfen (`docs/superpowers/plans/2026-10-21-edge-cap.md`); Shadow-Pfad soll beide Kohorten protokollieren |
+| Owner | Edge-Cap: Shadow protokolliert seit 22.10. je Tipp bestanden/nicht bestanden (`edge_cap` im Run-Artefakt); Entscheidung nach 300 abgerechneten Tipps je Gruppe (`docs/superpowers/plans/2026-10-21-edge-cap.md`) |
 
 ## Wo nachlesen
 
