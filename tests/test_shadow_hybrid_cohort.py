@@ -16,6 +16,7 @@ import shadow_clv_automation as shadow
 from clv_tracker import CLVTracker
 
 HYBRID = engine.GOAL_MODEL_SHADOW_CANDIDATE
+_REAL_LOAD_HYBRID_ARTIFACTS = shadow._load_hybrid_artifacts
 
 
 def _candidate(market_key="RESULT_HOME", probability=0.62):
@@ -64,7 +65,7 @@ def ledger(tmp_path, monkeypatch):
     monkeypatch.setattr(shadow, "SHADOW_DB", db_path)
     monkeypatch.setattr(shadow, "CACHE_DIR", tmp_path / "cache")
     shadow.errors.clear()
-    calls = {"validation": [], "candidates": []}
+    calls = {"validation": [], "candidates": [], "hybrid_loads": 0}
     monkeypatch.setattr(shadow, "_cached_history", lambda *args, **kwargs: [{"fixture": {"id": 1}}])
 
     def cached_validation(league_id, season, history, day, goal_model=engine.GOAL_MODEL_LEGACY):
@@ -73,6 +74,12 @@ def ledger(tmp_path, monkeypatch):
 
     monkeypatch.setattr(shadow, "_cached_validation", cached_validation)
     monkeypatch.setattr(shadow, "_cached_calibration", lambda *args, **kwargs: {})
+
+    def load_hybrid(league_id, season, day):
+        calls["hybrid_loads"] += 1
+        return {}, {}
+
+    monkeypatch.setattr(shadow, "_load_hybrid_artifacts", load_hybrid)
 
     def build(detail, history, validation, calibration, **kwargs):
         calls["candidates"].append(kwargs.get("goal_model", engine.GOAL_MODEL_LEGACY))
@@ -112,7 +119,7 @@ def test_hybrid_cohort_logs_a_second_row_from_the_same_quote_response(ledger, mo
     assert provider.odds_calls == 1  # one quote response for both cohorts
     assert result["logged"] == 1 and result["hybrid_logged"] == 1 and result["evaluated"] == 1
     assert ledger.calls["candidates"] == [engine.GOAL_MODEL_LEGACY, HYBRID]
-    assert ledger.calls["validation"] == [engine.GOAL_MODEL_LEGACY, HYBRID]
+    assert ledger.calls["validation"] == [engine.GOAL_MODEL_LEGACY] and ledger.calls["hybrid_loads"] == 1
     assert shadow.errors == []
 
 
@@ -127,12 +134,10 @@ def test_flag_zero_switches_the_hybrid_cohort_off(ledger, monkeypatch):
 def test_hybrid_failure_never_blocks_the_legacy_ledger(ledger, monkeypatch):
     monkeypatch.delenv(shadow.SHADOW_HYBRID_FLAG, raising=False)
 
-    def failing_validation(league_id, season, history, day, goal_model=engine.GOAL_MODEL_LEGACY):
-        if goal_model != engine.GOAL_MODEL_LEGACY:
-            raise RuntimeError("Dixon-Coles walk-forward unavailable")
-        return {}
+    def failing_load(league_id, season, day):
+        raise RuntimeError("hybrid artifact unreadable")
 
-    monkeypatch.setattr(shadow, "_cached_validation", failing_validation)
+    monkeypatch.setattr(shadow, "_load_hybrid_artifacts", failing_load)
     result = shadow.step_evaluate(ledger.tracker, _Provider(), ledger.now, date.today(), 10)
     assert [row[1] for row in _rows(ledger.db_path)] == [shadow.SHADOW_MODEL_VERSION]
     assert result["logged"] == 1 and result["evaluated"] == 1
@@ -145,7 +150,16 @@ def test_senior_internationals_have_no_hybrid_cohort(ledger, monkeypatch):
         connection.execute("UPDATE shadow_fixtures SET league_id = 5")
     shadow.step_evaluate(ledger.tracker, _Provider(), ledger.now, date.today(), 10)
     assert [row[1] for row in _rows(ledger.db_path)] == [shadow.SHADOW_MODEL_VERSION]
-    assert ledger.calls["candidates"] == [engine.GOAL_MODEL_LEGACY]
+    assert ledger.calls["candidates"] == [engine.GOAL_MODEL_LEGACY] and ledger.calls["hybrid_loads"] == 0
+
+
+def test_hybrid_waits_for_warm_artifacts_and_never_reopens_a_legacy_terminal_fixture(ledger, monkeypatch):
+    monkeypatch.delenv(shadow.SHADOW_HYBRID_FLAG, raising=False)
+    monkeypatch.setattr(shadow, "_load_hybrid_artifacts", lambda league_id, season, day: None)
+    result = shadow.step_evaluate(ledger.tracker, _Provider(), ledger.now, date.today(), 10)
+    assert [row[1] for row in _rows(ledger.db_path)] == [shadow.SHADOW_MODEL_VERSION]
+    assert result["evaluated"] == 1 and result["hybrid_not_ready"] == 1 and "hybrid_logged" not in result
+    assert ledger.calls["candidates"] == [engine.GOAL_MODEL_LEGACY] and shadow.errors == []
 
 
 def test_hybrid_without_quote_keeps_the_fixture_open_until_the_final_retry(ledger, monkeypatch):
@@ -164,27 +178,22 @@ def test_hybrid_without_quote_keeps_the_fixture_open_until_the_final_retry(ledge
     assert result["hybrid_quote_missing"] == 1
 
 
-def test_warm_up_builds_hybrid_artifacts_once_per_league(ledger, monkeypatch):
+def test_warm_up_builds_both_hybrid_artifacts_in_one_pass_within_the_budget(ledger, monkeypatch):
     monkeypatch.delenv(shadow.SHADOW_HYBRID_FLAG, raising=False)
-    built = []
+    monkeypatch.setattr(shadow, "_load_hybrid_artifacts", _REAL_LOAD_HYBRID_ARTIFACTS)
+    passes = []
 
-    def cached_validation(league_id, season, history, day, goal_model=engine.GOAL_MODEL_LEGACY):
-        built.append(("validation", league_id, goal_model))
-        path = shadow._cache_path("validation", league_id, season, day, shadow._basis_cache_version(goal_model))
-        path.write_bytes(b"x")
-        return {}
+    def one_pass(history, goal_model=engine.GOAL_MODEL_LEGACY):
+        passes.append(goal_model)
+        return {"RESULT_HOME": "validation"}, {"RESULT_HOME": "calibration"}
 
-    def cached_calibration(league_id, season, history, day, goal_model=engine.GOAL_MODEL_LEGACY):
-        built.append(("calibration", league_id, goal_model))
-        path = shadow._cache_path("calibration", league_id, season, day, shadow._basis_cache_version(goal_model))
-        path.write_bytes(b"x")
-        return {}
-
-    monkeypatch.setattr(shadow, "_cached_validation", cached_validation)
-    monkeypatch.setattr(shadow, "_cached_calibration", cached_calibration)
+    monkeypatch.setattr(shadow, "build_market_model_artifact", one_pass)
+    assert shadow.step_warm_hybrid(_Provider(), date.today(), budget_seconds=0.0) == 0  # budget spent
     assert shadow.step_warm_hybrid(_Provider(), date.today()) == 1
-    assert built == [("validation", 39, HYBRID), ("calibration", 39, HYBRID)]
-    assert shadow.step_warm_hybrid(_Provider(), date.today()) == 0  # cache hit, nothing rebuilt
+    assert passes == [HYBRID]  # validation and calibration from one walk-forward
+    assert shadow._load_hybrid_artifacts(39, 2026, date.today().isoformat()) == (
+        {"RESULT_HOME": "validation"}, {"RESULT_HOME": "calibration"})
+    assert shadow.step_warm_hybrid(_Provider(), date.today()) == 0 and passes == [HYBRID]  # cache hit
     monkeypatch.setenv(shadow.SHADOW_HYBRID_FLAG, "0")
     assert shadow.step_warm_hybrid(_Provider(), date.today()) == 0
 

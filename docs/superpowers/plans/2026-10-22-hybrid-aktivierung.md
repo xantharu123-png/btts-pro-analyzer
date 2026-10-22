@@ -59,7 +59,9 @@ protokolliert den Modell-zuerst-Tipp mit **derselben Quotenantwort** unter der
 Hybrid-Modellversion. Die Legacy-Kohorte wird zuerst geschrieben und von Fehlern der
 Hybrid-Kohorte nie berührt. Schalter `BETBOY_SHADOW_HYBRID_BASIS` (Default an, `0`
 schaltet ab). Nationalteam-Spiele (Liga 5) haben keine Hybrid-Kohorte (fail-closed).
-Das Run-Artefakt enthält beide Kohorten und die paarweise Auswertung.
+Die Hybrid-Artefakte entstehen nach der Bewertung in einer Walk-forward-Passage je Liga
+mit Zeitbudget; die Bewertung nutzt nur fertige Artefakte. Das Run-Artefakt enthält beide
+Kohorten und die paarweise Auswertung.
 
 ## Prüfplan
 

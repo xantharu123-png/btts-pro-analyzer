@@ -9,7 +9,7 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 | Bereich | Status |
 |---|---|
 | Produktion (VPS) | unverändert auf dem Stand vom 17.10.2026; `main` ist noch nicht deployt (Env-Prüfung vorher, `deploy/README.md`) |
-| `origin/main` | Stand nach Merge von PR #6 (Edge-Cap-Protokoll im Shadow) am 22.10.2026; enthält PR #5 (`be6258c`, Hybrid-Aktivierung vorbereitet), enthält PR #1 (`62e6e73`), PR #2 (`24837c3`), PR #3 (`08b7473`), PR #4 (`9b0382f`); Quick-CI grün |
+| `origin/main` | Stand nach Merge von PR #7 (Hybrid-Vorbereitung mit Zeitbudget) am 22.10.2026; enthält PR #6 (`a6661a6`, Edge-Cap-Protokoll), enthält PR #5 (`be6258c`, Hybrid-Aktivierung vorbereitet), enthält PR #1 (`62e6e73`), PR #2 (`24837c3`), PR #3 (`08b7473`), PR #4 (`9b0382f`); Quick-CI grün |
 | Offene Claude-Branches | keine |
 | Codex-Worktree | `.worktrees/audit-repairs-20261013`, 7 unveröffentlichte Commits, 18 ungesicherte Änderungen; muss `main` einmergen (`docs/handoffs/2026-10-21-codex-auftrag.md`) |
 | Hauptcheckout `betboy-app` | veraltet, fremdes WIP; nicht benutzen |

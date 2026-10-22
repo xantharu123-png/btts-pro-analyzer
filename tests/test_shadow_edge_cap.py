@@ -85,6 +85,7 @@ def ledger(tmp_path, monkeypatch):
     monkeypatch.setattr(shadow, "_cached_history", lambda *args, **kwargs: [{"fixture": {"id": 1}}])
     monkeypatch.setattr(shadow, "_cached_validation", lambda *args, **kwargs: {})
     monkeypatch.setattr(shadow, "_cached_calibration", lambda *args, **kwargs: {})
+    monkeypatch.setattr(shadow, "_load_hybrid_artifacts", lambda league_id, season, day: ({}, {}))
     monkeypatch.setattr(shadow, "apply_candidate_context", lambda candidate, **kwargs: None)
     monkeypatch.setattr(shadow, "candidate_is_forecast_credible", lambda candidate: True)
     monkeypatch.setattr(shadow, "candidate_selection_rank", lambda candidate: 0.0)
