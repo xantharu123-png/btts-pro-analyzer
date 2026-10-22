@@ -83,6 +83,10 @@ VPS-Launcher laufen lassen. Ein Windows-Lauf ersetzt den Linux-Nachweis nicht.
 
 ## 5. Release-Vorbedingungen
 
+> **Stand 22.10.2026:** `main` @ `fd45176` ist seit 20:02 CEST auf dem VPS live (No-Backup-
+> Fast-forward, Beleg `output/hybrid-shadow-20261022/`). Für diese PRs ist kein weiterer
+> Release nötig; die Punkte unten gelten für künftige Releases.
+
 1. **Env auf dem VPS prüfen, bevor die neue App startet.** Steht
    `BETBOY_PORTAL_INTERNAL_TOKEN` in `/etc/betboy/betboy.env`, ohne dass das Portal
    live ist, sperrt die App fail-closed. Dann `BETBOY_CUSTOMER_ACCESS_REQUIRED=0` setzen
