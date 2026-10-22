@@ -122,8 +122,11 @@ def test_engine_default_path_is_unchanged_and_the_opt_in_path_is_fail_closed():
     assert math.isclose(home + draw + away, 1.0, abs_tol=1e-9)
     over, under = (dixon["probabilities"][k][0] for k in ("TOTAL_OVER_2_5", "TOTAL_UNDER_2_5"))
     assert math.isclose(over + under, 1.0, abs_tol=1e-9)
-    with pytest.raises(ValueError):
-        engine.fixture_market_probabilities(target, history, None, goal_model="dixon_coles", original_capture=lambda _: None)
+    # Since 22.10.2026 an ORIGINAL may capture a non-legacy basis; it names that basis.
+    captured = []
+    assert engine.fixture_market_probabilities(target, history, None, goal_model="dixon_coles",
+                                              original_capture=captured.append) is not None
+    assert captured[0].to_dict()["goal_model"]["goal_model"] == "dixon_coles"
     with pytest.raises(ValueError):
         engine.fixture_market_probabilities(target, history, None, goal_model="something_else")
     assert engine.fixture_market_probabilities(target, history[:10], None, _validation_only=True, goal_model="dixon_coles") is None

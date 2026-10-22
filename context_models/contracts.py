@@ -569,7 +569,7 @@ def validate_reference_weights(value: dict, history_refs: list[dict], *, family:
         require_text(value["reason"], "reference unavailability reason", code=True)
         return dict(value)
     hybrid = value["kind"] == "football-goals-hybrid-dc-v1"
-    if value["kind"] not in {"football-goals-v1", "football-goals-hybrid-dc-v1"} or family != "football:goals:90min":
+    if value["kind"] not in ("football-goals-v1", "football-goals-hybrid-dc-v1") or family != "football:goals:90min":
         raise ContextContractError("unsupported reference weights variant")
     require_object(value, {"schema", "kind", "heads"} | ({"dixon_coles"} if hybrid else set()),
                    label="football reference weights")
