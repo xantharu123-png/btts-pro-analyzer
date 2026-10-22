@@ -117,6 +117,11 @@ VPS-Launcher laufen lassen. Ein Windows-Lauf ersetzt den Linux-Nachweis nicht.
 
 ## 7. Offene fachliche Arbeiten, in Reihenfolge
 
+> **Befund 22.10.2026** (`docs/audits/2026-10-22-shadow-befund.md`): Der Shadow sammelt seit
+> Anfang Oktober keine Evidenz (API-Football-Limit 100 je Tag seit 19.10., Zehn-Minuten-
+> Frischeregel der Öffnungsquote). Beides sind Owner-Entscheidungen; nichts davon eigenmächtig
+> lockern.
+
 1. **Linux-Vollnachweis** (Abschnitt 4).
 2. **H4 Dixon-Coles:** erledigt am 21.10. (widerlegt, `docs/audits/2026-10-21-dixon-coles-venue.md`).
 3. **Kohärenter Hybrid:** erledigt (21./22.10.): Hybrid als beste Basis, Release-Gate-

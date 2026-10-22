@@ -30,11 +30,14 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 - Kohärenter Hybrid `dixon_coles_hl365_hybrid` (eine Matrix: DC-Struktur, Legacy-Torsumme) ist das beste Modell: 148 Zellen signifikant besser als Legacy, 111 schlechter; im Release-Gate 262 statt 224 glaubwürdige Zellen, kein Markt verliert. Venue-spezifisches DC (H4) widerlegt; kein Modell schlägt den Markt.
 - Marktwahrscheinlichkeit (No-Vig, Shin/Power) liegt jetzt aus den gespeicherten Buchmacher-Partitionen vor; die Edge-Kappung (Default aus) nutzt sie.
 - Hybrid-Aktivierung vorbereitet: eigene Prediction-Version und Vertragssignatur, ORIGINAL-Erfassung und Replay für die Hybrid-Basis, Shadow-Kohorte neben Legacy (`docs/superpowers/plans/2026-10-22-hybrid-aktivierung.md`). Produktionsbasis bleibt Legacy.
+- **Shadow sammelt keine Evidenz** (`docs/audits/2026-10-22-shadow-befund.md`): API-Football-Limit seit 19.10. bei 100 Aufrufen je Tag (vorher 7 500), dadurch keine Spielpläne ab 21.10.; zusätzlich blockiert die Zehn-Minuten-Frischeregel der Öffnungsquote seit Anfang Oktober jede Protokollierung (2 Tipps seit 1.9.). Beide Kohorten und das Edge-Cap-Protokoll bleiben leer, bis der Owner entscheidet.
 
 ## Offen
 
 | Wer | Was |
 |---|---|
+| Owner | **API-Football-Abonnement prüfen** (seit 19.10. Limit 100 je Tag; Shadow, Historien und Spielpläne scheitern) |
+| Owner | **Frischeregel der Öffnungsquote entscheiden** (zehn Minuten vs. Provider-Aktualisierungstakt; Vertrag in `clv_tracker`) |
 | Owner | Impressum/Datenschutz/AGB ausfüllen, prüfen lassen, URLs setzen |
 | Codex | Branch integrieren, Konflikte lösen, Prüfbefehle, Release vorbereiten (`docs/handoffs/2026-10-21-codex-auftrag.md`) |
 | Codex | Linux-Vollnachweis über die VPS-QA-Launcher (Gruppen A/B); der 7-GB-GitHub-Runner trägt die Suite auch halbiert nicht (Exit 137), zusätzlich 21 runner-spezifische Fehlschläge in `test_native_context_*` |
