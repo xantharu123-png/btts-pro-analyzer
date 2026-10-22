@@ -42,6 +42,7 @@ from challenge_engine import (  # noqa: E402
     MODEL_SCOPE_SENIOR_NATIONAL,
     apply_candidate_context,
     build_fixture_candidates,
+    build_market_model_artifact,
     candidate_is_forecast_credible,
     candidate_selection_rank,
     fit_market_calibration,
@@ -99,7 +100,7 @@ SHADOW_POLICY_VERSION = "shadow-model-first-v5"
 SHADOW_HYBRID_GOAL_MODEL = GOAL_MODEL_SHADOW_CANDIDATE
 SHADOW_HYBRID_MODEL_VERSION = prediction_version_for_goal_model(SHADOW_HYBRID_GOAL_MODEL).replace(":", "-")
 SHADOW_HYBRID_FLAG = "BETBOY_SHADOW_HYBRID_BASIS"
-SHADOW_HYBRID_WARMUP_LEAGUES_PER_RUN = 3
+SHADOW_HYBRID_WARMUP_BUDGET_SECONDS = 240.0
 # Pre-registered edge cap (docs/superpowers/plans/2026-10-21-edge-cap.md): the
 # shadow records per tip whether the model/market distance would have passed
 # the cap, from the same Bet365 partition the tip was quoted from. It is a
@@ -1120,18 +1121,48 @@ def _current_prediction_exists(fixture_id: int, model_version=None) -> bool:
     return row is not None
 
 
-def step_warm_hybrid(provider: ShadowProvider, zurich_today: date,
-                     max_leagues: int = SHADOW_HYBRID_WARMUP_LEAGUES_PER_RUN) -> int:
-    """Build the hybrid walk-forward artifacts for today's leagues outside the window.
+def _hybrid_artifact_paths(league_id, season, day):
+    version = _basis_cache_version(SHADOW_HYBRID_GOAL_MODEL)
+    return tuple(_cache_path(kind, league_id, season, day, version) for kind in ("validation", "calibration"))
 
-    The Dixon-Coles walk-forward costs minutes per league; building it here
-    keeps the evaluation window (75-20 minutes before kickoff) for the ledger.
-    Bounded per run; the file cache makes every later call free.
+
+def _load_hybrid_artifacts(league_id, season, day):
+    """Both hybrid artifacts from the file cache, or ``None`` until the warm-up built them."""
+    paths = _hybrid_artifact_paths(league_id, season, day)
+    if not all(path.exists() for path in paths):
+        return None
+    loaded = []
+    for path in paths:
+        try:
+            with open_trusted_pickle(path) as handle:
+                loaded.append(pickle.load(handle))
+        except (pickle.PickleError, EOFError, OSError, AttributeError, ImportError):
+            for stale in paths:
+                stale.unlink(missing_ok=True)
+            return None
+    return tuple(loaded)
+
+
+def _build_hybrid_artifacts(league_id, season, history, day):
+    """One walk-forward pass for validation and calibration of the hybrid basis."""
+    validation, calibration = build_market_model_artifact(history, goal_model=SHADOW_HYBRID_GOAL_MODEL)
+    for path, payload in zip(_hybrid_artifact_paths(league_id, season, day), (validation, calibration)):
+        atomic_write_bytes(path, pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL))
+    return validation, calibration
+
+
+def step_warm_hybrid(provider: ShadowProvider, zurich_today: date,
+                     budget_seconds: float = SHADOW_HYBRID_WARMUP_BUDGET_SECONDS) -> int:
+    """Build today's hybrid artifacts after the ledger work, within a time budget.
+
+    The Dixon-Coles walk-forward costs seconds to minutes per league; it runs
+    once per league and day, after ``step_evaluate`` and only while the budget
+    lasts, so a due evaluation and the 15-minute unit limit are never at risk.
+    Leagues left over are built by the next due run.
     """
     if not hybrid_cohort_enabled():
         return 0
     day = zurich_today.isoformat()
-    version = _basis_cache_version(SHADOW_HYBRID_GOAL_MODEL)
     with _connect() as connection:
         rows = connection.execute(
             """SELECT league_id, season, MIN(fixture_id) FROM shadow_fixtures
@@ -1139,12 +1170,12 @@ def step_warm_hybrid(provider: ShadowProvider, zurich_today: date,
                GROUP BY league_id, season ORDER BY league_id""",
             (day,),
         ).fetchall()
+    deadline = time.monotonic() + budget_seconds
     warmed = 0
     for league_id, season, fixture_id in rows:
-        if all(_cache_path(kind, league_id, season, day, version).exists()
-               for kind in ("validation", "calibration")):
+        if all(path.exists() for path in _hybrid_artifact_paths(league_id, season, day)):
             continue
-        if warmed >= max_leagues:
+        if time.monotonic() >= deadline:
             break
         try:
             detail = provider.fixture_details(fixture_id)
@@ -1152,8 +1183,7 @@ def step_warm_hybrid(provider: ShadowProvider, zurich_today: date,
                 errors.append(f"Hybrid-Vorbereitung Liga {league_id}: Fixture-Details fehlen")
                 continue
             history = _cached_history(provider, league_id, season, detail, day)
-            _cached_validation(league_id, season, history, day, goal_model=SHADOW_HYBRID_GOAL_MODEL)
-            _cached_calibration(league_id, season, history, day, goal_model=SHADOW_HYBRID_GOAL_MODEL)
+            _build_hybrid_artifacts(league_id, season, history, day)
             warmed += 1
         except Exception as exc:  # The warm-up is optional; the ledger run must continue.
             errors.append(f"Hybrid-Vorbereitung Liga {league_id}: {exc}")
@@ -1175,8 +1205,12 @@ def _evaluate_hybrid_cohort(tracker: CLVTracker, provider: ShadowProvider, detai
         return outcome  # Fail closed: no club-league fit for senior internationals.
     try:
         day = zurich_today.isoformat()
-        validation = _cached_validation(league_id, season, history, day, goal_model=SHADOW_HYBRID_GOAL_MODEL)
-        calibration = _cached_calibration(league_id, season, history, day, goal_model=SHADOW_HYBRID_GOAL_MODEL)
+        artifacts = _load_hybrid_artifacts(league_id, season, day)
+        if artifacts is None:
+            # Built by step_warm_hybrid after the ledger work, never inside the window.
+            result["hybrid_not_ready"] = result.get("hybrid_not_ready", 0) + 1
+            return outcome
+        validation, calibration = artifacts
         candidates = build_fixture_candidates(detail, history, validation, calibration,
                                               goal_model=SHADOW_HYBRID_GOAL_MODEL)
         base_candidates = [
@@ -1585,8 +1619,9 @@ def run(ctx):
         step_schedule(provider, league_ids, day, force_schedule)
         for day in (zurich_today, zurich_today + timedelta(days=1))
     ) if _zurich_time(now).hour >= 9 or force_schedule else 0
-    warmed = step_warm_hybrid(provider, zurich_today)
     evaluation = step_evaluate(tracker, provider, now, zurich_today, max_fixtures)
+    # After the ledger work: the hybrid walk-forward never delays a due evaluation.
+    warmed = step_warm_hybrid(provider, zurich_today)
 
     stats_30 = tracker.get_clv_statistics(
         days=30,
@@ -1631,6 +1666,7 @@ def run(ctx):
             "model_version": SHADOW_HYBRID_MODEL_VERSION,
             "policy_version": SHADOW_POLICY_VERSION,
             "artifacts_warmed": warmed,
+            "fixtures_without_artifacts": evaluation.get("hybrid_not_ready", 0),
             "credible_model_candidates": evaluation.get("hybrid_credible_candidates", 0),
             "fixtures_without_fresh_quote": evaluation.get("hybrid_quote_missing", 0),
             "predictions_logged": evaluation.get("hybrid_logged", 0),

@@ -102,9 +102,11 @@ additionally needs `BETBOY_LEGAL_READY=1` (see `check_customer_launch`).
 The football shadow runner (`shadow_clv_automation`) evaluates every fixture a
 second time with the coherent Dixon-Coles hybrid and logs that cohort under its
 own model version next to the legacy cohort; `BETBOY_SHADOW_HYBRID_BASIS=0`
-switches the second cohort off. It changes no production decision, but the
-hybrid walk-forward costs minutes of CPU per league and day (built at most for
-three leagues per run, cached under `.shadow_cache`).
+switches the second cohort off. It changes no production decision. The hybrid
+walk-forward (one pass per league and day, about 16 s locally for two seasons)
+runs after the ledger work within a 240-second budget per run and is cached
+under `.shadow_cache`; fixtures whose league is not built yet get no hybrid
+row, so the 15-minute unit limit and the legacy cohort are never affected.
 
 ## Initial installation
 
