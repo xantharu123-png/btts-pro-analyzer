@@ -13,7 +13,7 @@ import hashlib
 import math
 import sqlite3
 
-from football_original import FootballOriginal
+from football_original import LEGACY_GOAL_BASIS, FootballOriginal, original_goal_basis
 import model_artifacts as a1
 from context_models.contracts import canonical_timestamp
 from context_models.dataset import _reader
@@ -33,7 +33,11 @@ _COMPONENTS = ("venue_attack", "venue_defense", "form_attack", "form_defense")
 _PRIOR_PATHS = tuple(("goal_provenance", "reference_weights", "heads", side,
     "components", component, metric, "prior_refs") for side in ("home", "away")
     for component in _COMPONENTS for metric in ("goals", "xg"))
-_ALL_PATHS = (("league_history",), ("team_history",), ("goal_provenance", "history_refs"), *_PRIOR_PATHS)
+_DIXON_COLES_FIELDS = frozenset({"version", "half_life_days", "cutoff", "max_history_days", "options", "window",
+    "fitted_rho", "effective_rho", "home_effect_known", "rates", "legacy_lambdas"})
+_DIXON_COLES_WINDOW_PATH = ("goal_provenance", "reference_weights", "dixon_coles", "window")
+_ALL_PATHS = (("league_history",), ("team_history",), ("goal_provenance", "history_refs"), *_PRIOR_PATHS,
+              _DIXON_COLES_WINDOW_PATH)
 
 
 class StorageBudgetExceeded(ValueError):
@@ -110,10 +114,14 @@ def _paths(packet):
         if type(weights["reason"]) is not str or not weights["reason"] or provenance["history_refs"] != []:
             raise a1.ArtifactIntegrityError("invalid unavailable provenance")
         return paths
-    _object(weights, {"schema", "kind", "heads"}, "reference weights")
-    if weights["kind"] != "football-goals-v1":
+    hybrid = weights.get("kind") == "football-goals-hybrid-dc-v1"
+    _object(weights, {"schema", "kind", "heads"} | ({"dixon_coles"} if hybrid else set()), "reference weights")
+    if weights["kind"] not in ("football-goals-v1", "football-goals-hybrid-dc-v1"):
         raise a1.ArtifactIntegrityError("unsupported reference weights")
     paths.append(("goal_provenance", "history_refs"))
+    if hybrid:
+        _object(weights["dixon_coles"], _DIXON_COLES_FIELDS, "Dixon-Coles reference")
+        paths.append(_DIXON_COLES_WINDOW_PATH)
     heads = _object(weights["heads"], {"home", "away"}, "reference heads")
     for side in ("home", "away"):
         head = _object(heads[side], {"outer_weights", "pair_weights", "components"}, "head")
@@ -164,6 +172,20 @@ def _packet(packet):
             prediction_version = prediction_version_for_law(law_version)
         except ValueError as exc:
             raise a1.ArtifactIntegrityError("unsupported joint distribution law/recipe") from exc
+        try:
+            basis = original_goal_basis(packet)
+        except ValueError as exc:
+            raise a1.ArtifactIntegrityError("invalid captured goal basis") from exc
+        if basis != LEGACY_GOAL_BASIS:
+            # A non-legacy rate basis carries its own pins under the active law.
+            import challenge_engine as engine
+            from football_joint_calibration import ACTIVE_LAW_VERSION
+            try:
+                prediction_version = engine.prediction_version_for_goal_model(basis)
+            except ValueError as exc:
+                raise a1.ArtifactIntegrityError("unsupported captured goal basis") from exc
+            if law_version != ACTIVE_LAW_VERSION:
+                raise a1.ArtifactIntegrityError("captured goal basis is bound to the active joint law")
         if (packet["prediction_version"] != prediction_version
                 or a1.canonical_bytes(distribution["recipe"]) != a1.canonical_bytes(recipe)):
             raise a1.ArtifactIntegrityError("unsupported joint distribution law/recipe")

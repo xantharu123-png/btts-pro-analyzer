@@ -134,6 +134,49 @@ GOAL_MODEL_OPTIONS = {
                                  "hybrid_totals": True},
 }
 GOAL_MODELS = (GOAL_MODEL_LEGACY,) + tuple(GOAL_MODEL_OPTIONS)
+# Shadow candidate basis (plan docs/superpowers/plans/2026-10-22-hybrid-aktivierung.md):
+# the coherent hybrid carries its own prediction/contract pins, so caches,
+# candidates and ORIGINALs of the two bases never satisfy each other's contract.
+# Production keeps the legacy basis; every release check compares against
+# CHALLENGE_PREDICTION_VERSION, so a candidate of another basis is never released.
+GOAL_MODEL_SHADOW_CANDIDATE = "dixon_coles_hl365_hybrid"
+assert GOAL_MODEL_SHADOW_CANDIDATE in GOAL_MODEL_OPTIONS
+GOAL_MODEL_PREDICTION_VERSIONS = {
+    GOAL_MODEL_LEGACY: CHALLENGE_PREDICTION_VERSION,
+    GOAL_MODEL_SHADOW_CANDIDATE: "challenge-engine:dc-hl365-hybrid-joint-calibration-v1",
+}
+GOAL_MODEL_CONTRACT_SIGNATURES = {
+    GOAL_MODEL_LEGACY: CHALLENGE_MODEL_CONTRACT_SIGNATURE,
+    GOAL_MODEL_SHADOW_CANDIDATE: CHALLENGE_MODEL_CONTRACT_SIGNATURE + "+dc-hl365-hybrid-v1",
+}
+
+
+def prediction_version_for_goal_model(goal_model: str) -> str:
+    """Prediction/cache provenance token of one rate basis.
+
+    Registered bases have fixed pins; analysis-only variants derive a token that
+    is never equal to a registered one, so their artifacts cannot be released.
+    """
+    if goal_model not in GOAL_MODELS:
+        raise ValueError("goal_model is invalid")
+    return GOAL_MODEL_PREDICTION_VERSIONS.get(
+        goal_model, f"{CHALLENGE_PREDICTION_VERSION}+analysis:{goal_model}")
+
+
+def model_contract_signature_for_goal_model(goal_model: str) -> str:
+    """Model contract token of one rate basis (see ``prediction_version_for_goal_model``)."""
+    if goal_model not in GOAL_MODELS:
+        raise ValueError("goal_model is invalid")
+    return GOAL_MODEL_CONTRACT_SIGNATURES.get(
+        goal_model, f"{CHALLENGE_MODEL_CONTRACT_SIGNATURE}+analysis:{goal_model}")
+
+
+def goal_model_for_prediction_version(prediction_version: Any) -> Optional[str]:
+    """Registered basis of a prediction version; analysis tokens are not registered."""
+    for goal_model, version in GOAL_MODEL_PREDICTION_VERSIONS.items():
+        if version == prediction_version:
+            return goal_model
+    return None
 
 
 @dataclass(frozen=True)
@@ -1277,6 +1320,8 @@ def _fixture_model(
         fixture.get("league", {}).get("id") == 5
         or fixture.get("challenge_senior_national_team") is True
     ):
+        if goal_model != GOAL_MODEL_LEGACY:
+            return None  # Fail closed: the club-league fit has no senior-international basis.
         return _senior_national_fixture_model(
             fixture, history, observations, include_provenance=include_provenance,
         )
@@ -1353,15 +1398,17 @@ def _fixture_model(
         cov_hs, cov_hc, cov_as, cov_ac, cov_fha, cov_fad, cov_faa, cov_fhd
     )
     goal_model_info = None
+    dixon_coles_fit = None
     if goal_model != GOAL_MODEL_LEGACY:
-        if include_provenance:
-            raise ValueError("ORIGINAL provenance is bound to the legacy goal model")
         from football_dixon_coles import DixonColesUnavailable, clamp_rho, fit_for_fixture, reweight_totals
         options = GOAL_MODEL_OPTIONS[goal_model]
         try:
+            # An ORIGINAL must be replayable byte for byte: capture fits cold,
+            # never from the process's warm-start history.
             fit = fit_for_fixture(fixture, history, half_life_days=options["half_life_days"],
                                   level_prior=options["level_prior"],
-                                  venue_specific=options.get("venue_specific", False))
+                                  venue_specific=options.get("venue_specific", False),
+                                  cold_start=include_provenance)
             dc_home, dc_away = fit.rates(
                 home_id, away_id, home_effect_known=not _venue_home_edge_unknown(fixture),
             )
@@ -1377,7 +1424,9 @@ def _fixture_model(
         goal_model_info = {
             "goal_model": goal_model, "rho": effective_rho,
             "fitted_rho": fit.rho, "dixon_coles": fit.summary(),
+            "legacy_lambdas": legacy_active,
         }
+        dixon_coles_fit = fit
         if options.get("hybrid_totals"):
             # Coherent hybrid: Dixon-Coles split within each total, legacy total law.
             goal_model_info["goal_matrix_override"] = reweight_totals(
@@ -1412,7 +1461,65 @@ def _fixture_model(
             model.update(history_refs=[], reference_weights={
                 "schema": 1, "kind": "unavailable", "reason": "football-source-provenance-invalid",
             })
+        if dixon_coles_fit is not None and model["reference_weights"].get("kind") != "unavailable":
+            model["reference_weights"] = _dixon_coles_reference_weights(
+                model["reference_weights"], model["history_refs"], history, dixon_coles_fit,
+                options=options, effective_rho=effective_rho, legacy_lambdas=legacy_active,
+                rates=(active_home, active_away),
+                home_effect_known=not _venue_home_edge_unknown(fixture),
+            )
     return model
+
+
+def _dixon_coles_reference_weights(legacy_weights, history_refs, history, fit, *, options,
+                                   effective_rho, legacy_lambdas, rates, home_effect_known):
+    """Attach the fitted Dixon-Coles window to the exact legacy reference heads.
+
+    The hybrid keeps the legacy total-goal law (its heads stay the actual
+    inputs) and takes the result split from one league fit; the fit window and
+    its decay weights are listed so the ORIGINAL names every consumed row.
+    """
+    from context_models.contracts import (
+        ContextIntegrityError, canonical_timestamp, digest, validate_reference_weights,
+    )
+    from football_dixon_coles import MAX_HISTORY_DAYS, decay_weights, matches_from_fixtures
+    cutoff = fit.cutoff
+    horizon = cutoff - timedelta(days=MAX_HISTORY_DAYS)
+    fitted = {row.fixture_id: row for row in matches_from_fixtures(history)
+              if horizon <= row.played_at < cutoff}
+    if len(fitted) != fit.matches:
+        raise ContextIntegrityError("Dixon-Coles provenance differs from the fitted window")
+    declared = {row["ref"] for row in history_refs}
+    window: dict[str, float] = {}
+    for row in history:
+        data = row.get("fixture") if isinstance(row, dict) else None
+        fixture_id = data.get("id") if isinstance(data, dict) else None
+        match = fitted.get(fixture_id) if type(fixture_id) is int else None
+        if match is None:
+            continue
+        ref = digest(football_base_history_record(row))
+        if ref not in declared:
+            raise ContextIntegrityError("Dixon-Coles window row is outside the declared history")
+        days = max(0.0, (cutoff - match.played_at).total_seconds() / 86400.0)
+        window[ref] = float(decay_weights(days, fit.half_life_days))
+    if len(window) != fit.matches:
+        raise ContextIntegrityError("Dixon-Coles window rows are not uniquely referenced")
+    weights = {
+        "schema": 1, "kind": "football-goals-hybrid-dc-v1", "heads": legacy_weights["heads"],
+        "dixon_coles": {
+            "version": fit.version, "half_life_days": float(fit.half_life_days),
+            "cutoff": canonical_timestamp(cutoff), "max_history_days": MAX_HISTORY_DAYS,
+            "options": {"level_prior": bool(options.get("level_prior", False)),
+                        "venue_specific": bool(options.get("venue_specific", False)),
+                        "hybrid_totals": bool(options.get("hybrid_totals", False))},
+            "window": [{"ref": ref, "weight": weight} for ref, weight in sorted(window.items())],
+            "fitted_rho": float(fit.rho), "effective_rho": float(effective_rho),
+            "home_effect_known": bool(home_effect_known),
+            "rates": [float(rates[0]), float(rates[1])],
+            "legacy_lambdas": [float(legacy_lambdas[0]), float(legacy_lambdas[1])],
+        },
+    }
+    return validate_reference_weights(weights, history_refs, family="football:goals:90min")
 
 
 def football_base_history_record(fixture: dict[str, Any]) -> dict[str, Any]:
@@ -1956,8 +2063,6 @@ def fixture_market_probabilities(
         raise ValueError("original_capture must be callable or None")
     if goal_model not in GOAL_MODELS:
         raise ValueError("goal_model is invalid")
-    if goal_model != GOAL_MODEL_LEGACY and original_capture is not None:
-        raise ValueError("ORIGINAL capture is bound to the legacy goal model")
     history = list(league_history)
     observations = list(team_history) if team_history is not None else None
     if original_capture is not None:
@@ -1968,7 +2073,8 @@ def fixture_market_probabilities(
         raise ValueError("direct native provenance and resolver are mutually exclusive")
     model = (_fixture_model(fixture, history, observations, goal_model=goal_model) if original_capture is None
              else _fixture_model(fixture, history, observations, include_provenance=True,
-                 native_provenance=native_provenance, native_resolver=native_resolver))
+                 native_provenance=native_provenance, native_resolver=native_resolver,
+                 goal_model=goal_model))
     if model is None:
         return None
     if original_capture is not None:
@@ -2059,6 +2165,12 @@ def fixture_market_probabilities(
         # Existing immutable ORIGINAL/context contracts retain their exact
         # 90-market catalog. Runtime-only extra marginals do not manufacture
         # owning context evidence or retroactively expand old snapshots.
+        if goal_model == GOAL_MODEL_LEGACY:
+            capture_version = prediction_version_for_law(law_version)
+        elif law_version != ACTIVE_LAW_VERSION:
+            raise ValueError("a non-legacy goal basis is bound to the active joint law")
+        else:
+            capture_version = prediction_version_for_goal_model(goal_model)
         legacy_keys = {spec.key for spec in LEGACY_MARKET_SPECS}
         original_model = {**model, "probabilities": {
             key: value for key, value in model["probabilities"].items() if key in legacy_keys}}
@@ -2067,8 +2179,8 @@ def fixture_market_probabilities(
             raw_probabilities={key: value for key, value in original_raw_probabilities.items() if key in legacy_keys},
             calibration_recipes={key: value for key, value in original_calibration_recipes.items() if key in legacy_keys},
             provenance=original_provenance, market_specs=LEGACY_MARKET_SPECS,
-            prediction_version=prediction_version_for_law(law_version),
-            model_contract_signature=CHALLENGE_MODEL_CONTRACT_SIGNATURE,
+            prediction_version=capture_version,
+            model_contract_signature=model_contract_signature_for_goal_model(goal_model),
         ))
     return model
 
@@ -2475,6 +2587,8 @@ def _walk_forward_market_records(
 
 def _validation_metrics_from_records(
     records: dict[str, dict[str, list[Any]]],
+    *,
+    prediction_version: str = CHALLENGE_PREDICTION_VERSION,
 ) -> dict[str, ValidationMetrics]:
     prepared: dict[str, dict[str, Any]] = {}
     p_values = {spec.key: 1.0 for spec in MARKET_SPECS}
@@ -2545,7 +2659,7 @@ def _validation_metrics_from_records(
                 None,
                 False,
                 tested_hypotheses=hypothesis_count,
-                prediction_version=CHALLENGE_PREDICTION_VERSION,
+                prediction_version=prediction_version,
             )
             continue
         improvement = values["improvement"]
@@ -2571,7 +2685,7 @@ def _validation_metrics_from_records(
             and values["max_calibration_error"] <= values["bin_threshold"]
         )
         metrics[spec.key] = ValidationMetrics(
-            prediction_version=CHALLENGE_PREDICTION_VERSION,
+            prediction_version=prediction_version,
             observations=observations,
             brier_score=round(values["brier"], 6),
             baseline_brier_score=round(values["baseline_brier"], 6),
@@ -2633,7 +2747,10 @@ def validate_league_markets(
     goal_model: str = GOAL_MODEL_LEGACY,
 ) -> dict[str, ValidationMetrics]:
     """Run an expanding-window, leakage-free market validation."""
-    return _validation_metrics_from_records(_walk_forward_market_records(fixtures, goal_model=goal_model))
+    return _validation_metrics_from_records(
+        _walk_forward_market_records(fixtures, goal_model=goal_model),
+        prediction_version=prediction_version_for_goal_model(goal_model),
+    )
 
 
 def fit_market_calibration(
@@ -2657,7 +2774,8 @@ def build_market_model_artifact(
     """
     records = _walk_forward_market_records(fixtures, goal_model=goal_model)
     return (
-        _validation_metrics_from_records(records),
+        _validation_metrics_from_records(
+            records, prediction_version=prediction_version_for_goal_model(goal_model)),
         _calibration_maps_from_records(records),
     )
 
@@ -2703,10 +2821,19 @@ def build_fixture_candidates(
     original_capture=None,
     native_provenance=None,
     native_resolver=None,
+    goal_model: str = GOAL_MODEL_LEGACY,
 ) -> list[ChallengeCandidate]:
-    """Build price-independent candidates for one fixture."""
+    """Build price-independent candidates for one fixture.
+
+    ``goal_model`` selects the rate basis; candidates of a non-legacy basis
+    carry that basis's prediction version and are therefore never release
+    eligible (shadow cohorts only).
+    """
     if not isinstance(allow_above_challenge_probability, bool):
         raise ValueError("allow_above_challenge_probability must be boolean")
+    if goal_model not in GOAL_MODELS:
+        raise ValueError("goal_model is invalid")
+    basis_version = prediction_version_for_goal_model(goal_model)
     if candidate_profile not in (
         CANDIDATE_PROFILE_CHALLENGE, CANDIDATE_PROFILE_WETTFINDER,
     ):
@@ -2728,12 +2855,14 @@ def build_fixture_candidates(
             league_history,
             calibration,
             team_history=team_history,
+            goal_model=goal_model,
         )
     else:
         model = fixture_market_probabilities(
             fixture, league_history, calibration, team_history=team_history,
             original_capture=original_capture,
             native_provenance=native_provenance, native_resolver=native_resolver,
+            goal_model=goal_model,
         )
     if identity is None or model is None:
         return []
@@ -2746,7 +2875,7 @@ def build_fixture_candidates(
         from daily3_comparison import build_market_comparisons
         comparisons = build_market_comparisons(
             fixture, league_history, model['probabilities'], validation,
-            prediction_version=CHALLENGE_PREDICTION_VERSION, as_of=datetime.now(timezone.utc),
+            prediction_version=basis_version, as_of=datetime.now(timezone.utc),
             model_scope=model_scope,
         )
     candidates: list[ChallengeCandidate] = []
@@ -2797,6 +2926,10 @@ def build_fixture_candidates(
         haircut_pp = min(20.0, max(structural_haircut, calibration_haircut))
         conservative = max(0.0, min(active, season, form) - haircut_pp / 100.0)
         validation_passed = _credible_validation(metric)
+        if goal_model != GOAL_MODEL_LEGACY and (
+            metric is None or metric.prediction_version != basis_version
+        ):
+            validation_passed = False  # A basis never borrows another basis's validation.
 
         sample_score = 35.0 * min(1.0, min(sample_basis) / 10.0)
         form_score = 15.0 * min(1.0, min(form_samples) / 6.0)
@@ -2862,7 +2995,7 @@ def build_fixture_candidates(
         candidates.append(
             ChallengeCandidate(
                 candidate_id=candidate_id,
-                prediction_version=CHALLENGE_PREDICTION_VERSION,
+                prediction_version=basis_version,
                 market_comparison=comparisons.get(spec.key),
                 **identity,
                 market_key=spec.key,
@@ -4655,6 +4788,12 @@ def consecutive_wins_to_target(
 __all__ = [
     "CHALLENGE_MODEL_CONTRACT_SIGNATURE",
     "CHALLENGE_PREDICTION_VERSION",
+    "GOAL_MODEL_LEGACY",
+    "GOAL_MODEL_SHADOW_CANDIDATE",
+    "GOAL_MODELS",
+    "goal_model_for_prediction_version",
+    "model_contract_signature_for_goal_model",
+    "prediction_version_for_goal_model",
     "CANDIDATE_PROFILE_CHALLENGE",
     "CANDIDATE_PROFILE_WETTFINDER",
     "ChallengeCandidate",

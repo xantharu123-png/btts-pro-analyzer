@@ -382,6 +382,23 @@ Konsens-Proxy nur noch ohne Partitionen (`ReferencePriceStatus.market_probabilit
 API-Aufruf erledigt; eine Mischung der Entscheidungswahrscheinlichkeit mit dem Markt bleibt
 wegen w* = 0 und der Nutzerregel vom 17.10. nicht umgesetzt.
 
+### Nachtrag 22.10.2026: Hybrid-Aktivierung vorbereitet (Pins, ORIGINAL, Shadow mit beiden Basen)
+
+Owner-Entscheidung 22.10.2026; Vorregistrierung `docs/superpowers/plans/2026-10-22-hybrid-aktivierung.md`.
+Produktions-Default unverändert (Golden-Tests in `tests/test_calibration.py` grün).
+
+| Baustein | Umsetzung |
+|---|---|
+| Pins je Basis | `challenge_engine.prediction_version_for_goal_model` / `model_contract_signature_for_goal_model`: Legacy behält `coherent-joint-calibration-v14` und `hac-fdr-executable-frechet-v11`; der Hybrid `dixon_coles_hl365_hybrid` trägt `challenge-engine:dc-hl365-hybrid-joint-calibration-v1` und die Signatur mit Suffix `+dc-hl365-hybrid-v1`. Analyse-Varianten leiten nie registrierte Token ab. |
+| Validierung, Kandidaten, Cache | `ValidationMetrics.prediction_version`, `ChallengeCandidate.prediction_version` und `build_market_comparisons` tragen die Version der Basis (`build_fixture_candidates(goal_model=)`); eine Basis übernimmt nie die Validierung einer anderen (Sperrgrund Walk-forward-Gate); `challenge_model_cache` und der Shadow-Dateicache sind dadurch getrennt. Echtgeld-Freigaben verlangen weiterhin genau die Legacy-Version: Hybrid-Kandidaten sind nie freigabefähig (`tests/test_goal_basis_pins.py`). Nationalteams (Liga 5) liefern für eine Nicht-Legacy-Basis fail-closed kein Modell. |
+| ORIGINAL | Schema v2 unverändert; `goal_model` trägt zusätzlich Basis, Rho, Fit-Zusammenfassung und Legacy-Raten; `reference_weights`-Variante `football-goals-hybrid-dc-v1` = Legacy-Köpfe plus Fit-Fenster mit Zerfallsgewichten (jede Zeile eine deklarierte Historienreferenz). Speicherung (`football_original_storage`, eigener Chunk für das Fenster), Vergleich (`compare_captured_joint` rekonstruiert die Hybrid-Rohmatrix) und Replay (`replay_joint_calculation`, kalter Fit `fit_for_fixture(cold_start=True)`) sind byteidentisch (`tests/test_hybrid_original.py`). `executed_code_identity` führt die Pins je Basis; Publikation prüft die Identität je Basis. Trainingsfälle und Gegnervergleich nehmen nur Legacy-ORIGINALs (`original_basis_not_trainable`, `original-basis-not-legacy`). |
+| Shadow mit beiden Basen | `shadow_clv_automation`: zweite Kohorte unter `challenge-engine-dc-hl365-hybrid-joint-calibration-v1` auf demselben Spiel mit derselben Quotenantwort; Legacy-Zeile zuerst, Hybrid-Fehler landen nur in `errors`; `step_warm_hybrid` baut die Hybrid-Artefakte (höchstens drei Ligen je Lauf) ausserhalb des Bewertungsfensters; Run-Artefakt `hybrid_cohort` mit Statistik beider Kohorten und paarweiser Auswertung (`_paired_cohort_statistics`). Schalter `BETBOY_SHADOW_HYBRID_BASIS` (Default an, `0` aus). `tests/test_shadow_hybrid_cohort.py`. |
+
+Prüfplan und Aktivierungskriterien stehen in der Vorregistrierung: mindestens 300 paarweise
+abgerechnete Spiele, untere Konfidenzgrenze der paarweisen CLV-Differenz über 0, keine
+schlechtere Kalibrierung. Erst dann wird die Produktionsbasis umgestellt (eigener Commit,
+Cache-Neuaufbau, Pins für Tickets und Publikation).
+
 ## Nicht umgesetzt (braucht den Owner)
 
 - API-Schlüssel: laut Gegenabgleich am 17.10.2026 bereits ersetzt und auf dem VPS

@@ -114,17 +114,12 @@ VPS-Launcher laufen lassen. Ein Windows-Lauf ersetzt den Linux-Nachweis nicht.
 ## 7. Offene fachliche Arbeiten, in Reihenfolge
 
 1. **Linux-Vollnachweis** (Abschnitt 4).
-2. **H4 Dixon-Coles:** venue-spezifische Angriffs-/Abwehrparameter im Fit, vorher als
-   Hypothese in `docs/superpowers/plans/` festschreiben; Vergleich mit
-   `scripts/compare_goal_models.py --variant`, gleiche Zellen und Statistik.
-3. **Kohärenter Hybrid:** eine gemeinsame Verteilung, die Dixon-Coles für die
-   Ergebnisfamilie und die Legacy-Matrix für Tormärkte vereint, damit die gemeinsame
-   Kalibrierung (`football_joint_calibration`) weiter eine Matrix je Familie projiziert.
-   Erst danach ist eine Produktionsaktivierung diskutierbar; dann Walk-forward,
-   Kalibrierung, Pin- und ORIGINAL-Verträge für die neue Basis.
-4. **Quotenabruf aller Seiten:** Die Mischung mit dem Markt braucht den vollständigen
-   No-Vig-Markt (Heim/Remis/Auswärts bzw. Über/Unter), heute wird nur die gewettete Seite
-   gespeichert. Ohne das bleibt `market_blend` Analyse.
+2. **H4 Dixon-Coles:** erledigt am 21.10. (widerlegt, `docs/audits/2026-10-21-dixon-coles-venue.md`).
+3. **Kohärenter Hybrid:** erledigt (21./22.10.): Hybrid als beste Basis, Release-Gate-
+   Validierung, Pins, ORIGINAL und Shadow-Kohorte (`docs/superpowers/plans/2026-10-22-hybrid-aktivierung.md`).
+   Nicht anfassen: Produktionsbasis bleibt Legacy, bis der Prüfplan erfüllt ist.
+4. **Quotenabruf aller Seiten:** erledigt am 22.10. (`market_consensus.no_vig_market_probability`
+   aus den vorhandenen Partitionen).
 5. **Edge-Cap als Produktregel prüfen:** Im Replay hebt eine Kappung von 8 pp die Policy
    von −5,5 % auf +0,8 % ROI (Intervall enthält 0). Als Hypothese vorregistrieren, dann im
    Preisgate (`market_consensus`/`build_fixture_candidates`) als Sperrgrund umsetzen.

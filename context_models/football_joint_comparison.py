@@ -16,7 +16,7 @@ import challenge_engine as engine
 from context_models.contracts import ContextContractError, ContextIntegrityError
 from context_models.football_original_storage import MAX_ORIGINAL_BYTES, _packet
 from football_joint_calibration import LAW_VERSION, LEGACY_LAW_VERSION, prediction_version_for_law
-from football_original import FootballOriginal
+from football_original import FootballOriginal, original_goal_basis
 from model_artifacts import _decode_object
 
 
@@ -70,7 +70,22 @@ def _expected_raw_matrix(family, record, model):
     """Use the owning count generator, not the truncated cells' moment."""
     try:
         if family == "goals":
-            return engine.score_matrix(*record["raw_means"])
+            basis = model.get("goal_model", engine.GOAL_MODEL_LEGACY)
+            if basis == engine.GOAL_MODEL_LEGACY:
+                return engine.score_matrix(*record["raw_means"])
+            if basis not in engine.GOAL_MODEL_OPTIONS:
+                raise ValueError("unknown captured goal basis")
+            rho = model["rho"]
+            if type(rho) not in (int, float) or not math.isfinite(rho):
+                raise ValueError("invalid captured rho")
+            split = engine.score_matrix(*record["raw_means"], rho=float(rho))
+            if not engine.GOAL_MODEL_OPTIONS[basis].get("hybrid_totals"):
+                return split
+            legacy = model["legacy_lambdas"]
+            if type(legacy) is not list or len(legacy) != 2:
+                raise ValueError("invalid captured legacy means")
+            from football_dixon_coles import reweight_totals
+            return reweight_totals(engine.score_matrix(*legacy), split)
         dispersion = model.get("dispersion")
         if (type(dispersion) is not list or len(dispersion) != 2
                 or any(type(value) not in (int, float) or not math.isfinite(value) or value <= 0
@@ -100,14 +115,20 @@ def compare_captured_joint(original: FootballOriginal) -> dict:
         raise ContextIntegrityError("football ORIGINAL exceeds supported JSON depth") from exc
     if packet.get("schema") == 2 and packet.get("prediction_version") not in (
         prediction_version_for_law(LEGACY_LAW_VERSION), prediction_version_for_law(LAW_VERSION),
+        *engine.GOAL_MODEL_PREDICTION_VERSIONS.values(),
     ):
         raise ContextContractError("joint comparison has no matching installed law")
     _packet(packet)
     if packet["schema"] != 2:
         raise ContextContractError("joint comparison requires ORIGINAL v2")
     law_version = packet["distribution_capture"]["law_version"]
-    if (packet["prediction_version"] != prediction_version_for_law(law_version)
-            or packet["model_contract_signature"] != engine.CHALLENGE_MODEL_CONTRACT_SIGNATURE):
+    basis = original_goal_basis(packet)
+    if basis == engine.GOAL_MODEL_LEGACY:
+        expected_identity = (prediction_version_for_law(law_version), engine.CHALLENGE_MODEL_CONTRACT_SIGNATURE)
+    else:
+        expected_identity = (engine.prediction_version_for_goal_model(basis),
+                             engine.model_contract_signature_for_goal_model(basis))
+    if (packet["prediction_version"], packet["model_contract_signature"]) != expected_identity:
         raise ContextContractError("joint comparison has no matching installed law")
 
     families = packet["distribution_capture"]["families"]

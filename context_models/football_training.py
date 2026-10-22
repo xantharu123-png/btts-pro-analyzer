@@ -19,7 +19,7 @@ from context_models.training_contracts import validate_artifact_envelope, resolv
 from context_observations import _SELECT, _decode_receipt, _check_selected_row
 from context_sources.football import _detail_event, normalize_football_context
 from context_sources.outcomes import validate_football_base_input, validate_outcome_record
-from football_original import FootballOriginal
+from football_original import LEGACY_GOAL_BASIS, FootballOriginal, original_goal_basis
 from model_artifacts import canonical_bytes
 
 
@@ -70,6 +70,8 @@ def joint_base(original, binding, *, decision_at=None):
         raise ContextIntegrityError('unknown or inconsistent captured joint law/recipe') from exc
     if packet['schema'] != 2:
         raise ReplayUnavailable('original_has_no_captured_joint_distribution')
+    if original_goal_basis(packet) != LEGACY_GOAL_BASIS:
+        raise ReplayUnavailable('original_basis_not_trainable')
     base_version = joint_versions_for_law(packet['distribution_capture']['law_version'])[0]
     event = binding['native_event']
     if event is None:
@@ -116,6 +118,9 @@ def _load_publication(connection, binding_ref, *, latest, admit=None):
     packet = original.to_dict()
     if packet['schema'] != 2:
         raise ReplayUnavailable('original_has_no_captured_joint_distribution')
+    if original_goal_basis(packet) != LEGACY_GOAL_BASIS:
+        # Training cases are legacy-basis only until the shadow cohort is decided.
+        raise ReplayUnavailable('original_basis_not_trainable')
     created = _artifact_created_at(connection, binding_ref)
     if (binding['native_event'] is None or binding['decision_at'] > packet['captured_at']
             or packet['captured_at'] > created or created >= binding['native_event']['scheduled_start']
@@ -254,6 +259,8 @@ def validate_joint_training_case(resolved, *, config, payload):
             raise ContextIntegrityError('miskeyed joint artifact')
     code = validate_artifact_envelope(artifacts[binding['code_digest']], kind=CODE_KIND)
     packet = original.to_dict()
+    if original_goal_basis(packet) != LEGACY_GOAL_BASIS:
+        raise ReplayUnavailable('original_basis_not_trainable')
     if (type(binding['schema']) is not int or binding['schema'] != 1 or binding['source_state'] != 'captured'
             or binding['unresolved'] or binding['code_state'] != 'execution-fingerprint-only'
             or binding['empirical_state'] != 'not-evaluated'):
