@@ -409,6 +409,22 @@ die Gruppen bestanden/nicht bestanden je Kohorte aus (CLV, Trefferquote, abgerec
 Tipps). Kein Tipp wird gefiltert; `BETBOY_EDGE_CAP_PP` bleibt ungesetzt.
 `tests/test_shadow_edge_cap.py`.
 
+### Release 22.10.2026
+
+Quellcommit **`fd4517629bbb517402147173f66cf1ea011476bc`** (main nach PR #1–#7) am
+22.10.2026 um 20:02 CEST per No-Backup-Fast-forward von `be5e441` auf dem VPS ausgerollt
+(Freigabe des Owners im Chat; ausgeführt von Claude per `ssh betboy-vps`, Root-Helfer
+`output/hybrid-shadow-20261022/deploy.sh` nach dem bisherigen Muster). Exakter Dateisatz
+86 Pfade, keine Unit-, Updater- oder Requirements-Änderung; alle Jobs im Leerlauf,
+Backup-Timer inaktiv/deaktiviert. Offline-Import-Smoke der 26 geänderten Module `ok`,
+nur App neu gestartet (PID 1271293 → 1285025), lokaler und öffentlicher Healthcheck `ok`,
+acht Timer aktiv. Prognose-Snapshots (`wettfinder_latest.json`, `riskobet_latest.json`)
+vor und nach dem Release byteidentisch. Kein Backup, kein Scan, kein DB-Eingriff.
+Env: kein Portal-Token gesetzt (persönlicher Modus bleibt), keine Shadow-/Edge-Cap-Flags
+(Defaults: Hybrid-Kohorte an, Kappung nur protokolliert). Belege ausserhalb Git:
+`output/hybrid-shadow-20261022/deploy-01.log`, `post-release-01.log`.
+Erster Shadow-Lauf mit dem neuen Code um 20:12 CEST sauber beendet (Exit 0, `idle`: kein fälliges Spiel im Fenster); die Hybrid- und Edge-Cap-Protokolle füllen sich mit den nächsten fälligen Spielen.
+
 ## Nicht umgesetzt (braucht den Owner)
 
 - API-Schlüssel: laut Gegenabgleich am 17.10.2026 bereits ersetzt und auf dem VPS
