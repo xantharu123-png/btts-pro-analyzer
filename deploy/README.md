@@ -105,6 +105,11 @@ as the app user once: it makes one governed `/status` call and replaces the
 ledger's stale daily estimate with the provider's count (since 23 October 2026
 a larger provider limit always wins; within one plan the estimate never rises).
 
+`BETBOY_PRICE_POLICY` (since 23 October 2026, default `floor`): bookmaker
+quotes are no longer a release gate and are not shown in the app; only a last
+observed market quote below 1.20 withholds a tip. Do not set `gate` in
+production; it restores the previous execution contract for comparison only.
+
 The football shadow runner (`shadow_clv_automation`) evaluates every fixture a
 second time with the coherent Dixon-Coles hybrid and logs that cohort under its
 own model version next to the legacy cohort; `BETBOY_SHADOW_HYBRID_BASIS=0`

@@ -121,7 +121,9 @@ VPS-Launcher laufen lassen. Ein Windows-Lauf ersetzt den Linux-Nachweis nicht.
 > Anfang Oktober keine Evidenz (API-Football-Limit 100 je Tag seit 19.10., Zehn-Minuten-
 > Frischeregel der Öffnungsquote). Beides sind Owner-Entscheidungen; nichts davon eigenmächtig
 > lockern. Die Frischeregel wurde am 23.10. vom Owner auf drei Stunden gesetzt
-> (`docs/audits/2026-10-23-oeffnungsquote-frischeregel.md`, Policy v6); das Kontingent ist offen.
+> (`docs/audits/2026-10-23-oeffnungsquote-frischeregel.md`, Policy v6); das Kontingent ist seit
+> 23.10. wieder Pro. Ebenfalls 23.10.: Preisregel nur noch 1,20-Grenze, keine Buchmacherquoten in
+> der App (`docs/audits/2026-10-23-preisregel-1-20.md`, `BETBOY_PRICE_POLICY`); nicht zurückdrehen.
 
 1. **Linux-Vollnachweis** (Abschnitt 4).
 2. **H4 Dixon-Coles:** erledigt am 21.10. (widerlegt, `docs/audits/2026-10-21-dixon-coles-venue.md`).

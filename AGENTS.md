@@ -30,7 +30,13 @@ Code, dann `PROJECT_HANDBUCH.md`, dann die Bibel. Historische Logs: `TODO_AKTUEL
   und dem Owner vorgelegt. Am 23.10.2026 hat der Owner die Frischeregel der
   Öffnungsquote im CLV-Ledger von zehn Minuten auf drei Stunden Provider-Alter
   gelockert (Alter je Tipp gespeichert, Policy `shadow-model-first-v6`;
-  `docs/audits/2026-10-23-oeffnungsquote-frischeregel.md`).
+  `docs/audits/2026-10-23-oeffnungsquote-frischeregel.md`). Ebenfalls am
+  23.10.2026: Buchmacherquoten sind kein Freigabegate mehr und werden in der
+  App nicht gezeigt; die einzige Preisregel ist die 1,20-Grenze im Hintergrund
+  (`BETBOY_PRICE_POLICY`, Default `floor`, `gate` = alter Vertrag;
+  `docs/audits/2026-10-23-preisregel-1-20.md`). Diese Regel gilt für
+  Wettfinder, Daily3 und RisikoBet; sie darf nicht eigenmächtig zurückgedreht
+  werden.
 - **Keine Backups, Produktions-DB-Kopien oder API-Scans** ohne ausdrücklichen Auftrag.
 - **Checkout-Disziplin.** Hauptcheckout `betboy-app` trägt fremdes WIP und liegt hinter
   `origin/main`; eigene Arbeit in einem eigenen Worktree unter `.worktrees/` auf einem

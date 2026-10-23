@@ -1039,6 +1039,13 @@ def evaluate_candidate_price(
         )
     if metrics.kelly_fraction <= 0:
         reasons.append("Das risikoadjustierte Kelly-Ergebnis ist nicht positiv.")
+    from market_consensus import floor_only_pricing
+    if floor_only_pricing():
+        # Owner decision 23.10.2026: the only price rule is the 1.20 floor; the
+        # value margin and Kelly never block a released tip.
+        reasons = []
+        if metrics.market_odds + 1e-9 < MINIMUM_RECOMMENDED_DECIMAL_ODDS:
+            reasons.append(f"Quote {metrics.market_odds:.2f} liegt unter 1,20.")
 
     price_passed = not reasons
     released = candidate.evidence_stage == EVIDENCE_RELEASED
@@ -1052,7 +1059,10 @@ def evaluate_candidate_price(
         if price_passed
         else "NO_BET"
     )
-    stake_fraction = metrics.kelly_fraction if status == "BET" else 0.0
+    stake_fraction = (
+        (max(0.0, metrics.kelly_fraction) if floor_only_pricing() else metrics.kelly_fraction)
+        if status == "BET" else 0.0
+    )
     return PriceDecision(
         status=status,
         candidate=candidate,

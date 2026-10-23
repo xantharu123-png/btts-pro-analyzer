@@ -243,6 +243,15 @@ die Prognose sichtbar und erhält einen verständlichen Hinweis. Nur der
 Preisstatus ist offen beziehungsweise unattraktiv; das Modell wird dadurch
 weder richtig noch falsch.
 
+**Owner-Entscheidung 23.10.2026** (`docs/audits/2026-10-23-preisregel-1-20.md`):
+Der Preisnachweis oben ist nicht mehr Bedingung für einen öffentlichen Tipp und
+gilt nur noch unter `BETBOY_PRICE_POLICY=gate`. Standard ist `floor`: Ein Tipp
+erscheint, sobald Modell- und Kontextgates bestanden sind; Buchmacherquoten
+werden in der App nicht gezeigt und dienen im Hintergrund allein dazu, Tipps
+unter 1,20 zurückzuhalten (zuletzt beobachtetes bestes Angebot, bis 24 Stunden
+alt). Ohne beobachtete Quote bleibt der Tipp sichtbar; der Nutzer prüft die
+1,20-Grenze beim Buchmacher. Modell vor Preis bleibt unberührt.
+
 ### 3.8 Statistischer Freigabevertrag
 
 Für eine Echtgeld-Freigabe genügt ein bloßer mittlerer
@@ -440,6 +449,10 @@ Mehrbuchmacherfeed als konservativen Marktvergleich:
 - jede beitragende Providerbeobachtung höchstens 45 Minuten alt;
 - exakte Markt-, Team- und Linienzuordnung;
 - kein synthetischer oder geschätzter Buchmacherpreis.
+
+Seit dem 23.10.2026 ist dieser Marktvergleich kein Freigabegate mehr (siehe 3.7,
+Owner-Entscheidung); er läuft im Hintergrund für die 1,20-Grenze und für die
+Shadow-/CLV-Evidenz weiter.
 
 Das untere Quartil reduziert den Einfluss einzelner Ausreißer, ist selbst aber
 meist kein angebotenes Preisniveau. Ticketrechnung und Persistenz verwenden

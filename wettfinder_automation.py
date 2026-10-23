@@ -88,6 +88,7 @@ from market_consensus import (
     exact_market_target,
     fetch_football_consensus,
     fetch_tennis_h2h_consensus,
+    floor_only_pricing,
     merge_tennis_price_observations,
     quote_matches_candidate,
     wettfinder_consensus,
@@ -2651,6 +2652,19 @@ def _apply_reference_quotes(
     return status_counts, playable
 
 
+def _floor_playable_rows(model_rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Every model row except those whose last observed market quote is below 1.20.
+
+    Rows without any quote stay playable (``UNPRICED``): the floor is then checked
+    by the user at the bookmaker. Price never reorders or removes a forecast.
+    """
+    return [
+        {**row, "status": "PRICE_REQUIRED"}
+        for row in model_rows
+        if isinstance(row, dict) and row.get("reference_price_status") != "BELOW_FLOOR"
+    ]
+
+
 def _revalidate_publication_price_overlays(document: dict[str, Any], *, now: datetime) -> None:
     """Recheck cached observations after slow research, without another request.
 
@@ -2672,7 +2686,12 @@ def _revalidate_publication_price_overlays(document: dict[str, Any], *, now: dat
         refreshed = []
         for previous in document[field]:
             model = by_key.get(previous.get("key"))
-            if model is None or model.get("reference_price_status") != "PLAYABLE":
+            if model is None:
+                continue
+            if floor_only_pricing():
+                if model.get("reference_price_status") == "BELOW_FLOOR":
+                    continue
+            elif model.get("reference_price_status") != "PLAYABLE":
                 continue
             overlay = {name: previous[name] for name in ("status", "evidence_stage", "release_contract")
                        if name in previous}
@@ -3915,6 +3934,10 @@ def run_wettfinder(
             previous_rows=previous.get("model_candidates") or (),
         )
     )
+    if floor_only_pricing():
+        # Owner decision 23.10.2026: price is not a release gate. Every model
+        # row stays playable unless the last observed market quote is below 1.20.
+        football_playable_rows = _floor_playable_rows(football_model_rows)
     _persist_quote_diagnostics(football_model_rows, football_price_rows, football_quote_diagnostics,
                                now=current, errors=quote_errors)
     football_quote_error_count = len(_operational_quote_errors(quote_errors))
