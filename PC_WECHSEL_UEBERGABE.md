@@ -18,6 +18,19 @@ Fix in PR #15 (`context_release_eligible`, `hypothesis_count_is_catalog_multiple
 **`e00ff6e032ea8ea81d696d4144839ddc71f6af35`** um 19:45 CEST ausgerollt (6 Pfade, PID 1301953 → 1303949,
 Healthchecks ok, Snapshots unverändert).
 Scan um 19:47 CEST: 3 öffentliche Fussball-Tipps (RELEASED, PLAYABLE) für die Abendspiele, 1 Kandidat in der 15K-Freigabeliste, 23 Spiele, 253 zugelassene Kandidaten, 0 Betriebsfehler. Die ersten öffentlichen Fussball-Tipps seit dem 10.10.
+Die App zeigte diese Tipps zunächst nicht („Aktuell ist noch kein automatisches Ergebnis verfügbar“):
+`ev_signal_sources._load_automated_wettfinder_document` verwarf das ganze Dokument, weil freigegebene
+Zeilen ohne bestätigten Preis (`UNPRICED`/`UNAVAILABLE`) unter dem alten Vertrag ungültig waren. Fix in
+PR #17 (Lader akzeptiert unbepreiste öffentliche Tipps unter `floor` ohne Ausführungsfelder; die
+15K-Freigabeliste bleibt `PLAYABLE`), als **`dcc8b559a7d4c329f388e943c9d1262c2b322b4d`** um 20:26 CEST
+ausgerollt (Helfer `output/release-20261023-5/deploy.sh`, 7 Pfade, PID 1303949 → 1306676, Healthchecks
+ok, Snapshots unverändert). Website um 20:31 CEST geprüft: „Dein Spieltag“ zeigt fünf Spiele
+(Widzew Łódź–Górnik Zabrze, Stuttgart–Gladbach, Bolton–Middlesbrough, Independiente del Valle–U. Católica,
+PHI–ANA Eishockey) mit Modellwahrscheinlichkeit und „Mindestquote 1,20“, Daily3 mit einer Auswahl.
+Beobachtung, unverändert gelassen: Die Hauptauswahl je Spiel ist der statistische Lead des Produzenten
+(`selection_rank`, `forecast_selection.select_event_leads`), nicht die höchste Wahrscheinlichkeit;
+bei Stuttgart–Gladbach führt deshalb der Auswärtssieg (16,6 %) vor „Unter 4,5“ (78,3 %).
+Scan um 20:27–20:35 CEST unter allen drei Fixes: `completed`, 23 Spiele, 253 zugelassene Kandidaten, 2 öffentliche Fussball-Tipps (RELEASED, PLAYABLE) für die Abendspiele, 15K-Liste leer; der App-Lader lädt das Dokument (14 Prognosen, 1 Signal). Beleg ausserhalb Git: `output/release-20261023-5/scan-result-01.log`. Die Wochenend-Tipps entstehen mit den Tagesscans um 03:35 am 24.10. und 25.10.
 
 ## 23.10.2026 – Pro-Tarif wieder aktiv, Zähler-Fix live, Tagesscan nachgeholt
 
