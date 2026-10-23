@@ -1,5 +1,21 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## 23.10.2026 – Hauptauswahl nach Wahrscheinlichkeit, Karte ohne Mindestquote live
+
+Owner-Entscheidung (Chat, 23.10. abends): Die Hauptauswahl je Spiel ist die angezeigte Auswahl mit
+der höchsten Modellwahrscheinlichkeit, und die Karte nennt keine Mindestquote mehr; die 1,20-Grenze
+wirkt nur im Hintergrund. Vertragsänderung `docs/audits/2026-10-23-hauptauswahl-wahrscheinlichkeit.md`
+(PR #19): `forecast_selection.select_event_leads` vergleicht innerhalb derselben Teilnehmerbindung
+und Modellrevision nach Modellwahrscheinlichkeit (Gleichstand: stabiler Marktschlüssel), `selection_rank`
+ordnet weiter Katalog und 15K-Liste; der Wettfinder-Katalog erfindet ohne vergleichbare Revision keinen
+Lead (`require_comparable`); gilt für Wettfinder, Manuelle Suche und 15K-Modellauswahl. Quellcommit
+**`6946e3bec226444f602e8b7711719874447a7ec3`** um 21:04 CEST per No-Backup-Fast-forward von `dcc8b55`
+ausgerollt (Helfer `output/release-20261023-6/deploy.sh`, 14 Pfade inkl. Protokoll-PR #18, nur
+App-Neustart PID 1306676 → 1309177, Healthchecks ok, Snapshots unverändert, Offline-Smoke prüft die
+neue Lead-Signatur und die Karte ohne Mindestquote-Zelle). Website um 21:06 CEST geprüft: Independiente del Valle–U. Católica führt jetzt „Team 2 Gesamttore Unter 1,5“ (72,1 %) vor „Auswärtssieg“ (24,3 %) unter „Weitere Märkte“; das Wort „Mindestquote“ kommt auf der Seite nicht mehr vor.
+Hinweise bei eigener Quoteneingabe (Daily3-Vormerkung, Manuelle Suche, Tennis) bleiben, weil sie die
+1,20-Sperre erklären.
+
 ## 23.10.2026 – Preisregel 1,20 live: Buchmacherquoten kein Gate mehr
 
 Owner-Entscheidung (Chat, 23.10.): Buchmacherquoten gehören nicht in die App; sie sichern im
