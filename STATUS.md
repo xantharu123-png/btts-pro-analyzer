@@ -4,12 +4,12 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 „Stand“ ersetzen, nicht anhängen; Historie steht in `TODO_AKTUELL.md` und
 `PC_WECHSEL_UEBERGABE.md`. Regeln und Einstieg: `AGENTS.md`.
 
-## Stand: 22.10.2026
+## Stand: 23.10.2026
 
 | Bereich | Status |
 |---|---|
-| Produktion (VPS) | `74fd7e4` live seit 23.10.2026 19:23 CEST (No-Backup-Fast-forward von `aa4baa9`, Beleg `output/release-20261023-3/deploy-01.log` ausserhalb Git); Preisregel 1,20 aktiv, Pro-Tarif, Shadow-Kohorten mit Policy v6 |
-| `origin/main` | Stand nach Merge von PR #10 (Frischeregel 3 h, Policy v6) am 23.10.2026; enthält PR #7 (`fd45176`, live), #8/#9 (Doku), enthält PR #1 (`62e6e73`), #2 (`24837c3`), #3 (`08b7473`), #4 (`9b0382f`), #5 (`be6258c`, Hybrid-Aktivierung vorbereitet), #6 (`a6661a6`, Edge-Cap-Protokoll); Quick-CI grün |
+| Produktion (VPS) | `dcc8b55` live seit 23.10.2026 20:26 CEST (No-Backup-Fast-forward von `e00ff6e`, Beleg `output/release-20261023-5/deploy-01.log` ausserhalb Git); Preisregel 1,20 aktiv, Freigabe ohne Aufstellungspflicht, App-Lader zeigt unbepreiste Tipps, Pro-Tarif, Shadow-Kohorten mit Policy v6; Website zeigt seit 23.10. abends wieder öffentliche Fussball-Tipps |
+| `origin/main` | Stand nach Merge von PR #17 (App-Lader) am 23.10.2026; enthält PR #12 (Zähler-Fix), #14 (Preisregel 1,20), #15 (Freigabekontext), #16 (Protokoll), PR #10 (Frischeregel 3 h, Policy v6), PR #7 (`fd45176`, live), #8/#9 (Doku), enthält PR #1 (`62e6e73`), #2 (`24837c3`), #3 (`08b7473`), #4 (`9b0382f`), #5 (`be6258c`, Hybrid-Aktivierung vorbereitet), #6 (`a6661a6`, Edge-Cap-Protokoll); Quick-CI grün |
 | Offene Claude-Branches | keine |
 | Codex-Worktree | `.worktrees/audit-repairs-20261013`, 7 unveröffentlichte Commits, 18 ungesicherte Änderungen; muss `main` einmergen (`docs/handoffs/2026-10-21-codex-auftrag.md`) |
 | Hauptcheckout `betboy-app` | veraltet, fremdes WIP; nicht benutzen |
@@ -29,7 +29,7 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 - Mischungsgewicht Modell/Markt out-of-sample 0,00.
 - Kohärenter Hybrid `dixon_coles_hl365_hybrid` (eine Matrix: DC-Struktur, Legacy-Torsumme) ist das beste Modell: 148 Zellen signifikant besser als Legacy, 111 schlechter; im Release-Gate 262 statt 224 glaubwürdige Zellen, kein Markt verliert. Venue-spezifisches DC (H4) widerlegt; kein Modell schlägt den Markt.
 - Marktwahrscheinlichkeit (No-Vig, Shin/Power) liegt jetzt aus den gespeicherten Buchmacher-Partitionen vor; die Edge-Kappung (Default aus) nutzt sie.
-- **Preisregel seit 23.10.2026 (Owner):** Tipps erscheinen nach Modell- und Kontextgates; Buchmacherquoten sind kein Gate mehr und werden nicht gezeigt, nur die 1,20-Grenze sperrt im Hintergrund (`BETBOY_PRICE_POLICY`, Default `floor`; `docs/audits/2026-10-23-preisregel-1-20.md`). Grund: seit 10.10. null öffentliche Tipps, weil die 45-Minuten-Frische nie erreichbar war. Dazu zwei weitere Sperren behoben: Freigabekontext braucht keine bestätigten Aufstellungen mehr (Scan läuft Stunden vor Anpfiff), und die Hypothesenfamilie darf ein Vielfaches von 96 sein (FDR über Ligen; die starre 96 hatte seit 20.10. jede Freigabe blockiert).
+- **Preisregel seit 23.10.2026 (Owner):** Tipps erscheinen nach Modell- und Kontextgates; Buchmacherquoten sind kein Gate mehr und werden nicht gezeigt, nur die 1,20-Grenze sperrt im Hintergrund (`BETBOY_PRICE_POLICY`, Default `floor`; `docs/audits/2026-10-23-preisregel-1-20.md`). Grund: seit 10.10. null öffentliche Tipps, weil die 45-Minuten-Frische nie erreichbar war. Dazu zwei weitere Sperren behoben: Freigabekontext braucht keine bestätigten Aufstellungen mehr (Scan läuft Stunden vor Anpfiff), und die Hypothesenfamilie darf ein Vielfaches von 96 sein (FDR über Ligen; die starre 96 hatte seit 20.10. jede Freigabe blockiert). Der App-Lader akzeptiert seit PR #17 unbepreiste öffentliche Tipps; vorher verwarf er das ganze Dokument und die Website blieb leer.
 - Hybrid-Aktivierung vorbereitet: eigene Prediction-Version und Vertragssignatur, ORIGINAL-Erfassung und Replay für die Hybrid-Basis, Shadow-Kohorte neben Legacy (`docs/superpowers/plans/2026-10-22-hybrid-aktivierung.md`). Produktionsbasis bleibt Legacy.
 - **Shadow sammelt keine Evidenz** (`docs/audits/2026-10-22-shadow-befund.md`): API-Football-Limit seit 19.10. bei 100 Aufrufen je Tag (vorher 7 500), dadurch keine Spielpläne ab 21.10.; die Zehn-Minuten-Frischeregel der Öffnungsquote hatte seit Anfang Oktober jede Protokollierung blockiert (2 Tipps seit 1.9.). Owner-Entscheidung 23.10.: Öffnungsquote bis drei Stunden Provider-Alter, Alter je Tipp im Ledger, Policy `shadow-model-first-v6` (`docs/audits/2026-10-23-oeffnungsquote-frischeregel.md`). Das API-Kontingent ist seit 23.10. wieder Pro (7 500/Tag); der lokale Zähler übernimmt ein höheres Providerlimit seit demselben Tag sofort (`api_budget`, `scripts/api_budget_resync.py`).
 
