@@ -44,6 +44,11 @@ einer Freigabediskussion ist der CLV deshalb nach `opening_quote_age_seconds` zu
 (etwa ≤ 10 min, ≤ 1 h, ≤ 3 h) und mit dem No-Vig-Closing-Benchmark zu vergleichen; die
 Schwellen der Prüfpläne (300 Paare, 300 Tipps je Gruppe) bleiben unverändert.
 
+## Release
+
+Auf dem VPS seit 23.10.2026 07:25 CEST (`4fdeba9`, No-Backup-Fast-forward von `fd45176`,
+Beleg `output/release-20261023/deploy-01.log` ausserhalb Git).
+
 ## Umsetzung
 
 `clv_tracker.py` (Konstanten, Spalte `opening_quote_age_seconds`, Erfassung, Prüfung,
