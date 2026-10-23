@@ -3770,6 +3770,10 @@ def apply_candidate_context(
         "release_context_complete": release_context_complete,
         "release_context_limitations": release_context_limitations,
         "release_eligible": release_eligible,
+        # Owner decision 23.10.2026: the public release needs the validated
+        # model and a passed context check; confirmed line-ups and modelled
+        # injury impact stay informative (see context_release_eligible).
+        "release_eligible_without_lineups": bool(release_validated and forecast_passed),
         "checked_at": checked_at,
         "model_transfer": {
             "status": (
@@ -4202,6 +4206,44 @@ def candidate_is_15k_model_eligible(candidate: ChallengeCandidate) -> bool:
     )
 
 
+def context_release_eligible(context: object) -> bool:
+    """Release context under the active price policy.
+
+    Until 22.10.2026 a public release needed the complete release context
+    (confirmed line-ups of both teams, modelled injury impact). Since the
+    owner decision of 23.10.2026 (docs/audits/2026-10-23-preisregel-1-20.md)
+    the default ``floor`` policy needs the validated model transfer and a passed
+    context check; line-ups and injury impact stay informative, because the
+    daily scan runs hours before kick-off. ``BETBOY_PRICE_POLICY=gate`` keeps
+    the old requirement.
+    """
+    if not isinstance(context, dict):
+        return False
+    from market_consensus import floor_only_pricing
+    if floor_only_pricing():
+        if context.get("passed") is not True:
+            return False
+        flag = context.get("release_eligible_without_lineups")
+        if isinstance(flag, bool):
+            return flag
+        transfer = context.get("model_transfer")
+        return isinstance(transfer, dict) and transfer.get("status") == "passed"
+    return (
+        context.get("release_context_complete") is True
+        and context.get("release_eligible") is True
+    )
+
+
+def hypothesis_count_is_catalog_multiple(value: object) -> bool:
+    """A validation family is the market catalog or a whole multiple (cross-league FDR)."""
+    return (
+        isinstance(value, int)
+        and not isinstance(value, bool)
+        and value >= len(MARKET_SPECS)
+        and value % len(MARKET_SPECS) == 0
+    )
+
+
 def candidate_is_wettfinder_release_credible(
     candidate: ChallengeCandidate,
 ) -> bool:
@@ -4215,8 +4257,7 @@ def candidate_is_wettfinder_release_credible(
         and candidate.model_scope == MODEL_SCOPE_SAME_COMPETITION
         and isinstance(candidate.context, dict)
         and candidate.context.get("passed") is True
-        and candidate.context.get("release_context_complete") is True
-        and candidate.context.get("release_eligible") is True
+        and context_release_eligible(candidate.context)
     )
 
 
@@ -4794,6 +4835,8 @@ __all__ = [
     "goal_model_for_prediction_version",
     "model_contract_signature_for_goal_model",
     "prediction_version_for_goal_model",
+    "context_release_eligible",
+    "hypothesis_count_is_catalog_multiple",
     "CANDIDATE_PROFILE_CHALLENGE",
     "CANDIDATE_PROFILE_WETTFINDER",
     "ChallengeCandidate",

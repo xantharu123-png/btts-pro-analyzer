@@ -2088,14 +2088,16 @@ def _football_record_release_eligible(row: object) -> bool:
     mean_advantage, standard_error, lower_bound, p_value, q_value = (
         float(value) for value in evidence_values
     )
+    from challenge_engine import context_release_eligible, hypothesis_count_is_catalog_multiple
     return (
         isinstance(context, dict)
-        and context.get("release_context_complete") is True
-        and context.get("release_eligible") is True
+        and context_release_eligible(context)
         and row.get("model_scope") == MODEL_SCOPE_SAME_COMPETITION
         and row.get("context_stale") is not True
         and row.get("statistical_release_passed") is True
-        and row.get("tested_hypotheses") == len(MARKET_SPECS)
+        # Cross-league FDR (20.10.2026) tests leagues x markets; the family is
+        # then a whole multiple of the catalog, never a different catalog.
+        and hypothesis_count_is_catalog_multiple(row.get("tested_hypotheses"))
         and -1.0 <= mean_advantage <= 1.0
         and 0.0 <= standard_error <= 1.0
         and 0.0 < lower_bound <= mean_advantage + 1e-9

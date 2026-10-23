@@ -111,3 +111,43 @@ def test_card_shows_no_bookmaker_quote_and_only_the_1_20_floor():
     assert "Mindestquote</span><strong>1.20" in surface.render_editorial_card_html(unpriced)
     top = surface.render_top_card_html(card) if hasattr(surface, "render_top_card_html") else ""
     assert "Risikopreis ab" not in top
+
+
+def _release_row(**overrides):
+    row = {
+        "prediction_version": "challenge-engine:coherent-joint-calibration-v14",
+        "validation_prediction_version": "challenge-engine:coherent-joint-calibration-v14",
+        "model_scope": "same_competition", "context_stale": False, "statistical_release_passed": True,
+        "tested_hypotheses": 864,  # nine leagues x 96 markets (cross-league FDR)
+        "paired_loss_mean": 0.05, "paired_loss_hac_standard_error": 0.005,
+        "paired_loss_lower_confidence_bound": 0.04, "paired_loss_p_value": 0.00001, "fdr_q_value": 0.0009,
+        "context": {"passed": True, "forecast_passed": True, "release_context_complete": False,
+                    "release_context_limitations": ["Beide bestätigten Startaufstellungen fehlen"],
+                    "release_eligible": False, "release_eligible_without_lineups": True,
+                    "model_transfer": {"status": "passed"}},
+    }
+    row.update(overrides)
+    return row
+
+
+def test_release_needs_validated_model_and_passed_context_not_confirmed_lineups(monkeypatch):
+    import challenge_engine as engine
+    from ev_signal_sources import _football_recommendation_release_eligible
+    row = _release_row()
+    assert automation._football_record_release_eligible(row)
+    assert _football_recommendation_release_eligible(row)
+    assert engine.context_release_eligible(row["context"])
+    # A context veto or a failed model transfer still blocks.
+    assert not engine.context_release_eligible({**row["context"], "passed": False})
+    assert not engine.context_release_eligible({**row["context"], "release_eligible_without_lineups": False})
+    legacy_context = {"passed": True, "model_transfer": {"status": "passed"}}  # rows persisted before the flag
+    assert engine.context_release_eligible(legacy_context)
+    assert not engine.context_release_eligible({"passed": True, "model_transfer": {"status": "provisional"}})
+    # The hypothesis family is the catalog or a whole multiple of it, never another catalog.
+    assert engine.hypothesis_count_is_catalog_multiple(96) and engine.hypothesis_count_is_catalog_multiple(864)
+    assert not engine.hypothesis_count_is_catalog_multiple(89) and not engine.hypothesis_count_is_catalog_multiple(True)
+    assert not automation._football_record_release_eligible(_release_row(tested_hypotheses=89))
+    monkeypatch.setenv(mc.PRICE_POLICY_FLAG, "gate")
+    assert not automation._football_record_release_eligible(row)  # the old contract wants confirmed line-ups
+    assert automation._football_record_release_eligible(_release_row(context={
+        **row["context"], "release_context_complete": True, "release_eligible": True}))

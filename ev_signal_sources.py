@@ -1403,10 +1403,10 @@ def _football_recommendation_release_eligible(row: dict) -> bool:
     mean_advantage, standard_error, lower_bound, p_value, q_value = (
         float(value) for value in evidence_values
     )
+    from challenge_engine import context_release_eligible, hypothesis_count_is_catalog_multiple
     return (
         isinstance(context, dict)
-        and context.get("release_context_complete") is True
-        and context.get("release_eligible") is True
+        and context_release_eligible(context)
         and row.get("model_scope") == "same_competition"
         and row.get("context_stale") is False
         and row.get("statistical_release_passed") is True
@@ -1415,8 +1415,7 @@ def _football_recommendation_release_eligible(row: dict) -> bool:
             or row.get("release_contract")
             == AUTOMATED_FOOTBALL_RELEASE_CONTRACT
         )
-        and row.get("tested_hypotheses")
-        == AUTOMATED_VALIDATION_MARKET_HYPOTHESES
+        and hypothesis_count_is_catalog_multiple(row.get("tested_hypotheses"))
         and -1.0 <= mean_advantage <= 1.0
         and 0.0 <= standard_error <= 1.0
         and 0.0 < lower_bound <= mean_advantage + 1e-9
