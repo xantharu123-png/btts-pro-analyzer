@@ -8,8 +8,8 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 
 | Bereich | Status |
 |---|---|
-| Produktion (VPS) | `dcc8b55` live seit 23.10.2026 20:26 CEST (No-Backup-Fast-forward von `e00ff6e`, Beleg `output/release-20261023-5/deploy-01.log` ausserhalb Git); Preisregel 1,20 aktiv, Freigabe ohne Aufstellungspflicht, App-Lader zeigt unbepreiste Tipps, Pro-Tarif, Shadow-Kohorten mit Policy v6; Website zeigt seit 23.10. abends wieder öffentliche Fussball-Tipps |
-| `origin/main` | Stand nach Merge von PR #17 (App-Lader) am 23.10.2026; enthält PR #12 (Zähler-Fix), #14 (Preisregel 1,20), #15 (Freigabekontext), #16 (Protokoll), PR #10 (Frischeregel 3 h, Policy v6), PR #7 (`fd45176`, live), #8/#9 (Doku), enthält PR #1 (`62e6e73`), #2 (`24837c3`), #3 (`08b7473`), #4 (`9b0382f`), #5 (`be6258c`, Hybrid-Aktivierung vorbereitet), #6 (`a6661a6`, Edge-Cap-Protokoll); Quick-CI grün |
+| Produktion (VPS) | `6946e3b` live seit 23.10.2026 21:04 CEST (No-Backup-Fast-forward von `dcc8b55`, Beleg `output/release-20261023-6/deploy-01.log` ausserhalb Git); Preisregel 1,20 im Hintergrund, Hauptauswahl je Spiel nach Modellwahrscheinlichkeit, Karte ohne Mindestquote, Freigabe ohne Aufstellungspflicht, Pro-Tarif, Shadow-Kohorten mit Policy v6; Website zeigt seit 23.10. abends wieder öffentliche Fussball-Tipps |
+| `origin/main` | Stand nach Merge von PR #19 (Hauptauswahl, Karte) am 23.10.2026; enthält PR #18 (Protokoll), #17 (App-Lader), PR #12 (Zähler-Fix), #14 (Preisregel 1,20), #15 (Freigabekontext), #16 (Protokoll), PR #10 (Frischeregel 3 h, Policy v6), PR #7 (`fd45176`, live), #8/#9 (Doku), enthält PR #1 (`62e6e73`), #2 (`24837c3`), #3 (`08b7473`), #4 (`9b0382f`), #5 (`be6258c`, Hybrid-Aktivierung vorbereitet), #6 (`a6661a6`, Edge-Cap-Protokoll); Quick-CI grün |
 | Offene Claude-Branches | keine |
 | Codex-Worktree | `.worktrees/audit-repairs-20261013`, 7 unveröffentlichte Commits, 18 ungesicherte Änderungen; muss `main` einmergen (`docs/handoffs/2026-10-21-codex-auftrag.md`) |
 | Hauptcheckout `betboy-app` | veraltet, fremdes WIP; nicht benutzen |
