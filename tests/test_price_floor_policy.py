@@ -151,3 +151,31 @@ def test_release_needs_validated_model_and_passed_context_not_confirmed_lineups(
     assert not automation._football_record_release_eligible(row)  # the old contract wants confirmed line-ups
     assert automation._football_record_release_eligible(_release_row(context={
         **row["context"], "release_context_complete": True, "release_eligible": True}))
+
+
+def test_consumer_loader_accepts_unpriced_public_tips_under_the_floor_policy(tmp_path, monkeypatch):
+    import json
+    from datetime import datetime, timezone
+    import ev_signal_sources as ev
+    from tests.test_ev_signal_sources import _automatic_document, _model_automatic_candidate
+    from wettfinder_automation import AUTOMATED_FOOTBALL_RELEASE_CONTRACT
+    model_row = _model_automatic_candidate()  # UNAVAILABLE: never price-checked (no bookmaker market)
+    strict_row = {**model_row, "status": "RECOMMENDED", "evidence_stage": "RELEASED",
+                  "release_contract": AUTOMATED_FOOTBALL_RELEASE_CONTRACT}
+    document = _automatic_document([model_row], candidates=[strict_row], challenge_release_candidates=[])
+    document["bookmaker_data_used"] = True
+    path = tmp_path / "wettfinder_latest.json"
+    path.write_text(json.dumps(document), encoding="utf-8")
+    now = datetime(2030, 1, 1, 11, 0, tzinfo=timezone.utc)
+    loaded = ev._load_automated_wettfinder_document(path, now=now, max_age=ev.AUTOMATED_MODEL_MAX_AGE)
+    assert loaded is not None
+    snapshot = ev.automated_wettfinder_snapshot(path, now=now)
+    assert snapshot.status is not None and len(snapshot.forecasts) == 1
+    # A published row with an execution field but no playable price is still inconsistent.
+    broken = {**strict_row, "reference_quote_executable_odds": 2.0}
+    path.write_text(json.dumps(_automatic_document([model_row], candidates=[broken], challenge_release_candidates=[])
+                               | {"bookmaker_data_used": True}), encoding="utf-8")
+    assert ev._load_automated_wettfinder_document(path, now=now, max_age=ev.AUTOMATED_MODEL_MAX_AGE) is None
+    monkeypatch.setenv(mc.PRICE_POLICY_FLAG, "gate")
+    path.write_text(json.dumps(document), encoding="utf-8")
+    assert ev._load_automated_wettfinder_document(path, now=now, max_age=ev.AUTOMATED_MODEL_MAX_AGE) is None

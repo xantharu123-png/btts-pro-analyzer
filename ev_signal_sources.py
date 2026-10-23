@@ -1144,11 +1144,18 @@ def _load_automated_wettfinder_document(
         candidates or challenge_release_candidates
     ) and document["bookmaker_data_used"] is not True:
         return None
+    from market_consensus import floor_only_pricing
+    floor_policy = floor_only_pricing()
+    # Owner decision 23.10.2026 (docs/audits/2026-10-23-preisregel-1-20.md): a
+    # public tip without any observed quote stays visible ("UNPRICED"); only a
+    # quote below 1.20 withholds it. The old contract needs an executable price.
+    accepted_price_status = (
+        {"PLAYABLE", "UNPRICED", "UNAVAILABLE"} if floor_policy else {"PLAYABLE"})
     for row in [*candidates, *challenge_release_candidates]:
         if (
             not isinstance(row, dict)
             or row.get("status") != "RECOMMENDED"
-            or row.get("reference_price_status") != "PLAYABLE"
+            or row.get("reference_price_status") not in accepted_price_status
             or not _supported_automated_strict_source(row)
         ):
             return None
@@ -1159,6 +1166,16 @@ def _load_automated_wettfinder_document(
             candidate=row,
             now=generated,
         )
+        if row.get("reference_price_status") != "PLAYABLE":
+            # Unpriced under the floor policy: no execution fields, no quote
+            # below the floor, and any stored quote bound to this candidate.
+            if (
+                status.code == "BELOW_FLOOR"
+                or any(field in row for field in _REFERENCE_EXECUTION_FIELDS)
+                or (quote is not None and not quote_matches_candidate(quote, row))
+            ):
+                return None
+            continue
         if (
             not quote_matches_candidate(quote, row)
             or status.code != "PLAYABLE"

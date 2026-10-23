@@ -4102,6 +4102,8 @@ def run_wettfinder(
         dict(challenge_playable_by_key[key])
         for key in model_keys_in_order
         if key in challenge_playable_by_key
+        # The 15K ticket list keeps an observed price: a stake needs odds.
+        and challenge_playable_by_key[key].get("reference_price_status") == "PLAYABLE"
         and 0.58 - 1e-12 <= float(challenge_playable_by_key[key]["probability"]) <= 0.92 + 1e-12
         and float(challenge_playable_by_key[key]["conservative_probability"]) >= 0.55 - 1e-12
     ]
