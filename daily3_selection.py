@@ -56,7 +56,14 @@ class Daily3Choice:
 
     @property
     def price_blocked(self) -> bool:
-        """No real-money reservation without a credible minimum met by the admitted offer."""
+        """No real-money reservation without a credible minimum met by the admitted offer.
+
+        Since 23.10.2026 (owner decision) only the 1.20 floor blocks: an offer
+        below 1.20 withholds the reservation; no observed offer does not.
+        """
+        from market_consensus import floor_only_pricing
+        if floor_only_pricing():
+            return self.offer_odds is not None and self.offer_odds < MINIMUM_RECOMMENDED_DECIMAL_ODDS
         return self.minimum_odds is None or self.offer_odds is None or self.offer_odds < self.minimum_odds
 
     def snapshot(self):
@@ -98,6 +105,11 @@ def reservation_minimum_odds(signal):
     (model minus haircut) reaches the 3 % risk-adjusted ROI target. An unknown
     minimum stays unknown; it is never replaced by the floor (fail-closed).
     """
+    from market_consensus import floor_only_pricing
+    if floor_only_pricing():
+        # Owner decision 23.10.2026: the model's own minimum no longer gates a
+        # reservation anywhere; only the 1.20 floor does.
+        return float(MINIMUM_RECOMMENDED_DECIMAL_ODDS)
     minimum = getattr(signal, 'minimum_odds', None)
     if (isinstance(minimum, bool) or not isinstance(minimum, (int, float))
             or not math.isfinite(minimum) or minimum <= 1.0):

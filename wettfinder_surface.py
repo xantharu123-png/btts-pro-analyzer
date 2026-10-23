@@ -31,9 +31,11 @@ from forecast_compact import CompactAnalysis, build_compact_analysis, render_com
 from forecast_selection import select_consumer_forecasts, select_event_leads, validated_selection_rank
 from forecast_price_checks import has_current_price_check
 from quote_publication import publication_quote
+from betting_math import MINIMUM_RECOMMENDED_DECIMAL_ODDS
 from market_consensus import (
     MarketConsensus,
     ReferencePriceStatus,
+    floor_only_pricing,
     quote_matches_candidate,
     quote_below_publication_floor,
     observed_consensus,
@@ -330,7 +332,7 @@ def wettfinder_recommendation_candidate(
         ),
         blockers=(
             ()
-            if signal.minimum_odds is not None
+            if signal.minimum_odds is not None or floor_only_pricing()
             else ("Keine belastbare Value-Grenze berechenbar.",)
         ),
         evidence_stage=signal.evidence_stage,
@@ -384,12 +386,14 @@ def _price_copy(
         "INVALID_MINIMUM": ("Quote offen", "warning"),
         "EDGE_CAP": ("Abstand zum Markt zu gross", "warning"),
         "OBSERVED": ("Quote abgerufen", "neutral"),
+        "UNPRICED": ("Quote beim Buchmacher prüfen", "neutral"),
+        "BELOW_FLOOR": ("Unter 1,20", "muted"),
     }
     if status.code == "PLAYABLE":
         # Report only what the price check established; the user decides
         # whether to place a bet, independently of internal model status.
         return (
-            "Quote im Value-Bereich", "neutral",
+            "Quote über 1,20 beobachtet" if floor_only_pricing() else "Quote im Value-Bereich", "neutral",
             status.usable_odds, status.bookmaker,
         )
     label, tone = labels.get(status.code, ("Quote offen", "warning"))
@@ -477,12 +481,18 @@ def build_wettfinder_card(
         status = wettfinder_reference_price_status(admitted_quote, signal.minimum_odds,
             candidate=wettfinder_quote_binding_candidate(signal), now=now)
     released = signal.evidence_stage == "RELEASED"
-    confirmed_tip = bool(
-        released
-        and signal.statistical_release_passed is True
-        and status.code == "PLAYABLE"
-        and _overlay_matches(release_overlay, signal, normalized_quote, status)
-    )
+    if floor_only_pricing():
+        # Owner decision 23.10.2026: the model confirms the tip; price only
+        # withholds it below the 1.20 floor.
+        confirmed_tip = bool(
+            released and signal.statistical_release_passed is True and status.code != "BELOW_FLOOR")
+    else:
+        confirmed_tip = bool(
+            released
+            and signal.statistical_release_passed is True
+            and status.code == "PLAYABLE"
+            and _overlay_matches(release_overlay, signal, normalized_quote, status)
+        )
     price_label, price_tone, observed_odds, bookmaker = _price_copy(
         status,
         current_quote,
@@ -503,7 +513,8 @@ def build_wettfinder_card(
         selection=_clean_text(signal.selection or signal.label),
         model_probability=model_probability,
         cautious_probability=cautious_probability,
-        value_threshold=signal.minimum_odds,
+        value_threshold=(float(MINIMUM_RECOMMENDED_DECIMAL_ODDS) if floor_only_pricing()
+                         else signal.minimum_odds),
         observed_odds=observed_odds,
         bookmaker=bookmaker,
         price_code=status.code,
@@ -573,7 +584,9 @@ def _round_robin_by_sport(cards: Iterable[WettfinderCard]) -> list[WettfinderCar
 
 
 def _can_feature(card: WettfinderCard) -> bool:
-    if not card.highlight_eligible or not card.price_check_completed:
+    if not card.highlight_eligible:
+        return False
+    if not card.price_check_completed and not floor_only_pricing():
         return False
     if _token(card.sport) in {"fussball", "football"}:
         return card.highlight_comparison is not None
@@ -706,6 +719,8 @@ _PRICE_NOTES = {
     "UNAVAILABLE": "Quote fehlt · eigene Quote prüfen.",
     "INVALID_MINIMUM": "Die Value-Grenze ist aktuell nicht belastbar.",
     "EDGE_CAP": "Modell liegt zu weit über dem Marktkonsens · kein Tipp.",
+    "UNPRICED": "Mindestquote 1,20 beim Buchmacher prüfen.",
+    "BELOW_FLOOR": "Marktquote unter 1,20 · kein Tipp.",
 }
 
 
@@ -778,6 +793,8 @@ def quote_display_note(card: WettfinderCard) -> Optional[str]:
 def _top_card_markup(card: WettfinderCard, *, show_price: bool = True) -> str:
     metrics = ''
     price_details = ''
+    if floor_only_pricing():
+        show_price = False  # Owner decision 23.10.2026: no bookmaker prices in the app.
     if show_price:
         price = format_decimal_odds(card.observed_odds)
         bookmaker_note = quote_display_note(card)
@@ -982,6 +999,14 @@ def render_editorial_card_html(card: WettfinderCard, *, grouped=False, featured=
                    else f'{card.price_label} · {price_note}')
     status_html = (f'<p class="se-price-status se-tone-{escape(card.price_tone, quote=True)}">'
                    f'<strong>{escape(card.price_label)}</strong>{escape(status_text[len(card.price_label):])}</p>')
+    if floor_only_pricing():
+        # Owner decision 23.10.2026: no bookmaker quotes and no price status in
+        # the app; the card only names the 1.20 floor.
+        quote_html = ''
+        threshold_html = ('<div class="se-number se-number-threshold" title="Unter 1,20 wird nicht gespielt; '
+                          'Buchmacherquoten werden in der App nicht angezeigt.">'
+                          f'<span>Mindestquote</span><strong>{escape(format_decimal_odds(float(MINIMUM_RECOMMENDED_DECIMAL_ODDS)))}</strong></div>')
+        status_html = ''
     if card.compact_analysis is not None:
         compact = card.compact_analysis
         if not supporting_fact and featured and _can_feature(card) and card.highlight_comparison is not None:

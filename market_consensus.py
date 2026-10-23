@@ -550,6 +550,59 @@ class ReferencePriceStatus:
 
 
 EDGE_CAP_FLAG = "BETBOY_EDGE_CAP_PP"
+# Owner decision 23.10.2026 (docs/audits/2026-10-23-preisregel-1-20.md): the
+# bookmaker feed is no longer a release gate and is not shown in the app. Public
+# tips follow the model and the context gates; the only price rule is the 1.20
+# floor, checked in the background against the last observed market quote.
+# ``BETBOY_PRICE_POLICY=gate`` restores the previous execution contract
+# (freshness windows, lower quartile, model minimum odds, execution proof).
+PRICE_POLICY_FLAG = "BETBOY_PRICE_POLICY"
+PRICE_POLICY_FLOOR = "floor"
+PRICE_POLICY_GATE = "gate"
+FLOOR_PRICE_MAX_AGE = QUOTE_DISPLAY_MAX_AGE
+
+
+def price_policy() -> str:
+    import os
+    raw = os.environ.get(PRICE_POLICY_FLAG, PRICE_POLICY_FLOOR).strip().lower()
+    return PRICE_POLICY_GATE if raw == PRICE_POLICY_GATE else PRICE_POLICY_FLOOR
+
+
+def floor_only_pricing() -> bool:
+    """True when price is only the 1.20 floor (default since 23.10.2026)."""
+    return price_policy() == PRICE_POLICY_FLOOR
+
+
+def floor_price_status(
+    quote: Optional[MarketConsensus],
+    *,
+    now: Optional[datetime] = None,
+) -> ReferencePriceStatus:
+    """1.20 floor against the last observed market quote; never a release gate.
+
+    ``UNPRICED`` (no quote, or none observed within 24 hours) keeps the tip
+    visible: the user checks the 1.20 floor at the bookmaker. ``BELOW_FLOOR``
+    means no bookmaker offered 1.20 or more, so the tip is withheld.
+    """
+    if quote is None or not quote.points:
+        return ReferencePriceStatus(
+            "UNPRICED", "Keine Marktquote beobachtet; Mindestquote 1,20 beim Buchmacher pruefen", None)
+    current = _as_utc(now or datetime.now(timezone.utc))
+    observed = []
+    for point in quote.points:
+        stamp = _point_observed_at(point, quote.quoted_at)
+        if stamp is not None and timedelta(minutes=-1) <= current - stamp <= FLOOR_PRICE_MAX_AGE:
+            observed.append(point)
+    if not observed:
+        return ReferencePriceStatus(
+            "UNPRICED", "Letzte Marktquote ist aelter als 24 Stunden; Mindestquote 1,20 beim Buchmacher pruefen", None)
+    best = max(observed, key=lambda point: point.odds)
+    if best.odds + 1e-9 < MINIMUM_RECOMMENDED_DECIMAL_ODDS:
+        return ReferencePriceStatus("BELOW_FLOOR", "Marktquote liegt unter 1,20; kein Tipp", None)
+    return ReferencePriceStatus(
+        "PLAYABLE", "Marktquote ueber 1,20 beobachtet; Preis beim Buchmacher pruefen", best.odds,
+        bookmaker=best.bookmaker, bookmaker_id=best.bookmaker_id, observed_at=best.observed_at,
+    )
 
 
 def edge_cap_pp() -> Optional[float]:
@@ -612,6 +665,8 @@ def reference_price_status(
     model_probability: Optional[float] = None,
 ) -> ReferencePriceStatus:
     """Classify a reference price without changing the model forecast."""
+    if floor_only_pricing():
+        return floor_price_status(quote, now=now)
     if quote is None:
         return ReferencePriceStatus(
             "UNAVAILABLE",
@@ -872,6 +927,10 @@ def wettfinder_reference_price_status(
     provider ID plus its own parseable observation timestamp.
     """
 
+    if floor_only_pricing():
+        if quote is not None and candidate is not None and not quote_matches_candidate(quote, candidate):
+            return floor_price_status(None, now=now)
+        return floor_price_status(quote, now=now)
     if quote is not None and candidate is not None:
         modeled_selection = str(
             _candidate_value(candidate, "selection") or ""
@@ -2743,6 +2802,10 @@ __all__ = [
     "QuotePoint",
     "REFERENCE_FETCH_MAX_AGE",
     "REFERENCE_QUOTE_MAX_AGE",
+    "PRICE_POLICY_FLAG",
+    "floor_only_pricing",
+    "floor_price_status",
+    "price_policy",
     "REFERENCE_SOURCE",
     "ReferencePriceStatus",
     "challenge_quote_matches_candidate",

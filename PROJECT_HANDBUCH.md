@@ -494,6 +494,12 @@ Der neue verbindliche Preisweg lautet:
    Freigabeschwelle. Für Ticketrechnung und Persistenz zählt ausschließlich das
    tatsächlich beobachtete Anbieterangebot direkt an oder oberhalb dieser
    Schwelle; ein interpoliertes Quartil ist keine spielbare Quote.
+   *Stand 23.10.2026:* Die Punkte 5 und 6 gelten nur noch unter
+   `BETBOY_PRICE_POLICY=gate`. Standard ist `floor`: Tipps erscheinen nach
+   Modell- und Kontextgates; die Karte zeigt nur „Mindestquote 1,20“, keine
+   Buchmacherquote und keinen Preisstatus; zurückgehalten wird nur, wenn die
+   zuletzt beobachtete Marktquote unter 1,20 liegt
+   (`docs/audits/2026-10-23-preisregel-1-20.md`).
 5. Abrufzeit und sämtliche beitragenden Provider-Zeitstempel werden getrennt
    validiert: Der Abruf darf höchstens 35 Minuten, jeder Einzelpreis höchstens
    45 Minuten alt sein. Der neueste Punkt darf ältere Beiträge nicht als frisch

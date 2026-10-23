@@ -26,6 +26,11 @@ def _odds_text(value):
     return '–' if value is None else f'{float(value):.2f}'.replace('.', ',')
 
 
+def _floor_only():
+    from market_consensus import floor_only_pricing
+    return floor_only_pricing()
+
+
 def _reservation_block_reason(choice):
     """Why real money may not be reserved on this choice right now ('' = allowed)."""
     if not reservation_minimum_enforced():
@@ -338,6 +343,9 @@ def render_daily3(st, *, snapshot_loader=None, store_factory=None, now=None):
             block_reason = _reservation_block_reason(choice)
             if block_reason:
                 st.warning(block_reason)
+            elif reservation_minimum_enforced() and _floor_only():
+                st.caption('Mindestquote für eine Vormerkung: 1,20. Buchmacherquoten werden hier nicht angezeigt; '
+                           'der Preis wird beim Buchmacher geprüft.')
             elif reservation_minimum_enforced():
                 st.caption(f'Mindestquote für diese Auswahl: {_odds_text(choice.minimum_odds)} · zuletzt beobachtet '
                            f'{_odds_text(choice.offer_odds)}. Preis, ab dem die vorsichtige Modellrechnung 3 % '
