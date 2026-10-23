@@ -99,6 +99,12 @@ The legal footer links come from `BETBOY_LEGAL_URL`, `BETBOY_PRIVACY_URL` and
 set the footer states that operator information and privacy notice are not yet
 published. The portal reads the same names from `/etc/betboy/portal.env` and
 additionally needs `BETBOY_LEGAL_READY=1` (see `check_customer_launch`).
+After a provider plan change (for example the API-Football tier expiring and
+being paid again) run `/opt/betboy/venv/bin/python scripts/api_budget_resync.py`
+as the app user once: it makes one governed `/status` call and replaces the
+ledger's stale daily estimate with the provider's count (since 23 October 2026
+a larger provider limit always wins; within one plan the estimate never rises).
+
 The football shadow runner (`shadow_clv_automation`) evaluates every fixture a
 second time with the coherent Dixon-Coles hybrid and logs that cohort under its
 own model version next to the legacy cohort; `BETBOY_SHADOW_HYBRID_BASIS=0`

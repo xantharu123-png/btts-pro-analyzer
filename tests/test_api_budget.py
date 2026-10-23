@@ -100,6 +100,40 @@ def test_provider_header_can_lower_but_not_raise_conservative_estimate(tmp_path)
     assert governor.snapshot(api_key=key).remaining_estimate == 10
 
 
+def test_plan_upgrade_during_the_day_replaces_the_stale_estimate(tmp_path):
+    """23.10.2026: the free tier (100/day) was paid up to Pro (7 500/day) at midday.
+
+    Within one plan the estimate never rises; a higher provider limit means a
+    new plan, and only the provider's own count is then truthful.
+    """
+    governor = _governor(tmp_path)
+    key = "key"
+    first = governor.reserve(api_key=key, endpoint="fixtures", priority=APIBudgetPriority.RECOMMENDATION)
+    governor.complete(first, response_headers={
+        "x-ratelimit-requests-limit": "10", "x-ratelimit-requests-remaining": "9"}, http_status=200)
+    assert (governor.snapshot(api_key=key).daily_limit, governor.snapshot(api_key=key).remaining_estimate) == (10, 9)
+    # Still the small plan: the header can only lower.
+    second = governor.reserve(api_key=key, endpoint="fixtures", priority=APIBudgetPriority.CRITICAL)
+    governor.complete(second, response_headers={
+        "x-ratelimit-requests-limit": "10", "x-ratelimit-requests-remaining": "9"}, http_status=200)
+    assert governor.snapshot(api_key=key).remaining_estimate == 8
+    # Plan upgrade: the provider now reports a larger limit, the stale estimate is replaced.
+    third = governor.reserve(api_key=key, endpoint="status", priority=APIBudgetPriority.CRITICAL)
+    governor.complete(third, response_headers={
+        "x-ratelimit-requests-limit": "20", "x-ratelimit-requests-remaining": "17"}, http_status=200)
+    snapshot = governor.snapshot(api_key=key)
+    assert (snapshot.daily_limit, snapshot.remaining_estimate) == (20, 17)
+    # The same through the authoritative account status.
+    reconciled = governor.reconcile_usage(api_key=key, used=2, daily_limit=20)
+    assert reconciled.remaining_estimate == 17  # unchanged plan: still never raised above the estimate
+    governor.complete(governor.reserve(api_key=key, endpoint="x", priority=APIBudgetPriority.CRITICAL),
+                      response_headers={"x-ratelimit-requests-limit": "20", "x-ratelimit-requests-remaining": "5"},
+                      http_status=200)
+    assert governor.snapshot(api_key=key).remaining_estimate == 5
+    upgraded = governor.reconcile_usage(api_key=key, used=1, daily_limit=30)
+    assert (upgraded.daily_limit, upgraded.remaining_estimate) == (30, 29)
+
+
 def test_quota_day_resets_without_copying_prior_usage(tmp_path):
     governor = _governor(tmp_path)
     start = datetime(2026, 8, 2, 23, 59, tzinfo=timezone.utc)

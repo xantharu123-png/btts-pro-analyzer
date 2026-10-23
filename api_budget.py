@@ -403,14 +403,22 @@ class APIBudgetGovernor:
                 if row is not None:
                     current_remaining = int(row["remaining_estimate"])
                     current_limit = int(row["daily_limit"])
+                    stored_limit = current_limit
                     if provider_limit is not None and provider_limit > 0:
                         current_limit = provider_limit
                     if provider_remaining is not None:
-                        current_remaining = min(
-                            current_remaining,
-                            provider_remaining,
-                            current_limit,
-                        )
+                        if current_limit > stored_limit:
+                            # The plan grew during the quota day (23.10.2026: free
+                            # tier back to Pro). The stored estimate describes the
+                            # old plan, so the provider's own count replaces it;
+                            # within one plan the estimate still never rises.
+                            current_remaining = min(provider_remaining, current_limit)
+                        else:
+                            current_remaining = min(
+                                current_remaining,
+                                provider_remaining,
+                                current_limit,
+                            )
                     connection.execute(
                         """
                         UPDATE api_budget_state
@@ -518,17 +526,18 @@ class APIBudgetGovernor:
                 connection.execute("BEGIN IMMEDIATE")
                 row = connection.execute(
                     """
-                    SELECT remaining_estimate
+                    SELECT remaining_estimate, daily_limit
                     FROM api_budget_state
                     WHERE provider=? AND account_hash=? AND quota_day=?
                     """,
                     (provider, account, day),
                 ).fetchone()
-                remaining = (
-                    min(int(row["remaining_estimate"]), provider_remaining)
-                    if row is not None
-                    else provider_remaining
-                )
+                if row is None or daily_limit > int(row["daily_limit"]):
+                    # No estimate yet, or the plan grew during the day: the
+                    # provider's account status is the only truthful count.
+                    remaining = provider_remaining
+                else:
+                    remaining = min(int(row["remaining_estimate"]), provider_remaining)
                 connection.execute(
                     """
                     INSERT INTO api_budget_state (
