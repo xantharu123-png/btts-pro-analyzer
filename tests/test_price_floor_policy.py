@@ -131,6 +131,43 @@ def _release_row(**overrides):
     return row
 
 
+def test_model_view_shows_no_minimum_quote_hint(monkeypatch):
+    import bet_finder_ui as ui
+    from tests.test_bet_finder_ui import _binding, _candidate, _quote
+    shown = []
+    for name in ("subheader", "write", "caption", "info"):
+        monkeypatch.setattr(ui.st, name, lambda value, _shown=shown: _shown.append(str(value)))
+    monkeypatch.setattr(ui, "evaluate_reference_price",
+                        lambda *args, **kwargs: pytest.fail("model view must not evaluate a quote"))
+    quote = _quote()
+    ui.render_model_selection(_candidate(), reference_quote=quote, reference_binding_candidate=_binding(quote))
+    copy = " ".join(shown)
+    assert "Modell: 65.0 %" in copy
+    assert "Mindestquote" not in copy and "1,20" not in copy and "1.80" not in copy
+
+
+def test_daily3_reservation_shows_no_minimum_quote_hint(tmp_path, monkeypatch):
+    from streamlit.testing.v1 import AppTest
+    from tests.test_daily3_ui import _render_priced
+    monkeypatch.delenv("BETBOY_DAILY3_RESERVATION_MINIMUM", raising=False)
+    app = AppTest.from_function(_render_priced, args=(str(tmp_path / "floor.db"), 2.0, 1.8)).run(timeout=30)
+    assert not app.exception
+    assert any("Heimteam 1" in item.value for item in app.markdown)
+    texts = [item.value for group in (app.caption, app.warning, app.info, app.markdown) for item in group]
+    assert not any("Mindestquote" in text for text in texts)
+
+
+def test_tennis_card_shows_neither_last_quote_nor_minimum_quote_hint():
+    from streamlit.testing.v1 import AppTest
+    from tests.test_tennis_tab import _run_price_check
+    at = AppTest.from_function(_run_price_check)
+    at.run(timeout=60)
+    assert len(at.exception) == 0
+    labels = [metric.label for metric in at.metric]
+    assert "Modell" in labels and "Letzte Quote" not in labels
+    assert not any("Mindestquote" in item.value for item in at.caption)
+
+
 def test_release_needs_validated_model_and_passed_context_not_confirmed_lineups(monkeypatch):
     import challenge_engine as engine
     from ev_signal_sources import _football_recommendation_release_eligible
