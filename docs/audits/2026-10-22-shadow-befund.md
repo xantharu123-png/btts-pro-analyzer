@@ -49,5 +49,11 @@ erreichbar. Beide Punkte brauchen Owner-Entscheidungen:
    eine zweite Quelle mit häufigeren Aktualisierungen nötig ist. Das ändert einen
    Evidenzvertrag (`clv_tracker`) und wird daher nicht ohne Freigabe umgesetzt.
 
+**Nachtrag 23.10.2026:** Der Pro-Tarif ist seit 14:50 CEST wieder aktiv (vorausbezahlt bis 23.10.2027;
+der Tarif war am 19.10. schlicht abgelaufen). Der lokale Budgetzähler hatte das 100er-Limit für den
+laufenden Tag gespeichert und erhöhte Schätzungen nie; seit 23.10. ersetzt ein höheres Providerlimit
+(Tarifwechsel) die veraltete Schätzung in `complete()` und `reconcile_usage()`, und
+`scripts/api_budget_resync.py` gleicht den Zähler mit einem CRITICAL-Statusaufruf ab.
+
 Nebenbefund: 91 Zeilen in `shadow_fixtures` aus Juli/August stehen noch auf `evaluated = 0`;
 sie liegen ausserhalb jedes Fensters und sind wirkungslos, aber Datenmüll.

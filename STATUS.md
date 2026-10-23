@@ -30,13 +30,13 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 - Kohärenter Hybrid `dixon_coles_hl365_hybrid` (eine Matrix: DC-Struktur, Legacy-Torsumme) ist das beste Modell: 148 Zellen signifikant besser als Legacy, 111 schlechter; im Release-Gate 262 statt 224 glaubwürdige Zellen, kein Markt verliert. Venue-spezifisches DC (H4) widerlegt; kein Modell schlägt den Markt.
 - Marktwahrscheinlichkeit (No-Vig, Shin/Power) liegt jetzt aus den gespeicherten Buchmacher-Partitionen vor; die Edge-Kappung (Default aus) nutzt sie.
 - Hybrid-Aktivierung vorbereitet: eigene Prediction-Version und Vertragssignatur, ORIGINAL-Erfassung und Replay für die Hybrid-Basis, Shadow-Kohorte neben Legacy (`docs/superpowers/plans/2026-10-22-hybrid-aktivierung.md`). Produktionsbasis bleibt Legacy.
-- **Shadow sammelt keine Evidenz** (`docs/audits/2026-10-22-shadow-befund.md`): API-Football-Limit seit 19.10. bei 100 Aufrufen je Tag (vorher 7 500), dadurch keine Spielpläne ab 21.10.; die Zehn-Minuten-Frischeregel der Öffnungsquote hatte seit Anfang Oktober jede Protokollierung blockiert (2 Tipps seit 1.9.). Owner-Entscheidung 23.10.: Öffnungsquote bis drei Stunden Provider-Alter, Alter je Tipp im Ledger, Policy `shadow-model-first-v6` (`docs/audits/2026-10-23-oeffnungsquote-frischeregel.md`). Offen bleibt das API-Kontingent.
+- **Shadow sammelt keine Evidenz** (`docs/audits/2026-10-22-shadow-befund.md`): API-Football-Limit seit 19.10. bei 100 Aufrufen je Tag (vorher 7 500), dadurch keine Spielpläne ab 21.10.; die Zehn-Minuten-Frischeregel der Öffnungsquote hatte seit Anfang Oktober jede Protokollierung blockiert (2 Tipps seit 1.9.). Owner-Entscheidung 23.10.: Öffnungsquote bis drei Stunden Provider-Alter, Alter je Tipp im Ledger, Policy `shadow-model-first-v6` (`docs/audits/2026-10-23-oeffnungsquote-frischeregel.md`). Das API-Kontingent ist seit 23.10. wieder Pro (7 500/Tag); der lokale Zähler übernimmt ein höheres Providerlimit seit demselben Tag sofort (`api_budget`, `scripts/api_budget_resync.py`).
 
 ## Offen
 
 | Wer | Was |
 |---|---|
-| Owner | **API-Football-Abonnement prüfen** (seit 19.10. Limit 100 je Tag; Shadow, Historien und Spielpläne scheitern) |
+| Claude | API-Football Pro ist seit 23.10. 14:50 CEST wieder aktiv (bis 23.10.2027); Budgetzähler nach dem Release per `scripts/api_budget_resync.py` abgleichen, dann Tagesscan |
 | Owner | Impressum/Datenschutz/AGB ausfüllen, prüfen lassen, URLs setzen |
 | Codex | Branch integrieren, Konflikte lösen, Prüfbefehle, Release vorbereiten (`docs/handoffs/2026-10-21-codex-auftrag.md`) |
 | Codex | Linux-Vollnachweis über die VPS-QA-Launcher (Gruppen A/B); der 7-GB-GitHub-Runner trägt die Suite auch halbiert nicht (Exit 137), zusätzlich 21 runner-spezifische Fehlschläge in `test_native_context_*` |
