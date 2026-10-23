@@ -71,18 +71,18 @@ def test_real_manual_worker_retains_complete_model_pool_before_coherence(monkeyp
         'RESULT_HOME', 'RESULT_AWAY', 'DC_1X', 'DC_X2'}
 
 
-def test_real_manual_renderer_selects_lead_before_probability_order(monkeypatch):
+def test_real_manual_renderer_selects_most_probable_lead_before_game_order(monkeypatch):
     now = datetime.now(timezone.utc)
     home = candidate('RESULT_HOME', .60, .20, now=now)
     cover = candidate('TOTAL_UNDER_4_5', .90, .03, now=now)
     other = candidate('RESULT_HOME', .75, .10, fixture=2, now=now)
-    rows = [cover, other, home]
+    rows = [home, other, cover]
     render, surface, snapshot = _render(monkeypatch, rows)
     surface.markdown = lambda text, **_: surface.messages.append(text)
     before = deepcopy(snapshot)
     # Equal kickoffs retain producer game order, not probability order. Keep
-    # the legacy ID and the statistical lead ahead of its broader secondary.
-    assert render(SearchFilters()) == ['1:RESULT_HOME', '1:TOTAL_UNDER_4_5', '2:RESULT_HOME']
+    # the legacy ID; the most probable market leads its game (owner 23.10.2026).
+    assert render(SearchFilters()) == ['1:TOTAL_UNDER_4_5', '1:RESULT_HOME', '2:RESULT_HOME']
     assert 'Weitere Märkte' in ' '.join(surface.messages)
     assert snapshot == before
 
@@ -91,7 +91,7 @@ def test_manual_price_filter_never_selects_opposite_or_promotes_cover(monkeypatc
     now = datetime.now(timezone.utc)
     home = candidate('RESULT_HOME', .60, .20, now=now)
     away = candidate('RESULT_AWAY', .40, .25, now=now)
-    cover = candidate('TOTAL_UNDER_4_5', .90, .03, now=now)
+    cover = candidate('TOTAL_UNDER_4_5', .50, .03, now=now)
     render, surface, _ = _render(monkeypatch, [away, cover, home], quotes={
         home.candidate_id: _quote(home, 1.12, now),
         away.candidate_id: _quote(away, 3.0, now),
@@ -128,8 +128,10 @@ def test_real_15k_model_renderer_never_promotes_a_priced_secondary(home_price, e
     import wettfinder_identity
     from market_consensus import serialize_consensus_map
     now = datetime.now(timezone.utc)
+    # The lead is the most probable market (owner 23.10.2026); a priced but
+    # less probable cover must not replace an unpriced or low-priced lead.
     home = candidate('RESULT_HOME', .60, .20, now=now)
-    cover = candidate('TOTAL_UNDER_4_5', .90, .03, now=now)
+    cover = candidate('TOTAL_UNDER_4_5', .50, .03, now=now)
     rows = [cover, home]
     quotes = {cover.candidate_id: _quote(cover, 1.80, now)}
     if home_price is not None:

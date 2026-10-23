@@ -250,7 +250,9 @@ erscheint, sobald Modell- und Kontextgates bestanden sind; Buchmacherquoten
 werden in der App nicht gezeigt und dienen im Hintergrund allein dazu, Tipps
 unter 1,20 zurückzuhalten (zuletzt beobachtetes bestes Angebot, bis 24 Stunden
 alt). Ohne beobachtete Quote bleibt der Tipp sichtbar; der Nutzer prüft die
-1,20-Grenze beim Buchmacher. Modell vor Preis bleibt unberührt.
+1,20-Grenze beim Buchmacher. Modell vor Preis bleibt unberührt. Seit dem Abend
+des 23.10.2026 nennt die Karte auch keine Mindestquote mehr; die 1,20-Grenze
+wirkt nur im Hintergrund (`docs/audits/2026-10-23-hauptauswahl-wahrscheinlichkeit.md`).
 
 ### 3.8 Statistischer Freigabevertrag
 
@@ -321,6 +323,13 @@ Der VPS führt für Fußball einmal pro Zieldatum eine Discovery über alle 51
 konfigurierten Ligen aus. Spätere halbstündliche Läufe prüfen nur gespeicherte
 Kandidaten kurz vor dem Anpfiff. Dadurch werden nicht alle 51 Ligen bei jedem
 Aufwachpunkt erneut belastet.
+
+**Owner-Entscheidung 23.10.2026** (`docs/audits/2026-10-23-hauptauswahl-wahrscheinlichkeit.md`):
+Innerhalb eines Spiels ist die Hauptauswahl die angezeigte Auswahl mit der
+höchsten Modellwahrscheinlichkeit (gleiche Teilnehmer, gleiche Modellrevision);
+die übrigen Märkte folgen als „Weitere Märkte“. Das ist eine Darstellungsregel,
+kein Gate: jede angezeigte Auswahl hat dieselben Modell-, Statistik- und
+Kontextgates bestanden. Die Karte nennt weder Buchmacherquote noch Mindestquote.
 
 Die App zeigt dem Nutzer den Ergebnisstand, höchstens drei noch nicht
 gestartete Top-Auswahlen und gruppierte weitere Modellprognosen. Interne

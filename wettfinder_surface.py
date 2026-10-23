@@ -664,7 +664,10 @@ def compose_wettfinder_catalog(
     ):
         raise ValueError("max_featured must be a positive integer")
     coherent = select_consumer_forecasts(cards)
-    event_leads = tuple(card for card in select_event_leads(coherent) if card.selection_rank is not None)
+    # Owner decision 23.10.2026: the lead of a game is its most probable shown
+    # selection within one model revision; pools without a comparable
+    # revision get no lead instead of an invented one.
+    event_leads = tuple(select_event_leads(coherent, require_comparable=True))
     ranked_events = {_fixture_identity(card) for card in event_leads}
     lead_keys = {card.key for card in event_leads}
     original = [card for card in coherent if not card.quote_floor_excluded]
@@ -1000,12 +1003,11 @@ def render_editorial_card_html(card: WettfinderCard, *, grouped=False, featured=
     status_html = (f'<p class="se-price-status se-tone-{escape(card.price_tone, quote=True)}">'
                    f'<strong>{escape(card.price_label)}</strong>{escape(status_text[len(card.price_label):])}</p>')
     if floor_only_pricing():
-        # Owner decision 23.10.2026: no bookmaker quotes and no price status in
-        # the app; the card only names the 1.20 floor.
+        # Owner decision 23.10.2026: no bookmaker quotes, no price status and
+        # no minimum-quote cell in the app; the 1.20 floor works only in the
+        # background (docs/audits/2026-10-23-hauptauswahl-wahrscheinlichkeit.md).
         quote_html = ''
-        threshold_html = ('<div class="se-number se-number-threshold" title="Unter 1,20 wird nicht gespielt; '
-                          'Buchmacherquoten werden in der App nicht angezeigt.">'
-                          f'<span>Mindestquote</span><strong>{escape(format_decimal_odds(float(MINIMUM_RECOMMENDED_DECIMAL_ODDS)))}</strong></div>')
+        threshold_html = ''
         status_html = ''
     if card.compact_analysis is not None:
         compact = card.compact_analysis

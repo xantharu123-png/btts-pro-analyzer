@@ -26,14 +26,30 @@ def validated_selection_rank(value):
     return rank if all(math.isfinite(number) for number in rank) else None
 
 
-def select_event_leads(rows, *, revision_anchors=None):
-    """Choose one statistical lead per already coherent canonical event pool.
+def _model_probability(row):
+    """Finite model probability of a row; anything else cannot lead a game."""
+    value = getattr(row, 'probability', None)
+    if value is None:
+        value = getattr(row, 'model_probability', None)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    return number if math.isfinite(number) else None
 
-    Compare the producer's existing rank only within the first/current row's
-    participant and model revision. Missing ranks preserve canonical legacy
-    preference. Quotes, marginal probabilities and display sorting are absent.
-    Explicit revision anchors restrict a publication fallback to ranked rows
-    from that exact original cohort; an unknown binding admits no fallback.
+
+def select_event_leads(rows, *, revision_anchors=None, require_comparable=False):
+    """Choose the most probable selection per already coherent canonical event pool.
+
+    Owner decision 23.10.2026 (docs/audits/2026-10-23-hauptauswahl-wahrscheinlichkeit.md):
+    the lead of a game is the shown selection with the highest model
+    probability, compared only within the first/current row's participant and
+    model revision. The producer's statistical rank (``selection_rank``) stays
+    on the rows for the catalog order but no longer picks the lead. Quotes and
+    display sorting are absent. A pool without a comparable revision keeps the
+    canonical legacy preference (its first row) unless ``require_comparable``
+    is set, in which case it gets no lead. Explicit revision anchors restrict a
+    publication fallback to rows from that exact original cohort; an unknown
+    binding admits no fallback.
     """
     grouped = {}
     for row in rows:
@@ -62,11 +78,11 @@ def select_event_leads(rows, *, revision_anchors=None):
             continue
         current_revision = revision(first)
         comparable = [row for row in pool if current_revision is not None and revision(row) == current_revision
-                      and validated_selection_rank(getattr(row, 'selection_rank', None)) is not None]
-        if anchored and not comparable:
+                      and _model_probability(row) is not None]
+        if not comparable and (anchored or require_comparable):
             continue
         lead = min(comparable, key=lambda row: (
-            tuple(-number for number in validated_selection_rank(row.selection_rank)), _stable_key(row)
+            -_model_probability(row), _stable_key(row)
         )) if comparable else first
         leads.append(lead)
     return leads

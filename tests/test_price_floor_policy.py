@@ -98,17 +98,18 @@ def test_price_decision_bets_a_released_tip_at_any_odds_from_1_20(monkeypatch):
     assert gated.status == "NO_BET"
 
 
-def test_card_shows_no_bookmaker_quote_and_only_the_1_20_floor():
+def test_card_shows_neither_bookmaker_quote_nor_minimum_quote():
     signal = _signal(stage="RELEASED", statistical_release_passed=True)
     card = surface.build_wettfinder_card(signal, _quote(signal, fetched_at=NOW - timedelta(hours=4)), now=NOW)
     assert card.value_threshold == 1.2 and card.price_code == "PLAYABLE"
     assert card.evidence_label == "Modell geprüft"
     html = surface.render_editorial_card_html(card)
     assert "se-number-quote" not in html and "se-price-status" not in html
-    assert "Mindestquote</span><strong>1.20" in html
+    # Owner 23.10.2026 (evening): the 1.20 floor works only in the background.
+    assert "Mindestquote" not in html and "se-number-threshold" not in html
     unpriced = surface.build_wettfinder_card(signal, None, now=NOW)
     assert unpriced.price_code == "UNPRICED" and unpriced.evidence_label == "Modell geprüft"
-    assert "Mindestquote</span><strong>1.20" in surface.render_editorial_card_html(unpriced)
+    assert "Mindestquote" not in surface.render_editorial_card_html(unpriced)
     top = surface.render_top_card_html(card) if hasattr(surface, "render_top_card_html") else ""
     assert "Risikopreis ab" not in top
 
