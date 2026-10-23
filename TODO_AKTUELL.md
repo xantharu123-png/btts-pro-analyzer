@@ -1,5 +1,24 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 23.10.2026 – Preisregel 1,20 live: Buchmacherquoten kein Gate mehr
+
+Owner-Entscheidung (Chat, 23.10.): Buchmacherquoten gehören nicht in die App; sie sichern im
+Hintergrund nur die 1,20-Grenze. Vertragsänderung `docs/audits/2026-10-23-preisregel-1-20.md`
+(PR #14): Tipps erscheinen nach Modell- und Kontextgates, `UNPRICED` bleibt sichtbar, nur
+`BELOW_FLOOR` sperrt; Karte nur „Mindestquote 1,20“; Daily3 und Preisentscheidung nur 1,20;
+`BETBOY_PRICE_POLICY=gate` hält den alten Vertrag für Vergleiche vor (nicht setzen).
+Quellcommit **`74fd7e4e670e346cee5d27ad579c96cbcfb730cc`** um 19:23 CEST per No-Backup-Fast-forward
+von `aa4baa9` ausgerollt (Helfer `output/release-20261023-3/deploy.sh`, 18 Pfade, nur App-Neustart
+PID 1295384 → 1301953, Healthchecks ok, Snapshots unverändert, Offline-Smoke bestätigt die aktive
+Preisregel). Hintergrund: seit 10.10. null öffentliche Fussball-Tipps, weil die 45-Minuten-Frische
+beim Drei-Stunden-Takt von API-Football nie erreichbar war (57 Quotenläufe ohne spielbaren Preis).
+Danach zeigte der Scan weiter null Tipps: der Freigabekontext verlangte bestätigte Aufstellungen (zum
+Scanzeitpunkt nie vorhanden) und die Freigabeprüfungen genau 96 Hypothesen (seit FDR über Ligen 864).
+Fix in PR #15 (`context_release_eligible`, `hypothesis_count_is_catalog_multiple`), als
+**`e00ff6e032ea8ea81d696d4144839ddc71f6af35`** um 19:45 CEST ausgerollt (6 Pfade, PID 1301953 → 1303949,
+Healthchecks ok, Snapshots unverändert).
+Scan um 19:47 CEST: 3 öffentliche Fussball-Tipps (RELEASED, PLAYABLE) für die Abendspiele, 1 Kandidat in der 15K-Freigabeliste, 23 Spiele, 253 zugelassene Kandidaten, 0 Betriebsfehler. Die ersten öffentlichen Fussball-Tipps seit dem 10.10.
+
 ## 23.10.2026 – Pro-Tarif wieder aktiv, Zähler-Fix live, Tagesscan nachgeholt
 
 Owner hat den API-Football-Pro-Tarif um 14:50 CEST bezahlt (7 500/Tag, bis 23.10.2027; der Tarif
