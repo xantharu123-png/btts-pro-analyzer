@@ -1,5 +1,20 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## 23.10.2026 – Pro-Tarif wieder aktiv, Zähler-Fix live, Tagesscan nachgeholt
+
+Owner hat den API-Football-Pro-Tarif um 14:50 CEST bezahlt (7 500/Tag, bis 23.10.2027; der Tarif
+war am 19.10. abgelaufen). Der lokale Budgetzähler hielt für den 23.10. am 100er-Limit fest;
+Fix in PR #12 (`api_budget`: höheres Providerlimit ersetzt die Schätzung) plus
+`scripts/api_budget_resync.py`, als **`aa4baa9848c859719cb6ff86a440dfa816068845`** um 15:04 CEST
+per No-Backup-Fast-forward von `4fdeba9` ausgerollt (Helfer `output/release-20261023-2/deploy.sh`,
+9 Pfade, nur App-Neustart PID 1291312 → 1295384, Healthchecks ok, Snapshots unverändert).
+Resync um 15:08: Zähler 100/99 → 7 500/7 499. Tagesscan dreimal manuell gestartet (15:08
+teilweise blockiert, 15:27 Wiederholungssperre, 15:54 vollständig): Stand 16:07 CEST
+`completed`, 23 Spiele mit verifiziertem Kontext, 269 Basis-/254 zugelassene Kandidaten, 144
+Fussball-Modellkandidaten (SHADOW), 0 Betriebsfehler, 583 API-Aufrufe verbraucht. Öffentlich
+freigegebene Tipps entstehen mit der Quotenaktualisierung (18:15) und dem Kontext vor Anpfiff.
+Belege ausserhalb Git: `output/release-20261023-2/`.
+
 ## 23.10.2026 – Frischeregel der Öffnungsquote (Policy v6) auf dem VPS live
 
 Quellcommit **`4fdeba90319b6429d05158e45f1f35ac4578f1ab`** (main nach PR #8–#10) am 23.10.2026
