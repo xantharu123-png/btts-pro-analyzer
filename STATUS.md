@@ -8,7 +8,7 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 
 | Bereich | Status |
 |---|---|
-| Produktion (VPS) | `4fdeba9` live seit 23.10.2026 07:25 CEST (No-Backup-Fast-forward von `fd45176`, Beleg `output/release-20261023/deploy-01.log` ausserhalb Git); Shadow-Kohorten mit Policy v6 |
+| Produktion (VPS) | `aa4baa9` live seit 23.10.2026 15:04 CEST (No-Backup-Fast-forward von `4fdeba9`, Beleg `output/release-20261023-2/deploy-01.log` ausserhalb Git); Pro-Tarif aktiv, Zähler abgeglichen, Tagesscan 16:07 `completed` |
 | `origin/main` | Stand nach Merge von PR #10 (Frischeregel 3 h, Policy v6) am 23.10.2026; enthält PR #7 (`fd45176`, live), #8/#9 (Doku), enthält PR #1 (`62e6e73`), #2 (`24837c3`), #3 (`08b7473`), #4 (`9b0382f`), #5 (`be6258c`, Hybrid-Aktivierung vorbereitet), #6 (`a6661a6`, Edge-Cap-Protokoll); Quick-CI grün |
 | Offene Claude-Branches | keine |
 | Codex-Worktree | `.worktrees/audit-repairs-20261013`, 7 unveröffentlichte Commits, 18 ungesicherte Änderungen; muss `main` einmergen (`docs/handoffs/2026-10-21-codex-auftrag.md`) |
@@ -36,7 +36,6 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 
 | Wer | Was |
 |---|---|
-| Claude | API-Football Pro ist seit 23.10. 14:50 CEST wieder aktiv (bis 23.10.2027); Budgetzähler nach dem Release per `scripts/api_budget_resync.py` abgleichen, dann Tagesscan |
 | Owner | Impressum/Datenschutz/AGB ausfüllen, prüfen lassen, URLs setzen |
 | Codex | Branch integrieren, Konflikte lösen, Prüfbefehle, Release vorbereiten (`docs/handoffs/2026-10-21-codex-auftrag.md`) |
 | Codex | Linux-Vollnachweis über die VPS-QA-Launcher (Gruppen A/B); der 7-GB-GitHub-Runner trägt die Suite auch halbiert nicht (Exit 137), zusätzlich 21 runner-spezifische Fehlschläge in `test_native_context_*` |
