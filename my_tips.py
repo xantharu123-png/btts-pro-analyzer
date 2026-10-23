@@ -61,11 +61,16 @@ def render_saved_tips() -> None:
                 metrics[0].metric("Modell", f"{tip.model_probability:.1f} %")
                 metrics[1].metric("Quote", "Nicht geprüft")
             else:
-                metrics = st.columns(4)
-                metrics[0].metric("Modell", f"{tip.model_probability:.1f} %")
-                metrics[1].metric("Konservativ", f"{tip.risk_adjusted_probability:.1f} %")
-                metrics[2].metric("Mindestquote", f"{tip.minimum_odds:.2f}")
-                metrics[3].metric("Quote", f"{tip.quoted_odds:.2f}")
+                from market_consensus import floor_only_pricing
+                values = [("Modell", f"{tip.model_probability:.1f} %"),
+                          ("Konservativ", f"{tip.risk_adjusted_probability:.1f} %")]
+                if not floor_only_pricing():
+                    # Owner 23.10.2026: under the 1.20 floor policy no minimum quote is shown.
+                    values.append(("Mindestquote", f"{tip.minimum_odds:.2f}"))
+                values.append(("Quote", f"{tip.quoted_odds:.2f}"))
+                metrics = st.columns(len(values))
+                for column, (label, value) in zip(metrics, values):
+                    column.metric(label, value)
             actions = st.columns(4)
             if actions[0].button(
                 "Richtig" if bookmark else "Gewonnen",

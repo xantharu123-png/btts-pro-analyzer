@@ -257,7 +257,11 @@ def render_daily3(st, *, snapshot_loader=None, store_factory=None, now=None):
         st.write('Planungsabstand: 3 Stunden für Fußball, Basketball und Eishockey; 4 Stunden für Tennis und E-Sport. Das sind Zeitpuffer, keine garantierten Spiel- oder Abrechnungszeiten. Die nächste Wette wird erst nach tatsächlicher Abrechnung verfügbar.')
         st.write('Fußball: Formvergleich. ATP-Tennis: Vergleich mit und ohne Belaggewichtung, mit ausreichender Spielerhistorie. Keine unabhängigen Zweitmodelle. Für weitere Sportarten fehlen noch qualifizierte Vergleiche; ihre normalen Prognosen bleiben sichtbar.')
         st.write('Diese Auswahl nutzt den Prognosepool des Wettfinders, aber eine eigene Auswahlregel. Sie ist keine unabhängige Zweitbestätigung und keine nachgewiesene Sicherheitsrangliste. Fehlende Kontextdaten bleiben am Spiel sichtbar.')
-        st.write('Die Auswahlen entstehen ohne Buchmacherquote. Für eine tatsächliche Vormerkung gilt die Mindestquote der jeweiligen Auswahl, mindestens 1,20: der Preis, ab dem die vorsichtige Modellrechnung (Modellwahrscheinlichkeit abzüglich Unsicherheitsabschlag) 3 % Risiko-Erwartungswert erreicht. Sie ist keine erwartete Buchmacherquote. Das CHF-150-Ziel verändert die Auswahl nicht; drei passende Auswahlen sind nicht täglich verfügbar.')
+        if _floor_only():
+            # Owner 23.10.2026: no minimum-quote hints; the 1.20 floor only blocks.
+            st.write('Die Auswahlen entstehen ohne Buchmacherquote. Das CHF-150-Ziel verändert die Auswahl nicht; drei passende Auswahlen sind nicht täglich verfügbar.')
+        else:
+            st.write('Die Auswahlen entstehen ohne Buchmacherquote. Für eine tatsächliche Vormerkung gilt die Mindestquote der jeweiligen Auswahl, mindestens 1,20: der Preis, ab dem die vorsichtige Modellrechnung (Modellwahrscheinlichkeit abzüglich Unsicherheitsabschlag) 3 % Risiko-Erwartungswert erreicht. Sie ist keine erwartete Buchmacherquote. Das CHF-150-Ziel verändert die Auswahl nicht; drei passende Auswahlen sind nicht täglich verfügbar.')
         st.write('Maximal CHF 50 eigene Mittel pro Tag, kein Nachschuss. Nur endgültig abgerechnete Rückzahlungen werden wieder verfügbar. Verfügbar ist eine Obergrenze, keine Einsatzempfehlung. Auch Gewinne können wieder verloren gehen.')
         st.write('Echte Wetten werden manuell erfasst; keine Buchmacheranbindung. Das Limit gilt nur für diesen Browserbereich, nicht für externe Wetten oder spätere Buchmacherkorrekturen. Wetten sind kein verlässliches Einkommen.')
     if snapshot_loader is None:
@@ -343,9 +347,8 @@ def render_daily3(st, *, snapshot_loader=None, store_factory=None, now=None):
             block_reason = _reservation_block_reason(choice)
             if block_reason:
                 st.warning(block_reason)
-            elif reservation_minimum_enforced() and _floor_only():
-                st.caption('Mindestquote für eine Vormerkung: 1,20. Buchmacherquoten werden hier nicht angezeigt; '
-                           'der Preis wird beim Buchmacher geprüft.')
+            elif _floor_only():
+                pass  # Owner 23.10.2026: no minimum-quote hint; a quote below 1.20 is refused with its reason.
             elif reservation_minimum_enforced():
                 st.caption(f'Mindestquote für diese Auswahl: {_odds_text(choice.minimum_odds)} · zuletzt beobachtet '
                            f'{_odds_text(choice.offer_odds)}. Preis, ab dem die vorsichtige Modellrechnung 3 % '

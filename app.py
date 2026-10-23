@@ -4315,7 +4315,10 @@ def render_multi_sport(
 
     if candidate.expected_total is not None:
         st.caption(f"Erwartete Gesamtzahl: {candidate.expected_total:.2f}")
-    if filtered_results is not None and filtered_results[selected_index].quote is not None:
+    from market_consensus import floor_only_pricing
+    if (filtered_results is not None and filtered_results[selected_index].quote is not None
+            and not floor_only_pricing()):
+        # Owner 23.10.2026: no bookmaker quotes in the app under the floor policy.
         st.metric("Quote", f"{filtered_results[selected_index].quote.best_odds:.2f}")
     render_model_selection(candidate,
         reference_quote=filtered_results[selected_index].quote if filtered_results is not None else None,

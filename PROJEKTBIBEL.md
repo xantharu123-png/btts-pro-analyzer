@@ -251,8 +251,9 @@ werden in der App nicht gezeigt und dienen im Hintergrund allein dazu, Tipps
 unter 1,20 zurückzuhalten (zuletzt beobachtetes bestes Angebot, bis 24 Stunden
 alt). Ohne beobachtete Quote bleibt der Tipp sichtbar; der Nutzer prüft die
 1,20-Grenze beim Buchmacher. Modell vor Preis bleibt unberührt. Seit dem Abend
-des 23.10.2026 nennt die Karte auch keine Mindestquote mehr; die 1,20-Grenze
-wirkt nur im Hintergrund (`docs/audits/2026-10-23-hauptauswahl-wahrscheinlichkeit.md`).
+des 23.10.2026 nennen weder die Karte noch die Eingabemasken (Daily3-Vormerkung,
+Manuelle Suche, Tennis) eine Mindestquote; die 1,20-Grenze wirkt nur im
+Hintergrund, und nur eine Ablehnung unter 1,20 wird begründet (`docs/audits/2026-10-23-hauptauswahl-wahrscheinlichkeit.md`).
 
 ### 3.8 Statistischer Freigabevertrag
 

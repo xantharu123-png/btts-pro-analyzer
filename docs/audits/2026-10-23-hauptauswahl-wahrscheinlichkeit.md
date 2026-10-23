@@ -41,9 +41,15 @@ Modellmathematik.
 - **Karte ohne Mindestquote.** Unter `floor` zeigt die Karte Modellwahrscheinlichkeit und
   Analyse; keine Buchmacherquote, keinen Preisstatus und keine Zelle „Mindestquote“. Die
   1,20-Grenze sperrt weiter im Hintergrund (`BELOW_FLOOR`); Daily3-Vormerkung und
-  Preisentscheidung prüfen eine eingegebene Quote weiterhin gegen 1,20. Die Hinweise an den
-  Stellen, an denen der Nutzer selbst eine Quote eingibt (Daily3-Vormerkung, Manuelle Suche,
-  Tennis), bleiben, weil sie die Sperre erklären.
+  Preisentscheidung prüfen eine eingegebene Quote weiterhin gegen 1,20.
+- **Nachtrag (Owner, 23.10. spätabends, PR #21): auch keine Hinweise bei eigener
+  Quoteneingabe.** Unter `floor` entfallen „Deine Mindestquote für eine tatsächliche Wette:
+  1,20“ (Manuelle Suche, Tennis), „Mindestquote für eine Vormerkung: 1,20“ und der
+  Mindestquoten-Satz im Regeltext (Daily3), die Zelle „Mindestquote“ in „Meine Tipps“ sowie
+  die letzten Buchmacherquoten im Tennis-Tab („Letzte Quote“) und in der Multi-Sport-Suche
+  („Quote“), die der Preisregel vom Nachmittag noch entgangen waren. Die Sperre bleibt: eine
+  eingegebene oder beobachtete Quote unter 1,20 wird mit Begründung abgelehnt
+  (`Keine passende Quote ab 1,20`, `Quote … liegt unter 1,20`, Daily3-Vormerkung).
 
 ## Was das bedeutet
 
@@ -68,5 +74,6 @@ Modellmathematik.
 fremde oder unbekannte Revision, Permutationsinvarianz, Renderer-Reihenfolge),
 `tests/test_claude_ux_recheck.py` (Ersatz-Lead derselben Revision, neutrale Darstellung bei
 unbekannter Revision), `tests/test_manual_statistical_selection.py` (Manuelle Suche und 15K),
-`tests/test_price_floor_policy.py` (Karte ohne Mindestquote). Kein Schalter; der alte
-Vertrag ist bis PR #18 in Git dokumentiert.
+`tests/test_price_floor_policy.py` (Karte ohne Mindestquote; seit PR #21 auch Modellansicht,
+Daily3-Vormerkung und Tennis-Karte ohne Hinweis). Kein Schalter; der alte Vertrag ist bis
+PR #18 in Git dokumentiert.

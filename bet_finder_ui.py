@@ -945,8 +945,11 @@ def render_model_selection(
         st.info("Für diesen Markt liegt keine belastbare Modellprognose vor.")
     if candidate.blockers:
         st.caption("Daten- oder Modellprüfung noch offen.")
-    minimum = f"{MINIMUM_RECOMMENDED_DECIMAL_ODDS:.2f}".replace(".", ",")
-    st.caption(f"Deine Mindestquote für eine tatsächliche Wette: {minimum}")
+    from market_consensus import floor_only_pricing
+    if not floor_only_pricing():
+        # Owner 23.10.2026: under the 1.20 floor policy the app names no minimum quote.
+        minimum = f"{MINIMUM_RECOMMENDED_DECIMAL_ODDS:.2f}".replace(".", ",")
+        st.caption(f"Deine Mindestquote für eine tatsächliche Wette: {minimum}")
     identity = hashlib.sha256(json.dumps((candidate.sport, candidate.event_key,
         candidate.market, candidate.selection), ensure_ascii=False).encode("utf-8")).hexdigest()
     if admitted:

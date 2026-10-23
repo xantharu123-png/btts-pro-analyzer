@@ -845,12 +845,16 @@ def _render_match_card(row: dict, *, price=None) -> None:
 
         st.info(f"Modellfavorit: {likely_player}")
         st.metric("Modell", f"{likely_probability:.1%}")
-        if price is not None and price.observed_odds is not None:
-            st.metric("Letzte Quote", f"{price.observed_odds:.2f}")
-            observed = _parse_start_utc(price.observed_at)
-            if observed is not None:
-                st.caption(f"{price.bookmaker or 'Buchmacher'} · {observed.astimezone(ZURICH_TZ):%d.%m. %H:%M}")
-        st.caption("Deine Mindestquote für eine tatsächliche Wette: 1,20")
+        from market_consensus import floor_only_pricing
+        if not floor_only_pricing():
+            # Owner 23.10.2026: under the 1.20 floor policy the app shows neither a
+            # bookmaker quote nor a minimum-quote hint; the floor blocks in the background.
+            if price is not None and price.observed_odds is not None:
+                st.metric("Letzte Quote", f"{price.observed_odds:.2f}")
+                observed = _parse_start_utc(price.observed_at)
+                if observed is not None:
+                    st.caption(f"{price.bookmaker or 'Buchmacher'} · {observed.astimezone(ZURICH_TZ):%d.%m. %H:%M}")
+            st.caption("Deine Mindestquote für eine tatsächliche Wette: 1,20")
         try:
             event_key = stable_event_key(
                 "tennis", row.get("fixture_source"), row.get("provider_event_id")
