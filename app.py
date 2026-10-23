@@ -4660,8 +4660,9 @@ def _render_wettfinder_game(group, row_by_key, featured_keys, initially_open: bo
         wettfinder_game_label(group), expanded=initially_open, key=key,
         on_change=_remember_wettfinder_game_state, args=(key,),
     ):
-        # A removed original market is not a license to feature whichever
-        # remaining market happens to have the largest marginal probability.
+        # The lead is the game's most probable shown selection (owner decision
+        # 23.10.2026). A removed lead falls back only to a market of the same
+        # model revision; otherwise the game is shown without a primary.
         display_lead = group.visible_lead if group.lead is not None else group.cards[0]
         if display_lead is None:
             from wettfinder_identity import rendered_identity_card
@@ -4698,8 +4699,8 @@ def _render_wettfinder_game(group, row_by_key, featured_keys, initially_open: bo
 def _render_wettfinder_games(catalog, row_by_key, *, sport_filter: str, sort_mode=START_TIME) -> None:
     featured_keys = {card.key for card in catalog.featured}
     original_groups = group_wettfinder_games(catalog)
-    # Keep the producer's existing lead inside each game. Chronological game
-    # order does not turn a broad-cover alternative into a new primary tip.
+    # Keep each game's lead (its most probable shown selection). Chronological
+    # game order does not change which market is the primary tip.
     ordered_cards = ordered_event_rows(
         ((group.fixture_identity, card) for group in original_groups for card in group.cards),
         mode=sort_mode, event_key=lambda item: item[0],

@@ -75,9 +75,10 @@ def test_relative_publication_clock_uses_the_zurich_day_on_a_utc_server(monkeypa
     assert app._format_stand(stamp) == 'gestern 23:30'
 
 
-def test_filtered_primary_uses_next_statistical_market_not_largest_percentage(monkeypatch):
-    # A 92% low-price selection must not silently promote a broad 91% cover
-    # ahead of a 62% market with stronger same-revision statistical support.
+def test_filtered_primary_falls_back_to_most_probable_same_revision_market(monkeypatch):
+    # Owner decision 23.10.2026: a removed 92% low-price lead falls back to the
+    # most probable remaining market of the same model revision (91% cover),
+    # not to the market with the stronger producer rank.
     import app
     from test_wettfinder_statistical_leads import card, signal
     from test_workflow_integrity import _RecordingStreamlit
@@ -91,14 +92,14 @@ def test_filtered_primary_uses_next_statistical_market_not_largest_percentage(mo
     catalog = compose_wettfinder_catalog(cards)
     group = next(g for g in group_wettfinder_games(catalog) if g.lead.key == removed.key)
     assert catalog.event_leads[0].key == removed.key
-    assert getattr(group, 'visible_lead', None) is supported
+    assert getattr(group, 'visible_lead', None) is broad
 
     recording = _RecordingStreamlit()
     monkeypatch.setattr(app, 'st', recording)
     app._render_wettfinder_games(catalog, {c.key: (None, c) for c in cards}, sport_filter='Alle')
     html = [text for text, _, _ in recording.markdown_calls if 'data-key=' in text]
     assert [next(c.key for c in cards if f'data-key="{c.key}"' in text) for text in html] == [
-        other.key, supported.key, broad.key]
+        other.key, broad.key, supported.key]
     assert cards == before
 
 
@@ -108,23 +109,23 @@ def test_fallback_never_reopens_opposite_direction_when_primary_has_no_offer():
     from wettfinder_surface import compose_wettfinder_catalog, group_wettfinder_games
     primary = card(replace(signal(1, 'RESULT_HOME', .60, .12), reference_quote=None))
     opposite = card(signal(1, 'RESULT_AWAY', .40, .30))
-    supported = card(signal(1, 'HOME_UNDER_2_5', .80, .08, price=1.20))
-    broad = card(signal(1, 'TOTAL_UNDER_4_5', .90, .01, price=8.0))
+    supported = card(signal(1, 'HOME_UNDER_2_5', .50, .08, price=1.20))
+    broad = card(signal(1, 'TOTAL_UNDER_4_5', .55, .01, price=8.0))
     catalog = compose_wettfinder_catalog((opposite, broad, supported, primary))
     group, = group_wettfinder_games(catalog)
     assert {item.key for item in group.cards} == {supported.key, broad.key}
     assert group.lead is primary
-    assert getattr(group, 'visible_lead', None) is supported
+    assert getattr(group, 'visible_lead', None) is broad
 
 
-def test_unranked_remainder_is_neutral_instead_of_inventing_a_primary(monkeypatch):
+def test_remainder_of_unknown_revision_is_neutral_instead_of_inventing_a_primary(monkeypatch):
     import app
     from dataclasses import replace
     from test_wettfinder_statistical_leads import card, signal
     from test_workflow_integrity import _RecordingStreamlit
     from wettfinder_surface import compose_wettfinder_catalog, group_wettfinder_games
     removed = card(signal(1, 'RESULT_HOME', .92, .12, price=1.12))
-    remainder = replace(card(signal(1, 'TOTAL_UNDER_4_5', .91, .01)), selection_rank=None)
+    remainder = replace(card(signal(1, 'TOTAL_UNDER_4_5', .91, .01)), modeled_at=None)
     catalog = compose_wettfinder_catalog((removed, remainder))
     group, = group_wettfinder_games(catalog)
     assert getattr(group, 'visible_lead', None) is None
@@ -148,7 +149,7 @@ def test_fallback_cannot_promote_foreign_or_missing_statistical_revision(changes
     from test_wettfinder_statistical_leads import card, signal
     from wettfinder_surface import WettfinderCatalog, group_wettfinder_games
     removed = card(signal(1, 'RESULT_HOME', .92, .12, price=1.12))
-    foreign = replace(card(signal(1, 'HOME_UNDER_2_5', .80, .50)), **changes)
+    foreign = replace(card(signal(1, 'HOME_UNDER_2_5', .95, .50)), **changes)
     supported = card(signal(1, 'TOTAL_UNDER_4_5', .90, .01))
     # The original catalog anchor is already fixed. A remaining foreign row
     # must not define a new revision merely because its market sorts first.

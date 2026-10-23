@@ -36,7 +36,9 @@ Code, dann `PROJECT_HANDBUCH.md`, dann die Bibel. Historische Logs: `TODO_AKTUEL
   (`BETBOY_PRICE_POLICY`, Default `floor`, `gate` = alter Vertrag;
   `docs/audits/2026-10-23-preisregel-1-20.md`). Diese Regel gilt für
   Wettfinder, Daily3 und RisikoBet; sie darf nicht eigenmächtig zurückgedreht
-  werden.
+  werden. Am Abend des 23.10.2026 dazu: Die Hauptauswahl je Spiel ist die
+  Auswahl mit der höchsten Modellwahrscheinlichkeit (gleiche Revision), und die
+  Karte nennt keine Mindestquote (`docs/audits/2026-10-23-hauptauswahl-wahrscheinlichkeit.md`).
 - **Keine Backups, Produktions-DB-Kopien oder API-Scans** ohne ausdrücklichen Auftrag.
 - **Checkout-Disziplin.** Hauptcheckout `betboy-app` trägt fremdes WIP und liegt hinter
   `origin/main`; eigene Arbeit in einem eigenen Worktree unter `.worktrees/` auf einem
