@@ -1,5 +1,21 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## 23.10.2026 – Frischeregel der Öffnungsquote (Policy v6) auf dem VPS live
+
+Quellcommit **`4fdeba90319b6429d05158e45f1f35ac4578f1ab`** (main nach PR #8–#10) am 23.10.2026
+um 07:25 CEST per No-Backup-Fast-forward von `fd45176` auf dem VPS ausgerollt (Owner-Freigabe
+im Chat; ausgeführt von Claude per `ssh betboy-vps`, Root-Helfer
+`output/release-20261023/deploy.sh` nach dem bisherigen Muster). Exakter Dateisatz 14 Pfade
+(`clv_tracker.py`, `shadow_clv_automation.py`, vier Testdateien, Doku), keine Unit-, Updater-
+oder Requirements-Änderung; alle Jobs im Leerlauf, Backup-Timer inaktiv/deaktiviert.
+Offline-Import-Smoke von 27 Modulen `ok`, nur App neu gestartet (PID 1285025 → 1291312),
+lokaler und öffentlicher Healthcheck `ok`, acht Timer aktiv. Prognose-Snapshots vor und nach
+dem Release byteidentisch. Kein Backup, kein Scan, kein DB-Eingriff. Die Ledger-Spalte
+`opening_quote_age_seconds` legt der Tracker beim ersten fälligen Shadow-Lauf selbst an
+(`ALTER TABLE`, alte Zeilen `NULL`). Belege ausserhalb Git: `output/release-20261023/deploy-01.log`,
+`post-release-01.log`.
+Erster Shadow-Lauf mit der neuen Policy um 07:32 CEST sauber beendet (Exit 0, `idle`: kein fälliges Spiel); Spielpläne und Kohorten bleiben vom API-Kontingent (100 je Tag) abhängig.
+
 ## 22.10.2026 – Audit-Reparaturen und Shadow-Kohorten auf dem VPS live
 
 Quellcommit **`fd4517629bbb517402147173f66cf1ea011476bc`** (main nach PR #1–#7) am
