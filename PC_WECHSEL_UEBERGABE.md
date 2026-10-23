@@ -1,5 +1,18 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## 23.10.2026 – Keine 1,20-Hinweise und keine Buchmacherquoten bei eigener Quoteneingabe (live)
+
+Owner-Entscheidung (Chat, 23.10. spätabends): Auch die Hinweise an den Stellen, an denen der Nutzer selbst
+eine Quote eingibt, fallen weg; die 1,20-Sperre selbst bleibt. Nachtrag in
+`docs/audits/2026-10-23-hauptauswahl-wahrscheinlichkeit.md` (PR #21): unter `floor` keine Caption und kein
+Regeltext-Satz zur Mindestquote in der Daily3-Vormerkung, keine Caption „Deine Mindestquote …“ in der Manuellen
+Suche und auf der Tennis-Karte, keine Kennzahl „Mindestquote“ in „Meine Tipps“; dazu zeigen Tennis-Tab
+(„Letzte Quote“) und Multi-Sport-Suche („Quote“) keine Buchmacherquote mehr, was der Preisregel vom Nachmittag
+entgangen war. Ablehnungen unter 1,20 bleiben begründet. Quellcommit
+**`87d334a9145b18c4ea19f59282ce127feb1953e9`** um 21:27 CEST per No-Backup-Fast-forward von `6946e3b`
+ausgerollt (Helfer `output/release-20261023-7/deploy.sh`, 12 Pfade inkl. Protokoll-PR #20, nur App-Neustart
+PID 1309177 → 1309930, Healthchecks ok, Snapshots unverändert). Website um 21:31 CEST geprüft: Wettfinder, Daily3 und „Meine Tipps“ zeigen weder das Wort „Mindestquote“ noch eine Buchmacherquote; Tennis- und Modellansicht sind durch die neuen Tests abgedeckt (heute keine Tennis-Auswahl).
+
 ## 23.10.2026 – Hauptauswahl nach Wahrscheinlichkeit, Karte ohne Mindestquote live
 
 Owner-Entscheidung (Chat, 23.10. abends): Die Hauptauswahl je Spiel ist die angezeigte Auswahl mit
