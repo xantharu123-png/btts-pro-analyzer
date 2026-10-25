@@ -1178,11 +1178,22 @@ def _load_automated_wettfinder_document(
         ):
             return None
         quote = MarketConsensus.from_dict(row.get("reference_quote"))
+        # A public tip republished by a price refresh (25.10.2026) carries the
+        # refresh's evaluation clock; its quote was observed after the scan, so
+        # the scan clock would classify it UNPRICED and reject the document.
+        price_evaluated_at = generated
+        if "reference_price_evaluated_at" in row:
+            evaluated = _parse_iso(row["reference_price_evaluated_at"])
+            if evaluated is None or evaluated.tzinfo is None or row.get("reference_quote") is None:
+                return None
+            price_evaluated_at = evaluated.astimezone(timezone.utc)
+            if not generated <= price_evaluated_at <= current:
+                return None
         status = wettfinder_reference_price_status(
             quote,
             row.get("minimum_odds"),
             candidate=row,
-            now=generated,
+            now=price_evaluated_at,
         )
         if row.get("reference_price_status") != "PLAYABLE":
             # Unpriced under the floor policy: no execution fields, no quote
