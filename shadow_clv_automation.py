@@ -901,6 +901,24 @@ def _log_edge_cap(prediction_id: int, model_version: str, pick, odds_response, n
         errors.append(f"Edge-Cap {prediction_id}: {exc}")
 
 
+# Owner 25.10.2026 (Gesamtaudit D2/D5): a missing quote that will be retried, a
+# closing quote without provider clock or provider details that are absent are
+# data statuses of the day, not operational failures of the unit. Only the
+# remaining messages (exceptions, request failures) make the run fail and
+# trigger the failure alert.
+_DATA_STATUS_MARKERS = ("; Retry", "-Quote/Zeitstempel ", ": Details fehlen")
+
+
+def is_data_status(message: str) -> bool:
+    text = str(message or "")
+    return any(marker in text for marker in _DATA_STATUS_MARKERS)
+
+
+def operational_errors(messages) -> list[str]:
+    """The error messages of a run that mean an operational failure."""
+    return [str(message) for message in messages if not is_data_status(message)]
+
+
 def _is_win(result) -> bool:
     """The tracker stores 'Won'/'Lost'/'Push' (``CLVTracker.settle_prediction``).
 
@@ -1903,6 +1921,7 @@ def run(ctx):
         "pending_closing": pending_closing,
         "recent": _recent(tracker),
         "errors": errors[-15:],
+        "operational_errors": operational_errors(errors)[-15:],
         "status": "partial" if errors else "completed",
         "verdict": _verdict(stats_all),
         "reference_bookmaker": BOOKMAKER_NAME,

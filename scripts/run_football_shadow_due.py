@@ -39,7 +39,23 @@ def main() -> int:
     artifact = result.get('artifact') if isinstance(result, dict) else None
     if not isinstance(artifact, dict):
         return 1
-    return 1 if artifact.get('errors') or artifact.get('status') not in ('completed', 'ok', None) else 0
+    return exit_code(artifact)
+
+
+def exit_code(artifact: dict) -> int:
+    """Exit 1 only for operational failures (owner 25.10.2026, Gesamtaudit D2/D5).
+
+    A ``partial`` run whose errors are data statuses (quote missing with retry,
+    closing quote without provider clock, provider details absent) exits 0, so
+    the ``OnFailure`` alert fires for real failures only.
+    """
+    status = artifact.get('status')
+    if status not in ('completed', 'partial', 'ok', None):
+        return 1
+    operational = artifact.get('operational_errors')
+    if operational is None:  # artifact of an older runner without the classification
+        operational = shadow.operational_errors(artifact.get('errors') or [])
+    return 1 if operational else 0
 
 
 if __name__ == "__main__":
