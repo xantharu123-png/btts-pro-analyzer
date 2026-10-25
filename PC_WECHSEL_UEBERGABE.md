@@ -1,5 +1,17 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## 25.10.2026 abends – Quotenlauf-Fälligkeit mit Toleranz live (PR #37)
+
+Owner-Entscheidung nach dem Befund, dass der Quotenlauf heute um 12:15 und 18:15 null Fussballzeilen prüfte
+(Gesamtaudit D2: Versuchsstempel rund 30 Sekunden nach dem Timer, Fälligkeit exakt drei Stunden). Betriebsänderung
+`docs/audits/2026-10-25-quotenlauf-toleranz.md`: fällig ab 2 h 45 min (`SCHEDULED_PRICE_DUE_GAP`) für Fussball,
+Tennis und den Team-/E-Sport-Zweig; manuelle Läufe weiter ungedrosselt; etwa doppelt so viele Quotenabrufe am Tag.
+Quellcommit **`49d43ef`** um 20:24 CET per No-Backup-Fast-forward von `45b66e9` ausgerollt (Helfer
+`output/release-20261025-7/deploy.sh`, 7 Pfade, nur App-Neustart PID 1339155→1343024, Healthchecks ok, Snapshots
+unverändert, Beleg `deploy-01.log` ausserhalb Git). Der Quotenlauf lädt den Code je Lauf neu; der Lauf um 21:15 ist
+der erste mit der Toleranz, erwartbar mit null Fussballzeilen, weil alle heutigen Spiele dann begonnen haben;
+der erste Beleg für die Toleranz ist der Lauf um 00:15 (Stempel 21:15, Abstand 3 h minus Jitter).
+
 ## 25.10.2026 abends – Dreistufige Preisprüfung live (PR #34)
 
 Übernahme nach dem Account-Wechsel: Der andere Account hatte nichts ausgerollt (kein Branch, kein PR, VPS
