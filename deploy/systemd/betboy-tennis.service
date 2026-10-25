@@ -1,7 +1,8 @@
 [Unit]
 Description=BetBoy daily tennis prediction and settlement pipeline
-After=network-online.target
+After=network-online.target betboy-wettfinder.service
 Wants=network-online.target
+OnFailure=betboy-alert@%n.service
 
 [Service]
 Type=oneshot

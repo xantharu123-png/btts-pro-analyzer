@@ -169,7 +169,9 @@ def test_failed_budget_keeps_old_observation_without_new_timestamp(tmp_path):
     c.fail=True
     result=prices.refresh_esports_prices(api_key=KEY,now=NOW+timedelta(hours=12),path=p,client=c)
     saved=json.loads(p.read_text())
-    assert result['status']=='failed' and saved['fetched_at']==NOW.isoformat() and len(c.calls)==3
+    # Owner 25.10.2026 (Gesamtaudit D2): a spent budget defers the refresh; it is not a failure.
+    assert result['status']=='budget_deferred' and result['budget_deferred']==['APIBudgetExceeded'] and result['errors']==[]
+    assert saved['fetched_at']==NOW.isoformat() and len(c.calls)==3
 
 
 def test_duplicate_response_and_schedule_changes_remove_prices(tmp_path):

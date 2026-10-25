@@ -382,7 +382,7 @@ def test_deadline_deferred_rows_have_no_attempt_stamp_and_remain_due(tmp_path, m
 
 
 @pytest.mark.parametrize('sport', ['team_sports', 'esports'])
-def test_partial_cached_provider_errors_are_operational_and_old_execution_fields_are_cleared(tmp_path, monkeypatch, sport):
+def test_partial_cached_provider_errors_are_side_operational_and_old_execution_fields_are_cleared(tmp_path, monkeypatch, sport):
     from test_team_sport_prices import row as team_row
     from test_esports_prices import row as esports_row
     row = team_row(source='team_sport_research') if sport == 'team_sports' else esports_row()
@@ -396,9 +396,45 @@ def test_partial_cached_provider_errors_are_operational_and_old_execution_fields
     monkeypatch.setattr('esports_prices.refresh_esports_prices', partial)
     result = automation.refresh_prices_only(state_path=path, now=NOW,
         config=AppConfig(api_football_key='fixture', oddspapi_key='fixture'), quote_sport='all')
-    assert result['operational_errors'] == 1
+    # Owner 25.10.2026 (Gesamtaudit D2): side sports never decide the exit code of the quotes run.
+    assert result['operational_errors'] == 0 and result['side_operational_errors'] == 1
     after = json.loads(path.read_text())
     assert all(not k.startswith('reference_quote_') for k in after['model_candidates'][0])
+
+
+@pytest.mark.parametrize('sport', ['team_sports', 'esports'])
+def test_spent_side_budget_is_a_deferral_not_an_error(tmp_path, monkeypatch, sport):
+    from api_budget import APIBudgetExceeded
+    from test_team_sport_prices import row as team_row
+    from test_esports_prices import row as esports_row
+    row = team_row(source='team_sport_research') if sport == 'team_sports' else esports_row()
+    row['scheduled_start'] = (NOW+timedelta(hours=6)).isoformat()
+    path, _ = _state(tmp_path, [row])
+
+    def spent(*args, **kwargs):
+        raise APIBudgetExceeded('spent')
+
+    def deferred(*args, **kwargs):
+        return {'status': 'budget_deferred', 'errors': [], 'budget_deferred': ['APIBudgetExceeded'], 'events': 3}
+
+    monkeypatch.setattr('team_sport_prices.refresh_team_sport_prices', spent)
+    monkeypatch.setattr('esports_prices.refresh_esports_prices', deferred)
+    result = automation.refresh_prices_only(state_path=path, now=NOW,
+        config=AppConfig(api_football_key='fixture', oddspapi_key='fixture'), quote_sport='all')
+    assert result['sources'][sport]['status'] == 'budget_deferred'
+    assert result['sources'][sport]['operational_errors'] == 0
+    assert result['operational_errors'] == 0 and result['side_operational_errors'] == 0
+    assert result['budget_deferred'] >= 1
+
+
+def test_cli_exit_code_follows_only_the_football_and_tennis_core(monkeypatch, capsys):
+    monkeypatch.setattr(automation, "refresh_prices_only", lambda **kw: dict(
+        errors=2, operational_errors=0, side_operational_errors=2))
+    assert automation.main(['--quotes-only', '--quote-sport', 'all']) == 0
+    monkeypatch.setattr(automation, "refresh_prices_only", lambda **kw: dict(
+        errors=1, operational_errors=1, side_operational_errors=0))
+    assert automation.main(['--quotes-only', '--quote-sport', 'all']) == 1
+    capsys.readouterr()
 
 
 def test_scheduled_daily_attempt_age_prevents_an_immediate_second_paid_query(tmp_path, monkeypatch):

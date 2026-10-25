@@ -248,3 +248,34 @@ def test_actual_lifetime_oracle_detects_either_leaked_alias(tmp_path, monkeypatc
     with pytest.raises(AssertionError, match=expected):
         test_actual_original_both_tours_equal_oracle_and_previous_owner_dies_before_next(
             tmp_path, monkeypatch, different_clocks=True)
+
+
+def test_per_case_admission_limit_excludes_only_that_case_with_diagnosis(tmp_path, monkeypatch):
+    """Owner 25.10.2026 (Gesamtaudit D3): one oversized case is excluded with its numbers; the batch survives."""
+    db, refs, _, _, _ = packet(tmp_path)
+    origins = origins_at(db, refs[:2])
+    first_key = implementation.live_event(origins[0]['event'])['event_key']
+    real_selection = implementation._case_selection
+
+    def selection(discovery, event, cutoff):
+        if event['event_key'] == first_key:
+            raise implementation.LiveCaseAdmissionExceeded(40000, 5, 6, 7)
+        return real_selection(discovery, event, cutoff)
+
+    monkeypatch.setattr(implementation, '_case_selection', selection)
+    budget = implementation.LiveTennisReadBudget()
+    cases = tuple((origin['event'], origin['cutoff']) for origin in origins)
+    seen = 0
+    with implementation.open_live_sources(db, cases, budget) as (_, sources):
+        assert sources.admitted == [1]
+        [diagnosis] = sources.excluded
+        assert diagnosis['case'] == 0 and diagnosis['event_key'] == first_key
+        assert diagnosis['reason'] == 'live_case_raw_admission_exceeded'
+        assert (diagnosis['rows'], diagnosis['bytes'], diagnosis['max_chunk_bytes'], diagnosis['missing_payloads']) == (40000, 5, 6, 7)
+        for owner in sources.histories():
+            with owner.feature_scope(origins[1]['event']) as rows:
+                seen += len(rows)
+    assert seen > 0 and budget.completed_cases == 1 and budget.admitted_rows == budget.actual_rows
+    # The exception keeps the historic message, so the fail-closed callers still match it.
+    with pytest.raises(ValueError, match='live tennis per-case raw admission exceeded'):
+        implementation._LiveCaseBudget(implementation.LiveTennisReadBudget()).admit_raw(1, 1, 1, missing=1)

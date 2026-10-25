@@ -83,6 +83,7 @@ from ev_signal_sources import (
     tennis_model_signals,
 )
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES
+from api_budget import APIBudgetError
 from market_consensus import (
     MarketConsensus,
     derive_range_price_bound,
@@ -5096,6 +5097,9 @@ def _refresh_scheduled_prices(document, *, path, config, now):
                 try:
                     kwargs = dict(api_key=key, path=path.parent/cache_name, now=now)
                     summary = refresh(target_rows, **kwargs) if sport == 'team_sports' else refresh(**kwargs)
+                except APIBudgetError as exc:
+                    # Owner 25.10.2026 (Gesamtaudit D2): a spent budget is a deferral, not a failure.
+                    summary = {'status': 'budget_deferred', 'error_type': type(exc).__name__, 'quotes': 0}
                 except Exception as exc:
                     summary = {'status': 'failed', 'error_type': type(exc).__name__}
                 document.setdefault('price_check_attempts', {})[attempt_key] = _utc(now or datetime.now(timezone.utc)).isoformat()
@@ -5123,14 +5127,25 @@ def _refresh_scheduled_prices(document, *, path, config, now):
     # Owner 25.10.2026: under the floor policy the public tips and the 15K list
     # follow the refreshed prices (same selection rule as the nightly scan).
     _republish_floor_candidates(document, now=current)
+
+    def _operational(summary):
+        return summary.get('operational_errors',
+                           int(summary.get('status') in {'failed', 'unavailable', 'missing_key', 'partial'}))
+
+    # Owner 25.10.2026 (Gesamtaudit D2): only the football/tennis core decides the
+    # exit code (and the failure alert); team sports and e-sports report their
+    # own operational errors beside it.
     result = dict(sport='all', updated_at=_utc(now or datetime.now(timezone.utc)).isoformat(),
         checked=sum(s.get('checked', 0) for s in summaries.values()),
         fixtures=sum(s.get('fixtures', s.get('checked', 0)) for s in summaries.values()),
         quotes=sum(s.get('quotes', 0) for s in summaries.values()),
         errors=sum(s.get('errors', 0) if isinstance(s.get('errors', 0), int) else len(s.get('errors', []))
                    for s in summaries.values()),
-        operational_errors=sum(s.get('operational_errors', int(s.get('status') in {'failed', 'unavailable', 'missing_key', 'partial'}))
-                               for s in summaries.values()),
+        operational_errors=sum(_operational(s) for name, s in summaries.items() if name in {'football', 'tennis'}),
+        side_operational_errors=sum(_operational(s) for name, s in summaries.items()
+                                    if name not in {'football', 'tennis'}),
+        budget_deferred=sum(len(s.get('budget_deferred') or []) + int(s.get('status') == 'budget_deferred')
+                            for s in summaries.values()),
         sources=summaries, riskobet_status=risk_status)
     document['price_only_refresh'] = result
     return result

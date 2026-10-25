@@ -224,6 +224,18 @@ Git payload, but validates the target and post-install state only against the
 new pinned hashes. There is no legacy target allowlist and no wildcard
 transition.
 
+Since 25.10.2026 (`docs/audits/2026-10-25-betrieb-massnahme-3.md`) the six core units
+carry `OnFailure=betboy-alert@%n.service`; the template lives in
+`deploy/systemd/templates/betboy-alert@.service` with its own pin
+(`expected_alert_unit_sha256`) so the context hook's runtime service inventory
+stays at eight services, and both root tools install the helper
+`scripts/betboy_alert.py` to `/usr/local/libexec/betboy-alert.py`. The daily
+and three-hourly timers (`wettfinder`, `tennis`, `esports`, `quotes`) use
+`Persistent=true`. That unit change was installed in one step through a
+reviewed root helper while the pins were refreshed in both tools at once; the
+two-release bridge above remains the procedure whenever the installed updater
+may run between the merge and the unit install.
+
 ## One-time migration of an existing VPS
 
 Do not rerun bootstrap on an existing installation and do not overwrite the

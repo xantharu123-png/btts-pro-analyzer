@@ -19,7 +19,7 @@ from typing import Mapping
 
 import requests
 
-from api_budget import APIBudgetGovernor, APIBudgetPriority, DEFAULT_DB_PATH
+from api_budget import APIBudgetError, APIBudgetGovernor, APIBudgetPriority, DEFAULT_DB_PATH
 from market_consensus import (
     MarketConsensus, QuotePoint, TEAM_PRICE_SOURCES, _identity_name,
     _parse_utc, _summary_prices, observed_consensus, quote_matches_candidate,
@@ -291,6 +291,24 @@ def parse_game_quotes(entries, rows, game, *, fetched_at, names=None):
     return output
 
 
+# Owner 25.10.2026 (Gesamtaudit D2): a native event without a bookmaker binding
+# is a data gap of the provider pair, a spent budget is a deferral; neither is
+# an operational error of the quotes run and neither fails the unit.
+IDENTITY_GAP_REASONS = frozenset({
+    'ambiguous_origin_events', 'conflicting_origin_identity',
+    'native_identity_unavailable', 'native_identity_unbound',
+})
+
+
+def classify_refresh_error(sport, exc):
+    """Return (bucket, label) for one per-event failure of the price refresh."""
+    if isinstance(exc, APIBudgetError):
+        return 'budget_deferred', f'{sport}:{type(exc).__name__}'
+    if isinstance(exc, ValueError) and str(exc) in IDENTITY_GAP_REASONS:
+        return 'identity_gaps', f'{sport}:{exc}'
+    return 'errors', f'{sport}:{type(exc).__name__}'
+
+
 def refresh_team_sport_prices(rows, *, api_key, now=None, path=CACHE_PATH, governor=None, get=requests.get):
     """One bounded refresh in the existing worker; no new scheduler or database."""
     current = now or datetime.now(timezone.utc)
@@ -315,6 +333,7 @@ def refresh_team_sport_prices(rows, *, api_key, now=None, path=CACHE_PATH, gover
     ambiguous = {key for keys in identities.values() if len(keys) > 1 for key in keys}
     target = Path(path)
     errors, checked, matched = [], 0, 0
+    buckets = {'errors': errors, 'identity_gaps': [], 'budget_deferred': []}
     from time import monotonic
     deadline = monotonic() + 35
     try:
@@ -378,15 +397,24 @@ def refresh_team_sport_prices(rows, *, api_key, now=None, path=CACHE_PATH, gover
                             doc['quotes'].pop(_key(r), None)
                     checked += 1
                 except Exception as exc:
-                    errors.append(f'{sport}:{type(exc).__name__}')
+                    bucket, label = classify_refresh_error(sport, exc)
+                    buckets[bucket].append(label)
                 attempts[attempt_key] = current.isoformat()
-            doc.update(attempts=attempts, updated_at=current.isoformat(), errors=errors)
+            doc.update(attempts=attempts, updated_at=current.isoformat(), errors=errors,
+                       identity_gaps=buckets['identity_gaps'], budget_deferred=buckets['budget_deferred'])
             text = json.dumps(doc, ensure_ascii=False, separators=(',', ':'))
             if len(text.encode('utf-8')) > MAX_CACHE_BYTES:
                 raise ValueError('bounded_quote_cache_exceeded')
             atomic_write_text(target, text)
-            return {'status': 'partial' if errors else 'complete', 'checked': checked,
-                    'matched_games': matched, 'quotes': len(doc['quotes']), 'errors': errors}
+            if errors:
+                status = 'partial'
+            elif buckets['budget_deferred'] and not checked:
+                status = 'budget_deferred'
+            else:
+                status = 'complete'
+            return {'status': status, 'checked': checked, 'matched_games': matched, 'quotes': len(doc['quotes']),
+                    'errors': errors, 'identity_gaps': buckets['identity_gaps'],
+                    'budget_deferred': buckets['budget_deferred']}
     except OSError as exc:
         return {'status': 'unavailable', 'error_type': type(exc).__name__, 'quotes': 0}
 

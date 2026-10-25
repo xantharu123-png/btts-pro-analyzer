@@ -10,6 +10,7 @@ readonly TRUSTED_BOOTSTRAP=/usr/local/sbin/betboy-bootstrap
 readonly TRUSTED_BACKUP_HELPER=/usr/local/libexec/betboy-backup-runtime.py
 readonly TRUSTED_BACKUP_STAGE_HELPER=/usr/local/libexec/betboy-backup-stage-runtime.py
 readonly TRUSTED_MIGRATION_MARKER_HELPER=/usr/local/libexec/betboy-challenge-migration-marker.py
+readonly TRUSTED_ALERT_HELPER=/usr/local/libexec/betboy-alert.py
 readonly LEDGER_HMAC_KEY=/etc/betboy/challenge-ledger-hmac.key
 readonly LEDGER_MIGRATION_MARKER=/etc/betboy/challenge-ledger-v2-migrated.json
 readonly REPOSITORY_URL=https://github.com/xantharu123-png/btts-pro-analyzer.git
@@ -386,29 +387,42 @@ PY
 
 expected_unit_sha256() {
     case "$1" in
-        deploy/systemd/betboy-app.service) printf '%s\n' 90d5047df1ef96e6a4bc9d2a3e888ca6c14d64d62c3526470a64d088788145b8 ;;
+        deploy/systemd/betboy-app.service) printf '%s\n' caa7bc2d4240c82485a6e7913e7fdffb1747987de93e18180e9298a2fb69bc37 ;;
         deploy/systemd/betboy-backup.service) printf '%s\n' 922352a5d3c883cc671da419c5d3fa589cbe9cd025f32d4c4d9f7b6a9648edb8 ;;
         deploy/systemd/betboy-backup.timer) printf '%s\n' 918fd587a63dd57eb538c0e49d3f1dc13ffe1db9c99e46eeb2e4144605596aaa ;;
-        deploy/systemd/betboy-esports.service) printf '%s\n' 1df7e7c001c093c211ce03ae3c0ac57ce8030f9c3da008e1ee04e431ca9cfd8b ;;
-        deploy/systemd/betboy-esports.timer) printf '%s\n' d436a79258ab1aa4a4dd31697f9fb7cdb9d93b64d8a58b66c0b98f2cd3921832 ;;
-        deploy/systemd/betboy-football-shadow.service) printf '%s\n' 0e9bf4d73bc8db2b2dee201b116d63f86c0dcd953a5458e0f6c8ea00df33a149 ;;
+        deploy/systemd/betboy-esports.service) printf '%s\n' 797abe0db97912ffefbeaa4d804cd8323573ae8ea88b8a4fd60798c3e603aa0b ;;
+        deploy/systemd/betboy-esports.timer) printf '%s\n' 09da4e166e6c5198ab014212353a8e0dc393750f09f1f46af723a9ae0f50a77c ;;
+        deploy/systemd/betboy-football-shadow.service) printf '%s\n' d4996811605d08de78ee6a92bda70fab2425663a7518d14ba15571fe27fa65f9 ;;
         deploy/systemd/betboy-football-shadow.timer) printf '%s\n' ee402db87bc5d57fbf640f3ef390c5945b4c2667009c428eb4e28dc83f69a84d ;;
         deploy/systemd/betboy-redcard-history.service) printf '%s\n' a063bd88657bfbcffe804732c48c5302b98c3fd869864383a62f6b2f1daa8795 ;;
         deploy/systemd/betboy-redcard-history.timer) printf '%s\n' 8e888c84244bda2868962831f7106c1ebbcaacc5dd54071004452b05c1d53920 ;;
         deploy/systemd/betboy-redcard-settlement.service) printf '%s\n' f2bdb5ed768012258ecec20f3ba91c0f8290853218f26842524a210aa1ba767a ;;
         deploy/systemd/betboy-redcard-settlement.timer) printf '%s\n' d5bcfcd0962ffc3587ad7590c5d91b49ce6c4cc26b00967c528c2693879ac4cc ;;
-        deploy/systemd/betboy-tennis.service) printf '%s\n' 8f0239135e214f1ffe2cdf1adeda62d2852b5a9ff36ebdf5a1d347850cbef146 ;;
-        deploy/systemd/betboy-tennis.timer) printf '%s\n' ccab53f62d2683b8cc2290362ff901c8b10f2c14905f436e0b21fa25bb1ee287 ;;
-        deploy/systemd/betboy-wettfinder.service) printf '%s\n' e0f268684dbe3c850afbf1ca9f55fc41a9a5e6815ba7d86b6c49b0988ba5e0d7 ;;
-        deploy/systemd/betboy-wettfinder.timer) printf '%s\n' 1fa5808a0b659477285a35bdb2f348539b5620cacc148cd9b53266e55fb9c839 ;;
-        deploy/systemd/betboy-quotes.service) printf '%s\n' 025139c5a3d487a480d35e62487e14c07523d78a514d7364229c7bf93d5c912d ;;
-        deploy/systemd/betboy-quotes.timer) printf '%s\n' 362b23c11d16489403002b079190591f65324214dbd1943bf714d5773771d188 ;;
+        deploy/systemd/betboy-tennis.service) printf '%s\n' 7d87366b633b229322bfcdfa7ff8ca8cd4180ed4359ac97cea94fd69006d354a ;;
+        deploy/systemd/betboy-tennis.timer) printf '%s\n' 4fd3d5d9261ad02028038720a26ce5e0ab5c2633d7a44b84112f5504c111ba8b ;;
+        deploy/systemd/betboy-wettfinder.service) printf '%s\n' c12feb792108058493780e84050f0455440103a9aaeb9f220f1e0db2502a71df ;;
+        deploy/systemd/betboy-wettfinder.timer) printf '%s\n' 40ff275dc73265f36515399e79edaec89169c5df4efd34672144155ee0b4199b ;;
+        deploy/systemd/betboy-quotes.service) printf '%s\n' 9e88e88a1c500761e28433813bf416512807704794a8633de1290f6df3560a93 ;;
+        deploy/systemd/betboy-quotes.timer) printf '%s\n' 2b73bf052b4a40cde50112f4b104aedf01d20c857ca9444b52957a938d7535e0 ;;
         *) die "Unit is not byte-allowlisted: $1" ;;
     esac
 }
 
 expected_backup_stage_helper_sha256() {
     printf '%s\n' 1441158c542e97a19b193fa0cd091b645ec6442d6d8157f1d4fceabbba72b026
+}
+
+expected_alert_unit_sha256() {
+    printf '%s\n' 1cc83e0a58aca15e80edee3703451ffdd1f1efcee77233eb6867af5b50703e84
+}
+
+validate_trusted_alert_unit() {
+    local path
+    local actual
+    path=$(trusted_file deploy/systemd/templates/betboy-alert@.service)
+    actual=$(sha256sum -- "${path}" | awk '{print $1}')
+    [[ "${actual}" == "$(expected_alert_unit_sha256)" ]] \
+        || die "Alert unit template differs from its reviewed byte allowlist."
 }
 
 validate_trusted_backup_stage_helper() {
@@ -624,6 +638,9 @@ prepare_trusted_tree() {
     trusted_file scripts/migrate_challenge_ledgers.py >/dev/null
     trusted_file deploy/systemd/betboy-app.service >/dev/null
     validate_trusted_unit deploy/systemd/betboy-app.service
+    trusted_file scripts/betboy_alert.py >/dev/null
+    trusted_file deploy/systemd/templates/betboy-alert@.service >/dev/null
+    validate_trusted_alert_unit
     local timer
     for timer in "${BETBOY_TIMERS[@]}"; do
         trusted_file "deploy/systemd/${timer}" >/dev/null
@@ -3152,6 +3169,12 @@ install_trusted_root_files() {
     install_root_file_atomic \
         "$(trusted_file scripts/manage_challenge_migration_marker.py)" \
         "${TRUSTED_MIGRATION_MARKER_HELPER}" 0755 root root
+    install_root_file_atomic \
+        "$(trusted_file scripts/betboy_alert.py)" \
+        "${TRUSTED_ALERT_HELPER}" 0755 root root
+    install_root_file_atomic \
+        "$(trusted_file deploy/systemd/templates/betboy-alert@.service)" \
+        /etc/systemd/system/betboy-alert@.service 0644 root root
     install_root_file_atomic \
         "$(trusted_file deploy/systemd/betboy-app.service)" \
         /etc/systemd/system/betboy-app.service 0644 root root

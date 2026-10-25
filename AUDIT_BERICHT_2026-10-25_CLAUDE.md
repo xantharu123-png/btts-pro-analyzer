@@ -398,10 +398,12 @@ vollständig.
 
 *Stand 25.10.2026 abends:* Massnahmen 1 und 2 umgesetzt (`docs/audits/2026-10-25-lader-je-zeile.md`,
 `docs/audits/2026-10-25-shadow-massnahme-2.md`); aus Massnahme 2 bleibt der No-Vig-CLV (S5, zweiter
-Teil) offen. Aus Massnahme 3 ist die Fälligkeitstoleranz des Quotenlaufs (D2, erster Teil) umgesetzt
-(`docs/audits/2026-10-25-quotenlauf-toleranz.md`); `budget_deferred`, `OnFailure=`, `Persistent=true`
-und der Tennis-Fallausschluss bleiben offen. Zusätzlich am selben Abend die dreistufige Preisprüfung
-der 1,20-Grenze (`docs/audits/2026-10-25-preispruefung-dreistufig.md`), die L3/L6 berührt.
+Teil) offen. Massnahme 3 ist umgesetzt: Fälligkeitstoleranz des Quotenlaufs
+(`docs/audits/2026-10-25-quotenlauf-toleranz.md`) sowie `budget_deferred`/Identitätslücken, Tennis-
+Fallausschluss, `Persistent=true` und `OnFailure=betboy-alert@%n` (`docs/audits/2026-10-25-betrieb-massnahme-3.md`);
+offen daraus nur der Telegram-Eintrag des Owners und die CI-Parametrisierung der Policy-Fixture (D5, erster Teil).
+Zusätzlich am selben Abend die dreistufige Preisprüfung der 1,20-Grenze
+(`docs/audits/2026-10-25-preispruefung-dreistufig.md`), die L3/L6 berührt.
 
 ---
 

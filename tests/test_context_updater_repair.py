@@ -816,6 +816,32 @@ def test_frozen_reviewed_preflight_algorithms_are_copied_without_drift():
     previous_helper = b"6a58f24766d84624c13c4a0fa1b4a01de0318aaa9899f9361550029e49cbe0dd"
     assert raw.count(reviewed_helper) == 1 and previous_helper not in raw
     raw = raw.replace(reviewed_helper, previous_helper)
+    # Owner 25.10.2026 (Gesamtaudit D5, docs/audits/2026-10-25-betrieb-massnahme-3.md):
+    # the failure alert (helper, template, separate pin) and the timer catch-up
+    # change only unit byte pins and add installs. Reconstruct the reviewed
+    # predecessor first; every preflight algorithm below stays frozen.
+    for new_pin, old_pin in (
+        (b'caa7bc2d4240c82485a6e7913e7fdffb1747987de93e18180e9298a2fb69bc37', b'90d5047df1ef96e6a4bc9d2a3e888ca6c14d64d62c3526470a64d088788145b8'),
+        (b'797abe0db97912ffefbeaa4d804cd8323573ae8ea88b8a4fd60798c3e603aa0b', b'1df7e7c001c093c211ce03ae3c0ac57ce8030f9c3da008e1ee04e431ca9cfd8b'),
+        (b'09da4e166e6c5198ab014212353a8e0dc393750f09f1f46af723a9ae0f50a77c', b'd436a79258ab1aa4a4dd31697f9fb7cdb9d93b64d8a58b66c0b98f2cd3921832'),
+        (b'd4996811605d08de78ee6a92bda70fab2425663a7518d14ba15571fe27fa65f9', b'0e9bf4d73bc8db2b2dee201b116d63f86c0dcd953a5458e0f6c8ea00df33a149'),
+        (b'9e88e88a1c500761e28433813bf416512807704794a8633de1290f6df3560a93', b'025139c5a3d487a480d35e62487e14c07523d78a514d7364229c7bf93d5c912d'),
+        (b'2b73bf052b4a40cde50112f4b104aedf01d20c857ca9444b52957a938d7535e0', b'362b23c11d16489403002b079190591f65324214dbd1943bf714d5773771d188'),
+        (b'7d87366b633b229322bfcdfa7ff8ca8cd4180ed4359ac97cea94fd69006d354a', b'8f0239135e214f1ffe2cdf1adeda62d2852b5a9ff36ebdf5a1d347850cbef146'),
+        (b'4fd3d5d9261ad02028038720a26ce5e0ab5c2633d7a44b84112f5504c111ba8b', b'ccab53f62d2683b8cc2290362ff901c8b10f2c14905f436e0b21fa25bb1ee287'),
+        (b'c12feb792108058493780e84050f0455440103a9aaeb9f220f1e0db2502a71df', b'e0f268684dbe3c850afbf1ca9f55fc41a9a5e6815ba7d86b6c49b0988ba5e0d7'),
+        (b'40ff275dc73265f36515399e79edaec89169c5df4efd34672144155ee0b4199b', b'1fa5808a0b659477285a35bdb2f348539b5620cacc148cd9b53266e55fb9c839'),
+    ):
+        assert raw.count(new_pin) == 1 and old_pin not in raw
+        raw = raw.replace(new_pin, old_pin)
+    for addition in (
+        b'readonly TRUSTED_ALERT_HELPER=/usr/local/libexec/betboy-alert.py\n',
+        b'expected_alert_unit_sha256() {\n    printf \'%s\\n\' 1cc83e0a58aca15e80edee3703451ffdd1f1efcee77233eb6867af5b50703e84\n}\n\nvalidate_trusted_alert_unit() {\n    local path\n    local actual\n    path=$(trusted_file deploy/systemd/templates/betboy-alert@.service)\n    actual=$(sha256sum -- "${path}" | awk \'{print $1}\')\n    [[ "${actual}" == "$(expected_alert_unit_sha256)" ]] \\\n        || die "Alert unit template differs from its reviewed byte allowlist."\n}\n\n',
+        b'    trusted_file scripts/betboy_alert.py >/dev/null\n    trusted_file deploy/systemd/templates/betboy-alert@.service >/dev/null\n    validate_trusted_alert_unit\n',
+        b'    install_root_file_atomic \\\n        "$(trusted_file scripts/betboy_alert.py)" \\\n        "${TRUSTED_ALERT_HELPER}" 0755 root root\n    install_root_file_atomic \\\n        "$(trusted_file deploy/systemd/templates/betboy-alert@.service)" \\\n        /etc/systemd/system/betboy-alert@.service 0644 root root\n',
+    ):
+        assert raw.count(addition) == 1
+        raw = raw.replace(addition, b"")
     # Keep the historical repair installer and all of its algorithm/helper
     # pins frozen. Reconstruct only the explicitly reviewed quotes addition
     # (aab9fb2) and exact inventory repair; behavioral coverage lives in the
