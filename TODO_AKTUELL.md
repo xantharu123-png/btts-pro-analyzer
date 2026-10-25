@@ -1,5 +1,25 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 25.10.2026 – Website leer wegen E-Sport-Preisstatus; Fix live
+
+Nachtcheck 25.10. (Belege `output/nightcheck-20261025/` ausserhalb Git): Tagesscan 03:35–03:59 CET `completed`
+(107 Spiele gefunden, 84 modelliert, 690 zugelassene Kandidaten, 373 Modellprognosen, 3 öffentliche Tipps), aber die
+Website blieb ab 06:15 leer. Ursache: Der Quotenlauf hängte erstmals seit dem Pro-Tarif E-Sport-Quoten an, die
+E-Sport-Anbindung speicherte den alten Code `OBSERVED`, der App-Lader rechnete unter `floor` `PLAYABLE` und verwarf
+das ganze Dokument (eine DOTA2-Zeile; damit fehlten auch alle Fussball-Prognosen). Fix in PR #23 (Nachtrag in
+`docs/audits/2026-10-23-preisregel-1-20.md`): E-Sport-Status folgt der aktiven Preisregel inkl. Ausführungsfelder bei
+`PLAYABLE`; der Lader akzeptiert Altzeilen mit `OBSERVED` ohne Ausführungsfelder. Quellcommit
+**`ae3bd2f56775b61ea5f2b73ab18a7310f0ef23c9`** um 07:28 CET per No-Backup-Fast-forward von `87d334a` ausgerollt (Helfer
+`output/release-20261025-1/deploy.sh`, 8 Pfade, nur App-Neustart PID 1313890 → 1325818, Healthchecks ok, Snapshots
+unverändert). Website um 07:31 CET geprüft: „Dein Spieltag“ zeigt wieder 44 Spiele (350 Fussball-, 11 E-Sport-, 8 Eishockey-Prognosen), kein Leerhinweis; öffentliche Tipps 0 (siehe unten).
+Weitere Befunde der Nacht: Die 3 öffentlichen Tipps von 03:59 fielen um 06:15 wegen Marktquote unter 1,20 weg, und es
+rückt nichts nach (Obergrenze 3, Auswahl nur im Nachtscan, obwohl 166 von 353 Zeilen die statistische Freigabe bestehen).
+Tennis-Tagesscan scheitert seit 22.10. an „live tennis per-case raw admission exceeded“ (`context_models/tennis_live_source.py`,
+Codex). Shadow protokolliert weiter 0 Tipps (je Lauf höchstens ein glaubwürdiger Kandidat ohne frische Quote); die
+Hybrid-Kohorte wärmt keine Artefakte (`artifacts_warmed: 0`). Quotendienst beendet jede zweite Ausführung mit Exit 1
+(E-Sport-Quotenbudget 10/Tag, Eishockey-ValueError), Fussballquoten fehlerfrei. App-Neustart am 24.10. 06:40 kam von den
+Ubuntu-Sicherheitsupdates.
+
 ## 23.10.2026 – Keine 1,20-Hinweise und keine Buchmacherquoten bei eigener Quoteneingabe (live)
 
 Owner-Entscheidung (Chat, 23.10. spätabends): Auch die Hinweise an den Stellen, an denen der Nutzer selbst
