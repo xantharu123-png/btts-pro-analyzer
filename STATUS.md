@@ -4,12 +4,12 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 „Stand“ ersetzen, nicht anhängen; Historie steht in `TODO_AKTUELL.md` und
 `PC_WECHSEL_UEBERGABE.md`. Regeln und Einstieg: `AGENTS.md`.
 
-## Stand: 23.10.2026
+## Stand: 25.10.2026
 
 | Bereich | Status |
 |---|---|
-| Produktion (VPS) | `87d334a` live seit 23.10.2026 21:27 CEST (No-Backup-Fast-forward von `6946e3b`, Beleg `output/release-20261023-7/deploy-01.log` ausserhalb Git); Preisregel 1,20 nur im Hintergrund (keine Mindestquoten-Hinweise, keine Buchmacherquoten), Hauptauswahl je Spiel nach Modellwahrscheinlichkeit, Freigabe ohne Aufstellungspflicht, Pro-Tarif, Shadow-Kohorten mit Policy v6; Website zeigt seit 23.10. abends wieder öffentliche Fussball-Tipps |
-| `origin/main` | Stand nach Merge von PR #21 (keine 1,20-Hinweise) am 23.10.2026; enthält PR #20 (Protokoll), #19 (Hauptauswahl, Karte), #18 (Protokoll), #17 (App-Lader), PR #12 (Zähler-Fix), #14 (Preisregel 1,20), #15 (Freigabekontext), #16 (Protokoll), PR #10 (Frischeregel 3 h, Policy v6), PR #7 (`fd45176`, live), #8/#9 (Doku), enthält PR #1 (`62e6e73`), #2 (`24837c3`), #3 (`08b7473`), #4 (`9b0382f`), #5 (`be6258c`, Hybrid-Aktivierung vorbereitet), #6 (`a6661a6`, Edge-Cap-Protokoll); Quick-CI grün |
+| Produktion (VPS) | `ae3bd2f` live seit 25.10.2026 07:28 CET (No-Backup-Fast-forward von `87d334a`, Beleg `output/release-20261025-1/deploy-01.log` ausserhalb Git); Preisregel 1,20 nur im Hintergrund, E-Sport-Preisstatus folgt der Preisregel, Hauptauswahl je Spiel nach Modellwahrscheinlichkeit, Freigabe ohne Aufstellungspflicht, Pro-Tarif, Shadow-Kohorten mit Policy v6 |
+| `origin/main` | Stand nach Merge von PR #23 (E-Sport-Preisstatus) am 25.10.2026; enthält PR #22 (Protokoll), #21 (keine 1,20-Hinweise), PR #20 (Protokoll), #19 (Hauptauswahl, Karte), #18 (Protokoll), #17 (App-Lader), PR #12 (Zähler-Fix), #14 (Preisregel 1,20), #15 (Freigabekontext), #16 (Protokoll), PR #10 (Frischeregel 3 h, Policy v6), PR #7 (`fd45176`, live), #8/#9 (Doku), enthält PR #1 (`62e6e73`), #2 (`24837c3`), #3 (`08b7473`), #4 (`9b0382f`), #5 (`be6258c`, Hybrid-Aktivierung vorbereitet), #6 (`a6661a6`, Edge-Cap-Protokoll); Quick-CI grün |
 | Offene Claude-Branches | keine |
 | Codex-Worktree | `.worktrees/audit-repairs-20261013`, 7 unveröffentlichte Commits, 18 ungesicherte Änderungen; muss `main` einmergen (`docs/handoffs/2026-10-21-codex-auftrag.md`) |
 | Hauptcheckout `betboy-app` | veraltet, fremdes WIP; nicht benutzen |
