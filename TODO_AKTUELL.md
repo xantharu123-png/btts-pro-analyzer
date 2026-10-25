@@ -1,5 +1,21 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 25.10.2026 – Öffentliche Tipps rücken nach jedem Quotenlauf nach (live)
+
+Owner-Entscheidung (Chat, 25.10.): Entfernt der Quotenlauf einen öffentlichen Tipp wegen Marktquote unter 1,20,
+rückt die nächste freigegebene Auswahl nach derselben Auswahlregel nach. Vertragsänderung
+`docs/audits/2026-10-25-tipp-nachruecken.md` (PR #25): Bisher leerte jeder Quotenlauf (alle drei Stunden) die
+öffentlichen Tipps und die 15K-Liste vollständig, bis zum nächsten Nachtscan gab es keinen öffentlichen Tipp mehr.
+Jetzt läuft nach jedem Quotenlauf die Auswahlregel des Scans erneut über das Modell-Ledger
+(`wettfinder_automation._republish_floor_candidates`): freigegebene Zeilen verifizierter Spiele in Ledger-Reihenfolge
+ohne Marktquote unter 1,20 und ohne begonnene Spiele, die ersten drei je ein Spiel; die 15K-Liste wird mit ihrem
+`PLAYABLE`-Korridor neu besetzt. Begleitkorrekturen im selben Vertrag: Der App-Lader macht unter `floor` auch
+unbepreiste veröffentlichte Zeilen zu öffentlichen Tipps und begrenzt sie auf das Alter des Modelldokuments statt
+150 Minuten; die Karte blendet nur noch Prognosen mit Marktquote unter 1,20 aus (vorher jede ohne Quote, deshalb
+44 statt 84 Spiele). Quellcommit **`2d4a01c3973521a7a38b71a2167da402bf5fbc6d`** um 08:05 CET per No-Backup-Fast-forward von `ae3bd2f`
+ausgerollt (Helfer `output/release-20261025-2/deploy.sh`, 10 Pfade, nur App-Neustart PID 1325818 → 1326823,
+Healthchecks ok, Snapshots unverändert). Trockenlauf um 08:08 CET auf einer Kopie des Tagesdokuments (nichts geschrieben): Der nächste Quotenlauf veröffentlicht 3 öffentliche Tipps (Viking–Tromsø, Molde–Fredrikstad, Lecce–Juventus, alle PLAYABLE, Ledger-Reihenfolge) und 15 Einträge der 15K-Liste; der App-Lader lädt die Kopie mit 3 Signalen. Website um 08:09 CET: 60 statt 44 Spiele sichtbar, weil Prognosen ohne Quote wieder angezeigt werden; die öffentlichen Tipps erscheinen mit dem Quotenlauf um 09:15 CET.
+
 ## 25.10.2026 – Website leer wegen E-Sport-Preisstatus; Fix live
 
 Nachtcheck 25.10. (Belege `output/nightcheck-20261025/` ausserhalb Git): Tagesscan 03:35–03:59 CET `completed`
