@@ -1,6 +1,36 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## 25.10.2026 abends – Release 8 (Massnahme 3, Einheiten) und Release 9 (Shadow-Exit) live
+
+Owner-Freigabe um 23:20 CET; Release 8 um 23:22–23:25 per No-Backup-Fast-forward `49d43ef` → `68235ec` (Helfer
+`output/release-20261025-8/deploy.sh`, 32 Pfade, 12 Dateien byte-geprüft installiert: zehn Einheiten, Vorlage
+`betboy-alert@.service`, Helfer `/usr/local/libexec/betboy-alert.py`). Der Helfer brach nach der Installation an
+seiner Namensprüfung ab (Exit 23: `%n` enthält schon `.service`, die Instanz heisst
+`betboy-alert@<unit>.service.service`); `finish.sh` erledigte Property-Prüfungen, Neustart der vier Timer und der App,
+Healthchecks ok, Snapshots unverändert. Alarm-Probelauf `betboy-alert@probe.service.service`: Eintrag in
+`runtime_state/ops_alerts.jsonl`, Telegram `skipped` (Token und Chat-ID fehlen in `/etc/betboy/betboy.env`).
+`OnFailure` auf allen sechs Kerneinheiten, `Persistent=yes` auf vier Timern.
+
+**Zwischenfall:** Der Neustart der drei Tagestimer ohne Nachhol-Stempel feuerte Wettfinder-, Tennis- und E-Sport-Scan
+sofort (23:24:56, seriell über `After=`). Der Wettfinder-Scan lief sauber (8,5 min CPU, 1,1 GB), ersetzte aber das
+Tagesdokument des 25.10. durch eine fast leere Fassung (4 Modellzeilen, 0 Tipps) bis zum Nachtscan 03:35; der
+E-Sport-Scan lief sauber; der Tennis-Scan scheiterte um 23:54 und erneut regulär um 00:20 (26.10.) an
+`live tennis output/reference retention exceeded` (Batch-Rückhalt 128 MB nach 72 bzw. 112 vorbereiteten Fällen).
+Der neue Fallausschluss greift nur beim Rohzeilen-Limit einzelner Partien; D3 bleibt zur Hälfte offen. Der Alarm
+protokollierte beide Tennis-Fehlschläge und den Shadow-Fehlalarm um 23:32. Die Stempel existieren jetzt; ein weiterer
+Neustart holt nur echte Ausfälle nach.
+
+**Release 9** (PR #41, `ff8f0df`): Der Shadow-Runner endet nur noch bei `operational_errors` mit Exit 1 (Marker
+`; Retry`, `-Quote/Zeitstempel`, `: Details fehlen` sind Datenstatus). Um 23:58 CET per No-Backup-Fast-forward von
+`68235ec` ausgerollt (Helfer `output/release-20261025-9/deploy.sh`, 5 Pfade, nur App-Neustart PID 1348428→1352259,
+Healthchecks ok; der erste Anlauf wurde vom Helfer wegen des laufenden Tennis-Scans abgelehnt). Nachtprüfung:
+Shadow-Läufe 00:02/00:12/00:32 `idle`, 00:25 `completed` ohne Fehler und Exit 0, kein Shadow-Alarm mehr; Quotenlauf
+00:15 Exit 0 mit `side_operational_errors 0` und `identity_gaps []`, die Einheit `betboy-quotes` ist nicht mehr
+`failed`. `origin/main` = `ff8f0df`.
+
 ## 25.10.2026 abends – Massnahme 3 gemergt (PR #39), Release mit Unit-Installation ausstehend
+
+*Erledigt um 23:25 CET, siehe Block oben.*
 
 Owner-Entscheidung „alles machen“ zu den offenen Teilen von Massnahme 3 (D2, D3, D5). Betriebsänderung
 `docs/audits/2026-10-25-betrieb-massnahme-3.md`: Budget und Identitätslücken der Team-/E-Sport-Quoten sind Datenstatus
