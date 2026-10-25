@@ -38,6 +38,7 @@ from betting_math import BettingMathError, no_vig_market  # noqa: E402
 from challenge_engine import (  # noqa: E402
     GOAL_MODEL_LEGACY,
     GOAL_MODEL_SHADOW_CANDIDATE,
+    MARKET_BY_KEY,
     MODEL_SCOPE_CROSS_COMPETITION_UNVALIDATED,
     MODEL_SCOPE_SENIOR_NATIONAL,
     apply_candidate_context,
@@ -47,6 +48,7 @@ from challenge_engine import (  # noqa: E402
     candidate_selection_rank,
     fit_market_calibration,
     market_is_basic_forecast,
+    market_outcome,
     prediction_version_for_goal_model,
     validate_league_markets,
 )
@@ -55,6 +57,7 @@ from config_loader import load_app_config  # noqa: E402
 from football_data_history import fetch_history as fetch_stat_history  # noqa: E402
 from football_data_history import merge_api_tail  # noqa: E402
 from league_catalog import LEAGUES  # noqa: E402
+from model_loss_statistics import paired_advantage_statistics  # noqa: E402
 from runtime_paths import atomic_write_bytes, open_trusted_pickle  # noqa: E402
 from season_utils import current_season_start_year_for_id  # noqa: E402
 from xg_backfill import annotate_history as _annotate_xg  # noqa: E402
@@ -80,6 +83,15 @@ def _zurich_time(moment_utc: datetime) -> datetime:
 
 SHADOW_DB = PROJECT_DIR / "shadow_clv.db"
 CACHE_DIR = PROJECT_DIR / ".shadow_cache"
+# The published daily document (public tips and the 15K list) whose rows the
+# shadow records as the cohort "what was actually published" (Massnahme 2).
+PUBLISHED_DOCUMENT_PATH = PROJECT_DIR / "runtime_state" / "wettfinder_latest.json"
+# Market kinds settled from the full-time score; corners and cards need counts
+# the settlement does not fetch and stay unsettled.
+_GOAL_SETTLED_KINDS = frozenset({
+    "result", "double_chance", "btts", "total", "total_range", "team_total",
+    "team_range", "result_total", "mixed_or",
+})
 BOOKMAKER_NAME = "Bet365"
 BOOKMAKER_ID = 8  # /odds/bookmakers?search=Bet365, live verified 2026-09-24
 QUOTE_SOURCE = "API-Football"
@@ -589,6 +601,30 @@ def _connect() -> sqlite3.Connection:
             recorded_at TEXT NOT NULL
         )"""
     )
+    connection.execute(
+        """CREATE TABLE IF NOT EXISTS shadow_published (
+            candidate_id TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            zurich_date TEXT NOT NULL,
+            fixture_id INTEGER NOT NULL,
+            market_key TEXT,
+            selection TEXT,
+            model_probability REAL,
+            price_status TEXT,
+            opening_odds REAL,
+            bookmaker TEXT,
+            model_version TEXT,
+            policy_version TEXT,
+            document_generated_at TEXT,
+            first_seen_at TEXT NOT NULL,
+            kickoff TEXT,
+            result TEXT,
+            home_score INTEGER,
+            away_score INTEGER,
+            settled_at TEXT,
+            PRIMARY KEY (candidate_id, kind, zurich_date)
+        )"""
+    )
     return connection
 
 
@@ -865,6 +901,176 @@ def _log_edge_cap(prediction_id: int, model_version: str, pick, odds_response, n
         errors.append(f"Edge-Cap {prediction_id}: {exc}")
 
 
+def _is_win(result) -> bool:
+    """The tracker stores 'Won'/'Lost'/'Push' (``CLVTracker.settle_prediction``).
+
+    Until 25.10.2026 the cohort statistics compared against ``"WIN"`` and
+    every hit rate was 0 (Gesamtaudit S3, Massnahme 2).
+    """
+    return str(result or "").strip().casefold() == "won"
+
+
+def _decided(result) -> bool:
+    return str(result or "").strip().casefold() in {"won", "lost"}
+
+
+def _clv_interval(values: list[float]) -> dict:
+    """Mean, HAC standard error, one-sided lower bound and p of a chronological CLV series in pp."""
+    mean_value, standard_error, lower_bound, p_value = paired_advantage_statistics(list(values))
+    return {
+        "n": len(values),
+        "mean": round(mean_value, 2) if mean_value is not None else None,
+        "hac_standard_error": round(standard_error, 2) if standard_error is not None else None,
+        "lower_bound": round(lower_bound, 2) if lower_bound is not None else None,
+        "p_value": round(p_value, 4) if p_value is not None else None,
+    }
+
+
+def _hybrid_build_marker(day: str, league_id: int, season: int) -> str:
+    return f"hybrid-build-failed:{day}:{league_id}:{season}"
+
+
+def _hybrid_build_failed(day: str, league_id: int, season: int) -> bool:
+    connection = _connect()
+    try:
+        return _meta_get(connection, _hybrid_build_marker(day, league_id, season)) is not None
+    finally:
+        connection.close()
+
+
+def step_record_published(now: datetime, zurich_today: date, document_path=None) -> dict:
+    """Record exactly the rows the app published today (Gesamtaudit S2, Massnahme 2).
+
+    The legacy ledger logs the shadow's own pick with a Bet365 quote; the app
+    publishes statistically released rows in ledger order, also unpriced. This
+    table keeps the published candidate IDs (public tips and the 15K list),
+    their price status and, when playable, the executable opening odds, so the
+    published rule itself can be evaluated and the share with and without a
+    quote is visible. First sighting wins; nothing is modelled here.
+    """
+    summary = {"seen": 0, "recorded": 0, "recorded_with_quote": 0}
+    path = Path(document_path or PUBLISHED_DOCUMENT_PATH)
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return summary
+    if not isinstance(document, dict) or document.get("target_search_date") != zurich_today.isoformat():
+        return summary
+    generated = document.get("generated_at")
+    with _connect() as connection:
+        for kind, field in (("public_tip", "candidates"), ("challenge_15k", "challenge_release_candidates")):
+            for row in document.get(field) or []:
+                if not isinstance(row, dict) or row.get("source") != "football_challenge":
+                    continue
+                candidate_id = str(row.get("candidate_id") or "").strip()
+                fixture_id = row.get("fixture_id")
+                if not candidate_id or not _positive_int(fixture_id):
+                    continue
+                summary["seen"] += 1
+                status = str(row.get("reference_price_status") or "")
+                odds = row.get("reference_quote_executable_odds") if status == "PLAYABLE" else None
+                if isinstance(odds, bool) or not isinstance(odds, (int, float)) or not math.isfinite(odds) or odds <= 1.0:
+                    odds = None
+                probability = row.get("probability")
+                if isinstance(probability, bool) or not isinstance(probability, (int, float)):
+                    probability = None
+                kickoff = _parse_iso(row.get("scheduled_start"))
+                cursor = connection.execute(
+                    """INSERT OR IGNORE INTO shadow_published
+                       (candidate_id, kind, zurich_date, fixture_id, market_key, selection, model_probability,
+                        price_status, opening_odds, bookmaker, model_version, policy_version,
+                        document_generated_at, first_seen_at, kickoff)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (candidate_id, kind, zurich_today.isoformat(), int(fixture_id),
+                     str(row.get("market_key") or "") or None, str(row.get("selection") or "") or None,
+                     probability, status or None, odds,
+                     str(row.get("reference_quote_bookmaker") or "") or None,
+                     str(row.get("model_version") or "") or None, str(row.get("policy_version") or "") or None,
+                     str(generated or "") or None, _utc_iso(now), _utc_iso(kickoff) if kickoff else None),
+                )
+                if cursor.rowcount:
+                    summary["recorded"] += 1
+                    if odds is not None:
+                        summary["recorded_with_quote"] += 1
+        connection.commit()
+    return summary
+
+
+def step_settle_published(provider: ShadowProvider, now: datetime) -> int:
+    """Settle published goal-market rows from the full-time score; corners and cards stay open."""
+    threshold = _utc_iso(now - SETTLE_GRACE)
+    with _connect() as connection:
+        rows = connection.execute(
+            """SELECT candidate_id, kind, zurich_date, fixture_id, market_key FROM shadow_published
+               WHERE result IS NULL AND kickoff IS NOT NULL AND kickoff < ?""",
+            (threshold,),
+        ).fetchall()
+    rows = [row for row in rows
+            if (spec := MARKET_BY_KEY.get(str(row[4] or "").upper())) is not None
+            and spec.kind in _GOAL_SETTLED_KINDS]
+    if not rows:
+        return 0
+    details = provider.fixtures_by_ids(sorted({row[3] for row in rows}))
+    by_id = {}
+    for fixture in details:
+        fixture_data = fixture.get("fixture") if isinstance(fixture, dict) else None
+        fixture_id = fixture_data.get("id") if isinstance(fixture_data, dict) else None
+        if _positive_int(fixture_id):
+            by_id[fixture_id] = fixture
+    settled = 0
+    with _connect() as connection:
+        for candidate_id, kind, day, fixture_id, market_key in rows:
+            fixture = by_id.get(fixture_id)
+            if not fixture or str(fixture.get("fixture", {}).get("status", {}).get("short") or "") not in FT_STATUSES:
+                continue
+            goals = fixture.get("goals") or {}
+            home_goals, away_goals = goals.get("home"), goals.get("away")
+            if (isinstance(home_goals, bool) or isinstance(away_goals, bool)
+                    or not isinstance(home_goals, int) or not isinstance(away_goals, int)
+                    or home_goals < 0 or away_goals < 0):
+                continue
+            try:
+                won = market_outcome(MARKET_BY_KEY[str(market_key).upper()], home_goals, away_goals)
+            except (KeyError, ValueError) as exc:
+                errors.append(f"Published {candidate_id}: {exc}")
+                continue
+            connection.execute(
+                """UPDATE shadow_published SET result = ?, home_score = ?, away_score = ?, settled_at = ?
+                   WHERE candidate_id = ? AND kind = ? AND zurich_date = ?""",
+                ("Won" if won else "Lost", home_goals, away_goals, _utc_iso(now), candidate_id, kind, day),
+            )
+            settled += 1
+        connection.commit()
+    return settled
+
+
+def _published_statistics() -> dict:
+    """Per kind: recorded rows, share with a playable quote, settled hit rate (goal markets)."""
+    connection = _connect()
+    try:
+        rows = connection.execute(
+            "SELECT kind, opening_odds, result FROM shadow_published ORDER BY first_seen_at, candidate_id",
+        ).fetchall()
+    finally:
+        connection.close()
+    kinds: dict[str, dict] = {}
+    odds_by_kind: dict[str, list[float]] = {}
+    for kind, odds, result in rows:
+        bucket = kinds.setdefault(kind, {"recorded": 0, "with_quote": 0, "settled": 0, "won": 0, "lost": 0})
+        bucket["recorded"] += 1
+        if odds is not None:
+            bucket["with_quote"] += 1
+            odds_by_kind.setdefault(kind, []).append(float(odds))
+        if _decided(result):
+            bucket["settled"] += 1
+            bucket["won" if _is_win(result) else "lost"] += 1
+    for kind, bucket in kinds.items():
+        odds = odds_by_kind.get(kind, [])
+        bucket["avg_opening_odds"] = round(sum(odds) / len(odds), 3) if odds else None
+        bucket["hit_rate"] = round(bucket["won"] / bucket["settled"], 4) if bucket["settled"] else None
+    return {"kinds": kinds, "minimum_settled": SHADOW_REVIEW_MIN_CLV_BETS}
+
+
 def _edge_cap_statistics() -> dict:
     """Per cohort: tips that would have passed the cap against the rest (closed and settled)."""
     connection = _connect()
@@ -872,7 +1078,8 @@ def _edge_cap_statistics() -> dict:
         rows = connection.execute(
             """SELECT p.model_version, e.passed, p.odds, p.closing_odds, p.result
                FROM shadow_edge_cap e JOIN predictions p ON p.id = e.prediction_id
-               WHERE p.policy_version = ?""",
+               WHERE p.policy_version = ?
+               ORDER BY e.prediction_id""",
             (SHADOW_POLICY_VERSION,),
         ).fetchall()
     finally:
@@ -882,6 +1089,7 @@ def _edge_cap_statistics() -> dict:
         cohort = cohorts.setdefault(model_version, {
             "recorded": 0, "passed": 0, "failed": 0, "unknown": 0,
             "clv": {"passed": [], "failed": []}, "wins": {"passed": 0, "failed": 0},
+            "decided": {"passed": 0, "failed": 0},
         })
         cohort["recorded"] += 1
         if passed is None:
@@ -894,18 +1102,24 @@ def _edge_cap_statistics() -> dict:
                                  for price in prices):
             continue
         cohort["clv"][group].append((opening / closing - 1.0) * 100.0)
-        cohort["wins"][group] += 1 if str(result).upper() == "WIN" else 0
+        if _decided(result):
+            cohort["decided"][group] += 1
+            cohort["wins"][group] += 1 if _is_win(result) else 0
     mean = lambda values: round(sum(values) / len(values), 2) if values else None  # noqa: E731
     summary = {}
     for model_version, cohort in cohorts.items():
         closed = {group: len(values) for group, values in cohort["clv"].items()}
+        decided = cohort["decided"]
         summary[model_version] = {
             "recorded": cohort["recorded"], "passed": cohort["passed"], "failed": cohort["failed"],
             "unknown": cohort["unknown"],
             "closed_passed": closed["passed"], "closed_failed": closed["failed"],
             "passed_avg_clv": mean(cohort["clv"]["passed"]), "failed_avg_clv": mean(cohort["clv"]["failed"]),
-            "passed_hit_rate": round(cohort["wins"]["passed"] / closed["passed"], 4) if closed["passed"] else None,
-            "failed_hit_rate": round(cohort["wins"]["failed"] / closed["failed"], 4) if closed["failed"] else None,
+            # Pre-registered criterion (docs/superpowers/plans/2026-10-21-edge-cap.md): HAC interval per group.
+            "passed_clv": _clv_interval(cohort["clv"]["passed"]),
+            "failed_clv": _clv_interval(cohort["clv"]["failed"]),
+            "passed_hit_rate": round(cohort["wins"]["passed"] / decided["passed"], 4) if decided["passed"] else None,
+            "failed_hit_rate": round(cohort["wins"]["failed"] / decided["failed"], 4) if decided["failed"] else None,
         }
     return {"cap_pp": SHADOW_EDGE_CAP_PP, "minimum_closed_per_group": SHADOW_REVIEW_MIN_CLV_BETS,
             "applied": False, "cohorts": summary}
@@ -1155,42 +1369,55 @@ def _build_hybrid_artifacts(league_id, season, history, day):
 
 
 def step_warm_hybrid(provider: ShadowProvider, zurich_today: date,
-                     budget_seconds: float = SHADOW_HYBRID_WARMUP_BUDGET_SECONDS) -> int:
-    """Build today's hybrid artifacts after the ledger work, within a time budget.
+                     budget_seconds: float = SHADOW_HYBRID_WARMUP_BUDGET_SECONDS) -> dict:
+    """Build today's hybrid artifacts before the ledger work, within a time budget.
 
     The Dixon-Coles walk-forward costs seconds to minutes per league; it runs
-    once per league and day, after ``step_evaluate`` and only while the budget
-    lasts, so a due evaluation and the 15-minute unit limit are never at risk.
-    Leagues left over are built by the next due run.
+    once per league and day, leagues with the earliest open kick-off first and
+    only while the budget lasts, so the 15-minute unit limit is never at risk.
+    Until 25.10.2026 it ran after ``step_evaluate`` and a fixture evaluated
+    before its league was built was lost for the hybrid cohort for good
+    (Gesamtaudit D4, Massnahme 2). A league whose build fails is marked for
+    the day so the evaluation does not wait for it. Leagues left over are
+    built by the next run.
     """
+    summary = {"warmed": 0, "cached": 0, "failed": 0, "pending": 0}
     if not hybrid_cohort_enabled():
-        return 0
+        return summary
     day = zurich_today.isoformat()
     with _connect() as connection:
         rows = connection.execute(
-            """SELECT league_id, season, MIN(fixture_id) FROM shadow_fixtures
+            """SELECT league_id, season, MIN(fixture_id), MIN(kickoff) FROM shadow_fixtures
                WHERE zurich_date = ? AND evaluated = 0 AND league_id != 5
-               GROUP BY league_id, season ORDER BY league_id""",
+               GROUP BY league_id, season ORDER BY MIN(kickoff), league_id""",
             (day,),
         ).fetchall()
     deadline = time.monotonic() + budget_seconds
-    warmed = 0
-    for league_id, season, fixture_id in rows:
+    for league_id, season, fixture_id, _kickoff in rows:
         if all(path.exists() for path in _hybrid_artifact_paths(league_id, season, day)):
+            summary["cached"] += 1
+            continue
+        if _hybrid_build_failed(day, league_id, season):
+            summary["failed"] += 1
             continue
         if time.monotonic() >= deadline:
-            break
+            summary["pending"] += 1
+            continue
         try:
             detail = provider.fixture_details(fixture_id)
             if not detail:
-                errors.append(f"Hybrid-Vorbereitung Liga {league_id}: Fixture-Details fehlen")
-                continue
+                raise ValueError("Fixture-Details fehlen")
             history = _cached_history(provider, league_id, season, detail, day)
             _build_hybrid_artifacts(league_id, season, history, day)
-            warmed += 1
+            summary["warmed"] += 1
         except Exception as exc:  # The warm-up is optional; the ledger run must continue.
             errors.append(f"Hybrid-Vorbereitung Liga {league_id}: {exc}")
-    return warmed
+            summary["failed"] += 1
+            with _connect() as connection:
+                _meta_set(connection, _hybrid_build_marker(day, league_id, season),
+                          _utc_iso(datetime.now(timezone.utc)))
+                connection.commit()
+    return summary
 
 
 def _evaluate_hybrid_cohort(tracker: CLVTracker, provider: ShadowProvider, detail: dict, history,
@@ -1210,8 +1437,13 @@ def _evaluate_hybrid_cohort(tracker: CLVTracker, provider: ShadowProvider, detai
         day = zurich_today.isoformat()
         artifacts = _load_hybrid_artifacts(league_id, season, day)
         if artifacts is None:
-            # Built by step_warm_hybrid after the ledger work, never inside the window.
+            # Built by step_warm_hybrid before the ledger work, never inside the window.
             result["hybrid_not_ready"] = result.get("hybrid_not_ready", 0) + 1
+            # Massnahme 2 (25.10.2026): the fixture stays open for a later run while the
+            # warm-up can still build the league; a failed build never keeps it open, and
+            # the final-retry rule of step_evaluate closes it before kick-off anyway.
+            if not _hybrid_build_failed(day, league_id, season):
+                outcome["terminal"] = False
             return outcome
         validation, calibration = artifacts
         candidates = build_fixture_candidates(detail, history, validation, calibration,
@@ -1446,12 +1678,13 @@ def _paired_cohort_statistics() -> dict:
                  ON a.fixture_id = b.fixture_id AND a.policy_version = b.policy_version
                WHERE a.model_version = ? AND b.model_version = ?
                  AND a.closing_odds IS NOT NULL AND b.closing_odds IS NOT NULL
-                 AND a.result IS NOT NULL AND b.result IS NOT NULL""",
+                 AND a.result IS NOT NULL AND b.result IS NOT NULL
+               ORDER BY a.id""",
             (SHADOW_MODEL_VERSION, SHADOW_HYBRID_MODEL_VERSION),
         ).fetchall()
     finally:
         connection.close()
-    legacy, hybrid, same, wins = [], [], 0, [0, 0]
+    legacy, hybrid, same, wins, decided = [], [], 0, [0, 0], [0, 0]
     for legacy_open, legacy_close, hybrid_open, hybrid_close, identical, legacy_result, hybrid_result in rows:
         prices = (legacy_open, legacy_close, hybrid_open, hybrid_close)
         if any(type(price) not in (int, float) or not math.isfinite(price) or price <= 1.0 for price in prices):
@@ -1459,8 +1692,10 @@ def _paired_cohort_statistics() -> dict:
         legacy.append((legacy_open / legacy_close - 1.0) * 100.0)
         hybrid.append((hybrid_open / hybrid_close - 1.0) * 100.0)
         same += 1 if identical else 0
-        wins[0] += 1 if str(legacy_result).upper() == "WIN" else 0
-        wins[1] += 1 if str(hybrid_result).upper() == "WIN" else 0
+        for index, result in enumerate((legacy_result, hybrid_result)):
+            if _decided(result):
+                decided[index] += 1
+                wins[index] += 1 if _is_win(result) else 0
     pairs = len(legacy)
     mean = lambda values: round(sum(values) / len(values), 2) if values else None  # noqa: E731
     differences = [h - l for l, h in zip(legacy, hybrid)]
@@ -1471,8 +1706,11 @@ def _paired_cohort_statistics() -> dict:
         "legacy_avg_clv": mean(legacy),
         "hybrid_avg_clv": mean(hybrid),
         "avg_difference": mean(differences),
-        "legacy_hit_rate": round(wins[0] / pairs, 4) if pairs else None,
-        "hybrid_hit_rate": round(wins[1] / pairs, 4) if pairs else None,
+        # Pre-registered criterion (docs/superpowers/plans/2026-10-22-hybrid-aktivierung.md):
+        # HAC interval of the paired CLV difference, hybrid minus legacy, in pp.
+        "difference": _clv_interval(differences),
+        "legacy_hit_rate": round(wins[0] / decided[0], 4) if decided[0] else None,
+        "hybrid_hit_rate": round(wins[1] / decided[1], 4) if decided[1] else None,
     }
 
 
@@ -1609,12 +1847,13 @@ def run(ctx):
     now = datetime.now(timezone.utc)
     zurich_today = _zurich_time(now).date()
 
-    settled = 0
+    settled = settled_published = 0
     if _zurich_time(now).hour >= 9:
         with _connect() as connection:
             already_checked = bool(_meta_get(connection, _settlement_marker(zurich_today)))
         if not already_checked:
             settled = step_settle(tracker, provider, now)
+            settled_published = step_settle_published(provider, now)
             with _connect() as connection:
                 _meta_set(connection, _settlement_marker(zurich_today), _utc_iso(now))
                 connection.commit()
@@ -1623,9 +1862,12 @@ def run(ctx):
         step_schedule(provider, league_ids, day, force_schedule)
         for day in (zurich_today, zurich_today + timedelta(days=1))
     ) if _zurich_time(now).hour >= 9 or force_schedule else 0
-    evaluation = step_evaluate(tracker, provider, now, zurich_today, max_fixtures)
-    # After the ledger work: the hybrid walk-forward never delays a due evaluation.
+    # Massnahme 2 (25.10.2026): record what the app published today and build the
+    # hybrid artifacts before the ledger work, so a due fixture can be evaluated
+    # by both cohorts in the same run (earliest kick-offs first, within the budget).
+    published = step_record_published(now, zurich_today)
     warmed = step_warm_hybrid(provider, zurich_today)
+    evaluation = step_evaluate(tracker, provider, now, zurich_today, max_fixtures)
 
     stats_30 = tracker.get_clv_statistics(
         days=30,
@@ -1651,6 +1893,9 @@ def run(ctx):
             "predictions_logged": evaluation["logged"],
             "closings_captured": closings,
             "predictions_settled": settled,
+            "published_recorded": published["recorded"],
+            "published_recorded_with_quote": published["recorded_with_quote"],
+            "published_settled": settled_published,
         },
         "stats_30d": stats_30,
         "stats_all": stats_all,
@@ -1670,7 +1915,10 @@ def run(ctx):
             "goal_model": SHADOW_HYBRID_GOAL_MODEL,
             "model_version": SHADOW_HYBRID_MODEL_VERSION,
             "policy_version": SHADOW_POLICY_VERSION,
-            "artifacts_warmed": warmed,
+            "artifacts_warmed": warmed["warmed"],
+            "artifacts_cached": warmed["cached"],
+            "leagues_pending": warmed["pending"],
+            "builds_failed": warmed["failed"],
             "fixtures_without_artifacts": evaluation.get("hybrid_not_ready", 0),
             "credible_model_candidates": evaluation.get("hybrid_credible_candidates", 0),
             "fixtures_without_fresh_quote": evaluation.get("hybrid_quote_missing", 0),
@@ -1682,6 +1930,7 @@ def run(ctx):
             "paired": _paired_cohort_statistics(),
         },
         "edge_cap": _edge_cap_statistics(),
+        "published_tips": _published_statistics(),
     }
     wrapper = {"artifact": artifact}
     output_file = os.environ.get("DAIMON_BLUEPRINT_AUTOMATION_OUTPUT_FILE")

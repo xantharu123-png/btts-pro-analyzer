@@ -59,9 +59,18 @@ protokolliert den Modell-zuerst-Tipp mit **derselben Quotenantwort** unter der
 Hybrid-Modellversion. Die Legacy-Kohorte wird zuerst geschrieben und von Fehlern der
 Hybrid-Kohorte nie berührt. Schalter `BETBOY_SHADOW_HYBRID_BASIS` (Default an, `0`
 schaltet ab). Nationalteam-Spiele (Liga 5) haben keine Hybrid-Kohorte (fail-closed).
-Die Hybrid-Artefakte entstehen nach der Bewertung in einer Walk-forward-Passage je Liga
-mit Zeitbudget; die Bewertung nutzt nur fertige Artefakte. Das Run-Artefakt enthält beide
-Kohorten und die paarweise Auswertung.
+Die Hybrid-Artefakte entstehen **vor** der Bewertung in einer Walk-forward-Passage je Liga
+mit Zeitbudget (Ligen mit dem frühesten offenen Anpfiff zuerst); die Bewertung nutzt nur fertige
+Artefakte und lässt ein Spiel ohne Artefakte bis zum letzten Versuch (30 min vor Anpfiff) offen,
+sofern der Bau der Liga nicht am selben Tag fehlgeschlagen ist. Holt der Hybrid ein Spiel in einem
+späteren Lauf nach, stammt seine Öffnungsquote aus einer jüngeren Quotenantwort als die
+Legacy-Zeile. Das Run-Artefakt enthält beide Kohorten, die paarweise Auswertung mit HAC-Intervall
+der CLV-Differenz (`difference`) und die Trefferquote je Kohorte.
+
+*Nachtrag 25.10.2026:* Bis dahin lief das Warm-up nach der Bewertung und fehlende Artefakte galten
+als terminal, sodass die Hybrid-Kohorte strukturell leer blieb (Gesamtaudit D4); die Trefferquoten
+verglichen gegen `WIN` statt des gespeicherten `Won` (S3). Behoben mit Massnahme 2
+(`docs/audits/2026-10-25-shadow-massnahme-2.md`).
 
 ## Prüfplan
 

@@ -153,13 +153,35 @@ def test_senior_internationals_have_no_hybrid_cohort(ledger, monkeypatch):
     assert ledger.calls["candidates"] == [engine.GOAL_MODEL_LEGACY] and ledger.calls["hybrid_loads"] == 0
 
 
-def test_hybrid_waits_for_warm_artifacts_and_never_reopens_a_legacy_terminal_fixture(ledger, monkeypatch):
+def test_hybrid_without_artifacts_defers_the_fixture_until_the_league_is_built(ledger, monkeypatch):
+    """Massnahme 2 (25.10.2026): the legacy row is logged at once, the fixture stays open for the hybrid."""
     monkeypatch.delenv(shadow.SHADOW_HYBRID_FLAG, raising=False)
     monkeypatch.setattr(shadow, "_load_hybrid_artifacts", lambda league_id, season, day: None)
+    provider = _Provider()
+    result = shadow.step_evaluate(ledger.tracker, provider, ledger.now, date.today(), 10)
+    assert [row[1] for row in _rows(ledger.db_path)] == [shadow.SHADOW_MODEL_VERSION]
+    assert result["logged"] == 1 and result["evaluated"] == 0 and result.get("deferred") == 1
+    assert result["hybrid_not_ready"] == 1 and "hybrid_logged" not in result
+    assert ledger.calls["candidates"] == [engine.GOAL_MODEL_LEGACY] and shadow.errors == []
+    # The next run finds the artifacts: the hybrid row is logged from a fresh quote, the legacy
+    # row is never duplicated and the fixture closes.
+    monkeypatch.setattr(shadow, "_load_hybrid_artifacts", lambda league_id, season, day: ({}, {}))
+    result = shadow.step_evaluate(ledger.tracker, provider, ledger.now, date.today(), 10)
+    assert [row[1] for row in _rows(ledger.db_path)] == [shadow.SHADOW_MODEL_VERSION,
+                                                         shadow.SHADOW_HYBRID_MODEL_VERSION]
+    assert result["logged"] == 0 and result["hybrid_logged"] == 1 and result["evaluated"] == 1
+    assert provider.odds_calls == 2 and shadow.errors == []
+
+
+def test_failed_hybrid_build_never_keeps_a_fixture_open(ledger, monkeypatch):
+    monkeypatch.delenv(shadow.SHADOW_HYBRID_FLAG, raising=False)
+    monkeypatch.setattr(shadow, "_load_hybrid_artifacts", lambda league_id, season, day: None)
+    with shadow._connect() as connection:
+        shadow._meta_set(connection, shadow._hybrid_build_marker(date.today().isoformat(), 39, 2026), "t")
+        connection.commit()
     result = shadow.step_evaluate(ledger.tracker, _Provider(), ledger.now, date.today(), 10)
     assert [row[1] for row in _rows(ledger.db_path)] == [shadow.SHADOW_MODEL_VERSION]
-    assert result["evaluated"] == 1 and result["hybrid_not_ready"] == 1 and "hybrid_logged" not in result
-    assert ledger.calls["candidates"] == [engine.GOAL_MODEL_LEGACY] and shadow.errors == []
+    assert result["evaluated"] == 1 and result["hybrid_not_ready"] == 1 and "deferred" not in result
 
 
 def test_hybrid_without_quote_keeps_the_fixture_open_until_the_final_retry(ledger, monkeypatch):
@@ -188,25 +210,58 @@ def test_warm_up_builds_both_hybrid_artifacts_in_one_pass_within_the_budget(ledg
         return {"RESULT_HOME": "validation"}, {"RESULT_HOME": "calibration"}
 
     monkeypatch.setattr(shadow, "build_market_model_artifact", one_pass)
-    assert shadow.step_warm_hybrid(_Provider(), date.today(), budget_seconds=0.0) == 0  # budget spent
-    assert shadow.step_warm_hybrid(_Provider(), date.today()) == 1
+    idle = {"warmed": 0, "cached": 0, "failed": 0, "pending": 0}
+    assert shadow.step_warm_hybrid(_Provider(), date.today(), budget_seconds=0.0) == {**idle, "pending": 1}
+    assert shadow.step_warm_hybrid(_Provider(), date.today()) == {**idle, "warmed": 1}
     assert passes == [HYBRID]  # validation and calibration from one walk-forward
     assert shadow._load_hybrid_artifacts(39, 2026, date.today().isoformat()) == (
         {"RESULT_HOME": "validation"}, {"RESULT_HOME": "calibration"})
-    assert shadow.step_warm_hybrid(_Provider(), date.today()) == 0 and passes == [HYBRID]  # cache hit
+    assert shadow.step_warm_hybrid(_Provider(), date.today()) == {**idle, "cached": 1} and passes == [HYBRID]
     monkeypatch.setenv(shadow.SHADOW_HYBRID_FLAG, "0")
-    assert shadow.step_warm_hybrid(_Provider(), date.today()) == 0
+    assert shadow.step_warm_hybrid(_Provider(), date.today()) == idle
+
+
+def test_failed_warm_up_marks_the_league_for_the_day_and_is_not_retried(ledger, monkeypatch):
+    monkeypatch.delenv(shadow.SHADOW_HYBRID_FLAG, raising=False)
+    monkeypatch.setattr(shadow, "_load_hybrid_artifacts", _REAL_LOAD_HYBRID_ARTIFACTS)
+    attempts = []
+
+    def failing(history, goal_model=engine.GOAL_MODEL_LEGACY):
+        attempts.append(goal_model)
+        raise RuntimeError("walk-forward failed")
+
+    monkeypatch.setattr(shadow, "build_market_model_artifact", failing)
+    day = date.today().isoformat()
+    failed = {"warmed": 0, "cached": 0, "failed": 1, "pending": 0}
+    assert shadow.step_warm_hybrid(_Provider(), date.today()) == failed
+    assert shadow._hybrid_build_failed(day, 39, 2026) is True
+    assert any(message.startswith("Hybrid-Vorbereitung Liga 39:") for message in shadow.errors)
+    assert shadow.step_warm_hybrid(_Provider(), date.today()) == failed and attempts == [HYBRID]
+
+
+def test_warm_up_builds_the_league_with_the_earliest_kick_off_first(ledger, monkeypatch):
+    monkeypatch.delenv(shadow.SHADOW_HYBRID_FLAG, raising=False)
+    with sqlite3.connect(ledger.db_path) as connection:
+        connection.execute("INSERT INTO shadow_fixtures VALUES (?, ?, ?, ?, ?, ?, ?, 0)",
+                           (92, date.today().isoformat(), 140, 2026, "C", "D",
+                            shadow._utc_iso(ledger.now + timedelta(minutes=10))))
+    built = []
+    monkeypatch.setattr(shadow, "_build_hybrid_artifacts",
+                        lambda league_id, season, history, day: built.append(league_id))
+    assert shadow.step_warm_hybrid(_Provider(), date.today())["warmed"] == 2
+    assert built == [140, 39]
 
 
 def test_paired_statistics_compare_only_fixtures_closed_in_both_cohorts(ledger):
     with sqlite3.connect(ledger.db_path) as connection:
         rows = [
-            (1, "A", "B", "RESULT_HOME", "Heim", 2.0, 1.8, "WIN", "x", shadow.SHADOW_MODEL_VERSION),
-            (1, "A", "B", "RESULT_HOME", "Heim", 2.0, 1.9, "WIN", "x", shadow.SHADOW_HYBRID_MODEL_VERSION),
-            (2, "C", "D", "TOTAL_OVER_2_5", "Über", 1.9, 2.0, "LOSS", "x", shadow.SHADOW_MODEL_VERSION),
-            (2, "C", "D", "RESULT_AWAY", "Auswärts", 2.2, 2.0, "WIN", "x", shadow.SHADOW_HYBRID_MODEL_VERSION),
+            # Results exactly as CLVTracker.settle_prediction stores them ('Won'/'Lost'/'Push').
+            (1, "A", "B", "RESULT_HOME", "Heim", 2.0, 1.8, "Won", "x", shadow.SHADOW_MODEL_VERSION),
+            (1, "A", "B", "RESULT_HOME", "Heim", 2.0, 1.9, "Won", "x", shadow.SHADOW_HYBRID_MODEL_VERSION),
+            (2, "C", "D", "TOTAL_OVER_2_5", "Über", 1.9, 2.0, "Lost", "x", shadow.SHADOW_MODEL_VERSION),
+            (2, "C", "D", "RESULT_AWAY", "Auswärts", 2.2, 2.0, "Won", "x", shadow.SHADOW_HYBRID_MODEL_VERSION),
             (3, "E", "F", "RESULT_HOME", "Heim", 2.0, None, None, "x", shadow.SHADOW_MODEL_VERSION),
-            (3, "E", "F", "RESULT_HOME", "Heim", 2.0, 1.9, "WIN", "x", shadow.SHADOW_HYBRID_MODEL_VERSION),
+            (3, "E", "F", "RESULT_HOME", "Heim", 2.0, 1.9, "Won", "x", shadow.SHADOW_HYBRID_MODEL_VERSION),
         ]
         connection.executemany(
             "INSERT INTO predictions (fixture_id, home_team, away_team, market_type, prediction, odds, "
@@ -218,3 +273,8 @@ def test_paired_statistics_compare_only_fixtures_closed_in_both_cohorts(ledger):
     assert paired["hybrid_avg_clv"] == pytest.approx(round(((2.0 / 1.9 - 1) * 100 + (2.2 / 2.0 - 1) * 100) / 2, 2))
     assert paired["legacy_hit_rate"] == 0.5 and paired["hybrid_hit_rate"] == 1.0
     assert paired["minimum_pairs"] == shadow.SHADOW_REVIEW_MIN_CLV_BETS
+    # Pre-registered criterion: HAC interval of the paired difference (hybrid minus legacy), chronological.
+    difference = paired["difference"]
+    assert difference["n"] == 2 and difference["mean"] == paired["avg_difference"]
+    assert difference["hac_standard_error"] > 0 and difference["lower_bound"] < difference["mean"]
+    assert 0.0 <= difference["p_value"] <= 1.0
