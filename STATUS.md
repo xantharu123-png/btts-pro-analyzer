@@ -48,6 +48,7 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 
 ## Wo nachlesen
 
-`AUDIT_BERICHT_2026-10-16_CLAUDE.md` (Befund), `docs/audits/2026-10-19-audit-reparaturen.md`
+`AUDIT_BERICHT_2026-10-25_CLAUDE.md` (Gesamtaudit 25.10.: Logik, Mathematik, Statistik, Betrieb, UX; Massnahmenplan),
+`AUDIT_BERICHT_2026-10-16_CLAUDE.md` (Befund 16.10.), `docs/audits/2026-10-19-audit-reparaturen.md`
 (Protokoll mit Zahlen), `docs/handoffs/2026-10-20-claude-uebergabe.md` (Code-Übergabe),
 `docs/audits/2026-10-17-claude-gegenpruefung.md` (Nutzerentscheidungen 17.10.).
