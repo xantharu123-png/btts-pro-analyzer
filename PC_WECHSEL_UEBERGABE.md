@@ -1,6 +1,20 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## 25.10.2026 abends – Dreistufige Preisprüfung live (PR #34)
+
+Übernahme nach dem Account-Wechsel: Der andere Account hatte nichts ausgerollt (kein Branch, kein PR, VPS
+unverändert auf `ff5f5a0`). Quellcommit **`45b66e9`** (`main` nach Protokoll-PR #35, Code aus PR #34) um 19:12 CET
+per No-Backup-Fast-forward von `ff5f5a0` ausgerollt (Helfer `output/release-20261025-6/deploy.sh`, 14 Pfade, nur
+App-Neustart PID 1335323→1339155, Healthchecks ok, Snapshots unverändert, Beleg `deploy-01.log` ausserhalb Git).
+Prüfung mit dem ausgerollten Code gegen das Live-Dokument um 19:15: wie im Trockenlauf erwartet 12 gespeicherte
+`PLAYABLE`-Zeilen zeilenweise zurückgehalten (Median unter 1,20); Website zeigt das Tagesprogramm, 2 öffentliche
+Tipps, 21 Fussballkarten sichtbar, 13 wegen Marktquote unter 1,20 ausgeblendet, keine Hauptauswahl ohne Quote ab
+65 %. Der Quotenlauf 18:15 (noch alter Code) prüfte 0 Spiele; abgeleitete Schranken (`reference_price_bound`)
+entstehen erst mit dem nächsten Quotenlauf, der Fussball prüft, spätestens mit dem Nachtscan um 03:35.
+
 ## 25.10.2026 abends – Übergabe: dreistufige Preisprüfung gemergt, NICHT ausgerollt
+
+*Erledigt um 19:12 CET, siehe Block oben.*
 
 Stand bei der Übergabe an den anderen Claude-Account (Owner hat den Release-Schritt angehalten):
 
