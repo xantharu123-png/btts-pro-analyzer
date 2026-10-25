@@ -560,6 +560,19 @@ PRICE_POLICY_FLAG = "BETBOY_PRICE_POLICY"
 PRICE_POLICY_FLOOR = "floor"
 PRICE_POLICY_GATE = "gate"
 FLOOR_PRICE_MAX_AGE = QUOTE_DISPLAY_MAX_AGE
+# Owner decision 25.10.2026 (docs/audits/2026-10-25-preispruefung-dreistufig.md):
+# the 1.20 floor is a three-stage check. (1) A direct quote: the median of the
+# bookmaker prices observed within 24 hours must reach 1.20 (the user's book
+# rarely pays the best price). (2) A goal range without a direct quote: a bound
+# derived from the over/under lines of the same team or match decides, with a
+# typical bookmaker margin. (3) Without any price evidence the model guard
+# decides: from 65 % model probability a price of 1.20 is not plausible.
+FLOOR_UNPRICED_MAX_PROBABILITY = 0.65
+FLOOR_DERIVED_MARGIN = 0.06
+FLOOR_BASIS_DERIVED = "derived-range-bound"
+FLOOR_BASIS_MODEL = "model-guard"
+FLOOR_BOUND_BASES = frozenset({"upper_bound", "line_difference"})
+_RANGE_MARKET_KEY = re.compile(r"(HOME|AWAY|TOTAL)_RANGE_(\d+)_(\d+)")
 
 
 def price_policy() -> str:
@@ -596,13 +609,139 @@ def floor_price_status(
     if not observed:
         return ReferencePriceStatus(
             "UNPRICED", "Letzte Marktquote ist aelter als 24 Stunden; Mindestquote 1,20 beim Buchmacher pruefen", None)
+    # Owner decision 25.10.2026: the floor is checked against the median price;
+    # the best price of up to nine books overstates what the user's book pays.
+    if float(median(point.odds for point in observed)) + 1e-9 < MINIMUM_RECOMMENDED_DECIMAL_ODDS:
+        return ReferencePriceStatus("BELOW_FLOOR", "Mittlere Marktquote liegt unter 1,20; kein Tipp", None)
     best = max(observed, key=lambda point: point.odds)
-    if best.odds + 1e-9 < MINIMUM_RECOMMENDED_DECIMAL_ODDS:
-        return ReferencePriceStatus("BELOW_FLOOR", "Marktquote liegt unter 1,20; kein Tipp", None)
     return ReferencePriceStatus(
-        "PLAYABLE", "Marktquote ueber 1,20 beobachtet; Preis beim Buchmacher pruefen", best.odds,
+        "PLAYABLE", "Mittlere Marktquote ab 1,20 beobachtet; Preis beim Buchmacher pruefen", best.odds,
         bookmaker=best.bookmaker, bookmaker_id=best.bookmaker_id, observed_at=best.observed_at,
     )
+
+
+def _fractional_probability(value: object) -> Optional[float]:
+    """A model probability as a fraction; candidates in percent (e.g. 79.7) are scaled."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    probability = float(value)
+    if not math.isfinite(probability) or probability <= 0.0 or probability > 100.0:
+        return None
+    return probability / 100.0 if probability > 1.0 else probability
+
+
+def valid_price_bound(value: object, market_key: object) -> Optional[dict]:
+    """A stored stage-2 bound for exactly this range market, normalised, or ``None``."""
+    if not isinstance(value, Mapping):
+        return None
+    key = str(value.get("market_key") or "").strip().upper()
+    if _RANGE_MARKET_KEY.fullmatch(key) is None or key != str(market_key or "").strip().upper():
+        return None
+    probability = value.get("probability")
+    if (isinstance(probability, bool) or not isinstance(probability, (int, float))
+            or not math.isfinite(float(probability)) or not 0.0 < float(probability) <= 1.0):
+        return None
+    basis = value.get("basis")
+    observed = _parse_utc(value.get("observed_at"))
+    sources = value.get("sources")
+    if (basis not in FLOOR_BOUND_BASES or observed is None or not isinstance(sources, (list, tuple))
+            or not sources or not all(isinstance(item, str) and item.strip() for item in sources)):
+        return None
+    return {"market_key": key, "probability": float(probability), "basis": basis,
+            "sources": [str(item).strip() for item in sources], "observed_at": observed.isoformat()}
+
+
+def _line_over_probability(siblings: Mapping[str, object], prefix: str, line: int,
+                           current: datetime) -> Optional[tuple[float, datetime, str]]:
+    """No-vig P(more than ``line`` goals) from a priced over or under sibling row."""
+    for side in ("OVER", "UNDER"):
+        key = f"{prefix}_{side}_{line}_5"
+        row = siblings.get(key)
+        if row is None:
+            continue
+        quote = MarketConsensus.from_dict(_candidate_value(row, "reference_quote"))
+        if quote is None or not quote.points or not quote_matches_candidate(quote, row):
+            continue
+        stamps = [_point_observed_at(point, quote.quoted_at) for point in quote.points]
+        if any(stamp is None for stamp in stamps):
+            continue
+        oldest = min(stamps)
+        if current - oldest > FLOOR_PRICE_MAX_AGE or max(stamps) - current > timedelta(minutes=1):
+            continue
+        probability = no_vig_market_probability(quote)
+        if probability is None or not 0.0 < probability < 1.0:
+            continue
+        return (probability if side == "OVER" else 1.0 - probability), oldest, key
+    return None
+
+
+def derive_range_price_bound(candidate: object, siblings: Mapping[str, object], *,
+                             now: datetime) -> Optional[dict]:
+    """Stage 2 of the floor: market probability of a goal range from its over/under lines.
+
+    ``a-b`` goals is ``P(>= a) - P(>= b+1)``. With only the lower line the
+    result is an upper bound (``P(a-b) <= P(>= a)``), so the derived price is
+    a lower bound and the check stays on the safe side. ``siblings`` maps the
+    market keys of the same fixture to rows carrying their own exact quote.
+    """
+    key = str(_candidate_value(candidate, "market_key") or "").strip().upper()
+    match = _RANGE_MARKET_KEY.fullmatch(key)
+    if match is None:
+        return None
+    prefix, low, high = match[1], int(match[2]), int(match[3])
+    if low > high:
+        return None
+    current = _as_utc(now)
+    upper = _line_over_probability(siblings, prefix, high, current)
+    if low == 0:
+        if upper is None:
+            return None
+        lower: tuple[float, Optional[datetime], Optional[str]] = (1.0, None, None)
+    else:
+        found = _line_over_probability(siblings, prefix, low - 1, current)
+        if found is None:
+            return None
+        lower = found
+    probability = lower[0] - (upper[0] if upper is not None else 0.0)
+    if not math.isfinite(probability) or probability <= 0.0:
+        return None  # inconsistent lines: no bound, the model guard decides
+    parts = [part for part in (lower, upper) if part is not None and part[1] is not None]
+    return {
+        "market_key": key,
+        "probability": round(min(probability, 1.0), 6),
+        "basis": "line_difference" if upper is not None else "upper_bound",
+        "sources": [part[2] for part in parts],
+        "observed_at": min(part[1] for part in parts).isoformat(),
+    }
+
+
+def _unpriced_floor_status(
+    status: ReferencePriceStatus,
+    candidate: object,
+    *,
+    now: Optional[datetime],
+    model_probability: Optional[float] = None,
+) -> ReferencePriceStatus:
+    """Stages 2 and 3 for a candidate without a current direct quote."""
+    current = _as_utc(now or datetime.now(timezone.utc))
+    bound = valid_price_bound(_candidate_value(candidate, "reference_price_bound"),
+                              _candidate_value(candidate, "market_key"))
+    if bound is not None and current - _parse_utc(bound["observed_at"]) <= FLOOR_PRICE_MAX_AGE:
+        derived_odds = 1.0 / (bound["probability"] * (1.0 + FLOOR_DERIVED_MARGIN))
+        if derived_odds + 1e-9 < MINIMUM_RECOMMENDED_DECIMAL_ODDS:
+            return ReferencePriceStatus(
+                "BELOW_FLOOR", "Keine direkte Marktquote; aus den Torlinien abgeleiteter Preis liegt unter 1,20; kein Tipp",
+                None, market_probability=bound["probability"], market_basis=FLOOR_BASIS_DERIVED)
+        return ReferencePriceStatus(
+            "UNPRICED", "Keine direkte Marktquote; die Torlinien belegen einen Preis ab 1,20",
+            None, market_probability=bound["probability"], market_basis=FLOOR_BASIS_DERIVED)
+    probability = _fractional_probability(
+        model_probability if model_probability is not None else _candidate_value(candidate, "probability"))
+    if probability is not None and probability >= FLOOR_UNPRICED_MAX_PROBABILITY:
+        return ReferencePriceStatus(
+            "BELOW_FLOOR", "Keine Marktquote; ab 65 % Modellwahrscheinlichkeit ist ein Preis ab 1,20 nicht belegbar; kein Tipp",
+            None, market_basis=FLOOR_BASIS_MODEL)
+    return status
 
 
 def edge_cap_pp() -> Optional[float]:
@@ -845,7 +984,12 @@ def quote_below_publication_floor(quote: object, *, candidate: object, now: Opti
         return False
     current = wettfinder_consensus(quote, now=now) or observed_consensus(quote, candidate=candidate, now=now)
     # Compare unrounded native offers, not the six-decimal display aggregate.
-    return current is not None and max(p.odds for p in current.points) < MINIMUM_RECOMMENDED_DECIMAL_ODDS
+    if current is None:
+        return False
+    # Owner decision 25.10.2026: under the floor policy the median price decides.
+    reference = (float(median(p.odds for p in current.points)) if floor_only_pricing()
+                 else max(p.odds for p in current.points))
+    return reference < MINIMUM_RECOMMENDED_DECIMAL_ODDS
 
 
 def observed_consensus(quote: object, *, candidate: object, now: Optional[datetime] = None) -> Optional[MarketConsensus]:
@@ -929,8 +1073,11 @@ def wettfinder_reference_price_status(
 
     if floor_only_pricing():
         if quote is not None and candidate is not None and not quote_matches_candidate(quote, candidate):
-            return floor_price_status(None, now=now)
-        return floor_price_status(quote, now=now)
+            quote = None
+        status = floor_price_status(quote, now=now)
+        if status.code != "UNPRICED" or candidate is None:
+            return status
+        return _unpriced_floor_status(status, candidate, now=now, model_probability=model_probability)
     if quote is not None and candidate is not None:
         modeled_selection = str(
             _candidate_value(candidate, "selection") or ""

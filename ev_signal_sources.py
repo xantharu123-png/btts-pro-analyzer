@@ -31,6 +31,7 @@ from team_sport_forecasts import SOURCE as TEAM_RESEARCH_SOURCE, POLICY as TEAM_
 from market_consensus import (
     MarketConsensus,
     quote_matches_candidate,
+    valid_price_bound,
     wettfinder_reference_price_status,
 )
 from scan_jobs import JOBS_DIR, load_persisted
@@ -120,6 +121,8 @@ class ModelSignal:
     price_checked_at: Optional[str] = None
     # Presentation-only transport of the producer's unchanged quote-free rank.
     selection_rank: Optional[tuple[float, ...]] = None
+    # Stage 2 of the floor price check (25.10.2026): derived range price bound.
+    reference_price_bound: Optional[dict] = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, 'selection_rank', validated_selection_rank(self.selection_rank))
@@ -162,6 +165,11 @@ class ModelSignal:
             and MarketConsensus.from_dict(self.reference_quote) is None
         ):
             raise ValueError("Model signal reference quote is invalid")
+        if (
+            self.reference_price_bound is not None
+            and valid_price_bound(self.reference_price_bound, self.market_key) is None
+        ):
+            raise ValueError("Model signal price bound is invalid")
         if self.context_summary is not None and (
             not isinstance(self.context_summary, str)
             or not self.context_summary.strip()
@@ -1785,6 +1793,7 @@ def automated_wettfinder_forecasts(
                         str(row.get("competition") or "").strip() or None
                     ),
                     reference_quote=quote.to_dict() if quote is not None else None,
+                    reference_price_bound=valid_price_bound(row.get("reference_price_bound"), row.get("market_key")),
                     price_checked_at=(price_attempts.get(key) if valid_price_check_time(
                         price_attempts.get(key), row.get("modeled_at"), now=current) else None),
                     context_summary=(
@@ -2029,6 +2038,7 @@ def automated_wettfinder_signals(
                     reference_quote=(
                         reference_quote.to_dict() if reference_quote is not None else None
                     ),
+                    reference_price_bound=valid_price_bound(row.get("reference_price_bound"), row.get("market_key")),
                     context_summary=(
                         str(row.get("context_summary")).strip()
                         if isinstance(row.get("context_summary"), str)

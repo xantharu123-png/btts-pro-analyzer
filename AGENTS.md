@@ -43,7 +43,10 @@ Code, dann `PROJECT_HANDBUCH.md`, dann die Bibel. Historische Logs: `TODO_AKTUEL
   Am 25.10.2026: Die öffentlichen Tipps rücken nach jedem Quotenlauf nach derselben
   Auswahlregel nach, unbepreiste Tipps und Prognosen bleiben sichtbar, nur eine
   Marktquote unter 1,20 oder der Spielbeginn nimmt sie heraus
-  (`docs/audits/2026-10-25-tipp-nachruecken.md`).
+  (`docs/audits/2026-10-25-tipp-nachruecken.md`). Am Abend des 25.10.2026: Die
+  1,20-Grenze ist dreistufig (Median der Buchmacher statt Bestpreis; Tor-Bereiche ohne
+  Quote über die Über/Unter-Linien; ohne jeden Preisbeleg nur unter 65 %
+  Modellwahrscheinlichkeit; `docs/audits/2026-10-25-preispruefung-dreistufig.md`).
 - **Keine Backups, Produktions-DB-Kopien oder API-Scans** ohne ausdrücklichen Auftrag.
 - **Checkout-Disziplin.** Hauptcheckout `betboy-app` trägt fremdes WIP und liegt hinter
   `origin/main`; eigene Arbeit in einem eigenen Worktree unter `.worktrees/` auf einem

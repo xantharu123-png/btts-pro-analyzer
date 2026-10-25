@@ -85,6 +85,7 @@ from ev_signal_sources import (
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES
 from market_consensus import (
     MarketConsensus,
+    derive_range_price_bound,
     exact_market_target,
     fetch_football_consensus,
     fetch_tennis_h2h_consensus,
@@ -2681,19 +2682,70 @@ def _apply_reference_quotes(
         if status.code == "PLAYABLE":
             persist_execution(target, quote, status)
             playable.append(target)
+    _attach_floor_price_bounds(model_rows, now=now)
     return status_counts, playable
 
 
-def _floor_playable_rows(model_rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Every model row except those whose last observed market quote is below 1.20.
+def _attach_floor_price_bounds(rows: Iterable[dict[str, Any]], *, now: datetime) -> None:
+    """Stage 2 of the floor price check (owner 25.10.2026).
 
-    Rows without any quote stay playable (``UNPRICED``): the floor is then checked
-    by the user at the bookmaker. Price never reorders or removes a forecast.
+    A football goal range without a direct quote gets a bound derived from the
+    priced over/under lines of the same fixture (``reference_price_bound``);
+    the price status reads it wherever the floor is evaluated (card, loader,
+    republication, signals). Rows keep their stored status; a row whose stale
+    direct quote left it ``UNPRICED`` is reclassified with its new bound so the
+    app loader reproduces the stored code. Docs: docs/audits/2026-10-25-preispruefung-dreistufig.md.
+    """
+    rows = [row for row in rows if isinstance(row, dict)]
+    for row in rows:
+        row.pop("reference_price_bound", None)
+    if not floor_only_pricing():
+        return
+    siblings: dict[object, dict[str, dict[str, Any]]] = {}
+    for row in rows:
+        if row.get("source") == "football_challenge" and row.get("reference_quote") is not None:
+            siblings.setdefault(row.get("fixture_id"), {})[str(row.get("market_key") or "").strip().upper()] = row
+    for row in rows:
+        if row.get("source") != "football_challenge" or row.get("reference_price_status") in {"PLAYABLE", "BELOW_FLOOR"}:
+            continue
+        bound = derive_range_price_bound(row, siblings.get(row.get("fixture_id"), {}), now=now)
+        if bound is None:
+            continue
+        row["reference_price_bound"] = bound
+        if row.get("reference_quote") is not None and row.get("reference_price_status") == "UNPRICED":
+            quote = MarketConsensus.from_dict(row["reference_quote"])
+            row["reference_price_status"] = wettfinder_reference_price_status(
+                quote, row.get("minimum_odds"), candidate=row, now=now).code
+
+
+def _floor_withheld(row: dict[str, Any], *, now: Optional[datetime]) -> bool:
+    """Floor verdict for a stored row (owner 23./25.10.2026).
+
+    A stored ``BELOW_FLOOR`` (median quote under 1.20) withholds the row. A row
+    without a direct quote is withheld when its derived range price is under
+    1.20 or, without such evidence, when the model sees 65 % or more.
+    """
+    if row.get("reference_price_status") == "BELOW_FLOOR":
+        return True
+    if not floor_only_pricing() or row.get("reference_quote") is not None:
+        return False
+    status = wettfinder_reference_price_status(None, row.get("minimum_odds"), candidate=row,
+                                               now=now or datetime.now(timezone.utc))
+    return status.code == "BELOW_FLOOR"
+
+
+def _floor_playable_rows(model_rows: Iterable[dict[str, Any]], *, now: Optional[datetime] = None
+                         ) -> list[dict[str, Any]]:
+    """Every model row the three-stage floor check does not withhold.
+
+    Rows without any quote stay playable (``UNPRICED``) only when a derived
+    range price reaches 1.20 or the model probability is below 65 %. Price
+    never reorders a forecast.
     """
     return [
         {**row, "status": "PRICE_REQUIRED"}
         for row in model_rows
-        if isinstance(row, dict) and row.get("reference_price_status") != "BELOW_FLOOR"
+        if isinstance(row, dict) and not _floor_withheld(row, now=now)
     ]
 
 
@@ -2721,7 +2773,7 @@ def _revalidate_publication_price_overlays(document: dict[str, Any], *, now: dat
             if model is None:
                 continue
             if floor_only_pricing():
-                if model.get("reference_price_status") == "BELOW_FLOOR":
+                if _floor_withheld(model, now=now):
                     continue
             elif model.get("reference_price_status") != "PLAYABLE":
                 continue
@@ -3969,7 +4021,7 @@ def run_wettfinder(
     if floor_only_pricing():
         # Owner decision 23.10.2026: price is not a release gate. Every model
         # row stays playable unless the last observed market quote is below 1.20.
-        football_playable_rows = _floor_playable_rows(football_model_rows)
+        football_playable_rows = _floor_playable_rows(football_model_rows, now=current)
     _persist_quote_diagnostics(football_model_rows, football_price_rows, football_quote_diagnostics,
                                now=current, errors=quote_errors)
     football_quote_error_count = len(_operational_quote_errors(quote_errors))
@@ -4796,7 +4848,7 @@ def _republish_floor_candidates(document: dict[str, Any], *, now: Optional[datet
                 not football_publishable
                 or statuses.get(str(row.get("fixture_id"))) != "verified"
                 or not _football_record_release_eligible(row)
-                or row.get("reference_price_status") == "BELOW_FLOOR"
+                or _floor_withheld(row, now=current)
             ):
                 continue
         elif source == "tennis_shadow":

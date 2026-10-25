@@ -255,6 +255,14 @@ des 23.10.2026 nennen weder die Karte noch die Eingabemasken (Daily3-Vormerkung,
 Manuelle Suche, Tennis) eine Mindestquote; die 1,20-Grenze wirkt nur im
 Hintergrund, und nur eine Ablehnung unter 1,20 wird begründet (`docs/audits/2026-10-23-hauptauswahl-wahrscheinlichkeit.md`).
 
+**Owner-Entscheidung 25.10.2026 abends** (`docs/audits/2026-10-25-preispruefung-dreistufig.md`):
+Die 1,20-Grenze ist eine dreistufige Prüfung. (1) Mit direkter Quote entscheidet der mittlere
+Preis der Buchmacher, nicht der beste. (2) Ein Tor-Bereich ohne direkte Quote wird über die
+Über/Unter-Linien desselben Spiels bewertet; liegt der abgeleitete Preis unter 1,20, wird er
+zurückgehalten. (3) Ohne jeden Preisbeleg wird eine Auswahl ab 65 % Modellwahrscheinlichkeit
+zurückgehalten. Damit gilt der Satz oben („ohne beobachtete Quote bleibt der Tipp sichtbar“)
+nur noch unter 65 % oder mit belegtem Bereichspreis.
+
 ### 3.8 Statistischer Freigabevertrag
 
 Für eine Echtgeld-Freigabe genügt ein bloßer mittlerer
