@@ -1,5 +1,26 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 25.10.2026 – Massnahme 2 des Gesamtaudits live: Shadow misst Trefferquote, Hybrid und veröffentlichte Tipps
+
+Owner-Entscheidung: Massnahme 2 umsetzen. Vertragsänderung `docs/audits/2026-10-25-shadow-massnahme-2.md` (PR #32):
+Trefferquoten zählen den Tracker-Code `Won` (vorher `WIN`, immer 0), das Hybrid-Warm-up läuft vor der Bewertung
+(früheste Anpfiffe zuerst), fehlende Hybrid-Artefakte lassen ein Spiel bis zum letzten Versuch offen (fehlgeschlagener
+Bau je Tag markiert), die neue Tabelle `shadow_published` protokolliert je Lauf die veröffentlichten Tipps und die
+15K-Liste und rechnet Tormärkte aus dem Endstand ab, Edge-Cap-Gruppen und die paarweise Hybrid-Differenz tragen
+HAC-Intervalle. Trockenlauf vor dem Release auf dem VPS (neues Modul unter `/tmp/newcode`, Live-Dokument nur gelesen,
+leere Temp-Datenbank): 18 veröffentlichte Zeilen erfasst (3 Tipps, 15 15K-Zeilen, alle mit Quote), 0,7 s, Spitzen-RSS
+291 MB. Quellcommit **`ff5f5a0135893b9db68bfde8b9d950c74bdef6d8`** um 16:28 CET per No-Backup-Fast-forward von `5f467d3` ausgerollt (Helfer
+`output/release-20261025-5/deploy.sh`, 11 Pfade inkl. Protokoll-PR #31, nur App-Neustart PID 1332194→1335323,
+Healthchecks ok, Snapshots unverändert). Erster Shadow-Lauf mit neuem Code um 16:32 CET: Status `completed`, keine Fehler, 18 veröffentlichte Zeilen in `shadow_published` (alle mit Quote, mittlere Öffnungsquote 15K 1,37, Tipps 4,58), Hybrid mit 17 Liga-Artefakten im Cache, keine offene Liga, kein Fehlbau, HAC-Felder im Artefakt, Spitzenspeicher 240 MB. Der Shadow protokolliert seit dem 25.10. wieder (5 Legacy-Tipps, 1 Hybrid-Tipp offen). Grenze: Läufe ohne fällige Shadow-Arbeit enden weiter als `idle` und erfassen dann nichts; jedes veröffentlichte Fussballspiel der Shadow-Ligen löst aber vor Anpfiff einen Bewertungslauf aus.
+
+Offen (Owner-Entscheid, Befund 25.10. abends nach Beschwerde zu den Karten Mjällby–Hammarby und Sparta–Ajax): Die
+Hauptauswahl je Spiel nach höchster Modellwahrscheinlichkeit (Entscheid 23.10.) wählt systematisch die sicherste
+Auswahl. Im Tagesdokument vom 25.10. hatten 42 von 46 Fussball-Hauptauswahlen eine faire Modellquote unter 1,50, und
+16 hatten keine Marktquote, weil Teamtor-Bereiche, Ergebnis-plus-Tore- und Oder-Märkte nie bepreist werden (heute 0
+von 104 Zeilen); dort greift die 1,20-Grenze nicht (Hammarby 1–4 Tore 79,7 %, Buchmacher 1,15; Ajax über 2,5 Ecken
+87 %, ohne Quote). Vorschlag: Hauptauswahl nur aus Auswahlen mit gefundener Marktquote ab einem Mindestwert; mit 1,50
+hätten 41 von 46 Spielen eine Hauptauswahl (Median-Quote 1,70), mit 1,20 wären es 43 (Median 1,32).
+
 ## 25.10.2026 – Massnahme 1 des Gesamtaudits live: Lader je Zeile, Quotenlauf und 15K mit Zeilen-Uhr
 
 Gesamtaudit `AUDIT_BERICHT_2026-10-25_CLAUDE.md` (PR #29, fünf Prüfstränge). Owner-Entscheidung: Massnahme 1 sofort
