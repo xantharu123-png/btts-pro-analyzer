@@ -1764,14 +1764,30 @@ def automated_wettfinder_forecasts(
     return forecasts
 
 
+def _strict_signal_max_age() -> timedelta:
+    """Age limit of the strict public tips.
+
+    Under the old contract a public tip was an executable price decision and
+    expired 150 minutes after the scan. Under the floor policy (owner decision
+    25.10.2026, docs/audits/2026-10-25-tipp-nachruecken.md) it is a model
+    release of the day: it lives as long as the model document, and each row's
+    kick-off and target-day checks keep it current.
+    """
+    from market_consensus import floor_only_pricing
+    return AUTOMATED_MODEL_MAX_AGE if floor_only_pricing() else AUTOMATED_WETTFINDER_MAX_AGE
+
+
 def automated_wettfinder_signals(
     path: Union[str, Path] = AUTOMATED_WETTFINDER_PATH,
     *,
     now: Optional[datetime] = None,
-    max_age: timedelta = AUTOMATED_WETTFINDER_MAX_AGE,
+    max_age: Optional[timedelta] = None,
     _loaded: Optional[tuple[dict, datetime, list]] = None,
 ) -> List[ModelSignal]:
     """Read the strict maximum-three artifact produced by systemd."""
+    from market_consensus import floor_only_pricing
+    floor_policy = floor_only_pricing()
+    max_age = max_age or _strict_signal_max_age()
     current = now or datetime.now(timezone.utc)
     if current.tzinfo is None:
         current = current.replace(tzinfo=timezone.utc)
@@ -1874,7 +1890,9 @@ def automated_wettfinder_signals(
         market = str(row.get("market") or "").strip() or "Auswahl"
         selection = str(row.get("selection") or "").strip() or label
         reference_quote = MarketConsensus.from_dict(row.get("reference_quote"))
-        if not quote_matches_candidate(reference_quote, row):
+        if reference_quote is not None and not quote_matches_candidate(reference_quote, row):
+            continue
+        if reference_quote is None and not floor_policy:
             continue
         status = wettfinder_reference_price_status(
             reference_quote,
@@ -1882,7 +1900,15 @@ def automated_wettfinder_signals(
             candidate=row,
             now=current,
         )
-        if (
+        if floor_policy:
+            # Owner decision 23./25.10.2026: a public tip stays a tip without an
+            # observed quote (UNPRICED); only a market quote below 1.20 or an
+            # inconsistent execution record withholds it.
+            if status.code == "BELOW_FLOOR" or not _reference_execution_matches_row(
+                row, reference_quote, status,
+            ):
+                continue
+        elif (
             status.code != "PLAYABLE"
             or not _reference_execution_matches_row(
                 row,
@@ -1954,7 +1980,9 @@ def automated_wettfinder_signals(
                     competition=(
                         str(row.get("competition") or "").strip() or None
                     ),
-                    reference_quote=reference_quote.to_dict(),
+                    reference_quote=(
+                        reference_quote.to_dict() if reference_quote is not None else None
+                    ),
                     context_summary=(
                         str(row.get("context_summary")).strip()
                         if isinstance(row.get("context_summary"), str)
@@ -2007,16 +2035,17 @@ def automated_wettfinder_snapshot(
                 _loaded=loaded,
             )
         ),
-        # An older daily model may remain visible; the strict priced ticket
-        # artifact still has its original 150-minute limit and quote checks.
+        # Under the old contract the strict priced ticket artifact keeps its
+        # 150-minute limit and quote checks; under the floor policy the public
+        # tips live as long as the model document (_strict_signal_max_age).
         signals=(tuple(
             automated_wettfinder_signals(
                 path,
                 now=current,
-                max_age=AUTOMATED_WETTFINDER_MAX_AGE,
+                max_age=_strict_signal_max_age(),
                 _loaded=loaded,
             )
-        ) if current - loaded[1] <= AUTOMATED_WETTFINDER_MAX_AGE else ()),
+        ) if current - loaded[1] <= _strict_signal_max_age() else ()),
     )
 
 

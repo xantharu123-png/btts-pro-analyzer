@@ -40,6 +40,10 @@ Code, dann `PROJECT_HANDBUCH.md`, dann die Bibel. Historische Logs: `TODO_AKTUEL
   Auswahl mit der höchsten Modellwahrscheinlichkeit (gleiche Revision), und
   weder Karte noch Eingabemasken nennen eine Mindestquote; nur eine Ablehnung
   unter 1,20 wird begründet (`docs/audits/2026-10-23-hauptauswahl-wahrscheinlichkeit.md`).
+  Am 25.10.2026: Die öffentlichen Tipps rücken nach jedem Quotenlauf nach derselben
+  Auswahlregel nach, unbepreiste Tipps und Prognosen bleiben sichtbar, nur eine
+  Marktquote unter 1,20 oder der Spielbeginn nimmt sie heraus
+  (`docs/audits/2026-10-25-tipp-nachruecken.md`).
 - **Keine Backups, Produktions-DB-Kopien oder API-Scans** ohne ausdrücklichen Auftrag.
 - **Checkout-Disziplin.** Hauptcheckout `betboy-app` trägt fremdes WIP und liegt hinter
   `origin/main`; eigene Arbeit in einem eigenen Worktree unter `.worktrees/` auf einem

@@ -332,6 +332,15 @@ die übrigen Märkte folgen als „Weitere Märkte“. Das ist eine Darstellungs
 kein Gate: jede angezeigte Auswahl hat dieselben Modell-, Statistik- und
 Kontextgates bestanden. Die Karte nennt weder Buchmacherquote noch Mindestquote.
 
+**Owner-Entscheidung 25.10.2026** (`docs/audits/2026-10-25-tipp-nachruecken.md`):
+Die bis zu drei öffentlichen Plätze werden mit jedem Quotenlauf nach derselben
+Auswahlregel wie im Nachtscan neu besetzt: Fällt ein Tipp wegen einer Marktquote
+unter 1,20 oder wegen Spielbeginn weg, rückt die nächste freigegebene Auswahl
+nach. Ein Tipp ohne beobachtete Quote bleibt öffentlich, und Prognosen ohne
+Quote bleiben sichtbar; nur eine Marktquote unter 1,20 nimmt sie heraus. Die
+öffentlichen Tipps leben so lange wie das Modelldokument des Tages, nicht nur
+150 Minuten nach dem Scan.
+
 Die App zeigt dem Nutzer den Ergebnisstand, höchstens drei noch nicht
 gestartete Top-Auswahlen und gruppierte weitere Modellprognosen. Interne
 Pipeline-, Dropout-, Liga-, Spiel-, Modell- und Marktprüfungszähler gehören in
