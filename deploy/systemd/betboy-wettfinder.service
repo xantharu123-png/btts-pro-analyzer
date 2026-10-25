@@ -2,6 +2,7 @@
 Description=BetBoy daily discovery and targeted candidate refresh
 After=network-online.target
 Wants=network-online.target
+OnFailure=betboy-alert@%n.service
 
 [Service]
 Type=oneshot

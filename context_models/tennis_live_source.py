@@ -94,7 +94,7 @@ class _LiveCaseBudget:
     def admit_raw(self, rows, size, maximum, missing):
         self.check()
         if missing or maximum > self.chunk_bytes or rows > 32768 or size > 32*1024**2:
-            raise ValueError('live tennis per-case raw admission exceeded')
+            raise LiveCaseAdmissionExceeded(rows, size, maximum, missing)
         self.daily.admit(rows, size)
         self.raw_receipts_total, self.raw_payload_bytes_total = rows, size
         self.selected_bytes = 3*size+rows*4096
@@ -103,6 +103,19 @@ class _LiveCaseBudget:
     def retain_case(self, encoded_bytes, rows):
         self.selected_bytes = 3*encoded_bytes+rows*4096
         self.check()
+
+
+class LiveCaseAdmissionExceeded(ValueError):
+    """One case exceeds its own raw admission (rows, bytes, chunk or missing payloads).
+
+    Owner 25.10.2026 (Gesamtaudit D3): such a case is excluded from the live
+    batch with these numbers as diagnosis; the cumulative, chunk and deadline
+    limits of the whole batch stay fail-closed.
+    """
+
+    def __init__(self, rows, size, maximum, missing):
+        super().__init__('live tennis per-case raw admission exceeded')
+        self.rows, self.size, self.maximum, self.missing = rows, size, maximum, missing
 
 
 class _LiveSources:
@@ -115,18 +128,31 @@ class _LiveSources:
         if not connection.in_transaction:
             raise ContextContractError('live source needs one owning physical reader image')
         self.connection, self.budget, self.plans = connection, budget, []
+        self.admitted, self.excluded = [], []
         self.consumed = False
         # ALL case SQL metadata and total raw work are admitted BEFORE the
         # first body, including a failing final case. No successful prefix.
-        for event, cutoff in cases:
+        for index, (event, cutoff) in enumerate(cases):
             event, clock = live_event(event), canonical_timestamp(cutoff)
             unit = _LiveCaseBudget(budget)
             discovery = _TennisBatchDiscovery(connection, ((event, clock),), unit, 'indexed')
-            keys, members = _case_selection(discovery, event, clock)
+            try:
+                keys, members = _case_selection(discovery, event, clock)
+            except LiveCaseAdmissionExceeded as exc:
+                # Owner 25.10.2026 (Gesamtaudit D3): one case over its own raw
+                # limit is excluded with a diagnosis instead of losing the day;
+                # nothing of it was admitted to the shared daily budget.
+                self.excluded.append({
+                    'case': index, 'event_key': event['event_key'], 'tour': event.get('tour'), 'cutoff': clock,
+                    'reason': 'live_case_raw_admission_exceeded', 'rows': exc.rows, 'bytes': exc.size,
+                    'max_chunk_bytes': exc.maximum, 'missing_payloads': exc.missing,
+                })
+                continue
             charge = _heap((event, clock, keys, members))
             budget.plan_bytes += charge
             budget.check()
             self.plans.append((event, clock, keys, members, unit, charge))
+            self.admitted.append(index)
 
     def histories(self):
         if self.consumed:
@@ -195,7 +221,7 @@ def prepare_live_v4(batch, qualified, state_refs, code_hashes, budget):
         # wrapper, otherwise even del(owner) would leave a hidden raw alias.
         for owner in sources.histories():
             ordinal += 1
-            item = qualified[ordinal-1]
+            item = qualified[sources.admitted[ordinal-1]]
             feature_start = monotonic()
             with owner.feature_scope(_event(item['binding']['row'])) as observations:
                 origin, event, base, features = batch._original(
@@ -225,4 +251,14 @@ def prepare_live_v4(batch, qualified, state_refs, code_hashes, budget):
             if ordinal == 1 or ordinal % 10 == 0 or ordinal == len(qualified):
                 batch._report('prepare_progress', processed=ordinal, total=len(qualified),
                     feature_seconds=round(feature_seconds, 3), key_seconds=round(monotonic()-key_start, 3))
+        for diagnosis in sources.excluded:
+            # The excluded forecast is stored without context evidence; the
+            # numbers reach the journal and the item's result (owner 25.10.2026).
+            item = qualified[diagnosis['case']]
+            batch._report('prepare_excluded', **diagnosis)
+            item['result']['errors'].append({'tour': diagnosis['tour'], 'event_key': diagnosis['event_key'],
+                'reason': diagnosis['reason'], 'rows': diagnosis['rows'], 'bytes': diagnosis['bytes'],
+                'max_chunk_bytes': diagnosis['max_chunk_bytes'], 'missing_payloads': diagnosis['missing_payloads']})
+            item['result']['status'] = 'partial'
+            reasons.append('live-case-excluded:' + diagnosis['reason'])
     return prepared, reasons

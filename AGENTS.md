@@ -47,6 +47,13 @@ Code, dann `PROJECT_HANDBUCH.md`, dann die Bibel. Historische Logs: `TODO_AKTUEL
   1,20-Grenze ist dreistufig (Median der Buchmacher statt Bestpreis; Tor-Bereiche ohne
   Quote über die Über/Unter-Linien; ohne jeden Preisbeleg nur unter 65 %
   Modellwahrscheinlichkeit; `docs/audits/2026-10-25-preispruefung-dreistufig.md`).
+- **Betrieb seit 25.10.2026 abends** (`docs/audits/2026-10-25-betrieb-massnahme-3.md`): Die
+  Timer `wettfinder/tennis/esports/quotes` holen verpasste Läufe nach; die sechs Kerneinheiten
+  alarmieren über `betboy-alert@%n.service` (Helfer `scripts/betboy_alert.py`, Vorlage unter
+  `deploy/systemd/templates/`, eigener Pin). Jede Änderung an einer Einheit verlangt neue Pins in
+  `deploy/bootstrap_server.sh` und `deploy/update_server.sh` und einen Eintrag in der
+  Rekonstruktion von `tests/test_context_updater_repair.py`; Team-/E-Sport-Quoten entscheiden den
+  Exit-Code des Quotenlaufs nicht mehr.
 - **Keine Backups, Produktions-DB-Kopien oder API-Scans** ohne ausdrücklichen Auftrag.
 - **Checkout-Disziplin.** Hauptcheckout `betboy-app` trägt fremdes WIP und liegt hinter
   `origin/main`; eigene Arbeit in einem eigenen Worktree unter `.worktrees/` auf einem

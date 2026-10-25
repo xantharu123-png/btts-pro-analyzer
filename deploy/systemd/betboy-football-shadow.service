@@ -2,6 +2,7 @@
 Description=BetBoy due football Shadow and CLV work
 After=network-online.target
 Wants=network-online.target
+OnFailure=betboy-alert@%n.service
 
 [Service]
 Type=oneshot

@@ -4,7 +4,7 @@ Description=Run BetBoy Wettfinder once daily
 [Timer]
 OnCalendar=*-*-* 03:35:00 Europe/Zurich
 AccuracySec=1min
-Persistent=false
+Persistent=true
 
 [Install]
 WantedBy=timers.target

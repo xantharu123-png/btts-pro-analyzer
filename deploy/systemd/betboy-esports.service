@@ -1,7 +1,8 @@
 [Unit]
 Description=BetBoy E-Sport Shadow scan and settlement
-After=network-online.target
+After=network-online.target betboy-wettfinder.service betboy-tennis.service
 Wants=network-online.target
+OnFailure=betboy-alert@%n.service
 
 [Service]
 Type=oneshot

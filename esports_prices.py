@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 import re
 
-from api_budget import DEFAULT_DB_PATH
+from api_budget import APIBudgetError, DEFAULT_DB_PATH
 from betting_math import validate_decimal_odds
 from market_consensus import (MarketConsensus, QuotePoint, ESPORTS_PRICE_SOURCE,
     esports_discipline, _identity_name, _parse_utc, _summary_prices,
@@ -207,7 +207,7 @@ def refresh_esports_prices(*, api_key, now=None, path=CACHE_PATH, client=None):
             # Persist the attempt before HTTP so a crashed worker cannot spin.
             doc['status'] = 'pending'
             atomic_write_text(target, json.dumps(doc, separators=(',', ':')))
-            errors, events = [], {}
+            errors, events, budget_deferred = [], {}, []
             try:
                 client = client or OddsPapiClient(api_key,
                     db_path=os.environ.get('BETBOY_API_BUDGET_DB') or DEFAULT_DB_PATH)
@@ -271,19 +271,26 @@ def refresh_esports_prices(*, api_key, now=None, path=CACHE_PATH, client=None):
                         # Drop this book's entire partial response on conflicting duplicates.
                         for event in events.values():
                             event['bookmakerOdds'].pop(slug, None)
-                        errors.append(type(exc).__name__)
+                        # Owner 25.10.2026 (Gesamtaudit D2): a spent OddsPapi budget defers, it does not fail.
+                        (budget_deferred if isinstance(exc, APIBudgetError) else errors).append(type(exc).__name__)
                 fetched = current if now is not None else datetime.now(timezone.utc)
                 if successful_books or not errors:
                     doc.update(events=[e for e in events.values() if e['bookmakerOdds']],
                                fetched_at=fetched.isoformat())
-                doc.update(status='partial' if errors else 'complete', errors=errors, quota_before=quota)
+                doc.update(status='partial' if errors else 'complete', errors=errors,
+                           budget_deferred=budget_deferred, quota_before=quota)
+            except APIBudgetError as exc:
+                doc.update(status='budget_deferred', errors=[], budget_deferred=[type(exc).__name__])
             except Exception as exc:
                 doc.update(status='failed', errors=[type(exc).__name__])
             text = json.dumps(doc, ensure_ascii=False, separators=(',', ':'))
             if len(text.encode()) > MAX_CACHE_BYTES:
                 raise ValueError('bounded esports price cache exceeded')
             atomic_write_text(target, text)
-            return {k: doc[k] for k in ('status', 'errors')} | {'events': len(doc['events'])}
+            summary = {k: doc[k] for k in ('status', 'errors')} | {'events': len(doc['events'])}
+            if doc.get('budget_deferred'):
+                summary['budget_deferred'] = list(doc['budget_deferred'])
+            return summary
     except (OSError, ValueError) as exc:
         return {'status': 'unavailable', 'error_type': type(exc).__name__, 'events': 0}
 

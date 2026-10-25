@@ -232,7 +232,18 @@ def test_duplicate_native_events_never_inherit_one_bookmaker_game(tmp_path):
     r=row();duplicate=dict(r,provider_event_id='other-native-event',candidate_id='other')
     result=prices.refresh_team_sport_prices([r,duplicate],api_key='test',now=NOW,path=tmp_path/'quotes.json',governor=Governor(),get=unexpected)
     assert result['quotes']==0 and result['checked']==0
-    assert result['errors']==['basketball:ValueError','basketball:ValueError']
+    # Owner 25.10.2026 (Gesamtaudit D2): an identity gap is a data status, not an operational error.
+    assert result['errors']==[] and result['status']=='complete'
+    assert result['identity_gaps']==['basketball:ambiguous_origin_events','basketball:ambiguous_origin_events']
+
+
+def test_identity_gaps_and_spent_budget_are_classified_apart_from_operational_errors():
+    from api_budget import APIBudgetExceeded
+    assert prices.classify_refresh_error('ice_hockey', ValueError('native_identity_unbound'))==('identity_gaps','ice_hockey:native_identity_unbound')
+    assert prices.classify_refresh_error('ice_hockey', ValueError('conflicting_origin_identity'))==('identity_gaps','ice_hockey:conflicting_origin_identity')
+    assert prices.classify_refresh_error('basketball', APIBudgetExceeded('spent'))==('budget_deferred','basketball:APIBudgetExceeded')
+    assert prices.classify_refresh_error('basketball', ValueError('HTTP_500'))==('errors','basketball:ValueError')
+    assert prices.classify_refresh_error('basketball', RuntimeError('boom'))==('errors','basketball:RuntimeError')
 
 
 def test_schedule_correction_removes_cached_price(tmp_path):

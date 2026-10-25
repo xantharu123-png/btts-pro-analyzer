@@ -92,9 +92,12 @@ def test_wettfinder_timer_is_installed_and_enabled_by_deploy_scripts():
         assert 'systemctl enable --now "${BETBOY_TIMERS[@]}"' not in source
 
 
-def test_daily_sport_scans_and_ten_minute_shadow_checks_do_not_catch_up():
+def test_daily_sport_scans_catch_up_while_shadow_and_red_card_checks_do_not():
+    """Owner 25.10.2026 (Gesamtaudit D5): a missed daily scan runs after downtime, the
+    ten-minute shadow and the red-card jobs do not pile up."""
     root = Path(__file__).resolve().parents[1]
     systemd = root / "deploy" / "systemd"
+    catch_up = {"betboy-wettfinder.timer", "betboy-tennis.timer", "betboy-esports.timer"}
     schedules = {
         "betboy-wettfinder.timer": "*-*-* 03:35:00 Europe/Zurich",
         "betboy-football-shadow.timer": "*-*-* *:02,12,22,32,42,52:00",
@@ -108,8 +111,9 @@ def test_daily_sport_scans_and_ten_minute_shadow_checks_do_not_catch_up():
         timer = (systemd / timer_name).read_text(encoding="utf-8")
         assert timer.count("OnCalendar=") == 1
         assert f"OnCalendar={schedule}" in timer
-        assert timer.count("Persistent=false") == 1
-        assert "Persistent=true" not in timer
+        expected, forbidden = ("true", "false") if timer_name in catch_up else ("false", "true")
+        assert timer.count(f"Persistent={expected}") == 1
+        assert f"Persistent={forbidden}" not in timer
         for unsupported in (
             "OnActiveSec=",
             "OnBootSec=",
@@ -126,15 +130,15 @@ def test_daily_sport_scans_and_ten_minute_shadow_checks_do_not_catch_up():
             assert "OnUnitActiveSec=" not in timer
 
 
-def test_tennis_timer_has_only_one_local_calendar_trigger_without_catchup():
+def test_tennis_timer_has_only_one_local_calendar_trigger_with_catchup():
     root = Path(__file__).resolve().parents[1]
     timer = (root / "deploy" / "systemd" / "betboy-tennis.timer").read_text(
         encoding="utf-8"
     )
     assert timer.splitlines().count("OnCalendar=*-*-* 00:05:00 Europe/Zurich") == 1
     assert timer.count("OnCalendar=") == 1
-    assert "Persistent=false" in timer
-    assert "Persistent=true" not in timer
+    assert "Persistent=true" in timer
+    assert "Persistent=false" not in timer
     assert all(
         token not in timer
         for token in ("OnActiveSec=", "OnBootSec=", "OnUnitActiveSec=", "OnUnitInactiveSec=")
