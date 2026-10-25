@@ -13,7 +13,8 @@ from api_budget import DEFAULT_DB_PATH
 from betting_math import validate_decimal_odds
 from market_consensus import (MarketConsensus, QuotePoint, ESPORTS_PRICE_SOURCE,
     esports_discipline, _identity_name, _parse_utc, _summary_prices,
-    observed_consensus, quote_matches_candidate, native_partition)
+    observed_consensus, quote_matches_candidate, native_partition,
+    wettfinder_reference_price_status)
 from oddspapi_client import OddsPapiClient
 from runtime_paths import atomic_write_text
 from team_sport_prices import _writer_lock
@@ -164,8 +165,26 @@ def attach_cached_esports_prices(rows, *, now=None, path=CACHE_PATH):
             if any(ident != row['provider_event_id'] and abs(stamp-start) <= timedelta(minutes=10)
                    for stamp, ident in peers):
                 quote = None
-        output.append(dict(row, reference_quote=quote.to_dict() if quote is not None else None,
-                           reference_price_status='OBSERVED' if quote is not None else 'UNAVAILABLE'))
+        priced = {key: value for key, value in row.items() if not key.startswith('reference_quote_')}
+        if quote is None:
+            output.append(dict(priced, reference_quote=None, reference_price_status='UNAVAILABLE'))
+            continue
+        # The stored status follows the active price policy (owner decision
+        # 23.10.2026, docs/audits/2026-10-23-preisregel-1-20.md): the gate
+        # contract keeps the observation code OBSERVED; the floor contract
+        # stores PLAYABLE/UNPRICED/BELOW_FLOOR and, for a playable price, the
+        # same execution fields as football so the app loader can rebind the
+        # price exactly (ev_signal_sources). Until 25.10.2026 OBSERVED was
+        # stored under both policies and the loader rejected the whole document.
+        status = wettfinder_reference_price_status(quote, row.get('minimum_odds'), candidate=row, now=now)
+        priced.update(reference_quote=quote.to_dict(), reference_price_status=status.code)
+        if status.code == 'PLAYABLE':
+            priced.update(reference_quote_source=quote.source,
+                          reference_quote_executable_odds=status.usable_odds,
+                          reference_quote_bookmaker=status.bookmaker,
+                          reference_quote_bookmaker_id=status.bookmaker_id,
+                          reference_quote_observed_at=status.observed_at)
+        output.append(priced)
     return output
 
 

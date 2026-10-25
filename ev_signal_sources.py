@@ -873,6 +873,24 @@ def _reference_execution_matches_row(
     )
 
 
+def _legacy_observation_row_accepted(row: dict, status) -> bool:
+    """Accept a model row priced before 25.10.2026 under the floor policy.
+
+    Until then the E-sport price attach stored the gate observation code
+    ``OBSERVED`` for an observation-only quote. Under ``floor`` that code can
+    no longer be reproduced; such a row stays display evidence without
+    execution fields, so it must carry none and its quote must classify as a
+    floor code. ``PLAYABLE`` without execution fields stays invalid.
+    """
+    from market_consensus import floor_only_pricing
+    return (
+        floor_only_pricing()
+        and row.get("reference_price_status") == "OBSERVED"
+        and status.code in {"PLAYABLE", "UNPRICED", "BELOW_FLOOR"}
+        and not any(field in row for field in _REFERENCE_EXECUTION_FIELDS)
+    )
+
+
 def _price_status_counts(value: object) -> tuple[tuple[str, int], ...]:
     if not isinstance(value, dict):
         return ()
@@ -1249,7 +1267,7 @@ def _load_automated_wettfinder_document(
             if (
                 row.get("reference_price_status") != status.code
                 or not _reference_execution_matches_row(row, quote, status)
-            ):
+            ) and not _legacy_observation_row_accepted(row, status):
                 return None
         elif (
             row.get("reference_price_status") != "UNAVAILABLE"
