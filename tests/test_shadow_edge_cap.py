@@ -136,10 +136,12 @@ def test_missing_partition_is_recorded_as_unknown_and_never_blocks_the_ledger(le
 def test_edge_cap_statistics_separate_cohorts_and_cap_groups(ledger):
     with sqlite3.connect(ledger.db_path) as connection:
         predictions = [
-            (1, "A", "B", "RESULT_HOME", "Heim", 2.0, 1.8, "WIN", "x", shadow.SHADOW_MODEL_VERSION),
-            (2, "C", "D", "RESULT_HOME", "Heim", 2.0, 2.2, "LOSS", "x", shadow.SHADOW_MODEL_VERSION),
+            # Results exactly as CLVTracker.settle_prediction stores them ('Won'/'Lost'/'Push').
+            (1, "A", "B", "RESULT_HOME", "Heim", 2.0, 1.8, "Won", "x", shadow.SHADOW_MODEL_VERSION),
+            (2, "C", "D", "RESULT_HOME", "Heim", 2.0, 2.2, "Lost", "x", shadow.SHADOW_MODEL_VERSION),
             (3, "E", "F", "RESULT_HOME", "Heim", 2.0, None, None, "x", shadow.SHADOW_MODEL_VERSION),
-            (1, "A", "B", "RESULT_HOME", "Heim", 2.0, 1.9, "WIN", "x", shadow.SHADOW_HYBRID_MODEL_VERSION),
+            (4, "G", "H", "AH_HOME_0", "Heim", 2.0, 2.0, "Push", "x", shadow.SHADOW_MODEL_VERSION),
+            (1, "A", "B", "RESULT_HOME", "Heim", 2.0, 1.9, "Won", "x", shadow.SHADOW_HYBRID_MODEL_VERSION),
         ]
         connection.executemany(
             "INSERT INTO predictions (fixture_id, home_team, away_team, market_type, prediction, odds, "
@@ -151,18 +153,33 @@ def test_edge_cap_statistics_separate_cohorts_and_cap_groups(ledger):
             [(ids[0], shadow.SHADOW_MODEL_VERSION, 0.55, 0.50, 5.0, 8.0, 1, "t"),
              (ids[1], shadow.SHADOW_MODEL_VERSION, 0.70, 0.50, 20.0, 8.0, 0, "t"),
              (ids[2], shadow.SHADOW_MODEL_VERSION, 0.60, None, None, 8.0, None, "t"),
-             (ids[3], shadow.SHADOW_HYBRID_MODEL_VERSION, 0.56, 0.50, 6.0, 8.0, 1, "t")])
+             (ids[3], shadow.SHADOW_MODEL_VERSION, 0.52, 0.50, 2.0, 8.0, 1, "t"),
+             (ids[4], shadow.SHADOW_HYBRID_MODEL_VERSION, 0.56, 0.50, 6.0, 8.0, 1, "t")])
     stats = shadow._edge_cap_statistics()
     assert stats["cap_pp"] == 8.0 and stats["applied"] is False
     legacy = stats["cohorts"][shadow.SHADOW_MODEL_VERSION]
-    assert (legacy["recorded"], legacy["passed"], legacy["failed"], legacy["unknown"]) == (3, 1, 1, 1)
-    assert legacy["closed_passed"] == 1 and legacy["closed_failed"] == 1
-    assert legacy["passed_avg_clv"] == pytest.approx(round((2.0 / 1.8 - 1) * 100, 2))
+    assert (legacy["recorded"], legacy["passed"], legacy["failed"], legacy["unknown"]) == (4, 2, 1, 1)
+    assert legacy["closed_passed"] == 2 and legacy["closed_failed"] == 1  # the push closes but is not decided
+    passed_clv = [(2.0 / 1.8 - 1) * 100, 0.0]
+    assert legacy["passed_avg_clv"] == pytest.approx(round(sum(passed_clv) / 2, 2))
     assert legacy["failed_avg_clv"] == pytest.approx(round((2.0 / 2.2 - 1) * 100, 2))
     assert legacy["passed_hit_rate"] == 1.0 and legacy["failed_hit_rate"] == 0.0
+    # HAC interval per group (pre-registered criterion); one closed tip has no standard error yet.
+    assert legacy["passed_clv"]["n"] == 2 and legacy["passed_clv"]["mean"] == legacy["passed_avg_clv"]
+    assert legacy["passed_clv"]["hac_standard_error"] > 0
+    assert legacy["passed_clv"]["lower_bound"] < legacy["passed_clv"]["mean"]
+    assert legacy["failed_clv"] == {"n": 1, "mean": legacy["failed_avg_clv"], "hac_standard_error": None,
+                                    "lower_bound": None, "p_value": None}
     hybrid = stats["cohorts"][shadow.SHADOW_HYBRID_MODEL_VERSION]
     assert hybrid["recorded"] == 1 and hybrid["passed"] == 1 and hybrid["closed_passed"] == 1
+    assert hybrid["passed_hit_rate"] == 1.0
     assert stats["minimum_closed_per_group"] == shadow.SHADOW_REVIEW_MIN_CLV_BETS
+
+
+def test_hit_rates_count_the_tracker_results_and_never_an_uppercase_legacy_code():
+    assert shadow._is_win("Won") and not shadow._is_win("Lost") and not shadow._is_win("Push")
+    assert shadow._decided("Won") and shadow._decided("Lost") and not shadow._decided("Push")
+    assert not shadow._decided(None) and not shadow._is_win("WIN")  # never stored by CLVTracker
 
 
 def test_production_edge_cap_flag_stays_unset_by_the_shadow(monkeypatch):

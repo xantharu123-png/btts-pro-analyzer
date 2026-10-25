@@ -396,6 +396,10 @@ Eishockey, Cricket, E-Sport erscheinen 1–2 Stunden zu früh. Gleicher Fehler i
 Punkt 1 ist dringend: Jede weitere Statuskombination eines Produzenten leert die Website wieder
 vollständig.
 
+*Stand 25.10.2026 abends:* Massnahmen 1 und 2 umgesetzt (`docs/audits/2026-10-25-lader-je-zeile.md`,
+`docs/audits/2026-10-25-shadow-massnahme-2.md`); aus Massnahme 2 bleibt der No-Vig-CLV (S5, zweiter
+Teil) offen.
+
 ---
 
 ## 6. Methodik und Kennzahlen
