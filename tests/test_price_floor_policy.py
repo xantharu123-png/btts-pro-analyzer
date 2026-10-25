@@ -217,3 +217,62 @@ def test_consumer_loader_accepts_unpriced_public_tips_under_the_floor_policy(tmp
     monkeypatch.setenv(mc.PRICE_POLICY_FLAG, "gate")
     path.write_text(json.dumps(document), encoding="utf-8")
     assert ev._load_automated_wettfinder_document(path, now=now, max_age=ev.AUTOMATED_MODEL_MAX_AGE) is None
+
+
+def test_esports_attach_stores_the_floor_status_and_execution_fields(tmp_path, monkeypatch):
+    # 25.10.2026: the attach stored the gate code OBSERVED under every policy and the
+    # app loader, recomputing PLAYABLE under floor, rejected the whole daily document.
+    import json
+    import esports_prices as prices
+    from tests.test_esports_prices import NOW as ESPORTS_NOW, document, event, row
+    cache = tmp_path / "esports_quotes.json"
+    cache.write_text(json.dumps(document(event())), encoding="utf-8")
+    priced, = prices.attach_cached_esports_prices([row()], now=ESPORTS_NOW, path=cache)
+    assert priced["reference_price_status"] == "PLAYABLE"
+    assert priced["reference_quote_executable_odds"] == 2.5
+    assert priced["reference_quote_bookmaker"] in {"pinnacle", "1xbet"}
+    assert priced["reference_quote_source"] == mc.ESPORTS_PRICE_SOURCE and priced["reference_quote_observed_at"]
+    cache.write_text(json.dumps(document(event(first=1.10))), encoding="utf-8")
+    below, = prices.attach_cached_esports_prices([row()], now=ESPORTS_NOW, path=cache)
+    assert below["reference_price_status"] == "BELOW_FLOOR"
+    assert not any(field.startswith("reference_quote_") for field in below)
+    unknown, = prices.attach_cached_esports_prices([row(competition="Unknown")], now=ESPORTS_NOW, path=cache)
+    assert unknown["reference_price_status"] == "UNAVAILABLE" and unknown["reference_quote"] is None
+    monkeypatch.setenv(mc.PRICE_POLICY_FLAG, "gate")
+    cache.write_text(json.dumps(document(event())), encoding="utf-8")
+    gated, = prices.attach_cached_esports_prices([row()], now=ESPORTS_NOW, path=cache)
+    assert gated["reference_price_status"] == "OBSERVED"
+    assert not any(field.startswith("reference_quote_") for field in gated)
+
+
+def test_consumer_loader_accepts_legacy_observed_rows_but_never_playable_without_execution_fields(tmp_path, monkeypatch):
+    import json
+    from datetime import datetime, timezone
+    import ev_signal_sources as ev
+    from tests.test_ev_signal_sources import _automatic_document, _model_overlay, _playable_automatic_candidate
+    generated = datetime(2030, 1, 1, 10, 0, tzinfo=timezone.utc)
+    now = datetime(2030, 1, 1, 11, 0, tzinfo=timezone.utc)
+    path = tmp_path / "wettfinder_latest.json"
+
+    def load(row):
+        path.write_text(json.dumps(_automatic_document([row]) | {"bookmaker_data_used": True}), encoding="utf-8")
+        return ev._load_automated_wettfinder_document(path, now=now, max_age=ev.AUTOMATED_MODEL_MAX_AGE)
+
+    legacy = _model_overlay(_playable_automatic_candidate())
+    for field in ev._REFERENCE_EXECUTION_FIELDS:
+        legacy.pop(field, None)
+    legacy["reference_price_status"] = "OBSERVED"  # written by the E-sport attach before 25.10.2026
+    assert load(legacy) is not None
+    assert load({**legacy, "reference_price_status": "PLAYABLE"}) is None  # playable needs execution fields
+    assert load({**legacy, "reference_quote_executable_odds": 2.06}) is None  # legacy code with an execution field
+    # The fixed producer stores the floor status with the floor's own execution fields.
+    fixed = _model_overlay(_playable_automatic_candidate())
+    quote = mc.MarketConsensus.from_dict(fixed["reference_quote"])
+    status = mc.wettfinder_reference_price_status(quote, fixed["minimum_odds"], candidate=fixed, now=generated)
+    assert status.code == "PLAYABLE"
+    fixed.update(reference_price_status=status.code, reference_quote_source=quote.source,
+                 reference_quote_executable_odds=status.usable_odds, reference_quote_bookmaker=status.bookmaker,
+                 reference_quote_bookmaker_id=status.bookmaker_id, reference_quote_observed_at=status.observed_at)
+    assert load(fixed) is not None
+    monkeypatch.setenv(mc.PRICE_POLICY_FLAG, "gate")
+    assert load(legacy) is None

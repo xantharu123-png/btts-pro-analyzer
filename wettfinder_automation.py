@@ -4021,7 +4021,11 @@ def run_wettfinder(
     for row, priced in zip(esports_model_rows, attach_cached_esports_prices(
             esports_model_rows, now=current, path=esports_price_path)):
         if priced.get('reference_quote') is not None:
-            row.update(reference_quote=priced['reference_quote'], reference_price_status='OBSERVED')
+            # Status and execution fields come from the attach under the
+            # active price policy (25.10.2026); OBSERVED was the gate-only code.
+            row.update({key: value for key, value in priced.items()
+                        if key in ('reference_quote', 'reference_price_status')
+                        or key.startswith('reference_quote_')})
 
     # Preserve every model result independently of bookmaker price. A missing
     # football, tennis or E-sport quote only prevents strict playability; it
@@ -4920,6 +4924,8 @@ def _refresh_scheduled_prices(document, *, path, config, now):
                         row.pop(field)
                 row.update(reference_quote=priced.get('reference_quote'),
                            reference_price_status=priced.get('reference_price_status', 'UNAVAILABLE'))
+                # A playable E-sport price carries its execution fields (25.10.2026).
+                row.update({key: value for key, value in priced.items() if key.startswith('reference_quote_')})
                 if priced.get('reference_quote') is not None:
                     row['reference_price_evaluated_at'] = completed.isoformat()
                 else:
