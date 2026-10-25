@@ -226,6 +226,8 @@ class AutomatedWettfinderStatus:
     reference_quote_count: int
     price_status_counts: tuple[tuple[str, int], ...]
     football_operational_error_count: int = 0
+    # Rows withheld by the loader for an inconsistent price status (25.10.2026).
+    price_inconsistent_rows: int = 0
 
 
 @dataclass(frozen=True)
@@ -874,18 +876,19 @@ def _reference_execution_matches_row(
 
 
 def _legacy_observation_row_accepted(row: dict, status) -> bool:
-    """Accept a model row priced before 25.10.2026 under the floor policy.
+    """Accept an observation-only model row under the floor policy.
 
-    Until then the E-sport price attach stored the gate observation code
-    ``OBSERVED`` for an observation-only quote. Under ``floor`` that code can
-    no longer be reproduced; such a row stays display evidence without
-    execution fields, so it must carry none and its quote must classify as a
-    floor code. ``PLAYABLE`` without execution fields stays invalid.
+    Producers before 25.10.2026 stored the gate codes ``OBSERVED`` (E-sport
+    attach) or ``UNAVAILABLE`` with a retained quote (price refresh without a
+    fresh match) for display-only observations. Under ``floor`` those codes
+    cannot be reproduced; such a row stays display evidence without execution
+    fields, so it must carry none and its quote must classify as a floor code.
+    ``PLAYABLE`` without execution fields stays invalid.
     """
     from market_consensus import floor_only_pricing
     return (
         floor_only_pricing()
-        and row.get("reference_price_status") == "OBSERVED"
+        and row.get("reference_price_status") in {"OBSERVED", "UNAVAILABLE"}
         and status.code in {"PLAYABLE", "UNPRICED", "BELOW_FLOOR"}
         and not any(field in row for field in _REFERENCE_EXECUTION_FIELDS)
     )
@@ -1169,48 +1172,60 @@ def _load_automated_wettfinder_document(
     # quote below 1.20 withholds it. The old contract needs an executable price.
     accepted_price_status = (
         {"PLAYABLE", "UNPRICED", "UNAVAILABLE"} if floor_policy else {"PLAYABLE"})
+    # Owner decision 25.10.2026 (Gesamtaudit, Massnahme 1): under the floor
+    # policy a price or status inconsistency withholds that row and its strict
+    # copies, never the whole document; structural and identity defects still
+    # fail closed for the document. The old contract keeps the whole-document
+    # rule.
+    dropped_strict_keys: set[str] = set()
+    inconsistent_model_keys: set[str] = set()
     for row in [*candidates, *challenge_release_candidates]:
         if (
             not isinstance(row, dict)
             or row.get("status") != "RECOMMENDED"
-            or row.get("reference_price_status") not in accepted_price_status
             or not _supported_automated_strict_source(row)
         ):
             return None
+        key = str(row.get("key") or "").strip()
+        inconsistent = row.get("reference_price_status") not in accepted_price_status
         quote = MarketConsensus.from_dict(row.get("reference_quote"))
         # A public tip republished by a price refresh (25.10.2026) carries the
         # refresh's evaluation clock; its quote was observed after the scan, so
-        # the scan clock would classify it UNPRICED and reject the document.
+        # the scan clock would classify it UNPRICED.
         price_evaluated_at = generated
-        if "reference_price_evaluated_at" in row:
+        if not inconsistent and "reference_price_evaluated_at" in row:
             evaluated = _parse_iso(row["reference_price_evaluated_at"])
             if evaluated is None or evaluated.tzinfo is None or row.get("reference_quote") is None:
+                inconsistent = True
+            else:
+                price_evaluated_at = evaluated.astimezone(timezone.utc)
+                if not generated <= price_evaluated_at <= current:
+                    inconsistent = True
+        if not inconsistent:
+            status = wettfinder_reference_price_status(
+                quote,
+                row.get("minimum_odds"),
+                candidate=row,
+                now=price_evaluated_at,
+            )
+            if row.get("reference_price_status") != "PLAYABLE":
+                # Unpriced under the floor policy: no execution fields, no quote
+                # below the floor, and any stored quote bound to this candidate.
+                inconsistent = (
+                    status.code == "BELOW_FLOOR"
+                    or any(field in row for field in _REFERENCE_EXECUTION_FIELDS)
+                    or (quote is not None and not quote_matches_candidate(quote, row))
+                )
+            else:
+                inconsistent = (
+                    not quote_matches_candidate(quote, row)
+                    or status.code != "PLAYABLE"
+                    or not _reference_execution_matches_row(row, quote, status)
+                )
+        if inconsistent:
+            if not floor_policy:
                 return None
-            price_evaluated_at = evaluated.astimezone(timezone.utc)
-            if not generated <= price_evaluated_at <= current:
-                return None
-        status = wettfinder_reference_price_status(
-            quote,
-            row.get("minimum_odds"),
-            candidate=row,
-            now=price_evaluated_at,
-        )
-        if row.get("reference_price_status") != "PLAYABLE":
-            # Unpriced under the floor policy: no execution fields, no quote
-            # below the floor, and any stored quote bound to this candidate.
-            if (
-                status.code == "BELOW_FLOOR"
-                or any(field in row for field in _REFERENCE_EXECUTION_FIELDS)
-                or (quote is not None and not quote_matches_candidate(quote, row))
-            ):
-                return None
-            continue
-        if (
-            not quote_matches_candidate(quote, row)
-            or status.code != "PLAYABLE"
-            or not _reference_execution_matches_row(row, quote, status)
-        ):
-            return None
+            dropped_strict_keys.add(key)
     for row in model_candidates:
         if (
             not isinstance(row, dict)
@@ -1254,40 +1269,47 @@ def _load_automated_wettfinder_document(
             or scheduled.astimezone(ZURICH_TZ).date() != target
         ):
             return None
+        key = str(row.get("key") or "").strip()
         quote_payload = row.get("reference_quote")
         price_evaluated_at = generated
+        inconsistent = False
         if "reference_price_evaluated_at" in row:
             evaluated = _parse_iso(row["reference_price_evaluated_at"])
             if evaluated is None or evaluated.tzinfo is None or quote_payload is None:
-                return None
-            price_evaluated_at = evaluated.astimezone(timezone.utc)
-            # A display-only refresh has its own clock; it must not backdate a
-            # price decision or claim a future observation as already evaluated.
-            if not generated <= price_evaluated_at <= current:
-                return None
-        if quote_payload is not None:
+                inconsistent = True
+            else:
+                price_evaluated_at = evaluated.astimezone(timezone.utc)
+                # A display-only refresh has its own clock; it must not backdate a
+                # price decision or claim a future observation as already evaluated.
+                if not generated <= price_evaluated_at <= current:
+                    inconsistent = True
+        if not inconsistent and quote_payload is not None:
             quote = MarketConsensus.from_dict(quote_payload)
             if not quote_matches_candidate(quote, row):
-                return None
-            status = wettfinder_reference_price_status(
-                quote,
-                supplied_minimum,
-                candidate=row,
-                now=price_evaluated_at,
-            )
-            if (
-                row.get("reference_price_status") != status.code
-                or not _reference_execution_matches_row(row, quote, status)
-            ) and not _legacy_observation_row_accepted(row, status):
-                return None
-        elif (
+                inconsistent = True
+            else:
+                status = wettfinder_reference_price_status(
+                    quote,
+                    supplied_minimum,
+                    candidate=row,
+                    now=price_evaluated_at,
+                )
+                if (
+                    row.get("reference_price_status") != status.code
+                    or not _reference_execution_matches_row(row, quote, status)
+                ) and not _legacy_observation_row_accepted(row, status):
+                    inconsistent = True
+        elif not inconsistent and (
             row.get("reference_price_status") != "UNAVAILABLE"
             or any(field in row for field in _REFERENCE_EXECUTION_FIELDS)
         ):
-            return None
-        scheduled_by_key[str(row.get("key") or "").strip()] = (
-            scheduled.astimezone(timezone.utc)
-        )
+            inconsistent = True
+        if inconsistent:
+            if not floor_policy:
+                return None
+            inconsistent_model_keys.add(key)
+            continue
+        scheduled_by_key[key] = scheduled.astimezone(timezone.utc)
 
     active_model_keys = {
         key for key, scheduled in scheduled_by_key.items()
@@ -1301,12 +1323,22 @@ def _load_automated_wettfinder_document(
     projected_candidates = [
         row for row in candidates
         if str(row.get("key") or "").strip() in active_model_keys
+        and str(row.get("key") or "").strip() not in dropped_strict_keys
     ]
     projected_document["candidates"] = projected_candidates
     projected_document["challenge_release_candidates"] = [
         row for row in challenge_release_candidates
         if str(row.get("key") or "").strip() in active_model_keys
+        and str(row.get("key") or "").strip() not in dropped_strict_keys
     ]
+    withheld = len(inconsistent_model_keys | dropped_strict_keys)
+    projected_document["price_inconsistent_rows"] = withheld
+    if withheld:
+        import logging
+        logging.getLogger(__name__).warning(
+            "automated wettfinder document: %d row(s) withheld for an inconsistent price status",
+            withheld,
+        )
     return projected_document, generated, projected_candidates
 
 
@@ -1408,6 +1440,9 @@ def automated_wettfinder_status(
         ),
         football_operational_error_count=_non_negative_int(
             football_source.get("operational_error_count")
+        ),
+        price_inconsistent_rows=_non_negative_int(
+            document.get("price_inconsistent_rows")
         ),
     )
 

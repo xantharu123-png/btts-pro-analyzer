@@ -263,8 +263,13 @@ def test_consumer_loader_accepts_legacy_observed_rows_but_never_playable_without
         legacy.pop(field, None)
     legacy["reference_price_status"] = "OBSERVED"  # written by the E-sport attach before 25.10.2026
     assert load(legacy) is not None
-    assert load({**legacy, "reference_price_status": "PLAYABLE"}) is None  # playable needs execution fields
-    assert load({**legacy, "reference_quote_executable_odds": 2.06}) is None  # legacy code with an execution field
+
+    def withheld(row):  # since 25.10.2026 the row is withheld, the document stays readable
+        loaded = load(row)
+        return loaded is not None and loaded[0]["model_candidates"] == [] and loaded[0]["price_inconsistent_rows"] == 1
+
+    assert withheld({**legacy, "reference_price_status": "PLAYABLE"})  # playable needs execution fields
+    assert withheld({**legacy, "reference_quote_executable_odds": 2.06})  # legacy code with an execution field
     # The fixed producer stores the floor status with the floor's own execution fields.
     fixed = _model_overlay(_playable_automatic_candidate())
     quote = mc.MarketConsensus.from_dict(fixed["reference_quote"])
@@ -411,11 +416,14 @@ def test_refilled_playable_tips_are_judged_at_their_price_clock_not_the_scan_clo
     path.write_text(json.dumps(document), encoding="utf-8")
     snapshot = ev.automated_wettfinder_snapshot(path, now=now)
     assert snapshot.status is not None and len(snapshot.signals) == 3
-    # Without its evaluation clock a quote observed after the scan still fails closed.
+    # Without its evaluation clock a quote observed after the scan is withheld (row, not document).
     for row in document["model_candidates"] + document["candidates"] + document["challenge_release_candidates"]:
         row.pop("reference_price_evaluated_at", None)
     path.write_text(json.dumps(document), encoding="utf-8")
-    assert ev._load_automated_wettfinder_document(path, now=now, max_age=ev.AUTOMATED_MODEL_MAX_AGE) is None
+    loaded = ev._load_automated_wettfinder_document(path, now=now, max_age=ev.AUTOMATED_MODEL_MAX_AGE)
+    assert loaded is not None and loaded[0]["price_inconsistent_rows"] == 1
+    assert "1:BTTS_YES" not in [row["candidate_id"] for row in loaded[0]["model_candidates"]]
+    assert [row["candidate_id"] for row in loaded[2]] == ["2:BTTS_YES", "3:BTTS_YES"]
 
 
 def test_card_without_quote_is_not_floor_excluded_only_a_quote_below_1_20_is():
@@ -424,3 +432,106 @@ def test_card_without_quote_is_not_floor_excluded_only_a_quote_below_1_20_is():
     assert surface.build_wettfinder_card(signal, _quote(signal, odds=(1.76, 1.80, 1.84)), now=NOW).quote_floor_excluded is False
     below = surface.build_wettfinder_card(signal, _quote(signal, odds=(1.10, 1.12, 1.14)), now=NOW)
     assert below.price_code == "BELOW_FLOOR" and below.quote_floor_excluded is True
+
+
+def _strict(row):
+    return {**row, "status": "RECOMMENDED", "evidence_stage": "RELEASED",
+            "release_contract": automation.AUTOMATED_FOOTBALL_RELEASE_CONTRACT}
+
+
+def test_loader_withholds_inconsistent_rows_instead_of_the_whole_document(tmp_path, monkeypatch):
+    # Gesamtaudit 25.10.2026, Massnahme 1: two outages on one day came from single rows.
+    import json
+    from datetime import datetime, timezone
+    import ev_signal_sources as ev
+    from tests.test_ev_signal_sources import _automatic_document
+    now = datetime(2030, 1, 1, 11, 0, tzinfo=timezone.utc)
+    clean = _ledger_row(1)
+    broken = _ledger_row(2, odds=("2.00", "2.02", "2.04", "2.06"))
+    for field in ev._REFERENCE_EXECUTION_FIELDS:
+        broken.pop(field, None)  # PLAYABLE without its execution record is inconsistent
+    other = _ledger_row(3)
+    document = _automatic_document([clean, broken, other], candidates=[_strict(clean), _strict(broken)],
+                                   challenge_release_candidates=[])
+    document["bookmaker_data_used"] = True
+    path = tmp_path / "wettfinder_latest.json"
+    path.write_text(json.dumps(document), encoding="utf-8")
+    loaded = ev._load_automated_wettfinder_document(path, now=now, max_age=ev.AUTOMATED_MODEL_MAX_AGE)
+    assert loaded is not None
+    projected, _generated, strict = loaded
+    assert [row["candidate_id"] for row in projected["model_candidates"]] == ["1:BTTS_YES", "3:BTTS_YES"]
+    assert [row["candidate_id"] for row in strict] == ["1:BTTS_YES"]
+    snapshot = ev.automated_wettfinder_snapshot(path, now=now)
+    assert snapshot.status.price_inconsistent_rows == 1
+    assert len(snapshot.forecasts) == 2 and len(snapshot.signals) == 1
+    # A structural defect still fails closed for the whole document.
+    structural = {**document, "model_candidates": [clean, {**other, "status": "PRICE_REQUIRED"}], "candidates": []}
+    path.write_text(json.dumps(structural), encoding="utf-8")
+    assert ev._load_automated_wettfinder_document(path, now=now, max_age=ev.AUTOMATED_MODEL_MAX_AGE) is None
+    # The old contract keeps rejecting the whole document.
+    monkeypatch.setenv(mc.PRICE_POLICY_FLAG, "gate")
+    path.write_text(json.dumps(document), encoding="utf-8")
+    assert ev._load_automated_wettfinder_document(path, now=now, max_age=ev.AUTOMATED_MODEL_MAX_AGE) is None
+
+
+def test_price_refresh_classifies_a_retained_quote_under_the_floor_policy(monkeypatch):
+    from datetime import datetime, timezone
+    from tests.test_ev_signal_sources import _model_automatic_candidate, _model_overlay, _playable_automatic_candidate
+    now = datetime(2030, 1, 1, 11, 0, tzinfo=timezone.utc)
+    previous = _model_overlay(_playable_automatic_candidate())  # last run observed 2.00-2.06 at 10:00
+    model_row = _model_automatic_candidate()                    # this run: the market is no longer offered
+    price_row = dict(model_row)
+    _counts, playable = automation._apply_reference_quotes([model_row], [price_row], {}, now=now,
+                                                           previous_rows=[previous], price_evaluated_at=now)
+    assert model_row["reference_quote"] is not None
+    assert model_row["reference_price_status"] == "PLAYABLE"
+    assert model_row["reference_price_evaluated_at"] == now.isoformat()
+    assert model_row["reference_quote_executable_odds"] == 2.06
+    assert [row["candidate_id"] for row in playable] == [model_row["candidate_id"]]
+    monkeypatch.setenv(mc.PRICE_POLICY_FLAG, "gate")
+    model_row = _model_automatic_candidate()
+    automation._apply_reference_quotes([model_row], [dict(model_row)], {}, now=now,
+                                       previous_rows=[previous], price_evaluated_at=now)
+    assert model_row["reference_quote"] is not None and model_row["reference_price_status"] == "UNAVAILABLE"
+    assert "reference_price_evaluated_at" not in model_row and "reference_quote_executable_odds" not in model_row
+
+
+def test_15k_release_quote_uses_the_row_clock_and_the_floor_status(monkeypatch):
+    from datetime import datetime, timezone
+    generated = datetime(2030, 1, 1, 10, 0, tzinfo=timezone.utc)
+    refilled = _strict(_ledger_row(1, odds=("2.00", "2.02", "2.04", "2.06"), quoted_at="2030-01-01T12:00:00+00:00",
+                                   reference_price_evaluated_at="2030-01-01T12:05:00+00:00"))
+    quote = automation._challenge_release_quote(refilled, generated_at=generated)
+    assert quote is not None and quote.best_odds == 2.06
+    below = _strict(_ledger_row(2, odds=("1.10", "1.12", "1.14", "1.16")))
+    assert automation._challenge_release_quote(below, generated_at=generated) is None
+    assert automation._challenge_release_quote(_strict(_ledger_row(3)), generated_at=generated) is None  # a stake needs odds
+    backdated = {**refilled, "reference_price_evaluated_at": "2030-01-01T09:00:00+00:00"}
+    assert automation._challenge_release_quote(backdated, generated_at=generated) is None
+    monkeypatch.setenv(mc.PRICE_POLICY_FLAG, "gate")
+    assert automation._challenge_release_quote(refilled, generated_at=generated) is None
+
+
+def test_price_refresh_republication_follows_the_source_error_counter_the_loader_checks():
+    from datetime import datetime, timezone
+    now = datetime(2030, 1, 1, 11, 0, tzinfo=timezone.utc)
+    rows = [_ledger_row(1), _ledger_row(2)]
+    document = _refreshed_document(rows, published=[])
+    document["sources"]["football"]["operational_error_count"] = 1  # a degraded scan
+    automation._republish_floor_candidates(document, now=now)
+    assert document["candidates"] == [] and document["sources"]["football"]["published_recommendation_count"] == 0
+    document["sources"]["football"]["operational_error_count"] = 0
+    automation._republish_floor_candidates(document, now=now)
+    assert [row["candidate_id"] for row in document["candidates"]] == ["1:BTTS_YES", "2:BTTS_YES"]
+
+
+def test_football_price_refresh_does_not_count_budget_protection_as_operational_error(tmp_path):
+    import json
+    from tests.test_price_refresh_schedule import NOW as REFRESH_NOW, _football, _state
+    row, _quote_unused = _football()
+    path, _original = _state(tmp_path, [row])
+    result = automation.refresh_prices_only(state_path=path, now=REFRESH_NOW,
+                                            quote_loader=lambda *args, **kwargs: ({}, ["Fussball: APIBudgetExceeded"]))
+    assert result["errors"] == 1
+    written = json.loads(path.read_text(encoding="utf-8"))
+    assert written["sources"]["football"]["quote_operational_error_count"] == 0
