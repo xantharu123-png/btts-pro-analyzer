@@ -1,5 +1,42 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 25.10.2026 abends – Übergabe: dreistufige Preisprüfung gemergt, NICHT ausgerollt
+
+Stand bei der Übergabe an den anderen Claude-Account (Owner hat den Release-Schritt angehalten):
+
+- **Produktion** läuft weiter `ff5f5a0` (Massnahme 2, seit 16:28 CET). Nichts von PR #34 ist auf dem VPS.
+- **`origin/main` = `a2864ac`** (Merge von PR #34, Quick-CI grün). Owner-Entscheidung und Vertragsnotiz:
+  `docs/audits/2026-10-25-preispruefung-dreistufig.md`. Kurz: (1) direkte Quote: Median der Buchmacher statt
+  Bestpreis; (2) Tor-Bereiche ohne Quote über die Über/Unter-Linien desselben Spiels (`reference_price_bound`,
+  Marge 6 %); (3) ohne jeden Preisbeleg nur unter 65 % Modellwahrscheinlichkeit. Anlass: Hauptauswahlen
+  „Hammarby 1–4 Tore“ (Buchmacher 1,15) und „Ajax über 2,5 Ecken“ ohne geprüfte Quote.
+- **Geprüft:** `tests/test_price_floor_policy.py` 29 grün, Preis-/Kartenpfade 1993 grün, weitere Wettfinder-,
+  15K-, RisikoBet-, Daily3-, Shadow-Suiten und Quick-CI 1609 grün, `ruff check .` grün. Trockenlauf auf dem VPS
+  (Module unter `/tmp/newcode`, Live-Dokument nur gelesen): bis zum nächsten Quotenlauf hält der neue App-Lader
+  12 gespeicherte `PLAYABLE`-Zeilen zeilenweise zurück (Median unter 1,20, Zähler `price_inconsistent_rows`),
+  danach 0; 3 öffentliche Tipps; 15K-Liste 15 → 10; 49 Bereichsmärkte mit Schranke (21 belegt, 28 gesperrt).
+- **Release-Helfer liegt bereit, noch nicht auf den VPS kopiert:** `output/release-20261025-6/deploy.sh`
+  (ausserhalb Git; vorheriger Stand `ff5f5a0`, Ziel `a2864ac`, 14 Pfade in `release-files.txt`, Offline-Asserts
+  für `FLOOR_UNPRICED_MAX_PROBABILITY`, `derive_range_price_bound`, `_attach_floor_price_bounds`,
+  `_floor_withheld`, `ModelSignal.reference_price_bound`; Generator `gen_deploy14.py` im selben
+  Ordner).
+
+Nächste Schritte für den Release (nur mit Owner-Freigabe; PowerShell, Windows-OpenSSH):
+
+1. `scp C:\Projekt\BetBoy\output\release-20261025-6\deploy.sh betboy-vps:/tmp/deploy-20261025-6.sh`
+2. Lücke abwarten: Shadow-Timer läuft alle 10 Minuten (`:02`), der Helfer verlangt > 150 s Abstand zu allen
+   Timern und keine laufenden Jobs; `/tmp/shadow_gap.sh` auf dem VPS gibt die Sekunden bis zum nächsten
+   Shadow-Lauf aus. Quotenlauf alle 3 Stunden (18:15, 21:15, …).
+3. `ssh betboy-vps "sudo -n bash /tmp/deploy-20261025-6.sh a2864ac6a9310be030093de975cd13864435dfac"`, Ausgabe nach
+   `output/release-20261025-6/deploy-01.log`; erwartet `OFFLINE_RELEASE_IMPORTS=ok`, Healthchecks `ok`,
+   `HEAD=a2864ac…`, nur App-Neustart.
+4. Website prüfen (bis zum nächsten Quotenlauf ~12 zurückgehaltene Zeilen sind erwartet).
+5. Nach dem nächsten Quotenlauf das Tagesdokument prüfen: Zeilen mit `reference_price_bound`,
+   `price_inconsistent_rows` = 0, öffentliche Tipps vorhanden, keine Hauptauswahl ohne Preisbeleg ab 65 %.
+6. Protokoll in `TODO_AKTUELL.md`, `PC_WECHSEL_UEBERGABE.md`, `STATUS.md` (Produktionszeile) nachtragen.
+
+Aufräumen optional: `/tmp/newcode` auf dem VPS enthält die Trockenlauf-Module (kein Einfluss auf Produktion).
+
 ## 25.10.2026 – Massnahme 2 des Gesamtaudits live: Shadow misst Trefferquote, Hybrid und veröffentlichte Tipps
 
 Owner-Entscheidung: Massnahme 2 umsetzen. Vertragsänderung `docs/audits/2026-10-25-shadow-massnahme-2.md` (PR #32):
