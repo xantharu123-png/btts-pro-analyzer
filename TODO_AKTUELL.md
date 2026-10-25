@@ -1,5 +1,19 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 25.10.2026 – Hotfix App-Lader: neu veröffentlichte Tipps mit ihrer Preis-Uhr bewerten (live)
+
+Der Quotenlauf um 09:15 CET veröffentlichte erstmals per Nachrücken 3 Tipps und 15 Einträge der 15K-Liste, deren
+Quoten nach dem Nachtscan (03:53 CET) beobachtet waren. Der App-Lader rechnete die strikten Zeilen mit der Scan-Uhr
+(`generated_at`) nach, erhielt im 24-Stunden-Fenster `UNPRICED` statt `PLAYABLE` und verwarf das ganze Dokument; die
+Website war von 09:15 bis 12:02 CET leer (Befund beim Gesamtaudit, Belege `output/release-20261025-3/`,
+`strict_probe.py`). Fix in PR #27: strikte Zeilen werden wie die Modellzeilen mit ihrer `reference_price_evaluated_at`
+bewertet (`generated <= evaluated <= now`); ohne diese Uhr bleibt eine nach dem Scan beobachtete Quote fail-closed.
+Quellcommit **`8e4d06fb64bc89d07fa543fe5338d33e637c06d2`** um 12:02 CET per No-Backup-Fast-forward von `2d4a01c` ausgerollt (Helfer
+`output/release-20261025-3/deploy.sh`, 5 Pfade inkl. Protokoll-PR #26, nur App-Neustart PID 1326823 → 1329633,
+Healthchecks ok, Snapshots unverändert). Prüfung um 12:05 CET: Der Lader lädt das Dokument von 09:15 wieder (339 Prognosen, 3 öffentliche Tipps), die Website zeigt 52 Spiele mit „Ergebnisstand heute 03:53“. Lehre: Der Lader verwirft bei jeder Abweichung das ganze
+Dokument; jede Änderung an der Veröffentlichung braucht einen Lader-Test mit realitätsnahen Uhren (Scan, Quoten,
+Abruf) und vor dem Release einen Trockenlauf auf dem echten Dokument mit den echten Uhren.
+
 ## 25.10.2026 – Öffentliche Tipps rücken nach jedem Quotenlauf nach (live)
 
 Owner-Entscheidung (Chat, 25.10.): Entfernt der Quotenlauf einen öffentlichen Tipp wegen Marktquote unter 1,20,
