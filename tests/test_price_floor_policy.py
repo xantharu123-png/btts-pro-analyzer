@@ -276,3 +276,123 @@ def test_consumer_loader_accepts_legacy_observed_rows_but_never_playable_without
     assert load(fixed) is not None
     monkeypatch.setenv(mc.PRICE_POLICY_FLAG, "gate")
     assert load(legacy) is None
+
+
+def _ledger_row(index, *, kickoff="2030-01-01T15:00:00+00:00", odds=None, probability=None, **overrides):
+    """A release-eligible football model row of the stored ledger (UNPRICED unless odds are given)."""
+    import ev_signal_sources as ev
+    from tests.test_ev_signal_sources import _model_automatic_candidate, _model_overlay, _playable_automatic_candidate
+    row = _model_overlay(_playable_automatic_candidate(odds=odds)) if odds else _model_automatic_candidate()
+    row.update(_release_row(tested_hypotheses=96))
+    row.update(candidate_id=f"{index}:BTTS_YES", fixture_id=index, key=f"automatic-model-fussball-{index}",
+               event=f"Spiel {index}", event_identity=f"football:{index}", scheduled_start=kickoff)
+    if probability is not None:
+        haircut = row["probability_haircut"]
+        row.update(probability=probability, conservative_probability=round(probability - haircut, 10),
+                   minimum_odds=ev._minimum_odds(probability, haircut))
+    row.update(overrides)
+    return row
+
+
+def _refreshed_document(rows, *, published):
+    from tests.test_ev_signal_sources import _automatic_document
+    strict = [{**row, "status": "RECOMMENDED", "evidence_stage": "RELEASED",
+               "release_contract": automation.AUTOMATED_FOOTBALL_RELEASE_CONTRACT} for row in published]
+    document = _automatic_document(rows, candidates=strict, challenge_release_candidates=[])
+    # A price refresh clears both strict lists before the republication runs (unchanged behaviour).
+    document["candidates"] = []
+    document["challenge_release_candidates"] = []
+    document["bookmaker_data_used"] = True
+    return document
+
+
+def test_price_refresh_refills_public_tips_after_a_tip_falls_below_the_floor(tmp_path):
+    import json
+    from datetime import datetime, timezone
+    import ev_signal_sources as ev
+    now = datetime(2030, 1, 1, 11, 0, tzinfo=timezone.utc)
+    below = _ledger_row(1, odds=("1.10", "1.12", "1.14", "1.16"))  # the refresh found this tip below 1.20
+    assert below["reference_price_status"] == "BELOW_FLOOR"
+    rows = [below, _ledger_row(2), _ledger_row(3), _ledger_row(4)]
+    document = _refreshed_document(rows, published=rows[:3])
+    automation._republish_floor_candidates(document, now=now)
+    assert [row["candidate_id"] for row in document["candidates"]] == ["2:BTTS_YES", "3:BTTS_YES", "4:BTTS_YES"]
+    assert all(row["status"] == "RECOMMENDED" and row["evidence_stage"] == "RELEASED"
+               and row["release_contract"] == automation.AUTOMATED_FOOTBALL_RELEASE_CONTRACT
+               for row in document["candidates"])
+    assert document["sources"]["football"]["published_recommendation_count"] == 3
+    assert all(row["evidence_stage"] == "SHADOW" for row in document["model_candidates"])  # ledger untouched
+    path = tmp_path / "wettfinder_latest.json"
+    path.write_text(json.dumps(document), encoding="utf-8")
+    snapshot = ev.automated_wettfinder_snapshot(path, now=now)
+    assert snapshot.status is not None and len(snapshot.signals) == 3 and len(snapshot.forecasts) == 4
+
+
+def test_price_refresh_republication_skips_started_games_and_unreleased_rows():
+    from datetime import datetime, timezone
+    now = datetime(2030, 1, 1, 11, 0, tzinfo=timezone.utc)
+    started = _ledger_row(1, kickoff="2030-01-01T10:30:00+00:00")
+    unreleased = _ledger_row(4, statistical_release_passed=False)
+    rows = [started, _ledger_row(2), _ledger_row(3), unreleased, _ledger_row(5)]
+    document = _refreshed_document(rows, published=rows[:3])
+    automation._republish_floor_candidates(document, now=now)
+    assert [row["candidate_id"] for row in document["candidates"]] == ["2:BTTS_YES", "3:BTTS_YES", "5:BTTS_YES"]
+    # An unverified fixture context or a football run with errors publishes nothing.
+    document["football"]["context_fixture_statuses"]["5"] = "data_incomplete"
+    automation._republish_floor_candidates(document, now=now)
+    assert [row["candidate_id"] for row in document["candidates"]] == ["2:BTTS_YES", "3:BTTS_YES"]
+    document["football"]["operational_error_count"] = 1
+    automation._republish_floor_candidates(document, now=now)
+    assert document["candidates"] == [] and document["sources"]["football"]["published_recommendation_count"] == 0
+
+
+def test_price_refresh_fills_the_15k_list_only_with_playable_corridor_rows(tmp_path, monkeypatch):
+    import json
+    from datetime import datetime, timezone
+    import ev_signal_sources as ev
+    now = datetime(2030, 1, 1, 11, 0, tzinfo=timezone.utc)
+    playable = _ledger_row(1, odds=("2.00", "2.02", "2.04", "2.06"), probability=0.65)
+    assert playable["reference_price_status"] == "PLAYABLE"
+    rows = [playable, _ledger_row(2, probability=0.65), _ledger_row(3)]
+    document = _refreshed_document(rows, published=[])
+    automation._republish_floor_candidates(document, now=now)
+    assert [row["candidate_id"] for row in document["candidates"]] == ["1:BTTS_YES", "2:BTTS_YES", "3:BTTS_YES"]
+    assert [row["candidate_id"] for row in document["challenge_release_candidates"]] == ["1:BTTS_YES"]
+    assert document["sources"]["football"]["challenge_release_candidate_count"] == 1
+    path = tmp_path / "wettfinder_latest.json"
+    path.write_text(json.dumps(document), encoding="utf-8")
+    assert ev._load_automated_wettfinder_document(path, now=now, max_age=ev.AUTOMATED_MODEL_MAX_AGE) is not None
+    # The old contract keeps the cleared lists: a release needed a fresh executable price.
+    monkeypatch.setenv(mc.PRICE_POLICY_FLAG, "gate")
+    gated = _refreshed_document(rows, published=rows[:1])
+    automation._republish_floor_candidates(gated, now=now)
+    assert gated["candidates"] == [] and gated["challenge_release_candidates"] == []
+
+
+def test_unpriced_public_tips_stay_signals_as_long_as_the_model_document(tmp_path, monkeypatch):
+    import json
+    from datetime import datetime, timedelta, timezone
+    import ev_signal_sources as ev
+    rows = [_ledger_row(index, kickoff="2030-01-01T20:00:00+00:00") for index in (1, 2, 3)]
+    document = _refreshed_document(rows, published=[])
+    generated = datetime(2030, 1, 1, 10, 0, tzinfo=timezone.utc)
+    automation._republish_floor_candidates(document, now=generated)
+    path = tmp_path / "wettfinder_latest.json"
+    path.write_text(json.dumps(document), encoding="utf-8")
+    # Six hours after the scan (far beyond the old 150-minute price limit) the tips are still public.
+    snapshot = ev.automated_wettfinder_snapshot(path, now=generated + timedelta(hours=6))
+    assert snapshot.status is not None and len(snapshot.signals) == 3
+    assert all(signal.evidence_stage == "RELEASED" and signal.reference_quote is None for signal in snapshot.signals)
+    # Started games leave the public tips; an aged-out model document publishes nothing.
+    assert ev.automated_wettfinder_snapshot(path, now=generated + timedelta(hours=10, minutes=1)).signals == ()
+    assert ev.automated_wettfinder_snapshot(path, now=generated + timedelta(hours=24, minutes=1)).status is None
+    monkeypatch.setenv(mc.PRICE_POLICY_FLAG, "gate")
+    assert ev.automated_wettfinder_snapshot(path, now=generated + timedelta(hours=6)).signals == ()
+
+
+def test_card_without_quote_is_not_floor_excluded_only_a_quote_below_1_20_is():
+    signal = _signal(stage="RELEASED", statistical_release_passed=True)
+    assert surface.build_wettfinder_card(signal, None, now=NOW).quote_floor_excluded is False
+    assert surface.build_wettfinder_card(signal, _quote(signal, odds=(1.76, 1.80, 1.84)), now=NOW).quote_floor_excluded is False
+    below = surface.build_wettfinder_card(signal, _quote(signal, odds=(1.10, 1.12, 1.14)), now=NOW)
+    assert below.price_code == "BELOW_FLOOR" and below.quote_floor_excluded is True

@@ -557,7 +557,9 @@ def build_wettfinder_card(
         compact_analysis=build_compact_analysis(signal, analysis, now=now),
         highlight_comparison=(football_form_comparison(signal, now=now)
                               if not highlight_reason else None),
-        quote_floor_excluded=admitted_quote is None,
+        # Owner decision 23./25.10.2026: without an observed quote the forecast
+        # stays visible (UNPRICED); only a market quote below 1.20 excludes it.
+        quote_floor_excluded=(status.code == "BELOW_FLOOR") if floor_only_pricing() else admitted_quote is None,
     )
 
 

@@ -4718,6 +4718,89 @@ def _riskobet_price_targets(document, snapshots, candidates, *, now):
     return rows
 
 
+def _republish_floor_candidates(document: dict[str, Any], *, now: Optional[datetime]) -> None:
+    """Refill the public tips after a price refresh under the floor policy.
+
+    Owner decision 25.10.2026 (docs/audits/2026-10-25-tipp-nachruecken.md): the
+    nightly scan picks the public tips before any quote exists, and until then
+    every price refresh cleared them because a release needed a fresh
+    executable price; nothing returned before the next scan. Under ``floor``
+    the release does not depend on price, so the scan's selection rule runs
+    again on the stored model ledger: release-eligible rows of verified
+    fixtures in ledger order, without those below 1.20 and without started
+    games; the first three, one per event, are the public tips, and the 15K
+    list keeps its playable corridor. Nothing is modelled, reordered or newly
+    priced here. ``gate`` keeps the previous behaviour (cleared lists).
+    """
+    if not floor_only_pricing():
+        return
+    current = _utc(now or datetime.now(timezone.utc))
+    try:
+        target = date.fromisoformat(str(document.get("target_search_date")))
+    except (TypeError, ValueError):
+        return
+    model_rows = [row for row in document.get("model_candidates") or [] if isinstance(row, dict)]
+    football_state = document.get("football") if isinstance(document.get("football"), dict) else {}
+    statuses = football_state.get("context_fixture_statuses")
+    sources = document.get("sources") if isinstance(document.get("sources"), dict) else {}
+    football_source = sources.get("football") if isinstance(sources.get("football"), dict) else {}
+    tennis_source = sources.get("tennis") if isinstance(sources.get("tennis"), dict) else {}
+    football_publishable = (
+        football_state.get("status") == "completed"
+        and int(football_state.get("operational_error_count") or 0) == 0
+        and int(football_source.get("quote_operational_error_count") or 0) == 0
+        and isinstance(statuses, dict)
+    )
+    tennis_publishable = int(tennis_source.get("quote_operational_error_count") or 0) == 0
+    pool: list[dict[str, Any]] = []
+    for row in model_rows:
+        source = row.get("source")
+        if source == "football_challenge":
+            if (
+                not football_publishable
+                or statuses.get(str(row.get("fixture_id"))) != "verified"
+                or not _football_record_release_eligible(row)
+                or row.get("reference_price_status") == "BELOW_FLOOR"
+            ):
+                continue
+        elif source == "tennis_shadow":
+            if not tennis_publishable or row.get("reference_price_status") != "PLAYABLE":
+                continue
+        else:
+            continue
+        pool.append({**row, "status": "PRICE_REQUIRED"})
+    candidates = select_candidates(
+        pool, now=current, target_date=target, limit=MAX_AUTOMATIC_RECOMMENDATIONS, preserve_order=True,
+    )
+    for row in candidates:
+        row["status"] = "RECOMMENDED"
+        if row.get("source") == "football_challenge":
+            row["evidence_stage"] = "RELEASED"
+            row["release_contract"] = AUTOMATED_FOOTBALL_RELEASE_CONTRACT
+    document["candidates"] = candidates
+    # The 15K ticket list keeps an observed price: a stake needs odds.
+    release_list = [
+        row
+        for row in _ranked_candidates(pool, now=current, target_date=target, preserve_order=True)
+        if row.get("source") == "football_challenge"
+        and row.get("reference_price_status") == "PLAYABLE"
+        and 0.58 - 1e-12 <= float(row["probability"]) <= 0.92 + 1e-12
+        and float(row["conservative_probability"]) >= 0.55 - 1e-12
+    ][:MAX_AUTOMATED_CHALLENGE_RELEASE_CANDIDATES]
+    for row in release_list:
+        row["status"] = "RECOMMENDED"
+        row["evidence_stage"] = "RELEASED"
+        row["release_contract"] = AUTOMATED_FOOTBALL_RELEASE_CONTRACT
+    document["challenge_release_candidates"] = release_list
+    for source_name, source_key in (("football", "football_challenge"), ("tennis", "tennis_shadow")):
+        status = sources.get(source_name)
+        if isinstance(status, dict):
+            status["published_recommendation_count"] = sum(
+                row.get("source") == source_key for row in candidates)
+            if source_name == "football":
+                status["challenge_release_candidate_count"] = len(release_list)
+
+
 def _refresh_price_document(document, *, quote_sport, config, now, quote_loader=None,
                             scheduled=False, extra_rows=()):
     """Mutate only price overlays in one unpublished snapshot."""
@@ -4848,6 +4931,10 @@ def _refresh_price_document(document, *, quote_sport, config, now, quote_loader=
     if quote_sport == 'tennis':
         source.update(price_provider_status=provider_status, quote_errors=errors[:10],
                       quote_operational_error_count=len(_operational_quote_errors(errors)))
+    if not scheduled:
+        # Owner 25.10.2026: under the floor policy the public tips follow the
+        # refreshed prices instead of waiting for the next nightly scan.
+        _republish_floor_candidates(document, now=current)
     return summary
 
 
@@ -4935,6 +5022,9 @@ def _refresh_scheduled_prices(document, *, path, config, now):
             summary['operational_errors'] = max(error_count, int(summary.get('status') in
                 {'failed', 'unavailable', 'missing_key', 'partial'}))
         summaries[sport] = summary
+    # Owner 25.10.2026: under the floor policy the public tips and the 15K list
+    # follow the refreshed prices (same selection rule as the nightly scan).
+    _republish_floor_candidates(document, now=current)
     result = dict(sport='all', updated_at=_utc(now or datetime.now(timezone.utc)).isoformat(),
         checked=sum(s.get('checked', 0) for s in summaries.values()),
         fixtures=sum(s.get('fixtures', s.get('checked', 0)) for s in summaries.values()),
