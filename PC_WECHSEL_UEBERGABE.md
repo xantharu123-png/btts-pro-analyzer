@@ -1,5 +1,19 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## 25.10.2026 – Massnahme 1 des Gesamtaudits live: Lader je Zeile, Quotenlauf und 15K mit Zeilen-Uhr
+
+Gesamtaudit `AUDIT_BERICHT_2026-10-25_CLAUDE.md` (PR #29, fünf Prüfstränge). Owner-Entscheidung: Massnahme 1 sofort
+umsetzen. Vertragsänderung `docs/audits/2026-10-25-lader-je-zeile.md` (PR #30): Der App-Lader hält bei Preis- oder
+Statusabweichungen nur die betroffene Zeile und ihre veröffentlichten Kopien zurück (Zähler
+`price_inconsistent_rows`, Log-Warnung), Struktur- und Identitätsfehler bleiben fail-closed fürs Dokument; behaltene
+Quoten im Quotenlauf werden unter `floor` klassifiziert und bekommen ihre Preis-Uhr; der 15K-Snapshot bewertet jede
+Zeile mit ihrer Preis-Uhr und dem Floor-Status (`_challenge_release_quote`) und überspringt nicht ausführbare Zeilen
+statt des ganzen Snapshots; das Nachrücken prüft `sources.football.operational_error_count` wie der Lader; der
+Fussball-Quotenlauf zählt Budgetmeldungen nicht mehr als Betriebsfehler. `gate` unverändert. Quellcommit
+**`5f467d33184ce54cfe52caf60c2221ca6a2de521`** um 13:23 CET per No-Backup-Fast-forward von `8e4d06f` ausgerollt (Helfer
+`output/release-20261025-4/deploy.sh`, 8 Pfade inkl. Protokoll-PR #28 und Audit-PR #29, nur App-Neustart
+PID 1329633 → 1332194, Healthchecks ok, Snapshots unverändert). Vor dem Release Trockenlauf der neuen Module gegen das echte Dokument (Lader ok, 0 zurückgehaltene Zeilen, 15K-Snapshot 15 Einträge statt None); nach dem Release um 13:27 CET bestätigt: Lader lädt 304 Prognosen und 3 öffentliche Tipps, 15K-Snapshot liefert 15 Einträge.
+
 ## 25.10.2026 – Hotfix App-Lader: neu veröffentlichte Tipps mit ihrer Preis-Uhr bewerten (live)
 
 Der Quotenlauf um 09:15 CET veröffentlichte erstmals per Nachrücken 3 Tipps und 15 Einträge der 15K-Liste, deren
