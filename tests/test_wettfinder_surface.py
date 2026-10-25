@@ -257,6 +257,9 @@ def test_public_quote_binding_adapter_preserves_loader_identity():
         "competitor_a": "Alpha",
         "competitor_b": "Beta",
         "selected_competitor": "Alpha",
+        # Floor stages 2 and 3 (owner 25.10.2026) read the probability and the derived bound.
+        "probability": signal.probability,
+        "reference_price_bound": None,
     }
 
 

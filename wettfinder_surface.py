@@ -295,6 +295,9 @@ def wettfinder_quote_binding_candidate(
         "fixture_source": signal.fixture_source,
         "provider_event_id": signal.provider_event_id,
         "competition": signal.competition,
+        # Floor stages 2 and 3 (owner 25.10.2026) read these two fields.
+        "probability": signal.probability,
+        "reference_price_bound": signal.reference_price_bound,
     }
 
 

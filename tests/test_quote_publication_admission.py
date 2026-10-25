@@ -71,7 +71,7 @@ def test_manual_football_filters_unknown_and_known_low_only_after_coherence():
     from wettfinder_surface import wettfinder_quote_binding_candidate
     from types import SimpleNamespace
     signal = priced(football(), (1.50,) * 3)
-    row = SimpleNamespace(**wettfinder_quote_binding_candidate(signal), probability=signal.probability)
+    row = SimpleNamespace(**wettfinder_quote_binding_candidate(signal))  # carries the probability since 25.10.2026
     result, total = _filter_manual_market_rows([row], {}, search_filters=SearchFilters(), now=NOW)
     assert result == [] and total == 0
     result, total = _filter_manual_market_rows([row], {signal.candidate_id: signal.reference_quote},

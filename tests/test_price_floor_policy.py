@@ -44,9 +44,13 @@ def test_floor_status_ignores_freshness_and_model_minimum_but_withholds_below_1_
     low = _quote(signal, odds=(1.10, 1.15, 1.18), fetched_at=NOW - timedelta(minutes=5))
     assert mc.wettfinder_reference_price_status(low, None, candidate=binding, now=NOW).code == "BELOW_FLOOR"
     ancient = _quote(signal, odds=(1.76, 1.80, 1.84), fetched_at=NOW - timedelta(hours=25))
-    assert mc.wettfinder_reference_price_status(ancient, None, candidate=binding, now=NOW).code == "UNPRICED"
+    # Without a current quote the model guard decides (owner 25.10.2026): 68 % is withheld, 60 % stays unpriced.
+    assert mc.wettfinder_reference_price_status(ancient, None, candidate=binding, now=NOW).code == "BELOW_FLOOR"
+    unsure = surface.wettfinder_quote_binding_candidate(replace(signal, probability=0.60))
+    assert mc.wettfinder_reference_price_status(ancient, None, candidate=unsure, now=NOW).code == "UNPRICED"
     # A quote bound to another candidate is no evidence either way.
-    other = surface.wettfinder_quote_binding_candidate(_signal(key="other", market_key="RESULT_HOME", selection="1"))
+    other = surface.wettfinder_quote_binding_candidate(
+        replace(_signal(key="other", market_key="RESULT_HOME", selection="1"), probability=0.60))
     assert mc.wettfinder_reference_price_status(aged, None, candidate=other, now=NOW).code == "UNPRICED"
 
 
@@ -107,7 +111,7 @@ def test_card_shows_neither_bookmaker_quote_nor_minimum_quote():
     assert "se-number-quote" not in html and "se-price-status" not in html
     # Owner 23.10.2026 (evening): the 1.20 floor works only in the background.
     assert "Mindestquote" not in html and "se-number-threshold" not in html
-    unpriced = surface.build_wettfinder_card(signal, None, now=NOW)
+    unpriced = surface.build_wettfinder_card(replace(signal, probability=0.60), None, now=NOW)
     assert unpriced.price_code == "UNPRICED" and unpriced.evidence_label == "Modell geprüft"
     assert "Mindestquote" not in surface.render_editorial_card_html(unpriced)
     top = surface.render_top_card_html(card) if hasattr(surface, "render_top_card_html") else ""
@@ -360,7 +364,7 @@ def test_price_refresh_fills_the_15k_list_only_with_playable_corridor_rows(tmp_p
     now = datetime(2030, 1, 1, 11, 0, tzinfo=timezone.utc)
     playable = _ledger_row(1, odds=("2.00", "2.02", "2.04", "2.06"), probability=0.65)
     assert playable["reference_price_status"] == "PLAYABLE"
-    rows = [playable, _ledger_row(2, probability=0.65), _ledger_row(3)]
+    rows = [playable, _ledger_row(2, probability=0.64), _ledger_row(3)]
     document = _refreshed_document(rows, published=[])
     automation._republish_floor_candidates(document, now=now)
     assert [row["candidate_id"] for row in document["candidates"]] == ["1:BTTS_YES", "2:BTTS_YES", "3:BTTS_YES"]
@@ -426,9 +430,12 @@ def test_refilled_playable_tips_are_judged_at_their_price_clock_not_the_scan_clo
     assert [row["candidate_id"] for row in loaded[2]] == ["2:BTTS_YES", "3:BTTS_YES"]
 
 
-def test_card_without_quote_is_not_floor_excluded_only_a_quote_below_1_20_is():
+def test_card_without_quote_is_floor_excluded_only_from_65_percent_or_below_1_20():
     signal = _signal(stage="RELEASED", statistical_release_passed=True)
-    assert surface.build_wettfinder_card(signal, None, now=NOW).quote_floor_excluded is False
+    assert surface.build_wettfinder_card(replace(signal, probability=0.60), None, now=NOW).quote_floor_excluded is False
+    # Owner 25.10.2026: without any price evidence 65 % or more is withheld (model guard).
+    guarded = surface.build_wettfinder_card(signal, None, now=NOW)
+    assert guarded.price_code == "BELOW_FLOOR" and guarded.quote_floor_excluded is True
     assert surface.build_wettfinder_card(signal, _quote(signal, odds=(1.76, 1.80, 1.84)), now=NOW).quote_floor_excluded is False
     below = surface.build_wettfinder_card(signal, _quote(signal, odds=(1.10, 1.12, 1.14)), now=NOW)
     assert below.price_code == "BELOW_FLOOR" and below.quote_floor_excluded is True
@@ -535,3 +542,163 @@ def test_football_price_refresh_does_not_count_budget_protection_as_operational_
     assert result["errors"] == 1
     written = json.loads(path.read_text(encoding="utf-8"))
     assert written["sources"]["football"]["quote_operational_error_count"] == 0
+
+
+# --------------------------------------------------------------------------
+# Three-stage floor check (owner 25.10.2026, docs/audits/2026-10-25-preispruefung-dreistufig.md)
+# --------------------------------------------------------------------------
+
+def test_floor_checks_the_median_price_not_the_best_book(monkeypatch):
+    signal = _signal(stage="RELEASED", statistical_release_passed=True)
+    binding = surface.wettfinder_quote_binding_candidate(signal)
+    skewed = _quote(signal, odds=(1.15, 1.18, 1.35), fetched_at=NOW - timedelta(minutes=5))
+    status = mc.wettfinder_reference_price_status(skewed, None, candidate=binding, now=NOW)
+    assert status.code == "BELOW_FLOOR"  # best 1.35, median 1.18
+    fair = _quote(signal, odds=(1.18, 1.22, 1.35), fetched_at=NOW - timedelta(minutes=5))
+    status = mc.wettfinder_reference_price_status(fair, None, candidate=binding, now=NOW)
+    assert status.code == "PLAYABLE" and status.usable_odds == 1.35  # execution stays a real best offer
+    # Stored producer rows (multi-book API-Football quotes) and the RisikoBet/manual display rule agree.
+    from datetime import datetime, timezone
+    checked = datetime(2030, 1, 1, 10, 5, tzinfo=timezone.utc)
+    low_row = _ledger_row(1, odds=("1.15", "1.18", "1.35"))
+    fair_row = _ledger_row(1, odds=("1.18", "1.22", "1.35"))
+    assert low_row["reference_price_status"] == "BELOW_FLOOR" and "reference_quote_executable_odds" not in low_row
+    assert fair_row["reference_price_status"] == "PLAYABLE" and fair_row["reference_quote_executable_odds"] == 1.35
+    assert mc.quote_below_publication_floor(low_row["reference_quote"], candidate=low_row, now=checked) is True
+    assert mc.quote_below_publication_floor(fair_row["reference_quote"], candidate=fair_row, now=checked) is False
+    monkeypatch.setenv(mc.PRICE_POLICY_FLAG, "gate")  # the old contract keeps the best offer
+    assert mc.quote_below_publication_floor(low_row["reference_quote"], candidate=low_row, now=checked) is False
+
+
+_LINE_OBSERVED = "2030-01-01T10:00:00+00:00"
+
+
+def _line_row(fixture_id, market_key, *, over, under, observed=_LINE_OBSERVED, probability=0.60):
+    """A ledger row of one over/under line with its exact multi-book quote and floor status."""
+    import re
+    from datetime import datetime
+    from challenge_engine import MARKET_BY_KEY
+    prefix, _, line = re.fullmatch(r"(HOME|AWAY|TOTAL)_(OVER|UNDER)_(\d)_5", market_key).groups()
+    row = _ledger_row(fixture_id, probability=probability, statistical_release_passed=False,
+                      candidate_id=f"{fixture_id}:{market_key}", market_key=market_key,
+                      key=f"automatic-model-fussball-{fixture_id}-{market_key.lower()}",
+                      selection=MARKET_BY_KEY[market_key].selection)
+    bet = {"HOME": "Total - Home", "AWAY": "Total - Away", "TOTAL": "Goals Over/Under"}[prefix]
+    payload = {"response": [{
+        "fixture": {"id": fixture_id, "date": row["scheduled_start"]}, "update": observed,
+        "bookmakers": [{"id": index, "name": f"Book {index}", "bets": [{"name": bet, "values": [
+            {"value": f"Over {line}.5", "odd": str(o)}, {"value": f"Under {line}.5", "odd": str(u)}]}]}
+            for index, (o, u) in enumerate(zip(over, under), start=1)],
+    }]}
+    quote = mc.parse_fixture_consensus(payload, [row], fetched_at=datetime.fromisoformat(observed))[row["candidate_id"]]
+    row["reference_quote"] = quote.to_dict()
+    status = mc.wettfinder_reference_price_status(quote, row["minimum_odds"], candidate=row,
+                                                   now=datetime.fromisoformat(observed))
+    row["reference_price_status"] = status.code
+    for field in ("reference_quote_source", "reference_quote_executable_odds", "reference_quote_bookmaker",
+                  "reference_quote_bookmaker_id", "reference_quote_observed_at"):
+        row.pop(field, None)
+    if status.code == "PLAYABLE":
+        row.update(reference_quote_source=quote.source, reference_quote_executable_odds=status.usable_odds,
+                   reference_quote_bookmaker=status.bookmaker, reference_quote_bookmaker_id=status.bookmaker_id,
+                   reference_quote_observed_at=status.observed_at)
+    return row
+
+
+def _range_row(fixture_id, market_key, *, probability):
+    from challenge_engine import MARKET_BY_KEY
+    return _ledger_row(fixture_id, probability=probability, candidate_id=f"{fixture_id}:{market_key}",
+                       market_key=market_key, key=f"automatic-model-fussball-{fixture_id}-{market_key.lower()}",
+                       selection=MARKET_BY_KEY[market_key].selection)
+
+
+def test_goal_range_without_quote_is_judged_by_the_team_lines():
+    from datetime import datetime, timezone
+    now = datetime(2030, 1, 1, 11, 0, tzinfo=timezone.utc)
+    # Hammarby case: "away 1-4 goals" has no quote; "away over 0.5" sits far below 1.20.
+    sure = _line_row(7, "AWAY_OVER_0_5", over=(1.08, 1.10, 1.11, 1.12), under=(6.5, 7.0, 6.8, 7.2))
+    hammarby = _range_row(7, "AWAY_RANGE_1_4", probability=0.60)
+    bound = mc.derive_range_price_bound(hammarby, {"AWAY_OVER_0_5": sure}, now=now)
+    assert bound["basis"] == "upper_bound" and bound["sources"] == ["AWAY_OVER_0_5"] and bound["probability"] > 0.85
+    status = mc.wettfinder_reference_price_status(None, None, candidate={**hammarby, "reference_price_bound": bound}, now=now)
+    assert status.code == "BELOW_FLOOR" and status.market_basis == mc.FLOOR_BASIS_DERIVED  # 60 % alone would pass
+    # "away 2-4 goals" from the 1.5 under line (team lines end at 2.5, so a team range is always
+    # an upper bound): a range priced above 1.20 passes although the model sees 80 %.
+    under = _line_row(8, "AWAY_UNDER_1_5", over=(2.40, 2.45, 2.50, 2.42), under=(1.55, 1.52, 1.50, 1.56))
+    wide = _range_row(8, "AWAY_RANGE_2_4", probability=0.80)
+    bound = mc.derive_range_price_bound(wide, {"AWAY_UNDER_1_5": under}, now=now)
+    assert bound["basis"] == "upper_bound" and bound["sources"] == ["AWAY_UNDER_1_5"]
+    assert 0.35 < bound["probability"] < 0.45
+    status = mc.wettfinder_reference_price_status(None, None, candidate={**wide, "reference_price_bound": bound}, now=now)
+    assert status.code == "UNPRICED" and status.market_basis == mc.FLOOR_BASIS_DERIVED
+    # Match ranges have both lines: "1-3 goals" = P(over 0.5) - P(over 3.5).
+    some = _line_row(9, "TOTAL_OVER_0_5", over=(1.06, 1.07, 1.05, 1.06), under=(9.0, 8.5, 9.5, 9.0))
+    many = _line_row(9, "TOTAL_OVER_3_5", over=(3.20, 3.10, 3.25, 3.30), under=(1.33, 1.35, 1.32, 1.33))
+    middle = mc.derive_range_price_bound(_range_row(9, "TOTAL_RANGE_1_3", probability=0.70),
+                                         {"TOTAL_OVER_0_5": some, "TOTAL_OVER_3_5": many}, now=now)
+    assert middle["basis"] == "line_difference" and middle["sources"] == ["TOTAL_OVER_0_5", "TOTAL_OVER_3_5"]
+    assert 0.55 < middle["probability"] < 0.70
+    # A stale line is no evidence: the model guard decides again.
+    late = datetime(2030, 1, 2, 10, 30, tzinfo=timezone.utc)
+    assert mc.derive_range_price_bound(wide, {"AWAY_UNDER_1_5": under}, now=late) is None
+    stale = mc.wettfinder_reference_price_status(None, None, candidate={**wide, "reference_price_bound": bound}, now=late)
+    assert stale.code == "BELOW_FLOOR" and stale.market_basis == mc.FLOOR_BASIS_MODEL
+    # A bound belongs to exactly one range market; anything else is ignored.
+    assert mc.valid_price_bound(bound, "AWAY_RANGE_1_4") is None and mc.valid_price_bound(bound, "AWAY_RANGE_2_4")
+    assert mc.derive_range_price_bound(_range_row(9, "HOME_RANGE_1_3", probability=0.6), {}, now=now) is None
+
+
+def test_model_guard_withholds_unpriced_selections_from_65_percent():
+    from datetime import datetime, timezone
+    now = datetime(2030, 1, 1, 11, 0, tzinfo=timezone.utc)
+    for probability, expected in ((0.6499, "UNPRICED"), (0.65, "BELOW_FLOOR"), (0.87, "BELOW_FLOOR")):
+        row = _ledger_row(1, probability=probability)
+        assert mc.wettfinder_reference_price_status(None, None, candidate=row, now=now).code == expected
+    # Candidates that carry the probability in percent are scaled, not misread.
+    assert mc.wettfinder_reference_price_status(
+        None, None, candidate={**_ledger_row(1), "probability": 79.7}, now=now).code == "BELOW_FLOOR"
+
+
+def test_republication_loader_and_card_apply_all_three_stages(tmp_path):
+    import json
+    from datetime import datetime, timezone
+    import ev_signal_sources as ev
+    now = datetime(2030, 1, 1, 11, 0, tzinfo=timezone.utc)
+    rows = [
+        _range_row(7, "AWAY_RANGE_1_4", probability=0.60),  # lines say below 1.20: withheld
+        _line_row(7, "AWAY_OVER_0_5", over=(1.08, 1.10, 1.11, 1.12), under=(6.5, 7.0, 6.8, 7.2)),
+        _range_row(8, "AWAY_RANGE_2_4", probability=0.80),  # lines say above 1.20: public
+        _line_row(8, "AWAY_UNDER_1_5", over=(2.40, 2.45, 2.50, 2.42), under=(1.55, 1.52, 1.50, 1.56)),
+        _ledger_row(9, probability=0.70),  # no price evidence, 70 %: withheld by the guard
+        _ledger_row(10, probability=0.60),  # no price evidence, 60 %: public
+    ]
+    assert rows[1]["reference_price_status"] == "BELOW_FLOOR" and rows[3]["reference_price_status"] == "PLAYABLE"
+    for row in rows:
+        if row.get("reference_quote") is None:
+            row["reference_price_status"] = "UNAVAILABLE"
+    automation._attach_floor_price_bounds(rows, now=now)
+    assert rows[0]["reference_price_bound"]["probability"] > 0.85
+    assert rows[2]["reference_price_bound"]["sources"] == ["AWAY_UNDER_1_5"]
+    assert "reference_price_bound" not in rows[4] and "reference_price_bound" not in rows[1]
+    assert [row["reference_price_status"] for row in rows] == [
+        "UNAVAILABLE", "BELOW_FLOOR", "UNAVAILABLE", "PLAYABLE", "UNAVAILABLE", "UNAVAILABLE"]
+    document = _refreshed_document(rows, published=[])
+    automation._republish_floor_candidates(document, now=now)
+    assert [row["candidate_id"] for row in document["candidates"]] == ["8:AWAY_RANGE_2_4", "10:BTTS_YES"]
+    path = tmp_path / "wettfinder_latest.json"
+    path.write_text(json.dumps(document), encoding="utf-8")
+    snapshot = ev.automated_wettfinder_snapshot(path, now=now)
+    assert snapshot.status.price_inconsistent_rows == 0
+    assert [signal.candidate_id for signal in snapshot.signals] == ["8:AWAY_RANGE_2_4", "10:BTTS_YES"]
+    forecasts = {signal.candidate_id: signal for signal in snapshot.forecasts}
+    assert forecasts["8:AWAY_RANGE_2_4"].reference_price_bound["basis"] == "upper_bound"
+    excluded = {cid: surface.build_wettfinder_card(forecasts[cid], None, now=now).quote_floor_excluded
+                for cid in ("7:AWAY_RANGE_1_4", "8:AWAY_RANGE_2_4", "9:BTTS_YES", "10:BTTS_YES")}
+    assert excluded == {"7:AWAY_RANGE_1_4": True, "8:AWAY_RANGE_2_4": False, "9:BTTS_YES": True, "10:BTTS_YES": False}
+    # A published unpriced tip that a later evaluation withholds costs only that row.
+    # (strict lists follow the ledger order, so the stale tip sits between the two others)
+    document["candidates"] = [document["candidates"][0], _strict(rows[4]), document["candidates"][1]]
+    path.write_text(json.dumps(document), encoding="utf-8")
+    snapshot = ev.automated_wettfinder_snapshot(path, now=now)
+    assert snapshot.status.price_inconsistent_rows == 1
+    assert [signal.candidate_id for signal in snapshot.signals] == ["8:AWAY_RANGE_2_4", "10:BTTS_YES"]
