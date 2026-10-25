@@ -2117,6 +2117,41 @@ def load_state(path: str | Path = STATE_PATH) -> dict[str, Any]:
     return payload
 
 
+def _challenge_release_quote(
+    strict_row: dict[str, Any], *, generated_at: datetime,
+) -> Optional[MarketConsensus]:
+    """Quote behind one published 15K row, or None when the row is not executable.
+
+    Until 25.10.2026 the snapshot required a 45-minute consensus relative to
+    the scan clock and failed as a whole; a list refilled by the price refresh
+    (quotes observed after the scan) therefore never reached the 15K page.
+    Under the floor policy the row is judged with its own evaluation clock and
+    the floor status, and an inexecutable row is skipped, not the snapshot
+    (owner 25.10.2026, Massnahme 1). The old contract is unchanged.
+    """
+    raw_quote = MarketConsensus.from_dict(strict_row.get("reference_quote"))
+    if raw_quote is None:
+        return None
+    price_clock = generated_at
+    if "reference_price_evaluated_at" in strict_row:
+        evaluated = _parse_iso(strict_row["reference_price_evaluated_at"])
+        if evaluated is None or _utc(evaluated) < _utc(generated_at):
+            return None
+        price_clock = evaluated
+    quote = raw_quote if floor_only_pricing() else wettfinder_consensus(raw_quote, now=price_clock)
+    if quote is None or not quote_matches_candidate(quote, strict_row):
+        return None
+    status = wettfinder_reference_price_status(
+        quote,
+        strict_row.get("minimum_odds"),
+        candidate=strict_row,
+        now=price_clock,
+    )
+    if status.code != "PLAYABLE" or not _reference_execution_matches_row(strict_row, quote, status):
+        return None
+    return quote
+
+
 def build_scheduled_challenge_snapshot(
     document: object,
     *,
@@ -2296,20 +2331,10 @@ def build_scheduled_challenge_snapshot(
         }
         if strict_decision != model_decision:
             return None
-        raw_quote = MarketConsensus.from_dict(strict_row.get("reference_quote"))
-        quote = wettfinder_consensus(raw_quote, now=generated_at)
-        if quote is None or not quote_matches_candidate(quote, strict_row):
-            return None
-        status = wettfinder_reference_price_status(
-            quote,
-            strict_row.get("minimum_odds"),
-            candidate=strict_row,
-            now=generated_at,
-        )
-        if (
-            status.code != "PLAYABLE"
-            or not _reference_execution_matches_row(strict_row, quote, status)
-        ):
+        quote = _challenge_release_quote(strict_row, generated_at=generated_at)
+        if quote is None:
+            if floor_only_pricing():
+                continue  # this row is not executable; the list keeps the others
             return None
         if candidate_id in verified_release_quotes:
             return None
@@ -2642,7 +2667,12 @@ def _apply_reference_quotes(
         target["reference_quote"] = quote.to_dict()
         if quote.provider_event_id:
             target["quote_provider_event_id"] = quote.provider_event_id
-        if candidate_id in checked_ids:
+        if candidate_id in checked_ids and not floor_only_pricing():
+            # Old contract: a checked row without a fresh quote keeps the
+            # observation as display evidence only. Under the floor policy the
+            # retained observation is the floor evidence itself (owner
+            # 25.10.2026, Massnahme 1): classify it with its evaluation clock,
+            # so the app loader can rebind it instead of withholding the row.
             continue
         if price_evaluated_at is not None:
             target["reference_price_evaluated_at"] = _utc(price_evaluated_at).isoformat()
@@ -4745,13 +4775,19 @@ def _republish_floor_candidates(document: dict[str, Any], *, now: Optional[datet
     sources = document.get("sources") if isinstance(document.get("sources"), dict) else {}
     football_source = sources.get("football") if isinstance(sources.get("football"), dict) else {}
     tennis_source = sources.get("tennis") if isinstance(sources.get("tennis"), dict) else {}
+    # The app loader rejects published rows while sources[...].operational_error_count
+    # is not zero (ev_signal_sources), so the republication checks the same counter.
     football_publishable = (
         football_state.get("status") == "completed"
         and int(football_state.get("operational_error_count") or 0) == 0
+        and int(football_source.get("operational_error_count") or 0) == 0
         and int(football_source.get("quote_operational_error_count") or 0) == 0
         and isinstance(statuses, dict)
     )
-    tennis_publishable = int(tennis_source.get("quote_operational_error_count") or 0) == 0
+    tennis_publishable = (
+        int(tennis_source.get("operational_error_count") or 0) == 0
+        and int(tennis_source.get("quote_operational_error_count") or 0) == 0
+    )
     pool: list[dict[str, Any]] = []
     for row in model_rows:
         source = row.get("source")
@@ -4925,7 +4961,10 @@ def _refresh_price_document(document, *, quote_sport, config, now, quote_loader=
     source = document.setdefault('sources', {}).setdefault(quote_sport, {})
     source.update(price_checked_count=len(attempted), price_fixture_count=summary['fixtures'],
                   reference_quote_count=len(quotes), price_status_counts=counts,
-                  published_recommendation_count=0, quote_operational_error_count=len(errors))
+                  published_recommendation_count=0,
+                  # Budget protection and missing market coverage are not operational
+                  # failures (same filter as the scan and the tennis refresh, 25.10.2026).
+                  quote_operational_error_count=len(_operational_quote_errors(errors)))
     if quote_sport == 'football':
         source['challenge_release_candidate_count'] = 0
     if quote_sport == 'tennis':
