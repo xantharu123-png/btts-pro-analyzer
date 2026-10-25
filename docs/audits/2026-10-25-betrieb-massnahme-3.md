@@ -80,6 +80,28 @@ Nachher:
   installierten Bytes konsistent; ein Bridge-Updater war nicht nötig, weil kein Lauf des Updaters
   zwischen Merge und Einspielen lag.
 
+## Nachtrag zum Release am 25.10.2026, 23:22–23:25 CET
+
+- **Instanzname des Alarms:** `%n` enthält bereits `.service`, die Instanz heisst darum
+  `betboy-alert@betboy-tennis.service.service`; der Helfer erhält `%i = betboy-tennis.service` und
+  liest damit Zustand und Journal der richtigen Einheit. Die Namensprüfung im Release-Helfer
+  erwartete den kürzeren Namen und brach nach der Installation ab (Exit 23); `finish.sh` im
+  Release-Ordner führte Neustart und Prüfungen aus. Probelauf
+  `systemctl start betboy-alert@probe.service.service`: Eintrag in `runtime_state/ops_alerts.jsonl`,
+  Telegram `skipped`, Benutzer `betboy`.
+- **Timer-Neustart feuert ohne Stempel:** `systemctl restart` der drei Tagestimer, die neu
+  `Persistent=true` trugen und noch keinen Stempel unter `/var/lib/systemd/timers` hatten, startete
+  Wettfinder-, Tennis- und E-Sport-Scan sofort (23:24:56). Die `After=`-Ordnung griff: der
+  Wettfinder-Scan lief, Tennis und E-Sport warteten in der Job-Warteschlange. Künftig vor einem
+  solchen Neustart die Stempel anlegen oder den Timer nicht neu starten; der Stempel existiert jetzt,
+  ein weiterer Neustart holt nur echte Ausfälle nach.
+- **Exit-Code des Shadow-Runners:** `scripts/run_football_shadow_due.py` endete mit 1, sobald das
+  Artefakt einen Fehlertext trug, auch für „keine aktuelle Bet365-Quote mit Providerzeit; Retry“.
+  Mit dem Alarm wäre das alle zehn Minuten ein Fehlalarm. Seit demselben Abend klassifiziert
+  `shadow_clv_automation.operational_errors` (Marker `; Retry`, `-Quote/Zeitstempel`,
+  `: Details fehlen` sind Datenstatus), das Artefakt führt `operational_errors`, und der Runner
+  endet nur dafür mit 1; `partial` bleibt sichtbar. Tests: `tests/test_shadow_runner_exit.py`.
+
 ## Offen
 
 - Der Alarm meldet erst nach Telegram, wenn der Owner Token und Chat-ID hinterlegt; bis dahin
