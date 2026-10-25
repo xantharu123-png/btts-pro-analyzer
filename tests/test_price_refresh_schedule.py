@@ -100,12 +100,44 @@ def test_scheduled_all_refresh_throttles_every_attempt_without_model_changes(tmp
                 assert row[field] == value
     assert after["candidates"] == after["challenge_release_candidates"] == []
     assert "credential-not-for-publication" not in path.read_text(encoding="utf-8")
-    automation.refresh_prices_only(state_path=path, now=NOW+timedelta(minutes=179),
+    automation.refresh_prices_only(state_path=path, now=NOW+timedelta(minutes=164),
                                    config=config, quote_sport="all")
     assert len(calls) == 2  # Empty/failure is a real attempt too.
-    automation.refresh_prices_only(state_path=path, now=NOW+timedelta(hours=3),
+    # Owner 25.10.2026: the three-hour timer fires with jitter; due 15 minutes early.
+    automation.refresh_prices_only(state_path=path, now=NOW+timedelta(minutes=166),
                                    config=config, quote_sport="all")
     assert len(calls) == 4
+
+
+def test_scheduled_due_rule_tolerates_the_timer_jitter_for_every_sport(tmp_path, monkeypatch):
+    """Gesamtaudit D2: stamps written ~30 s after the timer made every second run find nothing due."""
+    from test_team_sport_prices import row as team_row
+    from test_esports_prices import row as esports_row
+    football, fq = _football()
+    _, tennis, tq = _tennis_price_fixture()
+    start = (NOW+timedelta(hours=8)).isoformat()
+    football['scheduled_start'] = tennis['scheduled_start'] = start
+    fq, tq = replace(fq, scheduled_start=start), replace(tq, scheduled_start=start)
+    team = team_row(source='team_sport_research', scheduled_start=start)
+    esports = esports_row(scheduled_start=start)
+    path, _ = _state(tmp_path, [football, tennis, team, esports])
+    calls = _native_loaders(monkeypatch, fq, tq, outcome="quotes")
+    monkeypatch.setattr('team_sport_prices.refresh_team_sport_prices',
+                        lambda rows, **kwargs: calls.append(('team', rows)) or {'status': 'cached', 'checked': 0, 'quotes': 0})
+    monkeypatch.setattr('esports_prices.refresh_esports_prices',
+                        lambda **kwargs: calls.append(('esports', [])) or {'status': 'cached', 'events': 1})
+    monkeypatch.setattr(automation, "run_wettfinder", lambda **kw: pytest.fail("model run"))
+    config = AppConfig(api_football_key="fixture", odds_api_key="fixture", oddspapi_key="fixture")
+    assert automation.SCHEDULED_PRICE_DUE_GAP == timedelta(hours=2, minutes=45)
+    automation.refresh_prices_only(state_path=path, now=NOW, config=config, quote_sport="all")
+    assert [sport for sport, _ in calls] == ["football", "tennis", "team", "esports"]
+    # The real pattern of 25.10.: the stamp sits 31 s after the timer, the next run comes 3 h after the timer.
+    late_stamp = NOW + timedelta(hours=3) - timedelta(seconds=31)
+    automation.refresh_prices_only(state_path=path, now=late_stamp, config=config, quote_sport="all")
+    assert len(calls) == 8
+    automation.refresh_prices_only(state_path=path, now=late_stamp + timedelta(hours=2, minutes=44),
+                                   config=config, quote_sport="all")
+    assert len(calls) == 8  # inside the tolerated gap nothing is requested again
 
 
 def test_scheduled_empty_catalog_never_calls_any_provider(tmp_path, monkeypatch):

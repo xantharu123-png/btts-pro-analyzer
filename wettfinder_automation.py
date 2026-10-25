@@ -126,6 +126,13 @@ MAX_AUTOMATIC_PRICE_FIXTURES = 10
 MAX_AUTOMATIC_MARKETS_PER_FIXTURE = 8
 TENNIS_PRICE_MIN_GAP = timedelta(minutes=30)
 SCHEDULED_PRICE_MIN_GAP = timedelta(hours=3)
+# Owner decision 25.10.2026 (docs/audits/2026-10-25-quotenlauf-toleranz.md,
+# Gesamtaudit D2): the quotes timer fires every three hours and the attempt
+# stamp is written when the sport's refresh starts, some 30 seconds after the
+# timer; a row is therefore due again when the nominal gap minus this
+# tolerance has passed, otherwise every second run found nothing due.
+SCHEDULED_PRICE_DUE_TOLERANCE = timedelta(minutes=15)
+SCHEDULED_PRICE_DUE_GAP = SCHEDULED_PRICE_MIN_GAP - SCHEDULED_PRICE_DUE_TOLERANCE
 MAX_AUTOMATIC_BASIC_FORECASTS = 4
 MAX_AUTOMATIC_BASIC_PER_MARKET_KEY = 2
 # The persisted artifact represents the currently active Zurich match day.
@@ -4904,11 +4911,11 @@ def _refresh_price_document(document, *, quote_sport, config, now, quote_loader=
     due_rows = all_rows
     if scheduled:
         due_rows = [r for r in all_rows if (checked := _parse_iso(checks.get(str(r.get('key') or '')))) is None
-                    or current - checked >= SCHEDULED_PRICE_MIN_GAP]
+                    or current - checked >= SCHEDULED_PRICE_DUE_GAP]
     if quote_sport == 'tennis':
         selected = _tennis_price_check_candidates(
             [r for r in due_rows if r not in extra_rows], now=current, target_date=target_search_date(current),
-            previous_checks=checks, min_gap=SCHEDULED_PRICE_MIN_GAP if scheduled else timedelta(0),
+            previous_checks=checks, min_gap=SCHEDULED_PRICE_DUE_GAP if scheduled else timedelta(0),
         )
         selected.extend(r for r in due_rows if r in extra_rows)
     else:
@@ -5083,7 +5090,7 @@ def _refresh_scheduled_prices(document, *, path, config, now):
         if target_rows:
             attempt_key = 'prices:'+sport
             previous_attempt = _parse_iso(document.get('price_check_attempts', {}).get(attempt_key))
-            if previous_attempt is not None and current-previous_attempt < SCHEDULED_PRICE_MIN_GAP:
+            if previous_attempt is not None and current-previous_attempt < SCHEDULED_PRICE_DUE_GAP:
                 summary = {'status': 'not_due' if key else 'missing_key', 'quotes': 0}
             elif key:
                 try:
