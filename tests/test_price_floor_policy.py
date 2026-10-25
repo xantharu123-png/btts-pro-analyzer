@@ -278,11 +278,13 @@ def test_consumer_loader_accepts_legacy_observed_rows_but_never_playable_without
     assert load(legacy) is None
 
 
-def _ledger_row(index, *, kickoff="2030-01-01T15:00:00+00:00", odds=None, probability=None, **overrides):
+def _ledger_row(index, *, kickoff="2030-01-01T15:00:00+00:00", odds=None, probability=None,
+                quoted_at="2030-01-01T10:00:00+00:00", **overrides):
     """A release-eligible football model row of the stored ledger (UNPRICED unless odds are given)."""
     import ev_signal_sources as ev
     from tests.test_ev_signal_sources import _model_automatic_candidate, _model_overlay, _playable_automatic_candidate
-    row = _model_overlay(_playable_automatic_candidate(odds=odds)) if odds else _model_automatic_candidate()
+    row = (_model_overlay(_playable_automatic_candidate(odds=odds, generated_at=quoted_at)) if odds
+           else _model_automatic_candidate())
     row.update(_release_row(tested_hypotheses=96))
     row.update(candidate_id=f"{index}:BTTS_YES", fixture_id=index, key=f"automatic-model-fussball-{index}",
                event=f"Spiel {index}", event_identity=f"football:{index}", scheduled_start=kickoff)
@@ -388,6 +390,32 @@ def test_unpriced_public_tips_stay_signals_as_long_as_the_model_document(tmp_pat
     assert ev.automated_wettfinder_snapshot(path, now=generated + timedelta(hours=24, minutes=1)).status is None
     monkeypatch.setenv(mc.PRICE_POLICY_FLAG, "gate")
     assert ev.automated_wettfinder_snapshot(path, now=generated + timedelta(hours=6)).signals == ()
+
+
+def test_refilled_playable_tips_are_judged_at_their_price_clock_not_the_scan_clock(tmp_path):
+    # 25.10.2026 09:15: the refresh published tips whose quotes were observed after the
+    # 03:53 scan; the loader recomputed them at the scan clock, got UNPRICED and rejected
+    # the whole document (website empty again).
+    import json
+    from datetime import datetime, timezone
+    import ev_signal_sources as ev
+    now = datetime(2030, 1, 1, 13, 0, tzinfo=timezone.utc)
+    later_quote = _ledger_row(1, odds=("2.00", "2.02", "2.04", "2.06"), quoted_at="2030-01-01T12:00:00+00:00",
+                              reference_price_evaluated_at="2030-01-01T12:05:00+00:00")
+    assert later_quote["reference_price_status"] == "PLAYABLE"
+    rows = [later_quote, _ledger_row(2), _ledger_row(3)]
+    document = _refreshed_document(rows, published=[])
+    automation._republish_floor_candidates(document, now=now)
+    assert [row["candidate_id"] for row in document["candidates"]][0] == "1:BTTS_YES"
+    path = tmp_path / "wettfinder_latest.json"
+    path.write_text(json.dumps(document), encoding="utf-8")
+    snapshot = ev.automated_wettfinder_snapshot(path, now=now)
+    assert snapshot.status is not None and len(snapshot.signals) == 3
+    # Without its evaluation clock a quote observed after the scan still fails closed.
+    for row in document["model_candidates"] + document["candidates"] + document["challenge_release_candidates"]:
+        row.pop("reference_price_evaluated_at", None)
+    path.write_text(json.dumps(document), encoding="utf-8")
+    assert ev._load_automated_wettfinder_document(path, now=now, max_age=ev.AUTOMATED_MODEL_MAX_AGE) is None
 
 
 def test_card_without_quote_is_not_floor_excluded_only_a_quote_below_1_20_is():
