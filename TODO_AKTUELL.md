@@ -1,5 +1,28 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 25.10.2026 abends – Massnahme 3 gemergt (PR #39), Release mit Unit-Installation ausstehend
+
+Owner-Entscheidung „alles machen“ zu den offenen Teilen von Massnahme 3 (D2, D3, D5). Betriebsänderung
+`docs/audits/2026-10-25-betrieb-massnahme-3.md`: Budget und Identitätslücken der Team-/E-Sport-Quoten sind Datenstatus
+und entscheiden den Exit-Code nicht mehr; der Tennis-Tagesscan schliesst einen Fall über dem Rohzeilen-Limit mit
+Diagnose aus statt den Tag zu verlieren; die Timer `wettfinder/tennis/esports/quotes` holen verpasste Läufe nach;
+die sechs Kerneinheiten alarmieren über `betboy-alert@%n.service` (Helfer `scripts/betboy_alert.py`, Telegram erst
+nach Eintrag von `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` in `/etc/betboy/betboy.env`). Zehn Unit-Pins in Bootstrap und
+Updater erneuert, eigener Pin für die Vorlage, Rekonstruktion in `tests/test_context_updater_repair.py` ergänzt.
+`origin/main` = `b0356ac`.
+
+**Release ausstehend.** Der Helfer `output/release-20261025-8/deploy.sh` (ausserhalb Git, Generator daneben) liegt
+geprüft auf dem VPS unter `/tmp/deploy-20261025-8.sh`. Er macht den No-Backup-Fast-forward `49d43ef` → `b0356ac`, prüft
+die Importe offline, kopiert die zehn geänderten Einheiten, die Alarm-Vorlage und den Helfer byte-geprüft nach
+`/etc/systemd/system` bzw. `/usr/local/libexec`, lädt systemd neu, prüft `OnFailure`, `Persistent` und Drop-ins, startet
+nur die vier Timer und die App neu. Der Auto-Modus dieser Session hat den Aufruf als Produktions-Rollout gesperrt;
+Owner-Befehl (PowerShell, in einer Lücke von > 150 s vor dem nächsten Shadow-Lauf, Ausgabe nach
+`output/release-20261025-8/deploy-01.log`):
+`ssh betboy-vps "sudo -n bash /tmp/deploy-20261025-8.sh b0356ac6e62e9484e6a453d20ff167e38458ce77"`.
+Danach: `systemctl list-timers 'betboy-*'`, `systemctl show -p OnFailure betboy-tennis.service`, Website, und einmal
+`sudo systemctl start betboy-alert@probe.service` als harmloser Probelauf des Alarms (Eintrag in
+`runtime_state/ops_alerts.jsonl`).
+
 ## 25.10.2026 abends – Quotenlauf-Fälligkeit mit Toleranz live (PR #37)
 
 Owner-Entscheidung nach dem Befund, dass der Quotenlauf heute um 12:15 und 18:15 null Fussballzeilen prüfte
