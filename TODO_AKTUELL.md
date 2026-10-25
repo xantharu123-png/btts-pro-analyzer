@@ -18,8 +18,8 @@ Stand bei der Übergabe an den anderen Claude-Account (Owner hat den Release-Sch
 - **Release-Helfer liegt bereit, noch nicht auf den VPS kopiert:** `output/release-20261025-6/deploy.sh`
   (ausserhalb Git; vorheriger Stand `ff5f5a0`, Ziel `a2864ac`, 14 Pfade in `release-files.txt`, Offline-Asserts
   für `FLOOR_UNPRICED_MAX_PROBABILITY`, `derive_range_price_bound`, `_attach_floor_price_bounds`,
-  `_floor_withheld`, `ModelSignal.reference_price_bound`; Generator `gen_deploy14.py` im Scratchpad der
-  Session).
+  `_floor_withheld`, `ModelSignal.reference_price_bound`; Generator `gen_deploy14.py` im selben
+  Ordner).
 
 Nächste Schritte für den Release (nur mit Owner-Freigabe; PowerShell, Windows-OpenSSH):
 
