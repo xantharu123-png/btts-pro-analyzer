@@ -1,5 +1,29 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 28.10.2026 – Stand nach drei Nächten, Tennis-Exit live (PR #43)
+
+Stand vor dem Release: Produktion `ff8f0df` seit 25.10. stabil. Nachtscans 26./27.10. erfolgreich (92 und 113
+Modellzeilen, je drei öffentliche Tipps), Quotenlauf in 16 Läufen ohne Fehlschlag, Shadow ohne Fehlschlag oder
+Fehlalarm, Hybrid-Kohorte protokolliert erstmals (5 Tipps), die dreistufige Preisprüfung trägt im Dokument vom 27.10.
+sieben abgeleitete Schranken. Bilanz `shadow_published` bis 28.10.: öffentliche Tipps 6 von 10 abgerechneten gewonnen
+(mittlere Öffnungsquote 3,17), 15K-Liste 17 von 20 (1,39); Stichprobe viel zu klein für ein Urteil.
+
+Tennis: Die Nacht auf den 28.10. speicherte erstmals seit dem 23.10. wieder Prognosen (56), der Fallausschluss nahm
+eine übergrosse WTA-Partie mit Diagnose heraus, das Rückhaltlimit trat nicht auf. `tennis_daily.py` endete trotzdem
+mit 1 (Einheit `failed`, Alarm). PR #43: ein diagnostizierter Fallausschluss allein ist ein erfolgreicher Lauf
+(`operational_final_errors`, `DIAGNOSED_EXCLUSION_REASONS`). Quellcommit **`a0747a4`** um 00:32 CET per
+No-Backup-Fast-forward von `ff8f0df` ausgerollt (Helfer `output/release-20261028-1/deploy.sh`, 6 Pfade, nur
+App-Neustart PID 1352259→1375208, Healthchecks ok, Snapshots unverändert). Beleg folgt mit dem Tennis-Lauf in der
+Nacht auf den 29.10.
+
+Offen: (1) Shadow erfasst keine Schlussquote (0 in 119 Läufen seit 25.10.; `step_closing` verlangt einen
+Bet365-Providerstempel in den letzten 15 Minuten vor Anpfiff und überspringt sonst stumm), dadurch wächst die
+CLV-Evidenz für Hybrid und Edge-Cap nicht – Owner-Entscheid zur Regel nötig; (2) Telegram-Token und Chat-ID in
+`/etc/betboy/betboy.env`; (3) Degradationspfad des Tennis-Scans auf Batch-Ebene (Rückhaltlimit 128 MB);
+(4) die zwei App-Unterchats „Hybrid-Shadow: Artefakte werden nie gewärmt“ und „Dixon-Coles: Halbwertszeit und
+Niveau-Prior“ starten im Ordner `C:\Projekt\BetBoy`, der kein Git-Repository ist, und scheitern daran; der erste ist
+durch Massnahme 2 erledigt.
+
 ## 25.10.2026 abends – Release 8 (Massnahme 3, Einheiten) und Release 9 (Shadow-Exit) live
 
 Owner-Freigabe um 23:20 CET; Release 8 um 23:22–23:25 per No-Backup-Fast-forward `49d43ef` → `68235ec` (Helfer
