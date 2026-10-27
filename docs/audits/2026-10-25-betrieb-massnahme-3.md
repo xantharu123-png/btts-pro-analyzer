@@ -102,6 +102,19 @@ Nachher:
   `: Details fehlen` sind Datenstatus), das Artefakt führt `operational_errors`, und der Runner
   endet nur dafür mit 1; `partial` bleibt sichtbar. Tests: `tests/test_shadow_runner_exit.py`.
 
+## Nachtrag 28.10.2026: Exit-Code des Tennis-Scans
+
+Die Nacht auf den 28.10. bestätigte den Fallausschluss: Eine WTA-Partie (`espn:tennis:WTA:match:185676`,
+31 499 Rohzeilen, 33,6 MB) wurde mit Diagnose ausgeschlossen, 56 Prognosen wurden gespeichert, das erste Mal seit dem
+23.10.; das Rückhaltlimit von 128 MB trat nicht auf (am 26. und 27.10. lag dieselbe Partie vermutlich knapp unter dem
+Fall-Limit und trieb den Rückhalt über die Grenze). Trotzdem endete `scripts/tennis_daily.py` mit 1, weil `main` jede
+Meldung im Prognose-Abschluss als Fehler wertete; die Einheit galt als `failed`, der Alarm schlug an. Seit dem 28.10.
+filtert `operational_final_errors` die diagnostizierten Ausschlüsse (`DIAGNOSED_EXCLUSION_REASONS =
+{"live_case_raw_admission_exceeded"}`) heraus; nur die übrigen Meldungen (z. B. `fixture_identity_conflict`,
+`prediction_scan_failed`), Scan-Fehler aus `_run_daily` und nicht gemeldete Capture-Lücken führen weiter zu Exit 1.
+Tests: `tests/test_tennis_daily_exit.py`. Offen bleibt der Degradationspfad auf Batch-Ebene: Eine Partie knapp unter
+dem Fall-Limit kann das Rückhaltlimit wieder auslösen.
+
 ## Offen
 
 - Der Alarm meldet erst nach Telegram, wenn der Owner Token und Chat-ID hinterlegt; bis dahin
