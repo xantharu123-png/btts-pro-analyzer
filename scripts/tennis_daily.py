@@ -1200,6 +1200,19 @@ def scan_fixtures(
     return result
 
 
+# Owner 28.10.2026 (Gesamtaudit D3/D5): a forecast case excluded with a diagnosis
+# (context_models.tennis_live_source.LiveCaseAdmissionExceeded) is a data status of
+# the day. The run stays successful, so the OnFailure alert of betboy-tennis.service
+# fires for operational errors only; the diagnosis stays in the journal.
+DIAGNOSED_EXCLUSION_REASONS = frozenset({"live_case_raw_admission_exceeded"})
+
+
+def operational_final_errors(errors) -> list:
+    """Final forecast errors that mean an operational failure (not a diagnosed exclusion)."""
+    return [error for error in errors
+            if not (isinstance(error, Mapping) and error.get("reason") in DIAGNOSED_EXCLUSION_REASONS)]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("date", nargs="?", default=_default_scan_date())
@@ -1243,7 +1256,10 @@ def main() -> int:
         "native-outcome-identity-conflict": report.get("identity_conflict_outcome_events", []),
     }
     fatal_issues = [issue for issue in report["issues"] if not reported_data_gaps.get(issue)]
-    return 1 if fatal_issues or final_errors else result
+    operational = operational_final_errors(final_errors)
+    if final_errors and not operational:
+        print("Prognose-Abschluss: nur diagnostizierte Fallausschlüsse; der Lauf gilt als erfolgreich")
+    return 1 if fatal_issues or operational else result
 
 
 def _run_daily(args) -> int:
