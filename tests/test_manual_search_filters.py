@@ -76,6 +76,18 @@ def _filter_ui():
     st.write([name for name, probability, price in data if query.matches(probability=probability, quote=price)])
 
 
+@pytest.mark.price_policy("floor")
+def test_floor_offers_no_quote_filter():
+    """Owner 23.10.2026: no bookmaker quotes in the app, so no quote filter (Audit 25.10.2026 U2)."""
+    filters()
+    app = AppTest.from_function(_filter_ui).run(timeout=30)
+    assert not app.exception
+    assert not [box for box in app.checkbox if "Quote" in box.label]
+    assert not app.number_input
+    assert json.loads(app.json[-1].value) == ["match-a", "match-b", "match-c", "match-d"]
+
+
+@pytest.mark.price_policy("gate")
 def test_ui_controls_apply_both_filters_without_an_api_or_model_run():
     # Fails if the controls are decorative, price-less rows slip through, or
     # percentages are used as probabilities without converting 60 to .60.
@@ -90,6 +102,7 @@ def test_ui_controls_apply_both_filters_without_an_api_or_model_run():
     assert json.loads(app.json[-1].value) == ["match-a"]
 
 
+@pytest.mark.price_policy("gate")
 def test_inverted_ui_price_range_is_an_error_not_unfiltered_results():
     filters()
     app = AppTest.from_function(_filter_ui).run(timeout=30)

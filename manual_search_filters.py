@@ -69,7 +69,11 @@ def render_search_filters(st, *, key_prefix, market_kind=None):
         probabilities = st.slider("Modellwahrscheinlichkeit (%)", 0, 100, (0, 100),
                                   step=1, key=key_prefix + "_probability")
         quote_min = quote_max = None
-        if st.checkbox("Nach Quote filtern", value=False, key=key_prefix + "_quote_enabled"):
+        from market_consensus import floor_only_pricing
+        # Owner 23.10.2026: under the 1.20 floor policy the app shows no bookmaker
+        # quotes, so it offers no quote filter either (Audit 25.10.2026 U2).
+        if not floor_only_pricing() and st.checkbox(
+                "Nach Quote filtern", value=False, key=key_prefix + "_quote_enabled"):
             columns = st.columns(2)
             with columns[0]:
                 quote_min = st.number_input("Quote von", min_value=1.20, value=1.20,
