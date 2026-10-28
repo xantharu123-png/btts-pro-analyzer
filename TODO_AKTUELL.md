@@ -1,5 +1,20 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 28.10.2026 – Shadow-Schlussquote: letzter Marktstand vor Anpfiff live (PR #45, Policy v7)
+
+Owner-Entscheidung nach dem Befund, dass der Shadow seit dem 25.10. in 119 Läufen keine Schlussquote erfasst hat:
+API-Football aktualisiert Vorspielquoten etwa alle drei Stunden, der verlangte Bet365-Stempel aus den letzten 15
+Minuten vor Anpfiff traf nie. Vertragsänderung `docs/audits/2026-10-28-schlussquote-letzter-marktstand.md`: Abruf
+weiter in den letzten 15 Minuten, gültig ist der letzte Stand vor Anpfiff mit höchstens drei Stunden Alter, Abrufzeit
+und Alter werden gespeichert (`closing_captured_at`, `closing_quote_age_seconds`), ein wiederholter Öffnungsstand ist
+keine CLV-Evidenz (`closing_without_new_market_state`), Policy `shadow-model-first-v7`. Quellcommit **`94d0812`** um
+07:12 CET per No-Backup-Fast-forward von `a0747a4` ausgerollt (Helfer `output/release-20261028-2/deploy.sh`, 12 Pfade,
+nur App-Neustart PID 1375208→1378779, Healthchecks ok, Snapshots unverändert). Der erste Shadow-Lauf danach (07:22)
+war `idle`; die zwei neuen Spalten legt der Tracker beim ersten aktiven Lauf an. Erste fällige Schlussquote heute
+etwa 14:45–15:00 CET (erstes Spiel 15:00 CET); prüfen mit
+`sqlite3 shadow_clv.db "SELECT fixture_id, closing_quoted_at, closing_captured_at, closing_quote_age_seconds FROM
+predictions WHERE policy_version='shadow-model-first-v7'"` (nur lesend, als `betboy`).
+
 ## 28.10.2026 – Stand nach drei Nächten, Tennis-Exit live (PR #43)
 
 Stand vor dem Release: Produktion `ff8f0df` seit 25.10. stabil. Nachtscans 26./27.10. erfolgreich (92 und 113
