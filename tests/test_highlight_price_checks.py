@@ -59,6 +59,7 @@ def _quote(signal, *, fetched_at=NOW, odds=1.9):
         scheduled_start=signal.scheduled_start, event_home="Alpha", event_away="Beta")
 
 
+@pytest.mark.price_policy("gate")
 def test_never_price_checked_model_stays_visible_but_is_not_featured_or_daily3():
     # Break caught: model eligibility alone qualifies a row for a highlighted placement.
     signal = _signal()
@@ -81,6 +82,7 @@ def test_invalid_future_or_pre_model_attempt_never_qualifies(stamp):
     assert daily3_choices([signal], now=NOW) == ()
 
 
+@pytest.mark.price_policy("gate")
 def test_actual_unavailable_price_result_can_still_feature_without_inventing_odds():
     # Break caught: no quote is mistaken for no attempt, or UNAVAILABLE is promoted to a playable quote.
     signal = _with_attempt(_signal(), NOW.isoformat())
@@ -101,7 +103,9 @@ def test_attempt_age_uses_the_original_check_clock(age, accepted):
     assert getattr(card, "price_check_completed", False) is accepted
 
 
-@pytest.mark.parametrize("bad", ["candidate", "fixture", "market", "future", "before_model", "old"])
+# Under the floor a quote from before the model run or slightly ahead is market evidence for 1.20.
+@pytest.mark.parametrize("bad", ["candidate", "fixture", "market", pytest.param("future", marks=pytest.mark.price_policy("gate")),
+                                 pytest.param("before_model", marks=pytest.mark.price_policy("gate")), "old"])
 def test_foreign_or_invalid_original_quote_cannot_substitute_for_a_price_attempt(bad):
     # Break caught: any present quote substitutes for an exact, current check.
     signal = _signal()

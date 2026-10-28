@@ -2046,10 +2046,36 @@ def test_dependency_changes_have_an_explicit_fail_closed_gate():
     runbook = (root / "deploy" / "VENV_MIGRATION.md").read_text(encoding="utf-8")
 
     assert "requirements.txt changed" in update
+    assert "requirements.lock changed" in update
     assert "pip install" not in update
     assert "--require-hashes" in runbook
     assert "/opt/betboy/venvs/<lock-sha256>" in runbook
     assert "atomic" in runbook.lower()
+
+
+def test_dependency_gate_refuses_changed_requirements_or_lock():
+    """Audit 25.10.2026 D7: the lock had no consumer; a changed pin now stops the updater too."""
+    root = Path(__file__).resolve().parents[1]
+    update = (root / "deploy" / "update_server.sh").read_text(encoding="utf-8")
+    function = _shell_function(update, "prepare_dependencies") + "\n}\n"
+    harness = "set -Eeuo pipefail\nPATH=/usr/bin:/bin\nTRUSTED_TREE=tree; PREVIOUS_HEAD=prev; TARGET_HEAD=target\n"
+    harness += "die() { printf 'rejected:%s\\n' \"$*\"; exit 1; }\nlog() { printf 'log:%s\\n' \"$*\"; }\n"
+    harness += ("root_git() { local blob; case \"${@: -1}\" in "
+                "prev:requirements.txt) blob=$PREV_TXT;; target:requirements.txt) blob=$TARGET_TXT;; "
+                "prev:requirements.lock) blob=$PREV_LOCK;; target:requirements.lock) blob=$TARGET_LOCK;; "
+                "*) return 92;; esac; [[ -n \"$blob\" ]] || return 128; printf '%s\\n' \"$blob\"; }\n")
+    cases = {
+        ("a", "a", "l", "l"): (0, "log:requirements.txt unchanged; skipping pip completely."),
+        ("a", "a", "", ""): (0, "log:requirements.txt unchanged; skipping pip completely."),
+        ("a", "b", "l", "l"): (1, "rejected:requirements.txt changed; use the separately reviewed venv-migration runbook."),
+        ("a", "a", "l", "m"): (1, "rejected:requirements.lock changed; use the separately reviewed venv-migration runbook."),
+        ("a", "a", "", "l"): (1, "rejected:requirements.lock changed; use the separately reviewed venv-migration runbook."),
+    }
+    for (prev_txt, target_txt, prev_lock, target_lock), (status, line) in cases.items():
+        script = harness + f"PREV_TXT={prev_txt}; TARGET_TXT={target_txt}; PREV_LOCK={prev_lock}; TARGET_LOCK={target_lock}\n"
+        script += function + "prepare_dependencies\n"
+        result = run_bash_lf([_bash_executable()], input=script, text=True, capture_output=True, timeout=20)
+        assert (result.returncode, result.stdout.strip(), result.stderr) == (status, line, "")
 
 
 def test_every_root_installed_betboy_service_drops_privileges():

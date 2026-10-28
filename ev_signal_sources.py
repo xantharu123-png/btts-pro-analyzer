@@ -1166,15 +1166,18 @@ def _load_automated_wettfinder_document(
     expected_target = local.date()
     if target != expected_target:
         return None
-    # Price evidence may reject every model candidate. A published candidate
-    # still requires bookmaker data, but zero candidates does not imply that
-    # no bookmaker price was observed.
-    if (
-        candidates or challenge_release_candidates
-    ) and document["bookmaker_data_used"] is not True:
-        return None
     from market_consensus import floor_only_pricing
     floor_policy = floor_only_pricing()
+    # Price evidence may reject every model candidate. Under the old contract a
+    # published candidate still requires bookmaker data, but zero candidates
+    # does not imply that no bookmaker price was observed. Under the floor an
+    # unpriced tip stays visible, also on a run without any observed quote.
+    if (
+        not floor_policy
+        and (candidates or challenge_release_candidates)
+        and document["bookmaker_data_used"] is not True
+    ):
+        return None
     # Owner decision 23.10.2026 (docs/audits/2026-10-23-preisregel-1-20.md): a
     # public tip without any observed quote stays visible ("UNPRICED"); only a
     # quote below 1.20 withholds it. The old contract needs an executable price.

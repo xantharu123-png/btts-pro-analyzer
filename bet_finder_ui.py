@@ -9,7 +9,7 @@ import math
 import re
 import sqlite3
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Callable, Iterable, Optional, TypeVar
 from types import SimpleNamespace
@@ -585,6 +585,27 @@ def evaluate_reference_price(
     effective_quote = wettfinder_consensus(reference_quote, now=evaluation_now)
     display_quote = effective_quote or observed_consensus(
         reference_quote, candidate=reference_binding_candidate, now=evaluation_now)
+    from market_consensus import floor_only_pricing
+    if (
+        floor_only_pricing()
+        and effective_quote is not None
+        and status.usable_odds is not None
+    ):
+        # The floor reads every quote of the last 24 hours (best offer); a
+        # decision is priced only at the offer of the fresh consensus, the
+        # one the card renders and the release overlay names.
+        executable = effective_quote.executable_point
+        status = (
+            replace(
+                status,
+                usable_odds=executable.odds,
+                bookmaker=executable.bookmaker,
+                bookmaker_id=executable.bookmaker_id,
+                observed_at=executable.observed_at,
+            )
+            if executable is not None
+            else replace(status, usable_odds=None)
+        )
     decision = None
     if effective_quote is not None and status.usable_odds is not None:
         decision = _enforce_pending_release(

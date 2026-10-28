@@ -45,7 +45,8 @@ def _hockey_result(modeled_at):
 @pytest.mark.parametrize("delay,kickoff_delay,strict_count,football_count,price_status", [
     (timedelta(seconds=1), timedelta(hours=5), 1, 1, "PLAYABLE"),
     (timedelta(minutes=2), timedelta(minutes=1), 0, 0, None),
-    (timedelta(minutes=36), timedelta(hours=5), 0, 1, "STALE"),
+    # The floor ignores price freshness; a 36-minute research delay keeps the price.
+    pytest.param(timedelta(minutes=36), timedelta(hours=5), 0, 1, "STALE", marks=pytest.mark.price_policy("gate")),
 ], ids=("fresh-control", "kickoff-during-research", "price-expires-during-research"))
 def test_slow_research_keeps_entire_artifact_readable_without_renewing_prices(
     tmp_path, delay, kickoff_delay, strict_count, football_count, price_status,
