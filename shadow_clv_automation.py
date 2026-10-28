@@ -603,6 +603,15 @@ def _connect() -> sqlite3.Connection:
             recorded_at TEXT NOT NULL
         )"""
     )
+    # Audit 25.10.2026 S5: the fair (no-vig) closing probability of the tip's
+    # side, captured with the closing quote. Research record only.
+    connection.execute(
+        """CREATE TABLE IF NOT EXISTS shadow_closing_market (
+            prediction_id INTEGER PRIMARY KEY,
+            market_probability REAL,
+            recorded_at TEXT NOT NULL
+        )"""
+    )
     connection.execute(
         """CREATE TABLE IF NOT EXISTS shadow_published (
             candidate_id TEXT NOT NULL,
@@ -1255,13 +1264,11 @@ def step_closing(tracker: CLVTracker, provider: ShadowProvider, now: datetime) -
             if str(market_type) in _QUOTE_BETS
             else ("BTTS_YES" if str(selection).strip() == "Ja" else "BTTS_NO")
         )
-        observation = _market_quote_observation(
-            provider.odds(
-                fixture_id,
-                priority=APIBudgetPriority.CRITICAL,
-            ),
-            market_key,
+        odds_response = provider.odds(
+            fixture_id,
+            priority=APIBudgetPriority.CRITICAL,
         )
+        observation = _market_quote_observation(odds_response, market_key)
         if observation is None:
             errors.append(f"Closing {fixture_id}: {BOOKMAKER_NAME}-Quote/Zeitstempel {market_key} fehlt")
             continue
@@ -1284,7 +1291,24 @@ def step_closing(tracker: CLVTracker, provider: ShadowProvider, now: datetime) -
             captured += 1
         except (ValueError, KeyError) as exc:
             errors.append(f"Closing {fixture_id}: {exc}")
+            continue
+        _log_closing_market(prediction_id, odds_response, market_key, now)
     return captured
+
+
+def _log_closing_market(prediction_id: int, odds_response, market_key: str, now: datetime) -> None:
+    """Fair closing probability of the tip's side (``None`` without the complete partition)."""
+    try:
+        market_probability = _no_vig_market_probability(odds_response, market_key)
+        with _connect() as connection:
+            connection.execute(
+                """INSERT OR REPLACE INTO shadow_closing_market
+                   (prediction_id, market_probability, recorded_at) VALUES (?, ?, ?)""",
+                (prediction_id, market_probability, _utc_iso(now)),
+            )
+            connection.commit()
+    except Exception as exc:  # Research record only; the ledger row stays untouched.
+        errors.append(f"Closing-Markt {prediction_id}: {exc}")
 
 
 def step_schedule(provider: ShadowProvider, league_ids: list[int], zurich_today: date,
@@ -1756,6 +1780,59 @@ def _paired_cohort_statistics() -> dict:
     }
 
 
+def _no_vig_clv_statistics() -> dict:
+    """CLV against the fair closing price per cohort and paired (Audit 25.10.2026 S5).
+
+    The raw CLV keeps the bookmaker margin of both prices; this one values the
+    opening price at the no-vig closing probability: opening × p_close − 1, in pp.
+    Closings that repeat the opening state stay out, as for the raw CLV.
+    """
+    connection = _connect()
+    try:
+        rows = connection.execute(
+            """SELECT p.fixture_id, p.model_version, p.odds, c.market_probability,
+                      p.quoted_at, p.closing_quoted_at
+               FROM shadow_closing_market c JOIN predictions p ON p.id = c.prediction_id
+               WHERE p.policy_version = ? AND p.closing_odds IS NOT NULL
+               ORDER BY p.id""",
+            (SHADOW_POLICY_VERSION,),
+        ).fetchall()
+    finally:
+        connection.close()
+    cohorts: dict[str, dict] = {}
+    by_fixture: dict[int, dict[str, float]] = {}
+    for fixture_id, model_version, opening, probability, opening_stamp, closing_stamp in rows:
+        cohort = cohorts.setdefault(model_version, {"values": [], "without_market": 0, "without_new_market_state": 0})
+        if type(opening) not in (int, float) or not math.isfinite(opening) or opening <= 1.0:
+            continue
+        if type(probability) not in (int, float) or not 0.0 < probability < 1.0:
+            cohort["without_market"] += 1  # the closing partition was incomplete
+            continue
+        if not _new_market_state(opening_stamp, closing_stamp):
+            cohort["without_new_market_state"] += 1
+            continue
+        value = (opening * probability - 1.0) * 100.0
+        cohort["values"].append(value)
+        by_fixture.setdefault(fixture_id, {})[model_version] = value
+    differences = [
+        values[SHADOW_HYBRID_MODEL_VERSION] - values[SHADOW_MODEL_VERSION]
+        for values in by_fixture.values()
+        if SHADOW_MODEL_VERSION in values and SHADOW_HYBRID_MODEL_VERSION in values
+    ]
+    return {
+        "definition": "opening odds x no-vig closing probability - 1, pp",
+        "cohorts": {
+            model_version: {
+                "clv": _clv_interval(cohort["values"]),
+                "without_market": cohort["without_market"],
+                "without_new_market_state": cohort["without_new_market_state"],
+            }
+            for model_version, cohort in cohorts.items()
+        },
+        "paired_difference": _clv_interval(differences),
+    }
+
+
 def _recent(tracker: CLVTracker) -> list[dict]:
     recent = []
     for item in tracker.get_recent_predictions(
@@ -1973,6 +2050,7 @@ def run(ctx):
             "paired": _paired_cohort_statistics(),
         },
         "edge_cap": _edge_cap_statistics(),
+        "no_vig_clv": _no_vig_clv_statistics(),
         "published_tips": _published_statistics(),
     }
     wrapper = {"artifact": artifact}
