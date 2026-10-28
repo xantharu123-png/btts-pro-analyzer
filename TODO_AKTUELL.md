@@ -1,5 +1,24 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 28.10.2026 15:32 – Schlussquoten-Prüfung: noch kein Beleg, weil der Shadow heute keinen Tipp protokolliert hat
+
+Prüfung nach dem ersten Schlussfenster (nur lesend, `output/release-20261028-3/verify-02-closing.log`): unter Policy
+`shadow-model-first-v7` gibt es **0 Tipps**, also auch keine Schlussquote. Die neuen Spalten (`closing_captured_at`,
+`closing_quote_age_seconds`) und die Tabelle `shadow_closing_market` sind angelegt. Seit dem Release 07:13 liefen 50
+Shadow-Läufe ohne Fehlschlag (6 `completed`, 44 `idle`); summiert über die aktiven Läufe: 15 Spiele geplant,
+2 bewertet, 4 zurückgestellt, Legacy 0 glaubwürdige Kandidaten, Hybrid 5 Kandidatenmeldungen, alle ohne
+Bet365-Quote jünger als drei Stunden. 28 Spiele des Tages stehen in `shadow_fixtures`, die meisten am Abend.
+Tipps pro Tag zuletzt: 25.10. 7, 26.10. 2, 27.10. 1, 28.10. bis 15:32 0. `shadow_published` erfasste 14 veröffentlichte
+Tipps mit Quote, 9 abgerechnet.
+
+Betrieb: alle sechs Quotenläufe heute Exit 0; Platzwächter erstmals um 15:15 CET: `ok`, 19,8 GB frei,
+Laufzeitdatenbanken 8,52 GiB; kein neuer Alarm seit 27.10.; Produktion `8c28a34`, Website HTTP 200.
+
+Befund für den Hybrid-Prüfplan: Bei ein bis zwei Tipps pro Tag und Kohorte sind 300 Paare mit gültigem Closing in
+absehbarer Zeit nicht erreichbar; das Abbruchkriterium (weniger als 50 Paare in 120 Tagen) wird wahrscheinlicher.
+Ursache ist die Quote-Bedingung beim Öffnen (Bet365 ≤ 3 h) zusammen mit wenigen glaubwürdigen Kandidaten. Nächste
+Prüfung: Schlussquoten der Abendspiele und der Tennis-Lauf 29.10. 00:05.
+
 ## 28.10.2026 – Release 20261028-3 live: Massnahmen 4, 7, 9 und No-Vig-CLV (PR #47–#50)
 
 Owner-Auftrag am Vormittag: „mach bitte alles, was du von deiner Seite machen kannst“. Umgesetzt, gemergt und
