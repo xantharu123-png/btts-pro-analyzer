@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import replace as dataclass_replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 import hashlib
@@ -103,6 +104,7 @@ from market_consensus import (
     challenge_quote_matches_candidate,
     deserialize_consensus_map,
     exact_market_target,
+    floor_only_pricing,
     reference_price_status,
     wettfinder_consensus,
     wettfinder_reference_price_status,
@@ -4739,8 +4741,25 @@ def _automatic_challenge_ticket(
         approved_quote = wettfinder_consensus(quote, now=decision_now)
         if approved_quote is None or status.usable_odds is None:
             continue
+        usable_odds = status.usable_odds
+        if floor_only_pricing():
+            # The floor reads every quote of the last 24 hours (best offer); a
+            # ticket leg is priced only at the executable offer of the fresh
+            # consensus, the one the ledger persists and verifies. The rendered
+            # price check names that same offer.
+            executable = approved_quote.executable_point
+            if executable is None:
+                continue
+            usable_odds = executable.odds
+            statuses[candidate.candidate_id] = dataclass_replace(
+                status,
+                usable_odds=executable.odds,
+                bookmaker=executable.bookmaker,
+                bookmaker_id=executable.bookmaker_id,
+                observed_at=executable.observed_at,
+            )
         approved_quotes[candidate.candidate_id] = approved_quote
-        odds_by_candidate[candidate.candidate_id] = status.usable_odds
+        odds_by_candidate[candidate.candidate_id] = usable_odds
         metadata_by_candidate[candidate.candidate_id] = {
             "source": approved_quote.source,
             "quoted_at": approved_quote.quoted_at,
@@ -4749,7 +4768,7 @@ def _automatic_challenge_ticket(
             # Persist the exact executable offer as the lower edge of the
             # ticket evidence. Q25 remains an internal consensus threshold,
             # never a price that a user could actually play.
-            "quote_low": status.usable_odds,
+            "quote_low": usable_odds,
             "quote_high": approved_quote.best_odds,
         }
     return (

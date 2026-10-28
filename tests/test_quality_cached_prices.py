@@ -35,7 +35,8 @@ def test_still_fresh_cached_price_retains_playability_during_rotation():
     assert row["probability"] == .65
 
 
-@pytest.mark.parametrize("change", ["stale", "moved", "market"])
+# A two-hour-old price is stale for the gate; the floor reads quotes of the last 24 hours.
+@pytest.mark.parametrize("change", [pytest.param("stale", marks=pytest.mark.price_policy("gate")), "moved", "market"])
 def test_old_or_mismatching_cached_price_never_releases_forecast(change):
     row, previous = row_and_quote()
     now = NOW + timedelta(minutes=5)

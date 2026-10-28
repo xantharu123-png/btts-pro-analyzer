@@ -6,7 +6,7 @@ import pytest
 
 from daily3_math import Daily3Error
 from daily3_selection import daily3_choices
-from market_consensus import ODDS_API_REFERENCE_SOURCE, exact_market_target, wettfinder_consensus, quote_below_publication_floor
+from market_consensus import ODDS_API_REFERENCE_SOURCE, exact_market_target, floor_only_pricing, wettfinder_consensus, quote_below_publication_floor
 from test_daily3_selection import NOW, football, tennis
 from test_daily3_store import DAY, SCOPE, command, ident, snapshot, store
 from test_wettfinder_surface import _quote
@@ -43,8 +43,10 @@ def test_current_single_book_quote_also_counts_but_best_offer_at_floor_remains_a
     assert not visible([low])
     assert not daily3_choices([low], now=NOW)
     higher = priced(football(), (1.10, 1.12, 1.20))
-    assert visible([higher])
-    assert daily3_choices([higher], now=NOW)
+    # The gate accepts the best offer at 1.20; the floor checks the median since 25.10.2026
+    # (docs/audits/2026-10-25-preispruefung-dreistufig.md), and 1.12 withholds the tip.
+    assert bool(visible([higher])) is not floor_only_pricing()
+    assert bool(daily3_choices([higher], now=NOW)) is not floor_only_pricing()
 
 
 @pytest.mark.parametrize('price', [1.12, 1.20])

@@ -68,6 +68,30 @@ def test_scan_clock_is_zurich_not_the_server_zone(monkeypatch, value, want):
     assert app._format_snapshot_time(value) == want
 
 
+@pytest.mark.parametrize('value,want', [
+    ('2030-01-01T18:00:00+00:00', 'A vs B | 01.01., 19:00'),
+    ('2030-07-01T18:00:00Z', 'A vs B | 01.07., 20:00'),
+    ('2030-07-01T18:00:00', 'A vs B | Termin offen'),
+])
+def test_multi_sport_kickoff_is_zurich_not_the_server_zone(monkeypatch, value, want):
+    """Audit 25.10.2026 U3: basketball, hockey, cricket and e-sport kick-offs on the UTC VPS."""
+    import app
+    monkeypatch.setattr(app, 'datetime', _UtcHostDateTime)
+    item = {'status': 'upcoming', 'start_time': value, 'home_team': 'A', 'away_team': 'B'}
+    assert app._multi_sport_event_label('Basketball', item) == want
+
+
+@pytest.mark.parametrize('value,want', [
+    ('2030-01-01T23:30:12+00:00', '02.01.2030 00:30:12'),
+    ('2030-01-01T23:30:12', 'n/a'),
+    (None, 'n/a'),
+])
+def test_manual_market_scan_clock_is_zurich_not_the_server_zone(monkeypatch, value, want):
+    import alternative_markets_tab_extended as market_tab
+    monkeypatch.setattr(market_tab, 'datetime', _UtcHostDateTime)
+    assert market_tab._format_snapshot_time(value) == want
+
+
 def test_relative_publication_clock_uses_the_zurich_day_on_a_utc_server(monkeypatch):
     import app
     monkeypatch.setattr(app, 'datetime', _UtcHostDateTime)

@@ -73,6 +73,10 @@ Code, dann `PROJECT_HANDBUCH.md`, dann die Bibel. Historische Logs: `TODO_AKTUEL
 Die venv liegt im Hauptcheckout (`betboy-app/.venv`, Python 3.12). 97/98 Tests sind
 Linux-only-Skips (`fcntl`); Produktions-QA läuft auf dem VPS. `tests/conftest.py`
 importiert Root-Module, deshalb immer `python -m pytest` aus dem Checkout-Root.
+Die Suiten laufen standardmässig unter dem alten Preisvertrag `gate`; mit
+`BETBOY_TEST_PRICE_POLICY=floor` laufen sie unter dem Produktionsvertrag (CI-Job `price-policy`
+prüft Lader, Publikation, Daily3 und 15K unter beiden). Ein Test, der nur einen Vertrag
+beschreibt, trägt `@pytest.mark.price_policy("gate")` (`docs/audits/2026-10-28-massnahme-4-preisregel-ci.md`).
 
 ## Audit 16.10.2026 und Reparaturen 19.10.2026
 

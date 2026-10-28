@@ -27,7 +27,7 @@ from challenge_15k import (
 )
 from challenge_engine import candidate_context_summary, market_specs, select_wettfinder_catalog
 from config_loader import load_app_config
-from date_context import german_day_label, zurich_today
+from date_context import format_zurich_time, german_day_label, zurich_today
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES
 from manual_search_filters import SearchFilters
 from quote_publication import publication_allowed, publication_quote, latest_reference_quotes, read_shared_quote_rows
@@ -35,6 +35,7 @@ from market_consensus import (
     deserialize_consensus_map,
     exact_market_target,
     fetch_football_consensus,
+    floor_only_pricing,
     observed_consensus,
     quote_matches_candidate,
     quote_below_publication_floor,
@@ -118,12 +119,8 @@ def _market_result_day_label(
 
 
 def _format_snapshot_time(value: Optional[str]) -> str:
-    if not value:
-        return "n/a"
-    try:
-        return datetime.fromisoformat(value).astimezone().strftime("%d.%m.%Y %H:%M:%S")
-    except (TypeError, ValueError):
-        return str(value)
+    # Zurich like the main app; the VPS runs in UTC (Audit 25.10.2026 U3).
+    return format_zurich_time(value, seconds=True)
 
 
 def _price_check_summary(snapshot: dict) -> Optional[str]:
@@ -950,9 +947,11 @@ def create_alternative_markets_tab_extended(
                 render_model_selection(candidate, presentation="fixture_first",
                     reference_quote=reference_quotes.get(raw_candidate.candidate_id),
                     reference_binding_candidate=raw_candidate, now=price_now)
-                observed = _manual_observed_quote(raw_candidate, reference_quotes, now=price_now)
-                quote_value = max(point.odds for point in observed.points) if observed else None
-                st.caption(f"Quote {quote_value:.2f}" if quote_value is not None else "Quote —")
+                if not floor_only_pricing():
+                    # Owner 23.10.2026: the floor policy names no bookmaker quote.
+                    observed = _manual_observed_quote(raw_candidate, reference_quotes, now=price_now)
+                    quote_value = max(point.odds for point in observed.points) if observed else None
+                    st.caption(f"Quote {quote_value:.2f}" if quote_value is not None else "Quote —")
                 from football_customer_facts import manual_football_customer_analysis
                 from forecast_compact import CompactAnalysis, Fact, render_compact_analysis_html
                 from forecast_analysis import format_model_clock

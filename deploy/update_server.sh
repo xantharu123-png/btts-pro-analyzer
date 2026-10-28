@@ -1068,12 +1068,20 @@ prepare_dependencies() {
     previous_blob=$(root_git -C "${TRUSTED_TREE}" \
         rev-parse "${PREVIOUS_HEAD}:requirements.txt")
     target_blob=$(root_git -C "${TRUSTED_TREE}" rev-parse "${TARGET_HEAD}:requirements.txt")
-    if [[ "${previous_blob}" == "${target_blob}" ]]; then
-        log "requirements.txt unchanged; skipping pip completely."
-        return
+    if [[ "${previous_blob}" != "${target_blob}" ]]; then
+        die "requirements.txt changed; use the separately reviewed venv-migration runbook."
     fi
 
-    die "requirements.txt changed; use the separately reviewed venv-migration runbook."
+    # The lock pins the transitive set; a changed pin is a dependency change too.
+    # A missing lock on either side compares as empty, so it only matters once added.
+    previous_blob=$(root_git -C "${TRUSTED_TREE}" \
+        rev-parse --verify --quiet "${PREVIOUS_HEAD}:requirements.lock" || true)
+    target_blob=$(root_git -C "${TRUSTED_TREE}" \
+        rev-parse --verify --quiet "${TARGET_HEAD}:requirements.lock" || true)
+    if [[ "${previous_blob}" != "${target_blob}" ]]; then
+        die "requirements.lock changed; use the separately reviewed venv-migration runbook."
+    fi
+    log "requirements.txt unchanged; skipping pip completely."
 }
 
 context_hook_data() {

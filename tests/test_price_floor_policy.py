@@ -702,3 +702,101 @@ def test_republication_loader_and_card_apply_all_three_stages(tmp_path):
     snapshot = ev.automated_wettfinder_snapshot(path, now=now)
     assert snapshot.status.price_inconsistent_rows == 1
     assert [signal.candidate_id for signal in snapshot.signals] == ["8:AWAY_RANGE_2_4", "10:BTTS_YES"]
+
+
+def test_15k_ticket_prices_the_fresh_consensus_not_an_older_best_offer(tmp_path):
+    """The floor reads quotes of the last 24 hours, the 15K ledger persists only the fresh
+    consensus. A 46-minute-old 9.99 offer must neither crash the ticket ("ticket odds must
+    lie inside the quoted market range") nor become its price (Audit 25.10.2026 D5)."""
+    from datetime import datetime, timezone
+
+    from challenge_15k import _automatic_challenge_ticket
+    from challenge_engine import ticket_stake
+    from challenge_store import ChallengeLedger
+    from tests.test_challenge_15k import candidate, reference_quote_for
+
+    now = datetime.now(timezone.utc)
+    item = candidate("1:BTTS", 1, 0.60, kickoff=now + timedelta(days=1))
+    quote = reference_quote_for(item, now)
+    stale = replace(quote.points[0], odds=9.99, observed_at=(now - timedelta(minutes=46)).isoformat())
+    raw = replace(quote, points=(stale, *quote.points[1:]), best_odds=9.99)
+
+    ticket, statuses, approved = _automatic_challenge_ticket([item], {item.candidate_id: raw}, now=now)
+
+    assert statuses[item.candidate_id].code == "PLAYABLE"
+    evidence = approved[item.candidate_id]
+    assert stale.bookmaker_id not in {point.bookmaker_id for point in evidence.points}
+    assert ticket is not None
+    assert ticket.legs[0].odds == pytest.approx(evidence.executable_point.odds) and ticket.legs[0].odds < 9.99
+    ledger = ChallengeLedger(tmp_path / "challenge.db")
+    ledger.set_stake_fraction(0.25)
+    ticket_id = ledger.place_ticket(now.date().isoformat(), ticket, ticket_stake(ticket, 100.0, 0.25),
+                                    now.isoformat(), reference_quote_evidence={item.candidate_id: evidence.to_dict()})
+    assert ledger.get_ticket(ticket_id)["legs"][0]["odds"] == pytest.approx(ticket.legs[0].odds)
+
+
+def test_wettfinder_bet_is_priced_at_the_fresh_consensus_offer():
+    """The floor reads points up to one minute ahead and 24 hours back; the card validator
+    expects a BET at the fresh consensus offer. A point the consensus discards must not price
+    the BET, otherwise the card actions fail with "provenance mismatch" (Audit 25.10.2026 D5)."""
+    from copy import deepcopy
+
+    import bet_finder_ui as ui
+    from tests.test_bet_finder_ui import _candidate
+    from tests.test_daily3_selection import NOW as DAILY3_NOW, football
+    from tests.test_publication_odds_floor import priced
+
+    signal = priced(football(), (1.25, 1.25, 1.50))
+    quote = deepcopy(signal.reference_quote)
+    quote.pop("executable_quote", None)
+    quote["points"][-1]["observed_at"] = quote["quoted_at"] = (DAILY3_NOW + timedelta(seconds=1)).isoformat()
+
+    evaluation = ui.evaluate_reference_price(_candidate(), quote, bankroll=100,
+                                             reference_binding_candidate=signal, now=DAILY3_NOW)
+
+    assert evaluation.status.code == "PLAYABLE"
+    assert ui._validate_precomputed_reference_evaluation(evaluation, _candidate()) is evaluation
+    assert evaluation.status.usable_odds == evaluation.quote.executable_point.odds == 1.25
+
+
+def test_run_without_any_bookmaker_quote_keeps_its_unpriced_tips(tmp_path):
+    """A quote provider outage leaves ``bookmaker_data_used`` False. Under the floor an unpriced
+    tip stays visible (23.10.2026); the loader must not reject the whole document for it."""
+    from datetime import datetime, timezone
+
+    from config_loader import AppConfig
+    from ev_signal_sources import automated_wettfinder_forecasts, automated_wettfinder_signals
+    from tests.test_wettfinder_automation import _football_snapshot
+
+    now = datetime(2030, 1, 1, 10, 0, tzinfo=timezone.utc)
+    snapshot = _football_snapshot(now)
+    # Below 65 % the three-stage check keeps a tip without any price evidence visible.
+    tip = replace(snapshot["shortlist"][0], probability=0.45, conservative_probability=0.38,
+                  probability_haircut_pp=7.0, model_price=1.0 / 0.38)
+    snapshot.update(shortlist=[], wettfinder_candidates=[tip], discovery_candidates=[tip])
+    artifact = tmp_path / "no-quotes.json"
+    document = automation.run_wettfinder(
+        now=now, state_path=artifact, config=AppConfig(api_football_key="test"),
+        football_scanner=lambda _day: snapshot, football_quote_loader=lambda _rows: ({}, []),
+        tennis_loader=lambda **_kwargs: [], esports_loader=lambda **_kwargs: [])
+
+    assert document["bookmaker_data_used"] is False and document["candidates"]
+    assert automated_wettfinder_forecasts(artifact, now=now)
+    assert [signal.key for signal in automated_wettfinder_signals(artifact, now=now)] == [
+        row["key"] for row in document["candidates"]]
+
+
+def test_public_admission_checks_the_median_for_every_consumer():
+    """Daily3, RisikoBet, the manual search and the 15K page admit offers through
+    ``publication_quote``; since 25.10.2026 the floor compares the median, as the card does."""
+    from daily3_selection import daily3_choices
+    from quote_publication import publication_quote
+    from tests.test_daily3_selection import NOW as DAILY3_NOW, football
+    from tests.test_publication_odds_floor import priced
+
+    best_only = priced(football(), (1.10, 1.12, 1.20))
+    assert publication_quote(best_only.reference_quote, candidate=best_only, now=DAILY3_NOW) is None
+    assert not daily3_choices([best_only], now=DAILY3_NOW)
+    median_ok = priced(football(), (1.15, 1.20, 1.25))
+    admitted = publication_quote(median_ok.reference_quote, candidate=median_ok, now=DAILY3_NOW)
+    assert admitted is not None and max(point.odds for point in admitted.points) == 1.25

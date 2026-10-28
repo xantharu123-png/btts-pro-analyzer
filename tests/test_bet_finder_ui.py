@@ -21,6 +21,7 @@ def _candidate(*, release_pending: bool = False) -> RecommendationCandidate:
     )
 
 
+@pytest.mark.price_policy("gate")
 def test_model_selection_displays_only_model_and_fixed_user_floor(monkeypatch):
     import bet_finder_ui as ui
 
@@ -405,6 +406,7 @@ def test_reference_evaluation_keeps_exact_executable_offer_provenance():
     assert evaluation.quote.candidate_id == "compact-price-action"
 
 
+@pytest.mark.price_policy("gate")
 def test_reference_evaluation_uses_one_injected_clock_and_never_exposes_raw_quote():
     from bet_finder_ui import evaluate_reference_price
 

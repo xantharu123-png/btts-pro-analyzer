@@ -291,6 +291,7 @@ def test_saved_daily3_money_card_does_not_expose_or_rewrite_original_model_notes
     assert app.session_state['internal_notes'] == ('INTERNAL_MODEL_BASIS', 'INTERNAL_EFFECT_REVIEW')
 
 
+@pytest.mark.price_policy("gate")
 def test_observed_quote_below_floor_hides_daily3_proposal(tmp_path):
     app = AppTest.from_function(
         _render, args=(str(tmp_path/'daily3.db'), False, 'too_low')
@@ -315,6 +316,7 @@ def test_manually_entered_quote_below_floor_is_rejected_without_budget_debit(tmp
     assert any(m.label == 'Verfügbar' and m.value == 'CHF 50.00' for m in app.metric)
 
 
+@pytest.mark.price_policy("gate")
 def test_missing_or_stale_quote_status_does_not_enter_model_selection_ui(tmp_path):
     for price_state, expected_code in (
         ('missing', 'UNAVAILABLE'),
@@ -394,6 +396,7 @@ def _render_priced(db_path, minimum, offer):
                   store_factory=lambda: Daily3Store(db_path, key=b'q'*32, clock=lambda: NOW))
 
 
+@pytest.mark.price_policy("gate")
 def test_offer_below_the_choice_minimum_blocks_reservation_but_keeps_the_forecast_visible(tmp_path, monkeypatch):
     monkeypatch.delenv('BETBOY_DAILY3_RESERVATION_MINIMUM', raising=False)  # Default: gate active (owner, 2026-10-20).
     app = AppTest.from_function(_render_priced, args=(str(tmp_path/'blocked.db'), 2.0, 1.8)).run(timeout=30)
@@ -405,6 +408,7 @@ def test_offer_below_the_choice_minimum_blocks_reservation_but_keeps_the_forecas
     assert not any(button.label == 'Einsatz vormerken' for button in app.button)
 
 
+@pytest.mark.price_policy("gate")
 def test_entered_quote_below_the_choice_minimum_is_rejected_without_budget_debit(tmp_path, monkeypatch):
     monkeypatch.delenv('BETBOY_DAILY3_RESERVATION_MINIMUM', raising=False)  # Default: gate active (owner, 2026-10-20).
     app = AppTest.from_function(_render_priced, args=(str(tmp_path/'minimum.db'), 1.5, 1.8)).run(timeout=30)
@@ -433,6 +437,7 @@ def test_entered_quote_at_the_choice_minimum_is_accepted(tmp_path, monkeypatch):
     assert any(m.label == 'Verfügbar' and m.value == 'CHF 30.00' for m in app.metric)
 
 
+@pytest.mark.price_policy("gate")
 def test_flag_zero_makes_the_minimum_informational_only(tmp_path, monkeypatch):
     monkeypatch.setenv('BETBOY_DAILY3_RESERVATION_MINIMUM', '0')
     app = AppTest.from_function(_render_priced, args=(str(tmp_path/'rule.db'), 2.0, 1.8)).run(timeout=30)

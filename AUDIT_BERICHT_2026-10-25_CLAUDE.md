@@ -405,6 +405,11 @@ offen daraus nur der Telegram-Eintrag des Owners und die CI-Parametrisierung der
 Zusätzlich am selben Abend die dreistufige Preisprüfung der 1,20-Grenze
 (`docs/audits/2026-10-25-preispruefung-dreistufig.md`), die L3/L6 berührt.
 
+*Stand 28.10.2026:* Massnahme 4 umgesetzt (`docs/audits/2026-10-28-massnahme-4-preisregel-ci.md`): Suiten
+unter beiden Preisregeln in der CI, Lockfile in CI und Updater; dabei fünf Fehler im Pfad `floor`
+behoben (15K-Ticket, Karten-Bewertung, Lauf ohne Quote, 15K-Snapshot nach dem Nachtscan, Median in
+der öffentlichen Freigabe).
+
 ---
 
 ## 6. Methodik und Kennzahlen

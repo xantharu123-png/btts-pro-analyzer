@@ -214,6 +214,18 @@ def test_unpriced_rows_remain_without_quote_filter_and_no_rerender_fetch(monkeyp
     assert snapshot == before
 
 
+@pytest.mark.price_policy("floor")
+def test_floor_cards_name_no_bookmaker_quote(monkeypatch):
+    """Owner 23.10.2026: the app shows no bookmaker quotes (Audit 25.10.2026 U2)."""
+    now = datetime.now(timezone.utc)
+    priced = _row("BTTS_YES")
+    render, surface, _ = _render(monkeypatch, [priced], quotes={priced.candidate_id: _quote(priced, 2.2, now)})
+
+    assert render(SearchFilters()) == ["1:BTTS_YES"]
+    assert not [message for message in surface.messages if str(message).startswith("Quote")]
+
+
+@pytest.mark.price_policy("gate")
 def test_cards_show_the_real_filter_quote_and_never_substitute_model_minimum(monkeypatch):
     now = datetime.now(timezone.utc)
     priced, missing = _row("BTTS_YES"), _row("BTTS_YES", fixture=2)

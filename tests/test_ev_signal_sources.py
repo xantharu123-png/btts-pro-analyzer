@@ -27,6 +27,7 @@ from ev_signal_sources import (
 )
 from market_consensus import (
     ODDS_API_REFERENCE_SOURCE,
+    floor_only_pricing,
     parse_fixture_consensus,
     wettfinder_reference_price_status,
 )
@@ -91,6 +92,9 @@ def _playable_automatic_candidate(
         "context": {
             "release_context_complete": True,
             "release_eligible": True,
+            # Written by the production context builder since 23.10.2026; the floor policy reads it.
+            "passed": True,
+            "release_eligible_without_lineups": True,
         },
         "context_stale": False,
         "is_basic_forecast": False,
@@ -195,6 +199,18 @@ def _automatic_model_row(
         }
     )
     return row
+
+
+def _assert_row_withheld_or_document_rejected(testcase, artifact, now):
+    """Gate rejects the whole document; the floor withholds the inconsistent row
+    and keeps the document readable (Massnahme 1, docs/audits/2026-10-25-lader-je-zeile.md)."""
+    loaded = _load_automated_wettfinder_document(artifact, now=now)
+    if floor_only_pricing():
+        testcase.assertIsNotNone(loaded)
+        testcase.assertEqual(loaded[0]["price_inconsistent_rows"], 1)
+    else:
+        testcase.assertIsNone(loaded)
+        testcase.assertIsNone(automated_wettfinder_status(artifact, now=now))
 
 
 def _automatic_document(
@@ -1008,7 +1024,9 @@ class ListSignalsTests(unittest.TestCase):
         self.assertEqual(status.fixtures_modeled, 12)
         self.assertEqual(status.approved_candidates, 1)
         self.assertEqual(len(stale_forecasts), 1)
-        self.assertEqual(stale_signals, [])
+        # The gate expires the strict signal with its price; the floor keeps it for the
+        # model document's 24 hours (docs/audits/2026-10-25-tipp-nachruecken.md).
+        self.assertEqual(len(stale_signals), 1 if floor_only_pricing() else 0)
 
     def test_degraded_tennis_source_preserves_strict_football_signal(self):
         import json
@@ -1629,15 +1647,7 @@ class ListSignalsTests(unittest.TestCase):
                         encoding="utf-8",
                     )
 
-                    self.assertIsNone(
-                        _load_automated_wettfinder_document(
-                            artifact,
-                            now=now,
-                        )
-                    )
-                    self.assertIsNone(
-                        automated_wettfinder_status(artifact, now=now)
-                    )
+                    _assert_row_withheld_or_document_rejected(self, artifact, now)
                     self.assertEqual(
                         automated_wettfinder_forecasts(artifact, now=now),
                         [],
@@ -1687,12 +1697,7 @@ class ListSignalsTests(unittest.TestCase):
                         encoding="utf-8",
                     )
 
-                    self.assertIsNone(
-                        _load_automated_wettfinder_document(
-                            artifact,
-                            now=now,
-                        )
-                    )
+                    _assert_row_withheld_or_document_rejected(self, artifact, now)
                     self.assertEqual(
                         automated_wettfinder_signals(artifact, now=now),
                         [],
@@ -1729,15 +1734,8 @@ class ListSignalsTests(unittest.TestCase):
                         encoding="utf-8",
                     )
 
-                    self.assertIsNone(
-                        _load_automated_wettfinder_document(
-                            artifact,
-                            now=now,
-                        )
-                    )
-                    self.assertIsNone(
-                        automated_wettfinder_status(artifact, now=now)
-                    )
+                    _assert_row_withheld_or_document_rejected(self, artifact, now)
+                    self.assertEqual(automated_wettfinder_forecasts(artifact, now=now), [])
 
     def test_automatic_strict_candidate_requires_known_generated_source(self):
         import json

@@ -4026,12 +4026,14 @@ def run_wettfinder(
             previous_rows=previous.get("model_candidates") or (),
         )
     )
+    _persist_quote_diagnostics(football_model_rows, football_price_rows, football_quote_diagnostics,
+                               now=current, errors=quote_errors)
     if floor_only_pricing():
         # Owner decision 23.10.2026: price is not a release gate. Every model
         # row stays playable unless the last observed market quote is below 1.20.
+        # The copies follow the diagnostics, so each strict row still equals its
+        # model row (build_scheduled_challenge_snapshot compares them).
         football_playable_rows = _floor_playable_rows(football_model_rows, now=current)
-    _persist_quote_diagnostics(football_model_rows, football_price_rows, football_quote_diagnostics,
-                               now=current, errors=quote_errors)
     football_quote_error_count = len(_operational_quote_errors(quote_errors))
 
     tennis_model_rows = [

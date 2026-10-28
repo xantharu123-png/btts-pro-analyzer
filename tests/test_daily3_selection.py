@@ -285,6 +285,7 @@ def test_defensive_daily_sequence_begins_with_earliest_qualified_match():
         '401:RESULT_HOME', '402:RESULT_HOME', '403:RESULT_HOME']
 
 
+@pytest.mark.price_policy("gate")
 def test_choice_carries_reservation_minimum_and_admitted_offer_without_changing_selection():
     signal = _admitted_football()  # Offer 1.80 from the shared fixture, forecast minimum 2.00.
     choice, = daily3_choices([signal], now=NOW)
