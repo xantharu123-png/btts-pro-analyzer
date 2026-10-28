@@ -1,5 +1,40 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## 28.10.2026 – Release 20261028-3 live: Massnahmen 4, 7, 9 und No-Vig-CLV (PR #47–#50)
+
+Owner-Auftrag am Vormittag: „mach bitte alles, was du von deiner Seite machen kannst“. Umgesetzt, gemergt und
+nach Owner-Freigabe um 11:02 CET als **`8c28a34`** per No-Backup-Fast-forward von `94d0812` ausgerollt (Helfer
+`output/release-20261028-3/deploy.sh`, 43 Pfade, Offline-Prüfungen für jede Änderung, nur App-Neustart PID
+1378779→1384218, Healthchecks ok, Snapshots unverändert, kein Backup, Einheiten unverändert).
+
+- **Massnahme 4** (PR #47, `docs/audits/2026-10-28-massnahme-4-preisregel-ci.md`): `BETBOY_TEST_PRICE_POLICY=floor`
+  und Marker `price_policy`; CI-Job `price-policy` prüft Lader, Publikation, Karte, Bet-Finder, Daily3 und 15K bei
+  jedem Push unter beiden Preisregeln; CI installiert `requirements.lock`, `betboy-update` stoppt auch bei
+  geändertem Lockfile. Dabei fünf Fehler im Produktionspfad `floor` behoben: 15K-Ticket brach an einem älteren
+  höheren Punkt ab bzw. liess sich nicht buchen; Karten-Aktionen „provenance mismatch“; Lauf ohne jede
+  Buchmacherquote hätte die Website geleert; 15K-Snapshot fiel nach dem Nachtscan aus (Diagnose nach der Kopie);
+  `publication_quote` (Daily3, RisikoBet, Manuelle Suche, 15K) prüfte den besten Preis statt des Medians.
+- **Massnahme 7, Teil** (PR #49): Manuelle Suche ohne Buchmacherquote und ohne Quotenfilter unter `floor`;
+  Multi-Sport-Anpfiff und Scan-Zeit in Zürcher Zeit statt Server-UTC. Gestaltungsfragen (Zahlenformat, Begriffe,
+  Raster, 15K-Währung, Daily3-Slogan) stehen in `docs/audits/2026-10-28-massnahme-7-oberflaeche.md`.
+- **Massnahme 9** (PR #48): `runtime_disk_guard.py` nach jedem Quotenlauf, `runtime_state/disk_status.json`,
+  Alarm unter 5 GiB oder 10 % frei, löscht nichts. Messung 28.10.: 20 GB frei von 38 GB, `context_models.db`
+  8,23 GB (+60–90 MB/Tag), seit 14.10. kein Sperrfehler; Aufbewahrung, WAL und `user_version` sind Owner-Entscheide.
+- **No-Vig-CLV** (PR #50, Audit S5): `shadow_closing_market` mit fairer Schlusswahrscheinlichkeit, Artefakt
+  `no_vig_clv` je Kohorte und paarweise mit HAC-Intervall; Ledger und Policy v7 unverändert.
+- **Massnahme 8**: nur Plan (`docs/superpowers/plans/2026-10-28-hybrid-vor-aktivierung.md`); ein Umbau jetzt würde
+  den Shadow-Vergleich neu starten, der seit heute Schlussquoten misst.
+
+Probe vor dem Release (neuer Code gegen das Live-Dokument, nur lesend): Lader nimmt an, 0 zurückgehaltene Zeilen,
+dieselben 3 Tipps, 193 Prognosen, 15K-Liste 10, Daily3 1; Angebote mit öffentlicher Freigabe 92→87 (Medianregel).
+Nach dem Release: Shadow 11:12 `success`/`idle` (Tabelle `shadow_closing_market` entsteht beim ersten aktiven Lauf),
+Website HTTP 200, deployter Lader liefert dasselbe Bild, kein neuer Alarm. Die zwei leeren App-Unterchats
+(„Hybrid-Shadow“, „Dixon-Coles“) sind auf Owner-Wunsch archiviert.
+
+Offen: Schlussquoten-Beleg heute ab 14:45 CET; Tennis-Exit-Beleg in der Nacht auf den 29.10.; erster
+`disk_status.json` mit dem Quotenlauf 12:15; Owner: Telegram-Token/Chat-ID, Sperrung der alten API-Schlüssel beim
+Anbieter bestätigen, Gestaltungsfragen aus Massnahme 7, Aufbewahrung der Kontextquittungen.
+
 ## 28.10.2026 – Shadow-Schlussquote: letzter Marktstand vor Anpfiff live (PR #45, Policy v7)
 
 Owner-Entscheidung nach dem Befund, dass der Shadow seit dem 25.10. in 119 Läufen keine Schlussquote erfasst hat:
