@@ -32,12 +32,12 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: requirements.txt
+          cache-dependency-path: requirements.lock
 
       - name: Abhängigkeiten installieren
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt pytest ruff
+          python -m pip install -r requirements.lock pytest ruff
 
       - name: Ruff (E9, F63, F7, F82 aus pyproject.toml)
         run: ruff check .
@@ -52,7 +52,69 @@ jobs:
           tests/test_football_dixon_coles.py
           tests/test_football_joint_calibration.py
           tests/test_model_loss_statistics.py
+          tests/test_price_floor_policy.py
+          tests/test_requirements_lock.py
           -q
+
+  # Audit 25.10.2026 D5: beide Ausfälle vom 25.10. waren Regressionen der Produktionspolicy
+  # `floor`, die Suiten liefen aber nur unter `gate` (tests/conftest.py). Lader, Publikation,
+  # Daily3, 15K und Karte laufen deshalb bei jedem Push unter beiden Preisregeln; Tests, die nur
+  # einen Vertrag beschreiben, tragen @pytest.mark.price_policy.
+  price-policy:
+    name: Lader/Publikation/Daily3/15K unter ${{ matrix.policy }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        policy: [floor, gate]
+    env:
+      BETBOY_TEST_PRICE_POLICY: ${{ matrix.policy }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Abhängigkeiten installieren
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.lock pytest pytest-subtests
+
+      - name: Suiten unter ${{ matrix.policy }}
+        run: >
+          python -m pytest
+          tests/test_ev_signal_sources.py
+          tests/test_wettfinder_automation.py
+          tests/test_wettfinder_surface.py
+          tests/test_wettfinder_statistical_leads.py
+          tests/test_tip_publication.py
+          tests/test_tip_display_order.py
+          tests/test_publication_odds_floor.py
+          tests/test_quote_publication_admission.py
+          tests/test_highlight_price_checks.py
+          tests/test_quality_cached_prices.py
+          tests/test_price_refresh_schedule.py
+          tests/test_hockey_publication_clock.py
+          tests/test_football_original_publication.py
+          tests/test_football_opponent_publication.py
+          tests/test_bet_finder_ui.py
+          tests/test_daily3_backup.py
+          tests/test_daily3_comparison.py
+          tests/test_daily3_match_context.py
+          tests/test_daily3_math.py
+          tests/test_daily3_selection.py
+          tests/test_daily3_sequence.py
+          tests/test_daily3_store.py
+          tests/test_daily3_tennis_comparison.py
+          tests/test_daily3_ui.py
+          tests/test_challenge_15k.py
+          tests/test_challenge_15k_model_ui.py
+          tests/test_challenge_15k_ui_audit.py
+          -q -p no:cacheprovider
 
   full-a:
     name: Vollsuite Hälfte A (manuell)
@@ -69,12 +131,12 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: requirements.txt
+          cache-dependency-path: requirements.lock
 
       - name: Abhängigkeiten installieren
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt pytest pytest-subtests
+          python -m pip install -r requirements.lock pytest pytest-subtests
 
       # Die Suite in einem Prozess überschreitet das Speicherlimit des Runners
       # (Exit 137 bei 36 % am 20.10.2026). Zwei Hälften nach sortierter Dateiliste,
@@ -99,12 +161,12 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: requirements.txt
+          cache-dependency-path: requirements.lock
 
       - name: Abhängigkeiten installieren
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt pytest pytest-subtests
+          python -m pip install -r requirements.lock pytest pytest-subtests
 
       # Die Suite in einem Prozess überschreitet das Speicherlimit des Runners
       # (Exit 137 bei 36 % am 20.10.2026). Zwei Hälften nach sortierter Dateiliste,

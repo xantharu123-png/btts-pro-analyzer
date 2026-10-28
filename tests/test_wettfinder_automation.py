@@ -134,6 +134,7 @@ def test_apply_reference_quotes_rejects_wrong_market_fixture_and_source():
         assert "reference_quote" not in model_row
 
 
+@pytest.mark.price_policy("gate")
 def test_apply_reference_quotes_keeps_name_only_legacy_visible_not_playable():
     now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
     row = {
@@ -324,6 +325,7 @@ def test_context_refresh_replaces_fixture_without_changing_catalog_order():
             "forecast_passed": True,
             "release_context_complete": True,
             "release_eligible": True,
+            "release_eligible_without_lineups": True,
             "blocked_reasons": [],
         }
         candidates.append(item)
@@ -377,6 +379,7 @@ def test_context_refresh_reranks_new_stronger_fixture_without_truncating_pool():
             "forecast_passed": True,
             "release_context_complete": True,
             "release_eligible": True,
+            "release_eligible_without_lineups": True,
             "blocked_reasons": [],
         }
         records.append(_football_candidate_record(item, context_checked_at=now))
@@ -398,6 +401,7 @@ def test_context_refresh_reranks_new_stronger_fixture_without_truncating_pool():
         "forecast_passed": True,
         "release_context_complete": True,
         "release_eligible": True,
+        "release_eligible_without_lineups": True,
         "blocked_reasons": [],
     }
     statuses["16"] = "data_incomplete"
@@ -442,6 +446,7 @@ def test_context_refresh_keeps_credible_basic_market_in_wettfinder_catalog():
         "forecast_passed": True,
         "release_context_complete": True,
         "release_eligible": True,
+        "release_eligible_without_lineups": True,
         "blocked_reasons": [],
     }
     state = {
@@ -577,6 +582,7 @@ def _football_snapshot(now: datetime) -> dict:
         "blocked_reasons": [],
         "release_context_complete": True,
         "release_eligible": True,
+        "release_eligible_without_lineups": True,
     }
     return {
         "scanned_at": now.isoformat(),
@@ -664,6 +670,7 @@ def test_football_record_persists_paired_statistical_release_evidence():
         "forecast_passed": True,
         "release_context_complete": True,
         "release_eligible": True,
+        "release_eligible_without_lineups": True,
         "blocked_reasons": [],
     }
 
@@ -1082,6 +1089,7 @@ def test_scheduled_15k_uses_full_release_pool_not_normal_top_three(tmp_path):
             "blocked_reasons": [],
             "release_context_complete": True,
             "release_eligible": True,
+            "release_eligible_without_lineups": True,
         }
         candidates.append(candidate)
         odds_by_id[candidate.candidate_id] = odds
@@ -1220,6 +1228,7 @@ def test_completed_zero_forecast_run_is_a_valid_scheduled_15k_snapshot(
     assert automatic["shortlist"] == []
 
 
+@pytest.mark.price_policy("gate")
 def test_scheduled_15k_never_promotes_a_model_quote_without_release_execution(
     tmp_path,
 ):
@@ -1615,6 +1624,7 @@ def test_runner_keeps_full_model_pool_after_budgeted_price_check(tmp_path):
                 "forecast_passed": True,
                 "release_context_complete": True,
                 "release_eligible": True,
+                "release_eligible_without_lineups": True,
                 "blocked_reasons": [],
             }
             model_pool.append(candidate)
@@ -2618,6 +2628,7 @@ def test_runner_prices_verified_fixture_even_when_later_fixtures_are_unchecked(
     assert document["sources"]["football"]["price_checked_count"] == 1
 
 
+@pytest.mark.price_policy("gate")
 def test_runner_persists_automatic_reference_quote_for_football_tip(tmp_path):
     now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
     state_path = tmp_path / "wettfinder.json"
@@ -2708,6 +2719,7 @@ def test_runner_persists_automatic_reference_quote_for_football_tip(tmp_path):
     assert automated_wettfinder_signals(state_path, now=read_at) == []
 
 
+@pytest.mark.price_policy("gate")
 def test_runner_never_publishes_unpriced_or_too_low_model_candidates(tmp_path):
     now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
     level_up = ModelSignal(
@@ -2865,6 +2877,7 @@ def test_runner_keeps_checked_catalog_beyond_featured_top_three(tmp_path):
             "blocked_reasons": [],
             "release_context_complete": True,
             "release_eligible": True,
+            "release_eligible_without_lineups": True,
         }
         shortlist.append(candidate)
 
@@ -2941,6 +2954,7 @@ def test_runner_keeps_checked_catalog_beyond_featured_top_three(tmp_path):
     assert document["candidates"][0]["reference_price_status"] == "PLAYABLE"
 
 
+@pytest.mark.price_policy("gate")
 def test_runner_prices_and_keeps_alternative_market_from_same_fixture(tmp_path):
     now = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
     base = _challenge_candidate(now + timedelta(hours=5))
@@ -2970,6 +2984,7 @@ def test_runner_prices_and_keeps_alternative_market_from_same_fixture(tmp_path):
             "forecast_passed": True,
             "release_context_complete": True,
             "release_eligible": True,
+            "release_eligible_without_lineups": True,
             "blocked_reasons": [],
         }
 
@@ -3758,6 +3773,7 @@ def test_runner_can_release_team_under_one_five_at_a_good_price(tmp_path):
         "forecast_passed": True,
         "release_context_complete": True,
         "release_eligible": True,
+        "release_eligible_without_lineups": True,
         "blocked_reasons": [],
     }
     snapshot = _football_snapshot(now)

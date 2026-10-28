@@ -1,5 +1,6 @@
 """Real Streamlit checks before entry of the user's actual 15K bet quote."""
 
+import pytest
 from streamlit.testing.v1 import AppTest
 
 
@@ -165,6 +166,7 @@ def test_15k_rejects_saved_form_from_a_different_model_version():
     assert not card.compact_analysis.forms
 
 
+@pytest.mark.price_policy("gate")
 def test_15k_editorial_card_displays_existing_exact_quote_without_promoting_model():
     from challenge_15k import _challenge_card_signal
     from datetime import datetime, timezone

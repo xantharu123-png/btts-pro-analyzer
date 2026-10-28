@@ -430,6 +430,8 @@ def candidate(candidate_id, fixture_id, probability, *, kickoff=None, eligible=T
         "forecast_passed": eligible,
         "release_context_complete": eligible,
         "release_eligible": eligible,
+        # Written by the production context builder since 23.10.2026; the floor policy reads it.
+        "release_eligible_without_lineups": eligible,
         "blocked_reasons": [] if eligible else ["blocked"],
     }
     return item
@@ -468,6 +470,7 @@ def test_15k_model_selection_ignores_unbound_price_numbers():
     assert challenge_15k._challenge_model_candidate_pool([first, second]) == [first, second]
 
 
+@pytest.mark.price_policy("gate")
 def test_15k_model_keeps_validated_selection_without_confirmed_lineups():
     item = candidate("1:BTTS", 1, 0.80)
     item.context.update(
@@ -504,6 +507,7 @@ def test_15k_model_keeps_validated_selection_without_confirmed_lineups():
     assert not candidate_is_15k_model_eligible(item)
 
 
+@pytest.mark.price_policy("gate")
 def test_15k_manual_ticket_uses_model_with_open_lineups_but_auto_gate_stays_strict():
     now = datetime.now(timezone.utc)
     candidates = stress_safe_ticket_candidates()
@@ -2286,6 +2290,7 @@ class ChallengeContextTests(unittest.TestCase):
         self.assertFalse(candidate_is_forecast_credible(item))
         self.assertFalse(candidate_is_credible(item))
 
+    @pytest.mark.price_policy("gate")
     def test_h2h_provider_failure_is_explicit_unavailable_not_neutral(self):
         now = datetime(2030, 1, 1, 12, 0, tzinfo=timezone.utc)
         item = candidate(
@@ -2327,6 +2332,7 @@ class ChallengeContextTests(unittest.TestCase):
         )
         self.assertEqual(item.context["h2h"]["matches"], 0)
 
+    @pytest.mark.price_policy("gate")
     def test_missing_release_flag_is_never_strictly_credible(self):
         now = datetime(2030, 1, 1, 12, 0, tzinfo=timezone.utc)
         item = candidate(
@@ -2362,6 +2368,7 @@ class ChallengeContextTests(unittest.TestCase):
         self.assertFalse(candidate_is_credible(item))
         self.assertEqual(select_shortlist([item]), [])
 
+    @pytest.mark.price_policy("gate")
     def test_raw_injury_counts_are_observed_but_never_a_veto(self):
         now = datetime(2030, 1, 1, 12, 0, tzinfo=timezone.utc)
         item = candidate(
@@ -2657,6 +2664,7 @@ class ChallengeContextTests(unittest.TestCase):
             )
         )
 
+    @pytest.mark.price_policy("gate")
     def test_targeted_refresh_does_not_require_unpublished_lineups(self):
         now = datetime(2030, 1, 1, 12, 0, tzinfo=timezone.utc)
         item = candidate(
@@ -2803,6 +2811,7 @@ class ChallengeContextTests(unittest.TestCase):
             item.context["blocked_reasons"],
         )
 
+    @pytest.mark.price_policy("gate")
     def test_lineups_are_optional_without_explicit_opt_in(self):
         item = candidate("1:BTTS", 1, 0.70)
         now = datetime.now(timezone.utc)
@@ -2834,6 +2843,7 @@ class ChallengeContextTests(unittest.TestCase):
         self.assertNotIn("Aufstellung", " ".join(item.context["blocked_reasons"]))
         self.assertFalse(item.context["lineups"]["required"])
 
+    @pytest.mark.price_policy("gate")
     def test_missing_optional_lineups_become_urgent_inside_final_hour(self):
         now = datetime(2030, 1, 1, 12, 0, tzinfo=timezone.utc)
         item = candidate(
@@ -2867,6 +2877,7 @@ class ChallengeContextTests(unittest.TestCase):
             candidate_context_summary(item),
         )
 
+    @pytest.mark.price_policy("gate")
     def test_placeholder_lineups_still_ignored_when_optional(self):
         item = candidate("1:BTTS", 1, 0.70)
         now = datetime.now(timezone.utc)
@@ -3152,6 +3163,7 @@ class ChallengeContextTests(unittest.TestCase):
 
 
 class ChallengeTicketTests(unittest.TestCase):
+    @pytest.mark.price_policy("gate")
     def test_sporting_alverca_short_price_never_changes_the_model_forecast(self):
         now = datetime.now(timezone.utc)
         item = replace(
@@ -4723,6 +4735,7 @@ class AutomaticReferenceTicketTests(unittest.TestCase):
             for point in stored["quote_evidence"][0]["points"]
         })
 
+    @pytest.mark.price_policy("gate")
     def test_reference_without_provider_native_ids_never_builds_ticket(self):
         now = datetime.now(timezone.utc)
         item = candidate("1:BTTS", 1, 0.60, kickoff=now + timedelta(days=1))
@@ -4811,6 +4824,7 @@ class AutomaticReferenceTicketTests(unittest.TestCase):
                             },
                         )
 
+    @pytest.mark.price_policy("gate")
     def test_thin_reference_never_builds_15k_ticket(self):
         now = datetime.now(timezone.utc)
         item = candidate("1:BTTS", 1, 0.60, kickoff=now + timedelta(days=1))
@@ -4825,6 +4839,7 @@ class AutomaticReferenceTicketTests(unittest.TestCase):
         self.assertIsNone(ticket)
         self.assertEqual(statuses[item.candidate_id].code, "THIN")
 
+    @pytest.mark.price_policy("gate")
     def test_wrong_quote_identity_never_builds_15k_ticket(self):
         now = datetime.now(timezone.utc)
         item = candidate("1:BTTS", 1, 0.60, kickoff=now + timedelta(days=1))

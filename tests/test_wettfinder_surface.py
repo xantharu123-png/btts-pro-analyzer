@@ -194,6 +194,7 @@ def _overlay(
     )
 
 
+@pytest.mark.price_policy("gate")
 def test_card_maps_model_and_exact_consensus_without_changing_probabilities():
     signal = _signal()
 
@@ -348,6 +349,7 @@ def test_precomputed_price_rejects_same_key_with_different_candidate_content():
             )
 
 
+@pytest.mark.price_policy("gate")
 def test_price_states_keep_last_observation_distinct_from_current_prices():
     signal = _signal()
     cases = {
@@ -373,6 +375,7 @@ def test_price_states_keep_last_observation_distinct_from_current_prices():
             assert not catalog.featured and not catalog.additional
 
 
+@pytest.mark.price_policy("gate")
 def test_too_low_price_uses_only_the_current_consensus_points():
     signal = _signal()
     quote = _quote(signal, (1.40, 1.45, 1.50, 2.00))
@@ -407,6 +410,7 @@ def test_evidence_labels_do_not_invent_confirmation_or_context():
 
 
 @pytest.mark.parametrize("stage", ("SHADOW", "RESEARCH"))
+@pytest.mark.price_policy("gate")
 def test_unreleased_evidence_with_playable_price_never_looks_released(stage):
     signal = _signal(stage=stage, context_complete=True)
 
@@ -424,6 +428,7 @@ def test_unreleased_evidence_with_playable_price_never_looks_released(stage):
     assert "freigegebener Tipp" not in markup
 
 
+@pytest.mark.price_policy("gate")
 def test_confirmed_tip_requires_all_four_release_and_price_conditions():
     signal = _signal(stage="RELEASED", statistical_release_passed=True)
     quote = _quote(signal)
@@ -450,6 +455,7 @@ def test_confirmed_tip_requires_all_four_release_and_price_conditions():
     ).confirmed_tip is False
 
 
+@pytest.mark.price_policy("gate")
 def test_same_key_and_market_but_wrong_fixture_cannot_become_confirmed_tip():
     signal = _signal(stage="RELEASED", statistical_release_passed=True)
     quote = replace(_quote(signal), fixture_id=999)
@@ -468,6 +474,7 @@ def test_same_key_and_market_but_wrong_fixture_cannot_become_confirmed_tip():
     assert card.confirmed_tip is False
 
 
+@pytest.mark.price_policy("gate")
 def test_confirmed_tip_requires_exact_executable_offer_provenance():
     signal = _signal(stage="RELEASED", statistical_release_passed=True)
     quote = _quote(signal)
@@ -521,6 +528,7 @@ def test_card_keeps_legacy_direct_constructor_shape():
     assert card.market_key is None
 
 
+@pytest.mark.price_policy("gate")
 def test_html_card_and_row_escape_all_visible_provider_text_and_hide_detail():
     signal = _signal(
         event="<Alpha & Beta>",
@@ -548,6 +556,7 @@ def test_html_card_and_row_escape_all_visible_provider_text_and_hide_detail():
     assert "Book &lt;2&gt;" in bookmaker_markup
 
 
+@pytest.mark.price_policy("gate")
 def test_top_card_markup_exposes_the_decision_hierarchy_in_reading_order():
     signal = _signal(
         event="Rosenborg – Viking",
@@ -585,6 +594,7 @@ def test_top_card_markup_exposes_the_decision_hierarchy_in_reading_order():
     assert "Modell mit Form- und Kaderdaten" not in markup
 
 
+@pytest.mark.price_policy("gate")
 def test_featured_and_compact_analysis_is_visible_once_and_escapes_all_copy():
     from forecast_analysis import project_football_analysis
 
@@ -637,6 +647,7 @@ def test_featured_and_compact_analysis_is_visible_once_and_escapes_all_copy():
         ),
     ),
 )
+@pytest.mark.price_policy("gate")
 def test_price_note_is_short_and_keeps_forecast_separate_from_price(
     odds,
     price_code,

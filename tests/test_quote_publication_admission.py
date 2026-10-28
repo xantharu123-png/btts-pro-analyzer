@@ -13,7 +13,9 @@ from test_daily3_selection import NOW, football
 from test_publication_odds_floor import priced, visible
 
 
-@pytest.mark.parametrize("problem", ["missing", "foreign_event", "foreign_market", "expired", "future", "unidentified"])
+# Under the floor an expired, slightly future or unidentified quote leaves the tip unpriced and visible.
+@pytest.mark.parametrize("problem", ["missing", "foreign_event", "foreign_market",
+                                     *(pytest.param(name, marks=pytest.mark.price_policy("gate")) for name in ("expired", "future", "unidentified"))])
 def test_public_consumers_withhold_unproved_offers_without_erasing_model(problem):
     signal = priced(football(), (1.50,) * 3)
     quote = deepcopy(signal.reference_quote)
@@ -41,6 +43,7 @@ def test_public_consumers_withhold_unproved_offers_without_erasing_model(problem
     assert vars(signal) == before
 
 
+@pytest.mark.price_policy("gate")
 def test_public_floor_uses_one_exact_offer_and_keeps_last_known_clock():
     module = importlib.import_module("quote_publication")
     signal = priced(football(), (1.10, 1.12, 1.20))

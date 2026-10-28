@@ -10,11 +10,12 @@ from datetime import datetime, timedelta, timezone
 from numbers import Integral
 import json
 from pathlib import Path
+from statistics import median
 
 from betting_math import MINIMUM_RECOMMENDED_DECIMAL_ODDS
 from market_consensus import (
     MarketConsensus, QUOTE_DISPLAY_MAX_AGE, _parse_utc, _summary_prices,
-    observed_consensus, quote_matches_candidate, wettfinder_consensus,
+    floor_only_pricing, observed_consensus, quote_matches_candidate, wettfinder_consensus,
 )
 from runtime_paths import RUNTIME_STATE_DIR
 
@@ -68,7 +69,14 @@ def _observed_publication_quote(quote, *, candidate, now=None):
 def publication_quote(quote, *, candidate, now=None):
     """Apply admission only after the caller selected the newest exact receipt."""
     normalized = _observed_publication_quote(quote, candidate=candidate, now=now)
-    if normalized is None or max(point.odds for point in normalized.points) < MINIMUM_RECOMMENDED_DECIMAL_ODDS:
+    if normalized is None:
+        return None
+    # Owner decision 25.10.2026 (docs/audits/2026-10-25-preispruefung-dreistufig.md):
+    # under the floor policy the median price decides, as on the card; the old
+    # contract keeps the best offer. The admitted points stay unchanged.
+    prices = [point.odds for point in normalized.points]
+    reference = float(median(prices)) if floor_only_pricing() else max(prices)
+    if reference < MINIMUM_RECOMMENDED_DECIMAL_ODDS:
         return None
     return normalized
 
