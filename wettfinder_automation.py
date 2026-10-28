@@ -5187,6 +5187,19 @@ def refresh_prices_only(*, state_path=STATE_PATH, config=None, now=None, quote_l
         return summary
 
 
+def _report_disk_headroom() -> bool:
+    """Check the runtime volume after each quotes run (Audit 25.10.2026 D6).
+
+    A low headroom fails the unit, so the OnFailure alert carries the printed
+    line; a failing measurement never does.
+    """
+    from runtime_disk_guard import guard_runtime_disk
+    problem = guard_runtime_disk()
+    if problem:
+        print(problem)
+    return problem is not None
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--force-football", action="store_true")
@@ -5203,7 +5216,8 @@ def main(argv: Optional[list[str]] = None) -> int:
             print(json.dumps({'status':'error', 'error_type':type(exc).__name__}))
             return 1
         print(json.dumps(summary))
-        return 0 if not summary.get('operational_errors', summary['errors']) else 1
+        disk_low = _report_disk_headroom()
+        return 0 if not summary.get('operational_errors', summary['errors']) and not disk_low else 1
     try:
         with _quote_publication_lock(args.state_path):
             document = run_wettfinder(

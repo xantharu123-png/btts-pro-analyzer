@@ -40,3 +40,13 @@ def isolate_consumer_tip_receipts(monkeypatch, request, tmp_path_factory):
     receipt_dir = tmp_path_factory.getbasetemp() / 'consumer-receipts' / sha256(request.node.nodeid.encode()).hexdigest()
     monkeypatch.setattr(tip_publication, 'DEFAULT_HISTORY_DB', receipt_dir / 'consumer_tips.db')
     monkeypatch.setattr(tip_publication, 'DEFAULT_FORECAST_DB', receipt_dir / 'forecast_evidence.db')
+
+
+@pytest.fixture(autouse=True)
+def isolate_runtime_disk_status(monkeypatch, request):
+    """The quotes-run entry point measures the runtime volume; other tests never
+    write runtime_state/disk_status.json (tests/test_runtime_disk_guard.py covers it)."""
+    if "test_runtime_disk_guard" in request.node.nodeid:
+        return
+    import runtime_disk_guard
+    monkeypatch.setattr(runtime_disk_guard, "guard_runtime_disk", lambda **_kwargs: None)
