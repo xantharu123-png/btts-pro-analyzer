@@ -3795,7 +3795,11 @@ def _multi_sport_event_label(sport: str, item: dict) -> str:
         raw_start = item.get("start_time") or item.get("begin_at")
         try:
             start = datetime.fromisoformat(str(raw_start).replace("Z", "+00:00"))
-            kickoff = start.astimezone().strftime("%d.%m., %H:%M")
+            # Zurich like every other surface; the VPS runs in UTC (Audit 25.10.2026 U3).
+            kickoff = (
+                start.astimezone(ZURICH_TIMEZONE).strftime("%d.%m., %H:%M")
+                if start.tzinfo is not None else "Termin offen"
+            )
         except (TypeError, ValueError):
             kickoff = "Termin offen"
         if sport == "Eishockey":
