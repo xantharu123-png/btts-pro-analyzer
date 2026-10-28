@@ -143,10 +143,13 @@ def test_edge_cap_statistics_separate_cohorts_and_cap_groups(ledger):
             (4, "G", "H", "AH_HOME_0", "Heim", 2.0, 2.0, "Push", "x", shadow.SHADOW_MODEL_VERSION),
             (1, "A", "B", "RESULT_HOME", "Heim", 2.0, 1.9, "Won", "x", shadow.SHADOW_HYBRID_MODEL_VERSION),
         ]
+        # Closing stamps are a later market state than the opening (contract of 28.10.2026).
         connection.executemany(
             "INSERT INTO predictions (fixture_id, home_team, away_team, market_type, prediction, odds, "
-            "closing_odds, result, created_at, model_version, policy_version) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-            [(*row, shadow.SHADOW_POLICY_VERSION) for row in predictions])
+            "closing_odds, result, created_at, model_version, policy_version, quoted_at, closing_quoted_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            [(*row, shadow.SHADOW_POLICY_VERSION, "2030-01-01T10:00:00+00:00",
+              "2030-01-01T12:00:00+00:00" if row[6] is not None else None) for row in predictions])
         ids = [row[0] for row in connection.execute("SELECT id FROM predictions ORDER BY id")]
         connection.executemany(
             "INSERT INTO shadow_edge_cap VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
