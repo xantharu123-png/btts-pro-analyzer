@@ -34,7 +34,19 @@ class CLVTracker:
     # old rule keep their policy version and satisfy the relaxed check as well.
     OPENING_QUOTE_MAX_AGE_V1 = timedelta(minutes=10)
     OPENING_QUOTE_MAX_AGE = timedelta(hours=3)
+    # Closing contract. Until 27.10.2026 the closing price itself had to carry a
+    # provider stamp inside the last 15 minutes before kick-off; API-Football
+    # refreshes pre-match odds roughly every three hours, so not one closing was
+    # captured (0 in 119 shadow runs). Owner decision 28.10.2026
+    # (docs/audits/2026-10-28-schlussquote-letzter-marktstand.md): the closing
+    # price is the last market state before kick-off. It must be CAPTURED inside
+    # the 15-minute window and its provider stamp may be up to three hours old at
+    # capture; capture clock and age are stored. A closing that repeats the
+    # opening market state (same provider stamp) is valid but carries no market
+    # information: it is counted, never used as CLV evidence. Rows captured under
+    # the old rule have no capture clock and are checked as before.
     CLOSING_WINDOW = timedelta(minutes=15)
+    CLOSING_QUOTE_MAX_AGE = timedelta(hours=3)
     SHADOW_SETTLEABLE_MARKETS = frozenset({
         'RESULT_HOME',
         'RESULT_DRAW',
@@ -112,6 +124,10 @@ class CLVTracker:
                 # Seconds between the provider stamp of the opening quote and the
                 # ledger clock (contract change 23.10.2026); NULL for older rows.
                 'opening_quote_age_seconds': 'INTEGER',
+                # Capture clock of the closing price and the age of its provider
+                # stamp at capture (contract change 28.10.2026); NULL for older rows.
+                'closing_captured_at': 'TEXT',
+                'closing_quote_age_seconds': 'INTEGER',
             }
             for column, column_type in additions.items():
                 if column not in existing:
@@ -162,19 +178,34 @@ class CLVTracker:
         return timestamp.astimezone(timezone.utc).isoformat()
 
     @classmethod
-    def _valid_closing_timing(cls, opening, closing, kickoff) -> bool:
+    def _valid_closing_timing(cls, opening, closing, kickoff, captured=None) -> bool:
+        """Closing clocks under the contract of 28.10.2026; rows without a capture clock use the old rule."""
         if opening is None or closing is None or kickoff is None:
             return False
         try:
             opening_time = datetime.fromisoformat(cls._iso_timestamp(opening))
             closing_time = datetime.fromisoformat(cls._iso_timestamp(closing))
             kickoff_time = datetime.fromisoformat(cls._iso_timestamp(kickoff))
+            capture_time = (datetime.fromisoformat(cls._iso_timestamp(captured))
+                            if captured is not None else closing_time)
         except (TypeError, ValueError):
             return False
         return (
-            opening_time <= closing_time < kickoff_time
-            and kickoff_time - closing_time <= cls.CLOSING_WINDOW
+            opening_time <= closing_time <= capture_time + timedelta(seconds=60)
+            and closing_time < kickoff_time
+            and capture_time < kickoff_time
+            and kickoff_time - capture_time <= cls.CLOSING_WINDOW
+            and capture_time - closing_time <= cls.CLOSING_QUOTE_MAX_AGE
         )
+
+    @staticmethod
+    def _new_market_state(opening, closing) -> bool:
+        """True when the closing stamp is a later provider market state than the opening stamp."""
+        try:
+            return (datetime.fromisoformat(CLVTracker._iso_timestamp(closing))
+                    > datetime.fromisoformat(CLVTracker._iso_timestamp(opening)))
+        except (TypeError, ValueError):
+            return False
 
     @staticmethod
     def _result_for_score(
@@ -345,7 +376,16 @@ class CLVTracker:
         bookmaker: str,
         quote_source: str,
         quoted_at=None,
+        captured_at=None,
     ) -> None:
+        """Store the closing price once.
+
+        ``quoted_at`` is the provider stamp of the quote, ``captured_at`` the
+        clock of the request that received it (contract of 28.10.2026: captured
+        inside the final 15 minutes, stamp at most three hours old at capture).
+        Without ``captured_at`` the old rule applies: the stamp itself must lie
+        inside the final 15 minutes.
+        """
         if (
             isinstance(prediction_id, bool)
             or not isinstance(prediction_id, int)
@@ -356,6 +396,7 @@ class CLVTracker:
         bookmaker = self._required_text(bookmaker, 'bookmaker')
         quote_source = self._required_text(quote_source, 'quote_source')
         quote_time = self._iso_timestamp(quoted_at)
+        capture_time = self._iso_timestamp(captured_at) if captured_at is not None else quote_time
         with self._connect() as conn:
             row = conn.execute(
                 '''
@@ -383,19 +424,29 @@ class CLVTracker:
                 raise ValueError("closing quote must use the opening source")
             kickoff_time = self._iso_timestamp(row[2])
             closing_datetime = datetime.fromisoformat(quote_time)
+            capture_datetime = datetime.fromisoformat(capture_time)
             kickoff_datetime = datetime.fromisoformat(kickoff_time)
-            if closing_datetime > datetime.now(timezone.utc) + timedelta(seconds=60):
+            current = datetime.now(timezone.utc) + timedelta(seconds=60)
+            if closing_datetime > current or capture_datetime > current:
                 raise ValueError("closing quote cannot be in the future")
-            if closing_datetime >= kickoff_datetime:
+            if closing_datetime > capture_datetime + timedelta(seconds=60):
+                raise ValueError("closing quote cannot be observed after its capture")
+            if closing_datetime >= kickoff_datetime or capture_datetime >= kickoff_datetime:
                 raise ValueError("closing quote must be captured before kickoff")
-            if kickoff_datetime - closing_datetime > self.CLOSING_WINDOW:
+            if kickoff_datetime - capture_datetime > self.CLOSING_WINDOW:
                 raise ValueError("closing quote is outside the 15-minute closing window")
+            if capture_datetime - closing_datetime > self.CLOSING_QUOTE_MAX_AGE:
+                raise ValueError("closing quote is older than three hours at capture")
+            closing_age = max(0, int((capture_datetime - closing_datetime).total_seconds()))
             cursor = conn.execute('''
                 UPDATE predictions
                 SET closing_odds = ?, closing_bookmaker = ?, closing_source = ?,
-                    closing_quoted_at = ?
+                    closing_quoted_at = ?, closing_captured_at = ?,
+                    closing_quote_age_seconds = ?
                 WHERE id = ? AND closing_odds IS NULL AND result IS NULL
-            ''', (price, bookmaker, quote_source, quote_time, prediction_id))
+            ''', (price, bookmaker, quote_source, quote_time,
+                  capture_time if captured_at is not None else None,
+                  closing_age if captured_at is not None else None, prediction_id))
             if cursor.rowcount != 1:
                 raise ValueError(
                     "closing price was already captured or the prediction was settled"
@@ -497,6 +548,7 @@ class CLVTracker:
                 'total_bets': 0,
                 'clv_bets': 0,
                 'independent_clv_fixtures': 0,
+                'closing_without_new_market_state': 0,
                 'evidence_valid': evidence_valid,
                 'cohort_versioned': cohort_versioned,
                 'duplicate_fixture_groups': duplicate_fixture_groups,
@@ -553,7 +605,8 @@ class CLVTracker:
                        odds, closing_odds, result, profit, created_at, settled_at,
                        home_score, away_score, bookmaker, quote_source, quoted_at,
                        closing_bookmaker, closing_source, closing_quoted_at,
-                       fixture_kickoff, opening_quote_age_seconds
+                       fixture_kickoff, opening_quote_age_seconds,
+                       closing_captured_at, closing_quote_age_seconds
                 FROM predictions
                 {settled_where}
             ''', tuple(integrity_params)).fetchall()
@@ -589,6 +642,7 @@ class CLVTracker:
                 raise ValueError(f"{field} is missing") from exc
 
         clv_values = []
+        without_new_market_state = 0
         for (
             fixture_id,
             home_team,
@@ -611,6 +665,8 @@ class CLVTracker:
             closing_time,
             kickoff,
             stored_opening_age,
+            closing_capture,
+            stored_closing_age,
         ) in rows:
             row_issues: set[str] = set()
             try:
@@ -674,6 +730,9 @@ class CLVTracker:
                     'closing_quoted_at',
                 )
                 kickoff_datetime = stored_time(kickoff, 'fixture_kickoff')
+                # Contract of 28.10.2026: a capture clock; older rows use the stamp.
+                capture_datetime = (stored_time(closing_capture, 'closing_captured_at')
+                                    if closing_capture is not None else closing_datetime)
                 opening_book = stored_text(opening_bookmaker, 'bookmaker')
                 opening_quote_source = stored_text(
                     opening_source,
@@ -696,18 +755,31 @@ class CLVTracker:
                     raise ValueError("quote_source")
                 if not (
                     opening_datetime <= closing_datetime < kickoff_datetime
-                    and kickoff_datetime - closing_datetime <= self.CLOSING_WINDOW
+                    and closing_datetime <= capture_datetime + timedelta(seconds=60)
+                    and capture_datetime < kickoff_datetime
+                    and kickoff_datetime - capture_datetime <= self.CLOSING_WINDOW
+                    and capture_datetime - closing_datetime <= self.CLOSING_QUOTE_MAX_AGE
                     and created_datetime < kickoff_datetime
                     and opening_datetime
                     <= created_datetime + timedelta(seconds=60)
                     and created_datetime - opening_datetime
                     <= self.OPENING_QUOTE_MAX_AGE
-                    and closing_datetime
+                    and capture_datetime
                     >= created_datetime - timedelta(seconds=60)
                     and settled_datetime >= kickoff_datetime
                     and settled_datetime <= current_time + timedelta(seconds=60)
                 ):
                     raise ValueError("quote_timing")
+                if stored_closing_age is not None:
+                    if (
+                        closing_capture is None
+                        or isinstance(stored_closing_age, bool)
+                        or not isinstance(stored_closing_age, int)
+                        or stored_closing_age < 0
+                        or abs(stored_closing_age
+                               - (capture_datetime - closing_datetime).total_seconds()) > 1.0
+                    ):
+                        raise ValueError("closing_quote_age")
                 if stored_opening_age is not None:
                     # A stored age must restate the row's own clocks (within a second).
                     if (
@@ -730,7 +802,11 @@ class CLVTracker:
                 continue
             clv_value = (opening_price / closing_price - 1.0) * 100.0
             valid_rows.append((result, numeric_profit, clv_value))
-            clv_values.append(clv_value)
+            if closing_datetime > opening_datetime:
+                clv_values.append(clv_value)
+            else:
+                # Same provider market state as the opening: CLV 0 by construction.
+                without_new_market_state += 1
 
         if invalid_evidence_rows:
             return empty_statistics(
@@ -753,6 +829,7 @@ class CLVTracker:
             'total_bets': len(valid_rows),
             'clv_bets': len(clv_values),
             'independent_clv_fixtures': len(clv_values),
+            'closing_without_new_market_state': without_new_market_state,
             'evidence_valid': True,
             'cohort_versioned': cohort_versioned,
             'duplicate_fixture_groups': 0,
@@ -793,7 +870,8 @@ class CLVTracker:
                 SELECT id, fixture_id, home_team, away_team, market_type,
                        prediction, odds, closing_odds, result, profit, created_at,
                        bookmaker, quote_source, quoted_at, closing_quoted_at,
-                       fixture_kickoff, opening_quote_age_seconds
+                       fixture_kickoff, opening_quote_age_seconds,
+                       closing_captured_at, closing_quote_age_seconds
                 FROM predictions
                 {where}
                 ORDER BY created_at DESC
@@ -831,6 +909,10 @@ class CLVTracker:
                 'closing_quoted_at': row[14],
                 'fixture_kickoff': row[15],
                 'opening_quote_age_seconds': row[16],
+                'closing_captured_at': row[17],
+                'closing_quote_age_seconds': row[18],
+                'closing_new_market_state': (
+                    self._new_market_state(row[13], row[14]) if row[14] is not None else None),
                 'clv': round(
                     (opening_price / closing_price - 1.0) * 100.0,
                     2,
@@ -838,7 +920,8 @@ class CLVTracker:
                 if (
                     opening_price is not None
                     and closing_price is not None
-                    and self._valid_closing_timing(row[13], row[14], row[15])
+                    and self._valid_closing_timing(row[13], row[14], row[15], row[17])
+                    and self._new_market_state(row[13], row[14])
                 )
                 else None,
             })

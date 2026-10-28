@@ -72,6 +72,11 @@ als terminal, sodass die Hybrid-Kohorte strukturell leer blieb (Gesamtaudit D4);
 verglichen gegen `WIN` statt des gespeicherten `Won` (S3). Behoben mit Massnahme 2
 (`docs/audits/2026-10-25-shadow-massnahme-2.md`).
 
+*Nachtrag 28.10.2026:* Bis zum 27.10. wurde keine Schlussquote erfasst (15-Minuten-Stempel gegen
+Drei-Stunden-Takt von API-Football). Seit dem 28.10. ist die Schlussquote der letzte Marktstand vor
+Anpfiff (höchstens drei Stunden alt); Paare zählen nur, wenn beide Kohorten einen neuen Marktstand haben
+(`pairs_without_new_market_state`), Policy v7 (`docs/audits/2026-10-28-schlussquote-letzter-marktstand.md`).
+
 ## Prüfplan
 
 1. Mindestens 300 abgerechnete Spiele mit gültigem Closing in **beiden** Kohorten

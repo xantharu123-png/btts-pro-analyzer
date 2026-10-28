@@ -47,6 +47,9 @@ Code, dann `PROJECT_HANDBUCH.md`, dann die Bibel. Historische Logs: `TODO_AKTUEL
   1,20-Grenze ist dreistufig (Median der Buchmacher statt Bestpreis; Tor-Bereiche ohne
   Quote über die Über/Unter-Linien; ohne jeden Preisbeleg nur unter 65 %
   Modellwahrscheinlichkeit; `docs/audits/2026-10-25-preispruefung-dreistufig.md`).
+- **Shadow-Schlussquote seit 28.10.2026** (`docs/audits/2026-10-28-schlussquote-letzter-marktstand.md`):
+  letzter Bet365-Stand vor Anpfiff, abgerufen in den letzten 15 Minuten, höchstens drei Stunden alt;
+  ein wiederholter Öffnungsstand ist keine CLV-Evidenz; Policy `shadow-model-first-v7`.
 - **Betrieb seit 25.10.2026 abends** (`docs/audits/2026-10-25-betrieb-massnahme-3.md`): Die
   Timer `wettfinder/tennis/esports/quotes` holen verpasste Läufe nach; die sechs Kerneinheiten
   alarmieren über `betboy-alert@%n.service` (Helfer `scripts/betboy_alert.py`, Vorlage unter

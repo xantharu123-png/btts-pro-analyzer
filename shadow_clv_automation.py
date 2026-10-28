@@ -107,7 +107,9 @@ SHADOW_MODEL_VERSION = "challenge-engine-coherent-joint-calibration-v14"
 # Policy v6 (23.10.2026): the opening quote may carry a provider stamp up to
 # three hours old (CLVTracker.OPENING_QUOTE_MAX_AGE) and its age is stored per
 # row; v5 required ten minutes. Rows of v5 stay in their own cohort.
-SHADOW_POLICY_VERSION = "shadow-model-first-v6"
+# v7 (28.10.2026): closing = last Bet365 market state before kick-off, captured in the final
+# 15 minutes and at most three hours old (docs/audits/2026-10-28-schlussquote-letzter-marktstand.md).
+SHADOW_POLICY_VERSION = "shadow-model-first-v7"
 # Second cohort (docs/superpowers/plans/2026-10-22-hybrid-aktivierung.md): the
 # coherent hybrid is evaluated on the same fixtures with the same quote response
 # and logged under its own model version. The legacy cohort is written first
@@ -919,6 +921,12 @@ def operational_errors(messages) -> list[str]:
     return [str(message) for message in messages if not is_data_status(message)]
 
 
+def _new_market_state(opening_stamp, closing_stamp) -> bool:
+    """The closing carries a later provider market state than the opening (owner 28.10.2026)."""
+    opening, closing = _parse_iso(opening_stamp), _parse_iso(closing_stamp)
+    return opening is not None and closing is not None and closing > opening
+
+
 def _is_win(result) -> bool:
     """The tracker stores 'Won'/'Lost'/'Push' (``CLVTracker.settle_prediction``).
 
@@ -1094,7 +1102,8 @@ def _edge_cap_statistics() -> dict:
     connection = _connect()
     try:
         rows = connection.execute(
-            """SELECT p.model_version, e.passed, p.odds, p.closing_odds, p.result
+            """SELECT p.model_version, e.passed, p.odds, p.closing_odds, p.result,
+                      p.quoted_at, p.closing_quoted_at
                FROM shadow_edge_cap e JOIN predictions p ON p.id = e.prediction_id
                WHERE p.policy_version = ?
                ORDER BY e.prediction_id""",
@@ -1103,11 +1112,11 @@ def _edge_cap_statistics() -> dict:
     finally:
         connection.close()
     cohorts: dict[str, dict] = {}
-    for model_version, passed, opening, closing, result in rows:
+    for model_version, passed, opening, closing, result, opening_stamp, closing_stamp in rows:
         cohort = cohorts.setdefault(model_version, {
             "recorded": 0, "passed": 0, "failed": 0, "unknown": 0,
             "clv": {"passed": [], "failed": []}, "wins": {"passed": 0, "failed": 0},
-            "decided": {"passed": 0, "failed": 0},
+            "decided": {"passed": 0, "failed": 0}, "without_new_market_state": 0,
         })
         cohort["recorded"] += 1
         if passed is None:
@@ -1118,6 +1127,9 @@ def _edge_cap_statistics() -> dict:
         prices = (opening, closing)
         if result is None or any(type(price) not in (int, float) or not math.isfinite(price) or price <= 1.0
                                  for price in prices):
+            continue
+        if not _new_market_state(opening_stamp, closing_stamp):
+            cohort["without_new_market_state"] += 1  # closing repeats the opening state (28.10.2026)
             continue
         cohort["clv"][group].append((opening / closing - 1.0) * 100.0)
         if _decided(result):
@@ -1132,6 +1144,7 @@ def _edge_cap_statistics() -> dict:
             "recorded": cohort["recorded"], "passed": cohort["passed"], "failed": cohort["failed"],
             "unknown": cohort["unknown"],
             "closed_passed": closed["passed"], "closed_failed": closed["failed"],
+            "closed_without_new_market_state": cohort["without_new_market_state"],
             "passed_avg_clv": mean(cohort["clv"]["passed"]), "failed_avg_clv": mean(cohort["clv"]["failed"]),
             # Pre-registered criterion (docs/superpowers/plans/2026-10-21-edge-cap.md): HAC interval per group.
             "passed_clv": _clv_interval(cohort["clv"]["passed"]),
@@ -1254,15 +1267,19 @@ def step_closing(tracker: CLVTracker, provider: ShadowProvider, now: datetime) -
             continue
         quote, quoted_at = observation
         kickoff_at = _parse_iso(kickoff_text)
-        if quoted_at > now or kickoff_at is None or not now < kickoff_at:
+        if quoted_at > now or kickoff_at is None or not now < kickoff_at or not quoted_at < kickoff_at:
             continue
-        if not timedelta(0) < kickoff_at - quoted_at <= CLOSING_WINDOW:
+        # Owner decision 28.10.2026: the closing is the last market state before
+        # kick-off, captured now (inside the final 15 minutes) and at most three
+        # hours old; API-Football refreshes pre-match odds about every three hours.
+        if now - quoted_at > tracker.CLOSING_QUOTE_MAX_AGE:
+            errors.append(f"Closing {fixture_id}: {BOOKMAKER_NAME}-Quote/Zeitstempel {market_key} älter als drei Stunden")
             continue
         try:
             tracker.update_closing_odds(
                 prediction_id, quote,
                 bookmaker=BOOKMAKER_NAME, quote_source=QUOTE_SOURCE,
-                quoted_at=quoted_at,
+                quoted_at=quoted_at, captured_at=now,
             )
             captured += 1
         except (ValueError, KeyError) as exc:
@@ -1691,7 +1708,7 @@ def _paired_cohort_statistics() -> dict:
         rows = connection.execute(
             """SELECT a.odds, a.closing_odds, b.odds, b.closing_odds,
                       a.market_type = b.market_type AND a.prediction = b.prediction,
-                      a.result, b.result
+                      a.result, b.result, a.quoted_at, a.closing_quoted_at, b.quoted_at, b.closing_quoted_at
                FROM predictions a JOIN predictions b
                  ON a.fixture_id = b.fixture_id AND a.policy_version = b.policy_version
                WHERE a.model_version = ? AND b.model_version = ?
@@ -1703,9 +1720,15 @@ def _paired_cohort_statistics() -> dict:
     finally:
         connection.close()
     legacy, hybrid, same, wins, decided = [], [], 0, [0, 0], [0, 0]
-    for legacy_open, legacy_close, hybrid_open, hybrid_close, identical, legacy_result, hybrid_result in rows:
+    without_new_market_state = 0
+    for (legacy_open, legacy_close, hybrid_open, hybrid_close, identical, legacy_result, hybrid_result,
+         legacy_open_stamp, legacy_close_stamp, hybrid_open_stamp, hybrid_close_stamp) in rows:
         prices = (legacy_open, legacy_close, hybrid_open, hybrid_close)
         if any(type(price) not in (int, float) or not math.isfinite(price) or price <= 1.0 for price in prices):
+            continue
+        if not (_new_market_state(legacy_open_stamp, legacy_close_stamp)
+                and _new_market_state(hybrid_open_stamp, hybrid_close_stamp)):
+            without_new_market_state += 1  # either closing repeats its opening state (28.10.2026)
             continue
         legacy.append((legacy_open / legacy_close - 1.0) * 100.0)
         hybrid.append((hybrid_open / hybrid_close - 1.0) * 100.0)
@@ -1720,6 +1743,7 @@ def _paired_cohort_statistics() -> dict:
     return {
         "pairs": pairs,
         "minimum_pairs": SHADOW_REVIEW_MIN_CLV_BETS,
+        "pairs_without_new_market_state": without_new_market_state,
         "same_selection": same,
         "legacy_avg_clv": mean(legacy),
         "hybrid_avg_clv": mean(hybrid),
