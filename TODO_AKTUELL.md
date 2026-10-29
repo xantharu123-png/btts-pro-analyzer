@@ -1,5 +1,24 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 29.10.2026 14:43 – Release 20261029-1 live: Shadow-Altersgrenze 12 h, Policy v8 (PR #55)
+
+Owner-Entscheid B aus `docs/audits/2026-10-29-bet365-zeitstempel.md`: Öffnungs- und Schlussquote im Shadow dürfen
+einen Bet365-Stand bis **zwölf Stunden** Alter tragen (`CLVTracker.OPENING_QUOTE_MAX_AGE`,
+`CLOSING_QUOTE_MAX_AGE`), Policy **`shadow-model-first-v8`**. Abruf (Öffnung 20–75 min vor Anpfiff, Schluss in
+den letzten 15 min), gespeichertes Alter und der Ausschluss wiederholter Marktstände aus der CLV-Evidenz bleiben;
+das Run-Artefakt nennt zusätzlich `closing_quote_max_age_seconds`. Regressionstest für den Fall 1638113.
+
+Nach Owner-Freigabe um 14:43 CET als **`0d9a4e8`** per No-Backup-Fast-forward von `8c28a34` ausgerollt (Helfer
+`output/release-20261029-1/deploy.sh`, abgeleitet vom Helfer 20261028-3, 13 Pfade, Code nur `clv_tracker.py`
+und `shadow_clv_automation.py`; Offline-Prüfung 12 h/12 h/v8 ok; nur App-Neustart PID 1384218→1399656;
+Healthchecks ok, Snapshots unverändert, kein Backup, Einheiten unverändert; Fenster 529 s vor dem nächsten
+Shadow-Lauf). Prüfung danach (`verify-01.log`): Shadow 14:52 `success`/Exit 0 (`idle`, noch kein Spiel fällig),
+geladene Konstanten 12:00:00/12:00:00/`shadow-model-first-v8`, Website HTTP 200, kein neuer Alarm.
+
+Offen: erster aktiver v8-Lauf ab etwa 15:45 CET (Anpfiff 16:00 UTC), dann Anzahl v8-Tipps je Kohorte,
+Schlussquoten mit neuem Marktstand und No-Vig-CLV beobachten; Owner-Frage später: ob ein unveränderter
+Schlussstand als „Markt unverändert“ in die CLV-Evidenz gehört.
+
 ## 29.10.2026 12:20 – Bet365-Zeitstempel geklärt: 3-Stunden-Grenze hat keinen Puffer
 
 Owner-Auftrag: nur lesend klären, warum der Bet365-Stand von Spiel 1638113 nach 12:04 UTC nicht erneuert wurde
