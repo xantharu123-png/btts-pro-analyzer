@@ -1,5 +1,25 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## 29.10.2026 12:20 – Bet365-Zeitstempel geklärt: 3-Stunden-Grenze hat keinen Puffer
+
+Owner-Auftrag: nur lesend klären, warum der Bet365-Stand von Spiel 1638113 nach 12:04 UTC nicht erneuert wurde
+(`docs/audits/2026-10-29-bet365-zeitstempel.md`, Protokoll `output/release-20261028-3/verify-04-zeitstempel.log`).
+
+- API-Football setzt das Feld `update` **je Spiel in Sammelläufen** (am 29.10. um 00:00, 04:01, 06:00 und
+  08:00–08:21 UTC, also 2 bis 4 Stunden auseinander), nicht je Quote. Der Shadow liest es ohne Zwischenspeicher.
+- Vergleich der Quotenläufe 09:15 und 12:15 CET: 7 von 8 Spielen bekamen einen neuen Stempel, alle mit geänderten
+  Preisen; das achte behielt seinen Stempel von 00:00 UTC ohne jede Preisänderung. Der Stempel wandert also mit
+  Preisänderungen; ob der Anbieter unveränderte Spiele trotzdem neu abfragt, ist von aussen nicht beweisbar.
+- 1638113: Bis zum einzigen Schlussabruf um 15:52 UTC kam kein Stand nach 12:52 UTC, sehr wahrscheinlich galt noch
+  12:04 UTC (3 h 48 min) und wurde verworfen. Beim Abruf 11:15 UTC am 29.10. waren 7 von 8 Stempeln älter als drei
+  Stunden, obwohl sich sechs dieser Spiele erst um 08:00–08:04 UTC bewegt hatten.
+- Folge: Die Grenze von drei Stunden für Öffnung und Schluss entspricht dem Abstand der Sammelläufe und lässt
+  keinen Puffer; daher 0 Hybrid-Tipps und keine Schlussquoten. Optionen A (so lassen), B (Grenze z. B. 12 h, Alter
+  weiter gespeichert), C (Schluss ohne Altersgrenze), jeweils Policy v8; Empfehlung Claude: B. Entscheid beim Owner.
+
+Betrieb 10:01 CET: Quotenläufe 00:15–09:15 ok, Shadow ohne Fehlschlag, Platzwächter `ok` (19,8 GB frei), kein
+neuer Alarm, Produktion `8c28a34`, Website HTTP 200. Der v7-Tipp 1638113 ist abgerechnet (0:0, verloren).
+
 ## 29.10.2026 – Morgenprüfung: Schlussquoten und Tennis-Lauf
 
 Prüfung am 29.10. 07:30 CET (nur lesend, `output/release-20261028-3/verify-03-morning.log`).
