@@ -1,5 +1,36 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 29.10.2026 – Morgenprüfung: Schlussquoten und Tennis-Lauf
+
+Prüfung am 29.10. 07:30 CET (nur lesend, `output/release-20261028-3/verify-03-morning.log`).
+
+Schlussquoten: Unter Policy `shadow-model-first-v7` gibt es **1 Tipp**, Legacy-Kohorte, Spiel 1638113,
+`TOTAL_OVER_1_5`, Anpfiff 28.10. 16:00 UTC, protokolliert 14:52 UTC mit Öffnungsquote 1,20 (Bet365-Stand
+12:04 UTC). **Keine Schlussquote erfasst**: Der letzte Bet365-Stand vor Anpfiff war der Öffnungsstand von
+12:04 UTC und damit beim Anpfiff älter als drei Stunden; der Shadow verwarf ihn regelkonform („Bet365-Quote/
+Zeitstempel TOTAL_OVER_1_5 älter als drei Stunden“). Abrufzeit, Alter, neuer Marktstand, faire
+Schlusswahrscheinlichkeit und No-Vig-CLV sind deshalb leer; `shadow_closing_market` hat 0 Zeilen; `predictions.result` des
+Tipps ist noch leer. Hybrid-Kohorte weiterhin 0 Tipps.
+
+Shadow-Läufe seit 28.10. 07:13: 145, davon 0 Fehlschläge (35 `completed`, 18 `partial`, 92 `idle`); summiert über
+die `completed`-Läufe: 15 Spiele geplant, 15 bewertet, 44 zurückgestellt, Legacy 2 glaubwürdige Kandidaten,
+1 Tipp, 0 Schlussquoten, 1 Abrechnung; Hybrid 49 Kandidatenmeldungen, alle ohne Bet365-Quote jünger als drei Stunden, 0 Tipps.
+`shadow_published` erfasste 16 veröffentlichte Tipps mit Quote, 9 abgerechnet. Tipps pro Tag: 26.10. 2 (v6),
+27.10. 1 (v6), 28.10. 1 (v7).
+
+Tennis: Lauf 29.10. 00:05–00:16 CET, Result `success`, ExecMainStatus 0; eine übergrosse Partie mit
+`live_case_raw_admission_exceeded` ausgeschlossen („nur diagnostizierte Fallausschlüsse; der Lauf gilt als
+erfolgreich“). Kein `retention exceeded`, kein neuer Alarm in `ops_alerts.jsonl` seit 28.10. 23:00 UTC (letzte
+Alarme 26./27.10.). Der Exit-Fix (PR #43) ist damit belegt.
+
+Betrieb: Quotenläufe 29.10. 00:15, 03:15, 06:15 ohne Fehlschlag; Platzwächter 05:15 `ok`, 19,8 GB frei,
+Laufzeitdatenbanken 8,59 GiB; Produktion `8c28a34`, App aktiv, Website HTTP 200.
+
+Befund: Die neue Schlussregel greift, liefert aber noch keinen CLV-Beleg. Bei Tipps, die Stunden vor Anpfiff mit
+einem älteren Bet365-Stand öffnen, und Bet365-Aktualisierungen nur etwa alle drei Stunden bleibt die Schlussquote
+oft leer. Zusammen mit einem Tipp pro Tag sind 300 Paare für den Hybrid-Prüfplan nicht in Sicht; der Entscheid
+zur Öffnungs- und Schlussbedingung bleibt beim Owner.
+
 ## 28.10.2026 15:32 – Schlussquoten-Prüfung: noch kein Beleg, weil der Shadow heute keinen Tipp protokolliert hat
 
 Prüfung nach dem ersten Schlussfenster (nur lesend, `output/release-20261028-3/verify-02-closing.log`): unter Policy
