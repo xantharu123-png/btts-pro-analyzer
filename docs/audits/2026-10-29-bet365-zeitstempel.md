@@ -52,7 +52,7 @@ Liest man den Stempel als Zeit der letzten Änderung, ist ein alter Stempel bei 
 Dann wäre auch ein Schlussstand mit dem Öffnungsstempel echte Information (der Markt hat sich nicht bewegt) und
 nicht bloss „kein neuer Marktstand“.
 
-## Optionen (Owner-Entscheid, nichts umgesetzt)
+## Optionen
 
 - **A – so lassen:** kaum Tipps und praktisch keine Schlussquoten; der Hybrid-Prüfplan (300 Paare) bleibt
   unerreichbar.
@@ -64,3 +64,21 @@ nicht bloss „kein neuer Marktstand“.
 
 Jede Änderung braucht eine neue Policy-Version (v8), damit die Evidenz unter einer einheitlichen Regel entsteht.
 Empfehlung Claude: B, weil sie die meisten Paare bringt und einen Schutz gegen tote Daten behält.
+
+## Owner-Entscheid 29.10.2026: Option B (Policy `shadow-model-first-v8`)
+
+- `CLVTracker.OPENING_QUOTE_MAX_AGE` und `CLVTracker.CLOSING_QUOTE_MAX_AGE` von 3 h auf **12 h**. Der Abruf bleibt
+  wie bisher: Öffnung beim Bewerten 20 bis 75 Minuten vor Anpfiff, Schluss in den letzten 15 Minuten
+  (`CLOSING_WINDOW`). Das Alter wird je Zeile gespeichert (`opening_quote_age_seconds`,
+  `closing_quote_age_seconds`), das Run-Artefakt nennt beide Grenzen (`opening_quote_max_age_seconds`,
+  `closing_quote_max_age_seconds`).
+- Ein älterer Stand bleibt Datenstatus („…-Quote/Zeitstempel … älter als zwölf Stunden“, kein Alarm).
+- Unverändert: Ein Schlussstand mit dem Stempel der Öffnung zählt nicht als CLV-Evidenz
+  (`closing_without_new_market_state`, `pairs_without_new_market_state`). Unter v8 werden solche Zeilen
+  häufiger; ob sie als „Markt unverändert“ in die Evidenz gehören, ist eine spätere Owner-Frage, sobald genug
+  v8-Zeilen vorliegen.
+- Zeilen unter v5 bis v7 behalten ihre Kohorte; sie erfüllen die gelockerte Prüfung ebenfalls. Der Tracker ist
+  derselbe für den öffentlichen CLV-Pfad (`advanced_analyzer`, `btts_data_clv.db`, derzeit 0 Zeilen); auch dort
+  gilt die 12-Stunden-Grenze.
+- Regressionstest für den Fall vom 28.10. (`tests/test_shadow_closing_rule.py::
+  test_v8_keeps_the_28_october_closing_older_than_three_hours`).

@@ -6,6 +6,8 @@ runs). The closing is now the last market state before kick-off: captured in
 the final 15 minutes, provider stamp at most three hours old at capture, capture
 clock and age stored. A closing that repeats the opening market state is valid
 but no CLV evidence. Rows captured under the old rule keep their checks.
+Owner decision 29.10.2026 (policy v8): the stamp may be up to twelve hours old,
+because API-Football stamps per fixture in batch runs two to four hours apart.
 """
 from datetime import datetime, timedelta, timezone
 import sqlite3
@@ -41,8 +43,8 @@ def _row(db_path, prediction_id):
 
 def test_contract_constants():
     assert CLVTracker.CLOSING_WINDOW == timedelta(minutes=15)
-    assert CLVTracker.CLOSING_QUOTE_MAX_AGE == timedelta(hours=3)
-    assert shadow.SHADOW_POLICY_VERSION == "shadow-model-first-v7"
+    assert CLVTracker.CLOSING_QUOTE_MAX_AGE == timedelta(hours=12)
+    assert shadow.SHADOW_POLICY_VERSION == "shadow-model-first-v8"
 
 
 def test_tracker_stores_the_last_market_state_with_capture_clock_and_age(tmp_path):
@@ -63,10 +65,10 @@ def test_tracker_refuses_stale_states_and_captures_outside_the_window(tmp_path):
     first = _record(tracker, kickoff=kickoff, opening_age=timedelta(minutes=170), fixture_id=1)
     with sqlite3.connect(tmp_path / "clv.db") as connection:  # an opening logged long ago (real clocks cannot)
         connection.execute("UPDATE predictions SET quoted_at = ? WHERE id = ?",
-                           ((NOW - timedelta(minutes=200)).isoformat(), first))
-    with pytest.raises(ValueError, match="older than three hours"):
+                           ((NOW - timedelta(minutes=760)).isoformat(), first))
+    with pytest.raises(ValueError, match="older than twelve hours"):
         tracker.update_closing_odds(first, 1.70, bookmaker=shadow.BOOKMAKER_NAME, quote_source=shadow.QUOTE_SOURCE,
-                                    quoted_at=NOW - timedelta(minutes=190), captured_at=NOW)
+                                    quoted_at=NOW - timedelta(minutes=725), captured_at=NOW)
     with pytest.raises(ValueError, match="before kickoff|in the future"):
         tracker.update_closing_odds(first, 1.70, bookmaker=shadow.BOOKMAKER_NAME, quote_source=shadow.QUOTE_SOURCE,
                                     quoted_at=NOW - timedelta(minutes=30), captured_at=kickoff)
@@ -164,14 +166,33 @@ def test_shadow_marks_a_repeated_state_and_skips_a_stale_one_as_data_status(shad
     stale = tracker.record_prediction(
         fixture_id=22, home_team="Home", away_team="Away", market_type="BTTS_YES", prediction="Ja", odds=1.75,
         model_probability=55.0, bookmaker=shadow.BOOKMAKER_NAME, quote_source=shadow.QUOTE_SOURCE,
-        fixture_kickoff=kickoff, quoted_at=NOW - timedelta(minutes=179),
+        fixture_kickoff=kickoff, quoted_at=NOW - timedelta(minutes=719),
         model_version=shadow.SHADOW_MODEL_VERSION, policy_version=shadow.SHADOW_POLICY_VERSION)
+    with sqlite3.connect(stale_db) as connection:  # an opening logged long ago (real clocks cannot)
+        connection.execute("UPDATE predictions SET quoted_at = ? WHERE id = ?",
+                           ((NOW - timedelta(minutes=730)).isoformat(), stale))
     provider = SimpleNamespace(odds=lambda *a, **k: _odds_response(
-        updated_at=(NOW - timedelta(minutes=185)).isoformat()))
+        updated_at=(NOW - timedelta(minutes=725)).isoformat()))
     shadow.errors.clear()
     assert shadow.step_closing(tracker, provider, NOW) == 0
     assert _row(stale_db, stale)[0] is None
     assert shadow.errors and all(shadow.is_data_status(message) for message in shadow.errors)
+
+
+def test_v8_keeps_the_28_october_closing_older_than_three_hours(shadow_db):
+    # Fixture 1638113 on 28.10.2026: stamp 12:04 UTC, logged 14:52, kick-off 16:00, closing call 15:52.
+    kickoff = NOW + timedelta(minutes=8)
+    prediction_id = _record(shadow_db.tracker, kickoff=kickoff, opening_age=timedelta(minutes=168))
+    with sqlite3.connect(shadow_db.db_path) as connection:  # the opening was logged an hour before the call
+        connection.execute("UPDATE predictions SET quoted_at = ?, created_at = ? WHERE id = ?",
+                           ((NOW - timedelta(minutes=228)).isoformat(), (NOW - timedelta(minutes=60)).isoformat(),
+                            prediction_id))
+    opening_stamp = _row(shadow_db.db_path, prediction_id)[1]
+    provider = SimpleNamespace(odds=lambda *a, **k: _odds_response(updated_at=opening_stamp))
+    assert shadow.step_closing(shadow_db.tracker, provider, NOW) == 1
+    closing, _, closing_stamp, captured, age = _row(shadow_db.db_path, prediction_id)
+    assert closing == 1.75 and closing_stamp == opening_stamp and captured == NOW.isoformat()
+    assert age == 228 * 60 and shadow.errors == []
 
 
 def test_edge_cap_and_paired_statistics_leave_repeated_states_out(shadow_db):
