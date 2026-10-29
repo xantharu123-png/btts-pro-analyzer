@@ -77,6 +77,10 @@ Drei-Stunden-Takt von API-Football). Seit dem 28.10. ist die Schlussquote der le
 Anpfiff (höchstens drei Stunden alt); Paare zählen nur, wenn beide Kohorten einen neuen Marktstand haben
 (`pairs_without_new_market_state`), Policy v7 (`docs/audits/2026-10-28-schlussquote-letzter-marktstand.md`).
 
+*Nachtrag 29.10.2026:* Unter v7 fehlten der Hybrid-Kohorte alle Öffnungen (Bet365-Stand älter als drei
+Stunden). Seit Policy v8 gilt für Öffnung und Schluss eine Grenze von zwölf Stunden
+(`docs/audits/2026-10-29-bet365-zeitstempel.md`); die 300 Paare zählen nur unter einer einheitlichen Policy.
+
 ## Prüfplan
 
 1. Mindestens 300 abgerechnete Spiele mit gültigem Closing in **beiden** Kohorten

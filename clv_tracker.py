@@ -32,21 +32,26 @@ class CLVTracker:
     # 23.10.2026 (docs/audits/2026-10-23-oeffnungsquote-frischeregel.md): three
     # hours, and the actual age is stored with every row. Rows recorded under the
     # old rule keep their policy version and satisfy the relaxed check as well.
+    # Owner decision 29.10.2026 (docs/audits/2026-10-29-bet365-zeitstempel.md):
+    # twelve hours for opening and closing. API-Football stamps the odds of a
+    # fixture in batch runs two to four hours apart and moves the stamp with price
+    # changes, so three hours left no margin; the limit now only guards
+    # against a provider that stopped delivering.
     OPENING_QUOTE_MAX_AGE_V1 = timedelta(minutes=10)
-    OPENING_QUOTE_MAX_AGE = timedelta(hours=3)
+    OPENING_QUOTE_MAX_AGE = timedelta(hours=12)
     # Closing contract. Until 27.10.2026 the closing price itself had to carry a
     # provider stamp inside the last 15 minutes before kick-off; API-Football
     # refreshes pre-match odds roughly every three hours, so not one closing was
     # captured (0 in 119 shadow runs). Owner decision 28.10.2026
     # (docs/audits/2026-10-28-schlussquote-letzter-marktstand.md): the closing
     # price is the last market state before kick-off. It must be CAPTURED inside
-    # the 15-minute window and its provider stamp may be up to three hours old at
-    # capture; capture clock and age are stored. A closing that repeats the
+    # the 15-minute window and its provider stamp may be up to three hours (since
+    # 29.10.2026 twelve hours) old at capture; capture clock and age are stored. A closing that repeats the
     # opening market state (same provider stamp) is valid but carries no market
     # information: it is counted, never used as CLV evidence. Rows captured under
     # the old rule have no capture clock and are checked as before.
     CLOSING_WINDOW = timedelta(minutes=15)
-    CLOSING_QUOTE_MAX_AGE = timedelta(hours=3)
+    CLOSING_QUOTE_MAX_AGE = timedelta(hours=12)
     SHADOW_SETTLEABLE_MARKETS = frozenset({
         'RESULT_HOME',
         'RESULT_DRAW',
@@ -382,7 +387,8 @@ class CLVTracker:
 
         ``quoted_at`` is the provider stamp of the quote, ``captured_at`` the
         clock of the request that received it (contract of 28.10.2026: captured
-        inside the final 15 minutes, stamp at most three hours old at capture).
+        inside the final 15 minutes, stamp at most twelve hours old at capture
+        since 29.10.2026).
         Without ``captured_at`` the old rule applies: the stamp itself must lie
         inside the final 15 minutes.
         """
@@ -436,7 +442,7 @@ class CLVTracker:
             if kickoff_datetime - capture_datetime > self.CLOSING_WINDOW:
                 raise ValueError("closing quote is outside the 15-minute closing window")
             if capture_datetime - closing_datetime > self.CLOSING_QUOTE_MAX_AGE:
-                raise ValueError("closing quote is older than three hours at capture")
+                raise ValueError("closing quote is older than twelve hours at capture")
             closing_age = max(0, int((capture_datetime - closing_datetime).total_seconds()))
             cursor = conn.execute('''
                 UPDATE predictions

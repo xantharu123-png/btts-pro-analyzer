@@ -109,7 +109,10 @@ SHADOW_MODEL_VERSION = "challenge-engine-coherent-joint-calibration-v14"
 # row; v5 required ten minutes. Rows of v5 stay in their own cohort.
 # v7 (28.10.2026): closing = last Bet365 market state before kick-off, captured in the final
 # 15 minutes and at most three hours old (docs/audits/2026-10-28-schlussquote-letzter-marktstand.md).
-SHADOW_POLICY_VERSION = "shadow-model-first-v7"
+# v8 (29.10.2026): opening and closing stamps may be up to twelve hours old, because
+# API-Football stamps per fixture in batch runs two to four hours apart and moves the
+# stamp with price changes (docs/audits/2026-10-29-bet365-zeitstempel.md).
+SHADOW_POLICY_VERSION = "shadow-model-first-v8"
 # Second cohort (docs/superpowers/plans/2026-10-22-hybrid-aktivierung.md): the
 # coherent hybrid is evaluated on the same fixtures with the same quote response
 # and logged under its own model version. The legacy cohort is written first
@@ -1277,10 +1280,10 @@ def step_closing(tracker: CLVTracker, provider: ShadowProvider, now: datetime) -
         if quoted_at > now or kickoff_at is None or not now < kickoff_at or not quoted_at < kickoff_at:
             continue
         # Owner decision 28.10.2026: the closing is the last market state before
-        # kick-off, captured now (inside the final 15 minutes) and at most three
-        # hours old; API-Football refreshes pre-match odds about every three hours.
+        # kick-off, captured now (inside the final 15 minutes); since 29.10.2026 its
+        # stamp may be up to twelve hours old (policy v8).
         if now - quoted_at > tracker.CLOSING_QUOTE_MAX_AGE:
-            errors.append(f"Closing {fixture_id}: {BOOKMAKER_NAME}-Quote/Zeitstempel {market_key} älter als drei Stunden")
+            errors.append(f"Closing {fixture_id}: {BOOKMAKER_NAME}-Quote/Zeitstempel {market_key} älter als zwölf Stunden")
             continue
         try:
             tracker.update_closing_odds(
@@ -2030,6 +2033,7 @@ def run(ctx):
         "model_version": SHADOW_MODEL_VERSION,
         "policy_version": SHADOW_POLICY_VERSION,
         "opening_quote_max_age_seconds": int(CLVTracker.OPENING_QUOTE_MAX_AGE.total_seconds()),
+        "closing_quote_max_age_seconds": int(CLVTracker.CLOSING_QUOTE_MAX_AGE.total_seconds()),
         "hybrid_cohort": {
             "enabled": hybrid_cohort_enabled(),
             "goal_model": SHADOW_HYBRID_GOAL_MODEL,
