@@ -1,5 +1,32 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 30.10.2026 20:08 – Release 20261030-2 live: Bewertung nach Gewinn und Verlust zur geholten Quote (PR #60)
+
+Owner-Entscheid 30.10.2026 abends (`docs/audits/2026-10-30-shadow-bewertung-ergebnis.md`): Die Quote wird einmal
+geholt; bewertet wird, ob der Tipp zu dieser Quote gewinnt. Massgeblich sind `results` (abgerechnete Tipps ohne
+Schlussquoten-Pflicht, Trefferquote, Rendite je Tipp mit HAC-Intervall, Vergleich mit der No-Vig-Wahrscheinlichkeit
+zur Öffnung) und `verdict` (`_result_verdict`, Prüfstufe nach **1000** abgerechneten Tipps); Schlussquote und CLV
+laufen im Hintergrund (`clv_verdict`). Hybrid gegen Legacy über `hybrid_cohort.paired_results`. Auswahl und Policy
+`shadow-model-first-v9` unverändert.
+
+Nach Owner-Freigabe um 20:08 CET als **`d43c81a`** per No-Backup-Fast-forward von `fd29323` ausgerollt (Helfer
+`output/release-20261030-2/deploy.sh`, abgeleitet vom Helfer 20261030-1, 8 Pfade, Code nur
+`shadow_clv_automation.py`; Offline-Prüfung ok; nur App-Neustart PID 1408795→1413458; Healthchecks ok, Snapshots
+unverändert, kein Backup, Einheiten unverändert; Fenster 232 s vor dem nächsten Shadow-Lauf). Prüfung danach
+(`verify-01.log`): Shadow 20:12 `success`/Exit 0 (Status `partial` nur durch Datenstatus), `evaluation`
+`won_lost_at_opening_quote`, Urteil „Shadow-Evidenzaufbau: 0/1000“, Konstanten 12 h/12 h/v9/1,3, Website HTTP 200,
+kein neuer Alarm.
+
+Befund Tippmenge 30.10. (`output/release-20261030-1/verify-03-funnel.log`, `verify-04-hybrid.log`, nur lesend):
+42 Shadow-Spiele in 26 Ligen (Wochentage 14–42, Wochenende 117–143); grösster Verlust sind Spiele mit glaubwürdigem
+Kandidaten, aber ohne Bet365-Quote bei API-Football (mindestens 8 Spiele, je bis zu 5 Wiederholungen); die
+1,30-Grenze griff wenige Male. Hybrid: Vorbereitung fehlerfrei (`builds_failed` 0, `fixtures_without_artifacts` 0),
+seine Kandidaten lagen nur auf Spielen ohne Bet365-Quote; v9 bisher 2 Legacy-Tipps (1565519 Unter 3,5 zu 1,44,
+1570442 Unter 4,5 zu 1,30), Hybrid 0.
+
+Offen: Vorschlag an den Owner, bei fehlender Bet365-Quote die Quote eines anderen Buchmachers zu nehmen (neue
+Policy); erste abgerechnete v9-Tipps in `results` beobachten.
+
 ## 30.10.2026 09:22 – Release 20261030-1 live: Shadow-Mindestquote 1,30, Policy v9 (PR #58)
 
 Owner-Entscheid 30.10.2026 (`docs/audits/2026-10-30-shadow-mindestquote.md`): Ein Shadow-Tipp braucht eine
