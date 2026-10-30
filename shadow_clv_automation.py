@@ -146,6 +146,10 @@ def _basis_cache_version(goal_model: str):
         return None
     return prediction_version_for_goal_model(goal_model).replace(":", "-")
 SHADOW_REVIEW_MIN_CLV_BETS = 300
+# Owner decision 30.10.2026 (docs/audits/2026-10-30-shadow-bewertung-ergebnis.md): the shadow is
+# judged by won/lost at the quote it fetched once; the closing quote stays a background record.
+# Results are noisier than CLV, so the review needs 1000 settled tips of one model/policy version.
+SHADOW_REVIEW_MIN_SETTLED = 1000
 SCHEDULE_MAX_ATTEMPTS = 3
 SCHEDULE_RETRY_DELAY = timedelta(minutes=20)
 
@@ -1855,6 +1859,124 @@ def _no_vig_clv_statistics() -> dict:
     }
 
 
+def _result_statistics(model_version: str) -> dict:
+    """Won/lost at the fetched opening quote for one cohort (owner decision 30.10.2026).
+
+    A settled tip counts without a closing quote. Its result must match the stored
+    score and its profit the opening price, as in the CLV statistics; a row that does
+    not counts as invalid and blocks the verdict. The market comparison sets the hit
+    rate against the no-vig probability of the tipped side at the opening (edge cap).
+    """
+    connection = _connect()
+    try:
+        rows = connection.execute(
+            """SELECT p.market_type, p.prediction, p.odds, p.result, p.profit,
+                      p.home_score, p.away_score, e.market_probability
+               FROM predictions p LEFT JOIN shadow_edge_cap e ON e.prediction_id = p.id
+               WHERE p.model_version = ? AND p.policy_version = ? AND p.result IS NOT NULL
+               ORDER BY p.created_at, p.id""",
+            (model_version, SHADOW_POLICY_VERSION),
+        ).fetchall()
+    finally:
+        connection.close()
+    counts = {"Won": 0, "Lost": 0, "Push": 0}
+    returns, prices, market, outcomes = [], [], [], []
+    invalid = 0
+    for market_type, prediction, opening, result, profit, home_score, away_score, probability in rows:
+        try:
+            if type(opening) not in (int, float) or not math.isfinite(opening) or opening <= 1.0:
+                raise ValueError("odds")
+            if result not in counts or type(profit) not in (int, float):
+                raise ValueError("result")
+            if CLVTracker._result_for_score(market_type, prediction, home_score, away_score) != result:
+                raise ValueError("result")
+            expected = opening - 1.0 if result == "Won" else (-1.0 if result == "Lost" else 0.0)
+            if not math.isclose(profit, expected, rel_tol=1e-9, abs_tol=1e-9):
+                raise ValueError("profit")
+        except (TypeError, ValueError):
+            invalid += 1
+            continue
+        counts[result] += 1
+        returns.append(profit * 100.0)
+        prices.append(opening)
+        if result != "Push" and type(probability) in (int, float) and 0.0 < probability < 1.0:
+            market.append(probability)
+            outcomes.append(1.0 if result == "Won" else 0.0)
+    decided = counts["Won"] + counts["Lost"]
+    mean = lambda values: round(sum(values) / len(values), 4) if values else None  # noqa: E731
+    return {
+        "settled": len(returns),
+        "won": counts["Won"],
+        "lost": counts["Lost"],
+        "push": counts["Push"],
+        "invalid_rows": invalid,
+        "hit_rate": round(counts["Won"] / decided, 4) if decided else None,
+        "avg_odds": round(sum(prices) / len(prices), 3) if prices else None,
+        "profit_units": round(sum(returns) / 100.0, 2),
+        # Return per tip in % of the stake, chronological, with the HAC interval.
+        "roi": _clv_interval(returns),
+        "market": {"n": len(market), "hit_rate": mean(outcomes), "market_hit_rate": mean(market)},
+        "minimum_settled": SHADOW_REVIEW_MIN_SETTLED,
+    }
+
+
+def _paired_result_statistics() -> dict:
+    """Same fixture, both cohorts settled: return per tip, hybrid minus legacy, in pp."""
+    connection = _connect()
+    try:
+        rows = connection.execute(
+            """SELECT a.profit, b.profit
+               FROM predictions a JOIN predictions b
+                 ON a.fixture_id = b.fixture_id AND a.policy_version = b.policy_version
+               WHERE a.model_version = ? AND b.model_version = ? AND a.policy_version = ?
+                 AND a.result IS NOT NULL AND b.result IS NOT NULL
+               ORDER BY a.created_at, a.id""",
+            (SHADOW_MODEL_VERSION, SHADOW_HYBRID_MODEL_VERSION, SHADOW_POLICY_VERSION),
+        ).fetchall()
+    finally:
+        connection.close()
+    differences = [
+        (hybrid - legacy) * 100.0
+        for legacy, hybrid in rows
+        if all(type(value) in (int, float) and math.isfinite(value) for value in (legacy, hybrid))
+    ]
+    return {
+        "pairs": len(differences),
+        "minimum_pairs": SHADOW_REVIEW_MIN_SETTLED,
+        "difference": _clv_interval(differences),
+    }
+
+
+def _result_verdict(results: dict) -> str:
+    """Verdict on won/lost at the fetched quote (owner decision 30.10.2026)."""
+    invalid = results.get("invalid_rows") or 0
+    if invalid:
+        return (
+            f"Shadow-Evidenz gesperrt: {invalid} abgerechnete Zeile(n) passen nicht zu Endstand "
+            "oder Quote. Keine Freigabediskussion."
+        )
+    settled = results.get("settled") or 0
+    if settled < SHADOW_REVIEW_MIN_SETTLED:
+        return (
+            f"Shadow-Evidenzaufbau: {settled}/{SHADOW_REVIEW_MIN_SETTLED} abgerechnete Tipps "
+            "(Gewinn/Verlust zur geholten Quote). Vor "
+            f"{SHADOW_REVIEW_MIN_SETTLED} Tipps derselben Modell-/Policy-Version gibt es keine "
+            "Freigabediskussion."
+        )
+    roi = results.get("roi") or {}
+    mean_value, lower = roi.get("mean"), roi.get("lower_bound")
+    roi_text = (
+        f"{mean_value:+.2f} % je Tipp, untere Grenze {lower:+.2f} %"
+        if mean_value is not None and lower is not None
+        else "nicht berechenbar"
+    )
+    return (
+        f"Shadow-Prüfstufe erreicht: {settled}/{SHADOW_REVIEW_MIN_SETTLED} abgerechnete Tipps. "
+        f"Rendite zur geholten Quote: {roi_text}. Erst eine untere Grenze über 0 ist ein Beleg; "
+        "eine Echtgeldfreigabe braucht zusätzlich Kalibrierung und einen Owner-Entscheid."
+    )
+
+
 def _recent(tracker: CLVTracker) -> list[dict]:
     recent = []
     for item in tracker.get_recent_predictions(
@@ -2021,6 +2143,7 @@ def run(ctx):
         policy_version=SHADOW_POLICY_VERSION,
     )
     open_count, pending_closing = _counts()
+    results = _result_statistics(SHADOW_MODEL_VERSION)
 
     artifact = {
         "run_at": _utc_iso(now),
@@ -2047,7 +2170,11 @@ def run(ctx):
         "errors": errors[-15:],
         "operational_errors": operational_errors(errors)[-15:],
         "status": "partial" if errors else "completed",
-        "verdict": _verdict(stats_all),
+        # Owner decision 30.10.2026: won/lost at the fetched quote decides; CLV is background.
+        "evaluation": "won_lost_at_opening_quote",
+        "results": results,
+        "verdict": _result_verdict(results),
+        "clv_verdict": _verdict(stats_all),
         "reference_bookmaker": BOOKMAKER_NAME,
         "quote_source": QUOTE_SOURCE,
         "model_version": SHADOW_MODEL_VERSION,
@@ -2074,6 +2201,8 @@ def run(ctx):
             "stats_all": tracker.get_clv_statistics(
                 days=36500, model_version=SHADOW_HYBRID_MODEL_VERSION, policy_version=SHADOW_POLICY_VERSION),
             "paired": _paired_cohort_statistics(),
+            "results": _result_statistics(SHADOW_HYBRID_MODEL_VERSION),
+            "paired_results": _paired_result_statistics(),
         },
         "edge_cap": _edge_cap_statistics(),
         "no_vig_clv": _no_vig_clv_statistics(),

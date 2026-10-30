@@ -56,6 +56,9 @@ Code, dann `PROJECT_HANDBUCH.md`, dann die Bibel. Historische Logs: `TODO_AKTUEL
 - **Shadow-Mindestquote seit 30.10.2026** (`docs/audits/2026-10-30-shadow-mindestquote.md`, Owner-Entscheid):
   Ein Shadow-Tipp braucht eine Bet365-Öffnungsquote von mindestens 1,30 (`SHADOW_MIN_ODDS`); unter den übrigen
   Kandidaten bleibt die Reihenfolge modellgeführt. Die 1,20-Grenze der App bleibt; Policy `shadow-model-first-v9`.
+- **Shadow-Bewertung seit 30.10.2026** (`docs/audits/2026-10-30-shadow-bewertung-ergebnis.md`, Owner-Entscheid):
+  Massgeblich sind Gewinn und Verlust zur einmal geholten Quote (`results`, `_result_verdict`, Prüfstufe nach 1000
+  abgerechneten Tipps, `SHADOW_REVIEW_MIN_SETTLED`); Schlussquote und CLV laufen nur im Hintergrund (`clv_verdict`).
 - **Betrieb seit 25.10.2026 abends** (`docs/audits/2026-10-25-betrieb-massnahme-3.md`): Die
   Timer `wettfinder/tennis/esports/quotes` holen verpasste Läufe nach; die sechs Kerneinheiten
   alarmieren über `betboy-alert@%n.service` (Helfer `scripts/betboy_alert.py`, Vorlage unter
