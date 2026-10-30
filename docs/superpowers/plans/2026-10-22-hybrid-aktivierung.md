@@ -86,6 +86,13 @@ Stunden). Seit Policy v8 gilt für Öffnung und Schluss eine Grenze von zwölf S
 
 ## Prüfplan
 
+*Owner-Entscheid 30.10.2026* (`docs/audits/2026-10-30-shadow-bewertung-ergebnis.md`): Bewertet wird nach Gewinn
+und Verlust zur geholten Öffnungsquote, nicht mehr nach CLV, weil API-Football vor Anpfiff keinen neuen
+Bet365-Stand liefert. Damit gilt statt der Punkte 1 bis 3: mindestens **1000** abgerechnete Spiele in beiden
+Kohorten (paarweise, gleiche Spiele, Policy v9 oder später einheitlich); Rendite-Differenz je Spiel (hybrid minus
+legacy) mit HAC-Intervall (`hybrid_cohort.paired_results`); Aktivierung nur bei unterer Grenze über 0 und ohne
+schlechtere Kalibrierung. Die Abbruchkriterien gelten mit 1000 statt 300 Paaren. Ursprünglicher Plan:
+
 1. Mindestens 300 abgerechnete Spiele mit gültigem Closing in **beiden** Kohorten
    (paarweise, gleiche Spiele).
 2. Paarweise CLV-Differenz mit HAC-Intervall; Trefferquote je Kohorte gegen die
