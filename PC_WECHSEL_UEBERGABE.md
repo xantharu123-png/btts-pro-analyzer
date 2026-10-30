@@ -1,5 +1,22 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## 30.10.2026 20:47 – Release 20261030-3 live: Shadow-Altersgrenze 24 Stunden, Policy v10 (PR #62)
+
+Owner-Entscheid 30.10.2026 (`docs/audits/2026-10-30-shadow-altersgrenze-24h.md`): Öffnungs- und Schlussquote dürfen
+einen Bet365-Stand bis **24 Stunden** Alter tragen, weil viele Spiele nur den nächtlichen Stempel haben (am 30.10.
+bei 6 von 8 Spielen ohne „aktuelle“ Quote 16 bis 18,5 Stunden alt); ein anderer Buchmacher hilft nicht, der Stempel
+gilt je Spiel für alle. `results.by_opening_age` trennt abgerechnete Tipps nach bis 12 h / über 12 h / unbekannt.
+Policy **`shadow-model-first-v10`**; die 1000 Tipps zählen unter v10 neu.
+
+Nach Owner-Freigabe um 20:47 CET als **`caedd05`** per No-Backup-Fast-forward von `d43c81a` ausgerollt (Helfer
+`output/release-20261030-3/deploy.sh`, abgeleitet vom Helfer 20261030-2, 14 Pfade, Code `clv_tracker.py` und
+`shadow_clv_automation.py`; Offline-Prüfung 24 h/24 h/v10 ok; nur App-Neustart PID 1413458→1415177; Healthchecks ok,
+Snapshots unverändert, kein Backup, Einheiten unverändert; Fenster 258 s vor dem nächsten Shadow-Lauf). Prüfung
+danach (`verify-01.log`): Shadow 20:52 `success`/Exit 0, Policy v10, Urteil „Shadow-Evidenzaufbau: 0/1000“,
+Konstanten 24 h/24 h/v10/1,3, Website HTTP 200, kein neuer Alarm.
+
+Offen: erste v10-Tipps am Wochenende beobachten (Anzahl je Kohorte, Alter der Öffnung, `by_opening_age`).
+
 ## 30.10.2026 20:08 – Release 20261030-2 live: Bewertung nach Gewinn und Verlust zur geholten Quote (PR #60)
 
 Owner-Entscheid 30.10.2026 abends (`docs/audits/2026-10-30-shadow-bewertung-ergebnis.md`): Die Quote wird einmal
