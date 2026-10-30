@@ -6,6 +6,7 @@ first and never depends on the hybrid; the flag ``BETBOY_SHADOW_HYBRID_BASIS=0``
 switches the cohort off.
 """
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 import sqlite3
 from types import SimpleNamespace
 
@@ -281,3 +282,42 @@ def test_paired_statistics_compare_only_fixtures_closed_in_both_cohorts(ledger):
     assert difference["n"] == 2 and difference["mean"] == paired["avg_difference"]
     assert difference["hac_standard_error"] > 0 and difference["lower_bound"] < difference["mean"]
     assert 0.0 <= difference["p_value"] <= 1.0
+
+
+def test_v9_needs_an_opening_quote_of_at_least_1_30():
+    # Owner decision 30.10.2026 (docs/audits/2026-10-30-shadow-mindestquote.md): the minimum
+    # filters, the model-first order of the remaining candidates stays.
+    assert shadow.SHADOW_POLICY_VERSION == "shadow-model-first-v9" and shadow.SHADOW_MIN_ODDS == 1.30
+    now = datetime(2030, 1, 1, tzinfo=timezone.utc)
+    first, second, third = _candidate("TOTAL_OVER_1_5"), _candidate("RESULT_HOME"), _candidate("BTTS_YES")
+    observed = [(first, 1.17, now), (second, 1.3, now), (third, 1.85, now)]
+    assert shadow._at_minimum_odds(observed) == [(second, 1.3, now), (third, 1.85, now)]
+    source = Path(shadow.__file__).read_text(encoding="utf-8")
+    assert '"minimum_odds": SHADOW_MIN_ODDS' in source and source.count('"fixtures_below_minimum_odds"') == 2
+
+
+def test_both_cohorts_take_the_best_ranked_candidate_at_the_minimum(ledger, monkeypatch):
+    monkeypatch.delenv(shadow.SHADOW_HYBRID_FLAG, raising=False)
+    monkeypatch.setattr(shadow, "build_fixture_candidates",
+                        lambda *args, **kwargs: [_candidate("TOTAL_OVER_1_5"), _candidate("BTTS_YES")])
+    monkeypatch.setattr(shadow, "_model_first_observations", lambda credible, odds_response, now: [
+        (credible[0], 1.17, now - timedelta(minutes=1)), (credible[1], 1.85, now - timedelta(minutes=1))])
+    result = shadow.step_evaluate(ledger.tracker, _Provider(), ledger.now, date.today(), 10)
+    with sqlite3.connect(ledger.db_path) as connection:
+        rows = connection.execute("SELECT model_version, market_type, odds FROM predictions ORDER BY id").fetchall()
+    assert rows == [(shadow.SHADOW_MODEL_VERSION, "BTTS_YES", 1.85),
+                    (shadow.SHADOW_HYBRID_MODEL_VERSION, "BTTS_YES", 1.85)]
+    assert result["logged"] == 1 and result["hybrid_logged"] == 1 and result["evaluated"] == 1
+    assert "below_minimum_odds" not in result and shadow.errors == []
+
+
+def test_quotes_all_below_the_minimum_log_no_tip_and_keep_the_fixture_open(ledger, monkeypatch):
+    monkeypatch.delenv(shadow.SHADOW_HYBRID_FLAG, raising=False)
+    monkeypatch.setattr(shadow, "_model_first_observations",
+                        lambda credible, odds_response, now: [(credible[0], 1.25, now - timedelta(minutes=1))])
+    result = shadow.step_evaluate(ledger.tracker, _Provider(), ledger.now, date.today(), 10)
+    assert _rows(ledger.db_path) == []
+    assert result["below_minimum_odds"] == 1 and result["hybrid_below_minimum_odds"] == 1
+    assert "quote_missing" not in result and "hybrid_quote_missing" not in result
+    # No data problem, so no error; the fixture is retried like any fixture without a tip.
+    assert shadow.errors == [] and result["evaluated"] == 0 and result.get("deferred") == 1
