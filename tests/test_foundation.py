@@ -1149,8 +1149,8 @@ class CLVTrackerTests(unittest.TestCase):
                     quote_source="API",
                     fixture_kickoff=now + timedelta(hours=4),
                     # Contract change 23.10.2026: three hours of provider age are allowed;
-                    # since 29.10.2026 twelve hours.
-                    quoted_at=now - timedelta(hours=12, minutes=1),
+                    # since 29.10.2026 twelve hours, since 30.10.2026 24 hours.
+                    quoted_at=now - timedelta(hours=24, minutes=1),
                     model_version="test-model",
                     policy_version="test-policy",
                 )

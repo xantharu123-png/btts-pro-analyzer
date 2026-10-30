@@ -116,7 +116,9 @@ SHADOW_MODEL_VERSION = "challenge-engine-coherent-joint-calibration-v14"
 # below that the pick is a favourite anyone can back blindly and says nothing about the
 # model (docs/audits/2026-10-30-shadow-mindestquote.md). The order among the remaining
 # candidates stays model-first.
-SHADOW_POLICY_VERSION = "shadow-model-first-v9"
+# v10 (30.10.2026, owner decision): opening and closing stamps may be up to 24 hours old, because
+# many fixtures carry only the overnight stamp (docs/audits/2026-10-30-shadow-altersgrenze-24h.md).
+SHADOW_POLICY_VERSION = "shadow-model-first-v10"
 SHADOW_MIN_ODDS = 1.30
 # Second cohort (docs/superpowers/plans/2026-10-22-hybrid-aktivierung.md): the
 # coherent hybrid is evaluated on the same fixtures with the same quote response
@@ -1294,10 +1296,10 @@ def step_closing(tracker: CLVTracker, provider: ShadowProvider, now: datetime) -
         if quoted_at > now or kickoff_at is None or not now < kickoff_at or not quoted_at < kickoff_at:
             continue
         # Owner decision 28.10.2026: the closing is the last market state before
-        # kick-off, captured now (inside the final 15 minutes); since 29.10.2026 its
-        # stamp may be up to twelve hours old (policy v8).
+        # kick-off, captured now (inside the final 15 minutes); since 30.10.2026 its
+        # stamp may be up to 24 hours old (policy v10).
         if now - quoted_at > tracker.CLOSING_QUOTE_MAX_AGE:
-            errors.append(f"Closing {fixture_id}: {BOOKMAKER_NAME}-Quote/Zeitstempel {market_key} älter als zwölf Stunden")
+            errors.append(f"Closing {fixture_id}: {BOOKMAKER_NAME}-Quote/Zeitstempel {market_key} älter als 24 Stunden")
             continue
         try:
             tracker.update_closing_odds(
@@ -1871,7 +1873,7 @@ def _result_statistics(model_version: str) -> dict:
     try:
         rows = connection.execute(
             """SELECT p.market_type, p.prediction, p.odds, p.result, p.profit,
-                      p.home_score, p.away_score, e.market_probability
+                      p.home_score, p.away_score, e.market_probability, p.opening_quote_age_seconds
                FROM predictions p LEFT JOIN shadow_edge_cap e ON e.prediction_id = p.id
                WHERE p.model_version = ? AND p.policy_version = ? AND p.result IS NOT NULL
                ORDER BY p.created_at, p.id""",
@@ -1881,8 +1883,10 @@ def _result_statistics(model_version: str) -> dict:
         connection.close()
     counts = {"Won": 0, "Lost": 0, "Push": 0}
     returns, prices, market, outcomes = [], [], [], []
+    # Policy v10 admits stamps up to 24 hours old; the split shows whether older ones do worse.
+    by_age = {"up_to_12h": [], "over_12h": [], "unknown": []}
     invalid = 0
-    for market_type, prediction, opening, result, profit, home_score, away_score, probability in rows:
+    for market_type, prediction, opening, result, profit, home_score, away_score, probability, age in rows:
         try:
             if type(opening) not in (int, float) or not math.isfinite(opening) or opening <= 1.0:
                 raise ValueError("odds")
@@ -1899,6 +1903,9 @@ def _result_statistics(model_version: str) -> dict:
         counts[result] += 1
         returns.append(profit * 100.0)
         prices.append(opening)
+        bucket = ("unknown" if type(age) is not int or age < 0
+                  else "up_to_12h" if age <= 12 * 3600 else "over_12h")
+        by_age[bucket].append((result, profit))
         if result != "Push" and type(probability) in (int, float) and 0.0 < probability < 1.0:
             market.append(probability)
             outcomes.append(1.0 if result == "Won" else 0.0)
@@ -1916,7 +1923,18 @@ def _result_statistics(model_version: str) -> dict:
         # Return per tip in % of the stake, chronological, with the HAC interval.
         "roi": _clv_interval(returns),
         "market": {"n": len(market), "hit_rate": mean(outcomes), "market_hit_rate": mean(market)},
+        "by_opening_age": {name: _age_bucket(items) for name, items in by_age.items()},
         "minimum_settled": SHADOW_REVIEW_MIN_SETTLED,
+    }
+
+
+def _age_bucket(items: list[tuple[str, float]]) -> dict:
+    """Settled tips, hit rate and mean return in % of the stake for one opening-age bucket."""
+    decided = [result for result, _ in items if result != "Push"]
+    return {
+        "settled": len(items),
+        "hit_rate": round(sum(result == "Won" for result in decided) / len(decided), 4) if decided else None,
+        "roi_mean": round(sum(profit for _, profit in items) / len(items) * 100.0, 2) if items else None,
     }
 
 
