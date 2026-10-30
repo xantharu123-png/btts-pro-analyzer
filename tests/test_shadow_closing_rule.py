@@ -44,7 +44,7 @@ def _row(db_path, prediction_id):
 def test_contract_constants():
     assert CLVTracker.CLOSING_WINDOW == timedelta(minutes=15)
     assert CLVTracker.CLOSING_QUOTE_MAX_AGE == timedelta(hours=12)
-    assert shadow.SHADOW_POLICY_VERSION == "shadow-model-first-v8"
+    assert shadow.SHADOW_POLICY_VERSION == "shadow-model-first-v9"
 
 
 def test_tracker_stores_the_last_market_state_with_capture_clock_and_age(tmp_path):

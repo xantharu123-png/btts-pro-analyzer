@@ -112,7 +112,12 @@ SHADOW_MODEL_VERSION = "challenge-engine-coherent-joint-calibration-v14"
 # v8 (29.10.2026): opening and closing stamps may be up to twelve hours old, because
 # API-Football stamps per fixture in batch runs two to four hours apart and moves the
 # stamp with price changes (docs/audits/2026-10-29-bet365-zeitstempel.md).
-SHADOW_POLICY_VERSION = "shadow-model-first-v8"
+# v9 (30.10.2026, owner decision): a tip needs a Bet365 opening quote of at least 1.30;
+# below that the pick is a favourite anyone can back blindly and says nothing about the
+# model (docs/audits/2026-10-30-shadow-mindestquote.md). The order among the remaining
+# candidates stays model-first.
+SHADOW_POLICY_VERSION = "shadow-model-first-v9"
+SHADOW_MIN_ODDS = 1.30
 # Second cohort (docs/superpowers/plans/2026-10-22-hybrid-aktivierung.md): the
 # coherent hybrid is evaluated on the same fixtures with the same quote response
 # and logged under its own model version. The legacy cohort is written first
@@ -1190,6 +1195,11 @@ def _model_first_observations(credible, odds_response, now: datetime):
     return observed
 
 
+def _at_minimum_odds(observed):
+    """Keep the model-first order and drop quotes below the shadow minimum (policy v9)."""
+    return [item for item in observed if item[1] >= SHADOW_MIN_ODDS]
+
+
 # --------------------------------------------------------------------------
 # Run steps
 # --------------------------------------------------------------------------
@@ -1532,7 +1542,12 @@ def _evaluate_hybrid_cohort(tracker: CLVTracker, provider: ShadowProvider, detai
                 result["hybrid_quote_missing"] = result.get("hybrid_quote_missing", 0) + 1
             outcome["terminal"] = False  # Quote or context may still arrive before kickoff.
             return outcome
-        pick, quote, quoted_at = observed[0]
+        priced = _at_minimum_odds(observed)
+        if not priced:
+            result["hybrid_below_minimum_odds"] = result.get("hybrid_below_minimum_odds", 0) + 1
+            outcome["terminal"] = False  # Like the legacy rule: context may still add a candidate.
+            return outcome
+        pick, quote, quoted_at = priced[0]
         try:
             prediction_id = tracker.record_prediction(
                 fixture_id=fixture_id,
@@ -1626,7 +1641,8 @@ def step_evaluate(tracker: CLVTracker, provider: ShadowProvider, now: datetime,
         result["credible_candidates"] = result.get("credible_candidates", 0) + len(credible)
         odds_response = provider.odds(fixture_id) if credible else None
         observed = _model_first_observations(credible, odds_response, now)
-        pick, quote, quoted_at = observed[0] if observed else (None, None, None)
+        priced = _at_minimum_odds(observed)
+        pick, quote, quoted_at = priced[0] if priced else (None, None, None)
         logged = False
         existing = False
         if pick is not None:
@@ -1661,6 +1677,9 @@ def step_evaluate(tracker: CLVTracker, provider: ShadowProvider, now: datetime,
                         )
                 except ValueError as exc:
                     errors.append(f"Logging {fixture_id}: {exc}")
+        elif observed:
+            # Fresh quotes, all below the minimum: no tip and no data problem (policy v9).
+            result["below_minimum_odds"] = result.get("below_minimum_odds", 0) + 1
         elif credible:
             errors.append(
                 f"Fixture {fixture_id}: keine aktuelle {BOOKMAKER_NAME}-Quote mit Providerzeit; Retry"
@@ -2012,6 +2031,7 @@ def run(ctx):
             "fixtures_deferred": evaluation.get("deferred", 0),
             "credible_model_candidates": evaluation.get("credible_candidates", 0),
             "fixtures_without_fresh_quote": evaluation.get("quote_missing", 0),
+            "fixtures_below_minimum_odds": evaluation.get("below_minimum_odds", 0),
             "predictions_logged": evaluation["logged"],
             "closings_captured": closings,
             "predictions_settled": settled,
@@ -2034,6 +2054,7 @@ def run(ctx):
         "policy_version": SHADOW_POLICY_VERSION,
         "opening_quote_max_age_seconds": int(CLVTracker.OPENING_QUOTE_MAX_AGE.total_seconds()),
         "closing_quote_max_age_seconds": int(CLVTracker.CLOSING_QUOTE_MAX_AGE.total_seconds()),
+        "minimum_odds": SHADOW_MIN_ODDS,
         "hybrid_cohort": {
             "enabled": hybrid_cohort_enabled(),
             "goal_model": SHADOW_HYBRID_GOAL_MODEL,
@@ -2046,6 +2067,7 @@ def run(ctx):
             "fixtures_without_artifacts": evaluation.get("hybrid_not_ready", 0),
             "credible_model_candidates": evaluation.get("hybrid_credible_candidates", 0),
             "fixtures_without_fresh_quote": evaluation.get("hybrid_quote_missing", 0),
+            "fixtures_below_minimum_odds": evaluation.get("hybrid_below_minimum_odds", 0),
             "predictions_logged": evaluation.get("hybrid_logged", 0),
             "stats_30d": tracker.get_clv_statistics(
                 days=30, model_version=SHADOW_HYBRID_MODEL_VERSION, policy_version=SHADOW_POLICY_VERSION),

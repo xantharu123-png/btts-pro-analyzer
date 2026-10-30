@@ -81,6 +81,9 @@ Anpfiff (höchstens drei Stunden alt); Paare zählen nur, wenn beide Kohorten ei
 Stunden). Seit Policy v8 gilt für Öffnung und Schluss eine Grenze von zwölf Stunden
 (`docs/audits/2026-10-29-bet365-zeitstempel.md`); die 300 Paare zählen nur unter einer einheitlichen Policy.
 
+*Nachtrag 30.10.2026:* Seit Policy v9 nimmt der Shadow nur Tipps ab einer Bet365-Öffnungsquote von 1,30
+(`docs/audits/2026-10-30-shadow-mindestquote.md`); die Zählung der 300 Paare beginnt unter v9 neu.
+
 ## Prüfplan
 
 1. Mindestens 300 abgerechnete Spiele mit gültigem Closing in **beiden** Kohorten

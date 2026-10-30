@@ -126,7 +126,9 @@ def test_missing_partition_is_recorded_as_unknown_and_never_blocks_the_ledger(le
     monkeypatch.setattr(shadow, "build_fixture_candidates",
                         lambda *args, **kwargs: [_candidate(0.9, "TOTAL_OVER_0_5")])
     quoted_at = ledger.now - timedelta(minutes=1)
-    response = _odds_response(updated_at=quoted_at.isoformat())
+    # One-sided Over 0.5 without Under 0.5; priced at 1.40 because policy v9 logs no tip below 1.30.
+    response = _odds_response(updated_at=quoted_at.isoformat(), bets=[
+        {"name": "Goals Over/Under", "values": [{"value": "Over 0.5", "odd": "1.40"}]}])
     result = shadow.step_evaluate(ledger.tracker, _Provider(response), ledger.now, date.today(), 10)
     assert result["logged"] == 1 and shadow.errors == []
     rows = _edge_rows(ledger.db_path)

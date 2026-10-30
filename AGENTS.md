@@ -53,6 +53,9 @@ Code, dann `PROJECT_HANDBUCH.md`, dann die Bibel. Historische Logs: `TODO_AKTUEL
 - **Shadow-Altersgrenze seit 29.10.2026** (`docs/audits/2026-10-29-bet365-zeitstempel.md`, Owner-Entscheid B):
   Öffnungs- und Schlussquote dürfen einen Bet365-Stand bis zwölf Stunden Alter tragen, weil API-Football je
   Spiel in Sammelläufen 2 bis 4 Stunden auseinander stempelt; Policy `shadow-model-first-v8`.
+- **Shadow-Mindestquote seit 30.10.2026** (`docs/audits/2026-10-30-shadow-mindestquote.md`, Owner-Entscheid):
+  Ein Shadow-Tipp braucht eine Bet365-Öffnungsquote von mindestens 1,30 (`SHADOW_MIN_ODDS`); unter den übrigen
+  Kandidaten bleibt die Reihenfolge modellgeführt. Die 1,20-Grenze der App bleibt; Policy `shadow-model-first-v9`.
 - **Betrieb seit 25.10.2026 abends** (`docs/audits/2026-10-25-betrieb-massnahme-3.md`): Die
   Timer `wettfinder/tennis/esports/quotes` holen verpasste Läufe nach; die sechs Kerneinheiten
   alarmieren über `betboy-alert@%n.service` (Helfer `scripts/betboy_alert.py`, Vorlage unter
