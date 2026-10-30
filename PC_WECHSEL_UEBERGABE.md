@@ -1,5 +1,28 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## 30.10.2026 – Morgenprüfung: erste v8-Tipps und Schlussquoten
+
+Prüfung 30.10. 07:47 CET, nur lesend (`output/release-20261029-1/check_closing_v8.sh`, `fixtures_today.sh`,
+Ausgabe `verify-03-morning.log`). **2 v8-Tipps, beide Kohorte legacy; Hybrid-Kohorte weiterhin 0 Tipps.**
+
+- Fixture 1638114, `TOTAL_OVER_1_5`, Anpfiff 29.10. 16:00 UTC: Öffnung 1,25 (Stempel 12:04 UTC), Schlussquote
+  **erfasst** 1,25 um 15:52 UTC, Stempel 12:04 UTC, Alter 228 min (Grenze 720), **kein neuer Marktstand**
+  (`new_state` False); rechnerischer No-Vig-CLV −2,94 pp (faire Schlusswahrscheinlichkeit 0,7765), zählt nicht als Evidenz.
+- Fixture 1638115, `TOTAL_OVER_1_5`, Anpfiff 29.10. 17:00 UTC: Öffnung 1,17 (Stempel 12:04 UTC), Schlussquote
+  **erfasst** 1,17 um 16:52 UTC, Stempel 12:04 UTC, Alter 288 min, **kein neuer Marktstand**; rechnerischer No-Vig-CLV
+  −2,01 pp (0,8375), zählt nicht als Evidenz.
+- Shadow-Spiele 29.10.: 15, davon 15 bewertet. Keine Datenstatus-Meldungen („älter als zwölf Stunden“, „Details
+  fehlen“, „Retry“) in der Ausgabe.
+
+Betrieb seit 29.10. 14:43: 0 fehlgeschlagene Shadow-Läufe (28 `completed`, 69 `idle`, 5 `partial`), 2 erfasste
+Schlussquoten; Quotenläufe 30.10. 00:15, 03:15, 06:15 erfolgreich; Platzwächter ok (19,7 GB frei, DB 8,65 GB);
+letzter Alarm weiterhin 27.10. (Tennis); App aktiv, Website HTTP 200, Produktion `0d9a4e8`.
+
+Befund: Beide Schlussstände wiederholen den Öffnungsstand (gleicher Bet365-Stempel 12:04 UTC), damit gibt es
+weiterhin **keine CLV-Evidenz**. Keine Aussage über Gewinn; eine Freigabediskussion braucht 300 eindeutige Paare
+derselben Policy. Offen: weiter beobachten; Owner-Frage, ob ein unveränderter Schlussstand als „Markt unverändert“
+in die CLV-Evidenz gehört, wird mit diesem Muster dringlicher.
+
 ## 29.10.2026 14:43 – Release 20261029-1 live: Shadow-Altersgrenze 12 h, Policy v8 (PR #55)
 
 Owner-Entscheid B aus `docs/audits/2026-10-29-bet365-zeitstempel.md`: Öffnungs- und Schlussquote im Shadow dürfen
