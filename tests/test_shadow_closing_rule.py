@@ -8,6 +8,7 @@ clock and age stored. A closing that repeats the opening market state is valid
 but no CLV evidence. Rows captured under the old rule keep their checks.
 Owner decision 29.10.2026 (policy v8): the stamp may be up to twelve hours old,
 because API-Football stamps per fixture in batch runs two to four hours apart.
+Owner decision 30.10.2026 (policy v10): 24 hours.
 """
 from datetime import datetime, timedelta, timezone
 import sqlite3
@@ -43,8 +44,8 @@ def _row(db_path, prediction_id):
 
 def test_contract_constants():
     assert CLVTracker.CLOSING_WINDOW == timedelta(minutes=15)
-    assert CLVTracker.CLOSING_QUOTE_MAX_AGE == timedelta(hours=12)
-    assert shadow.SHADOW_POLICY_VERSION == "shadow-model-first-v9"
+    assert CLVTracker.CLOSING_QUOTE_MAX_AGE == timedelta(hours=24)
+    assert shadow.SHADOW_POLICY_VERSION == "shadow-model-first-v10"
 
 
 def test_tracker_stores_the_last_market_state_with_capture_clock_and_age(tmp_path):
@@ -65,10 +66,10 @@ def test_tracker_refuses_stale_states_and_captures_outside_the_window(tmp_path):
     first = _record(tracker, kickoff=kickoff, opening_age=timedelta(minutes=170), fixture_id=1)
     with sqlite3.connect(tmp_path / "clv.db") as connection:  # an opening logged long ago (real clocks cannot)
         connection.execute("UPDATE predictions SET quoted_at = ? WHERE id = ?",
-                           ((NOW - timedelta(minutes=760)).isoformat(), first))
-    with pytest.raises(ValueError, match="older than twelve hours"):
+                           ((NOW - timedelta(minutes=1480)).isoformat(), first))
+    with pytest.raises(ValueError, match="older than 24 hours"):
         tracker.update_closing_odds(first, 1.70, bookmaker=shadow.BOOKMAKER_NAME, quote_source=shadow.QUOTE_SOURCE,
-                                    quoted_at=NOW - timedelta(minutes=725), captured_at=NOW)
+                                    quoted_at=NOW - timedelta(minutes=1445), captured_at=NOW)
     with pytest.raises(ValueError, match="before kickoff|in the future"):
         tracker.update_closing_odds(first, 1.70, bookmaker=shadow.BOOKMAKER_NAME, quote_source=shadow.QUOTE_SOURCE,
                                     quoted_at=NOW - timedelta(minutes=30), captured_at=kickoff)
@@ -166,13 +167,13 @@ def test_shadow_marks_a_repeated_state_and_skips_a_stale_one_as_data_status(shad
     stale = tracker.record_prediction(
         fixture_id=22, home_team="Home", away_team="Away", market_type="BTTS_YES", prediction="Ja", odds=1.75,
         model_probability=55.0, bookmaker=shadow.BOOKMAKER_NAME, quote_source=shadow.QUOTE_SOURCE,
-        fixture_kickoff=kickoff, quoted_at=NOW - timedelta(minutes=719),
+        fixture_kickoff=kickoff, quoted_at=NOW - timedelta(minutes=1439),
         model_version=shadow.SHADOW_MODEL_VERSION, policy_version=shadow.SHADOW_POLICY_VERSION)
     with sqlite3.connect(stale_db) as connection:  # an opening logged long ago (real clocks cannot)
         connection.execute("UPDATE predictions SET quoted_at = ? WHERE id = ?",
-                           ((NOW - timedelta(minutes=730)).isoformat(), stale))
+                           ((NOW - timedelta(minutes=1450)).isoformat(), stale))
     provider = SimpleNamespace(odds=lambda *a, **k: _odds_response(
-        updated_at=(NOW - timedelta(minutes=725)).isoformat()))
+        updated_at=(NOW - timedelta(minutes=1445)).isoformat()))
     shadow.errors.clear()
     assert shadow.step_closing(tracker, provider, NOW) == 0
     assert _row(stale_db, stale)[0] is None

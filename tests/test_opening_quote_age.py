@@ -3,7 +3,8 @@
 The opening price may carry a provider stamp up to three hours old; the ledger
 stores the age of every new row, the statistics re-check the stored age against
 the row's own clocks, and the shadow cohorts moved to policy v6. Owner decision
-29.10.2026: twelve hours (policy v8, docs/audits/2026-10-29-bet365-zeitstempel.md).
+29.10.2026: twelve hours (policy v8, docs/audits/2026-10-29-bet365-zeitstempel.md);
+30.10.2026: 24 hours (policy v10, docs/audits/2026-10-30-shadow-altersgrenze-24h.md).
 """
 from datetime import datetime, timedelta, timezone
 import sqlite3
@@ -24,15 +25,15 @@ def _record(tracker, now, *, age, fixture_id=42, odds=2.0):
 
 
 def test_contract_constants_and_policy_version():
-    assert CLVTracker.OPENING_QUOTE_MAX_AGE == timedelta(hours=12)
+    assert CLVTracker.OPENING_QUOTE_MAX_AGE == timedelta(hours=24)
     assert CLVTracker.OPENING_QUOTE_MAX_AGE_V1 == timedelta(minutes=10)
     assert CLVTracker.CLOSING_WINDOW == timedelta(minutes=15)
     # v7 since 28.10.2026: closing = last market state before kick-off (tests/test_shadow_closing_rule.py);
-    # v8 since 29.10.2026: twelve hours of provider age for opening and closing.
-    assert shadow.SHADOW_POLICY_VERSION == "shadow-model-first-v9"
+    # v8 since 29.10.2026: twelve hours of provider age for opening and closing; v10 since 30.10.2026: 24 hours.
+    assert shadow.SHADOW_POLICY_VERSION == "shadow-model-first-v10"
 
 
-def test_opening_quote_up_to_twelve_hours_is_recorded_with_its_age(tmp_path):
+def test_opening_quote_up_to_24_hours_is_recorded_with_its_age(tmp_path):
     tracker = CLVTracker(db_path=str(tmp_path / "clv.db"))
     now = datetime.now(timezone.utc).replace(microsecond=0)
     prediction_id = _record(tracker, now, age=timedelta(hours=2, minutes=30))
@@ -45,10 +46,10 @@ def test_opening_quote_up_to_twelve_hours_is_recorded_with_its_age(tmp_path):
     recent = tracker.get_recent_predictions(5, model_version=shadow.SHADOW_MODEL_VERSION,
                                             policy_version=shadow.SHADOW_POLICY_VERSION)
     assert recent[0]["opening_quote_age_seconds"] == age
-    # The 28.10.2026 case: a batch stamp older than three hours is current under v8.
-    assert _record(tracker, now, age=timedelta(hours=11, minutes=59), fixture_id=44)
+    # The 30.10.2026 case: an overnight stamp 18 hours before an evening kick-off is current under v10.
+    assert _record(tracker, now, age=timedelta(hours=23, minutes=59), fixture_id=44)
     with pytest.raises(ValueError, match="stale"):
-        _record(tracker, now, age=timedelta(hours=12, minutes=1), fixture_id=43)
+        _record(tracker, now, age=timedelta(hours=24, minutes=1), fixture_id=43)
 
 
 def _settle(db_path, prediction_id, *, age_seconds, stored_age="same"):
@@ -95,7 +96,7 @@ def test_legacy_rows_without_stored_age_stay_valid_evidence(tmp_path):
 
 
 def test_run_artifact_names_both_quote_limits():
-    assert int(CLVTracker.OPENING_QUOTE_MAX_AGE.total_seconds()) == 43200
-    assert int(CLVTracker.CLOSING_QUOTE_MAX_AGE.total_seconds()) == 43200
+    assert int(CLVTracker.OPENING_QUOTE_MAX_AGE.total_seconds()) == 86400
+    assert int(CLVTracker.CLOSING_QUOTE_MAX_AGE.total_seconds()) == 86400
     source = open(shadow.__file__, encoding="utf-8").read()
     assert '"opening_quote_max_age_seconds"' in source and '"closing_quote_max_age_seconds"' in source

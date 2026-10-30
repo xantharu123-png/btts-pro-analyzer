@@ -284,10 +284,10 @@ def test_paired_statistics_compare_only_fixtures_closed_in_both_cohorts(ledger):
     assert 0.0 <= difference["p_value"] <= 1.0
 
 
-def test_v9_needs_an_opening_quote_of_at_least_1_30():
+def test_a_tip_needs_an_opening_quote_of_at_least_1_30():
     # Owner decision 30.10.2026 (docs/audits/2026-10-30-shadow-mindestquote.md): the minimum
     # filters, the model-first order of the remaining candidates stays.
-    assert shadow.SHADOW_POLICY_VERSION == "shadow-model-first-v9" and shadow.SHADOW_MIN_ODDS == 1.30
+    assert shadow.SHADOW_MIN_ODDS == 1.30  # since policy v9, unchanged under v10
     now = datetime(2030, 1, 1, tzinfo=timezone.utc)
     first, second, third = _candidate("TOTAL_OVER_1_5"), _candidate("RESULT_HOME"), _candidate("BTTS_YES")
     observed = [(first, 1.17, now), (second, 1.3, now), (third, 1.85, now)]

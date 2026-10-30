@@ -100,3 +100,19 @@ def test_run_artifact_is_judged_by_results_and_keeps_clv_in_the_background():
     assert '"verdict": _result_verdict(results)' in source and '"clv_verdict": _verdict(stats_all)' in source
     assert '"results": _result_statistics(SHADOW_HYBRID_MODEL_VERSION)' in source
     assert '"paired_results": _paired_result_statistics()' in source
+
+
+def test_results_are_split_by_the_age_of_the_opening_stamp(db_path):
+    # Policy v10 (30.10.2026) admits stamps up to 24 hours old; the split shows whether older ones do worse.
+    ids = _insert(db_path, [
+        _row(1, "RESULT_HOME", "Heimsieg", 2.0, "Won", 1.0, (2, 1), "2030-01-01T10:00:00+00:00"),
+        _row(2, "RESULT_HOME", "Heimsieg", 1.5, "Lost", -1.0, (0, 0), "2030-01-02T10:00:00+00:00"),
+        _row(3, "BTTS_YES", "Ja", 1.8, "Won", 0.8, (1, 1), "2030-01-03T10:00:00+00:00"),
+    ])
+    with sqlite3.connect(db_path) as connection:
+        connection.executemany("UPDATE predictions SET opening_quote_age_seconds = ? WHERE id = ?",
+                               [(12 * 3600, ids[0]), (18 * 3600, ids[1])])
+    split = shadow._result_statistics(shadow.SHADOW_MODEL_VERSION)["by_opening_age"]
+    assert split["up_to_12h"] == {"settled": 1, "hit_rate": 1.0, "roi_mean": 100.0}
+    assert split["over_12h"] == {"settled": 1, "hit_rate": 0.0, "roi_mean": -100.0}
+    assert split["unknown"] == {"settled": 1, "hit_rate": 1.0, "roi_mean": 80.0}

@@ -59,6 +59,9 @@ Code, dann `PROJECT_HANDBUCH.md`, dann die Bibel. Historische Logs: `TODO_AKTUEL
 - **Shadow-Bewertung seit 30.10.2026** (`docs/audits/2026-10-30-shadow-bewertung-ergebnis.md`, Owner-Entscheid):
   Massgeblich sind Gewinn und Verlust zur einmal geholten Quote (`results`, `_result_verdict`, Prüfstufe nach 1000
   abgerechneten Tipps, `SHADOW_REVIEW_MIN_SETTLED`); Schlussquote und CLV laufen nur im Hintergrund (`clv_verdict`).
+- **Shadow-Altersgrenze 24 Stunden seit 30.10.2026** (`docs/audits/2026-10-30-shadow-altersgrenze-24h.md`,
+  Owner-Entscheid): Öffnungs- und Schlussquote dürfen einen Bet365-Stand bis 24 Stunden Alter tragen, weil viele
+  Spiele nur den nächtlichen Stempel haben; `results.by_opening_age` trennt nach Alter; Policy `shadow-model-first-v10`.
 - **Betrieb seit 25.10.2026 abends** (`docs/audits/2026-10-25-betrieb-massnahme-3.md`): Die
   Timer `wettfinder/tennis/esports/quotes` holen verpasste Läufe nach; die sechs Kerneinheiten
   alarmieren über `betboy-alert@%n.service` (Helfer `scripts/betboy_alert.py`, Vorlage unter

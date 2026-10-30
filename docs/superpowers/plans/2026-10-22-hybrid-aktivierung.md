@@ -91,7 +91,8 @@ und Verlust zur geholten Öffnungsquote, nicht mehr nach CLV, weil API-Football 
 Bet365-Stand liefert. Damit gilt statt der Punkte 1 bis 3: mindestens **1000** abgerechnete Spiele in beiden
 Kohorten (paarweise, gleiche Spiele, Policy v9 oder später einheitlich); Rendite-Differenz je Spiel (hybrid minus
 legacy) mit HAC-Intervall (`hybrid_cohort.paired_results`); Aktivierung nur bei unterer Grenze über 0 und ohne
-schlechtere Kalibrierung. Die Abbruchkriterien gelten mit 1000 statt 300 Paaren. Ursprünglicher Plan:
+schlechtere Kalibrierung. Die Abbruchkriterien gelten mit 1000 statt 300 Paaren. Seit Policy v10 (30.10.2026,
+24-Stunden-Grenze, `docs/audits/2026-10-30-shadow-altersgrenze-24h.md`) zählen die Paare unter v10. Ursprünglicher Plan:
 
 1. Mindestens 300 abgerechnete Spiele mit gültigem Closing in **beiden** Kohorten
    (paarweise, gleiche Spiele).
