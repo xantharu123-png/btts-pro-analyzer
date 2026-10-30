@@ -1,5 +1,24 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 30.10.2026 09:22 – Release 20261030-1 live: Shadow-Mindestquote 1,30, Policy v9 (PR #58)
+
+Owner-Entscheid 30.10.2026 (`docs/audits/2026-10-30-shadow-mindestquote.md`): Ein Shadow-Tipp braucht eine
+Bet365-Öffnungsquote von mindestens **1,30** (`SHADOW_MIN_ODDS`), weil Favoriten zu 1,17/1,25 nichts über das Modell
+sagen. Unter den übrigen Kandidaten bleibt die Reihenfolge modellgeführt, beide Kohorten folgen derselben Regel;
+liegen alle frischen Quoten darunter, entsteht kein Tipp und kein Datenstatus (`fixtures_below_minimum_odds` je
+Kohorte, Grenze im Artefakt als `minimum_odds`). Policy **`shadow-model-first-v9`**; die 300 Paare zählen neu.
+
+Nach Owner-Freigabe um 09:22 CET als **`fd29323`** per No-Backup-Fast-forward von `0d9a4e8` ausgerollt (Helfer
+`output/release-20261030-1/deploy.sh`, abgeleitet vom Helfer 20261029-1, 11 Pfade, Code nur
+`shadow_clv_automation.py`; Offline-Prüfung v9/1,30 ok; nur App-Neustart PID 1399656→1408795; Healthchecks ok,
+Snapshots unverändert, kein Backup, Einheiten unverändert; Fenster 550 s vor dem nächsten Shadow-Lauf).
+Prüfung danach (`verify-01.log`): Shadow 09:32 `success`/Exit 0 (`idle`, noch kein Spiel fällig), geladene
+Konstanten 12:00:00/12:00:00/`shadow-model-first-v9`/1,3, Website HTTP 200, kein neuer Alarm (letzter 27.10., Tennis).
+
+Offen: erste v9-Tipps beobachten (Anzahl je Kohorte, `fixtures_below_minimum_odds`, Schlussquoten mit neuem
+Marktstand, No-Vig-CLV); Owner-Frage später: ob ein unveränderter Schlussstand als „Markt unverändert“ in die
+CLV-Evidenz gehört.
+
 ## 30.10.2026 – Morgenprüfung: erste v8-Tipps und Schlussquoten
 
 Prüfung 30.10. 07:47 CET, nur lesend (`output/release-20261029-1/check_closing_v8.sh`, `fixtures_today.sh`,
