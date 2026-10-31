@@ -1,5 +1,24 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 31.10.2026 10:05 – Release 20261031-2 live: Shadow-Modellgrenze 70 %, Policy v12 (PR #66)
+
+Owner-Entscheid 31.10.2026 („Ja, 70 %“, `docs/audits/2026-10-31-shadow-modellgrenze-70.md`): Tipps ohne frische
+Bet365-Quote kommen im Shadow bis unter **70 %** Modellwahrscheinlichkeit (`SHADOW_UNPRICED_MAX_PROBABILITY`),
+weil die Median-Bet365-Quote bei 9589 App-Prognosen erst darüber unter 1,30 fällt (65–70 %: 1,36; 70–75 %: 1,28).
+Die App behält 65 % für ihre 1,20-Regel. Policy **`shadow-model-first-v12`**; Zählung beginnt neu (unter v11 kein
+Tipp).
+
+Nach Owner-Freigabe („Ja, mergen“) PR #65 (Protokoll v11) und #66 gemergt und um 10:05 CET als **`7dd875f`** per
+No-Backup-Fast-forward von `472846d` ausgerollt (Helfer `output/release-20261031-2/deploy.sh`, abgeleitet vom
+Helfer 20261031-1, 10 Pfade, Code nur `shadow_clv_automation.py`; Offline-Prüfung lokal und auf dem Server ok; nur
+App-Neustart PID 1421292→1423238; Healthchecks ok, Snapshots unverändert, kein Backup, Einheiten unverändert).
+Prüfung danach (`verify-01.log`): Shadow 10:12 `success`/Exit 0 (nichts fällig), Konstanten 24 h/24 h/v12/1,3/0,7,
+Website HTTP 200, kein neuer Alarm. Der v10-Tipp (Fixture 1505549, Hybrid, Heimsieg zu 1,60) ist am 31.10. um
+10:02 als gewonnen abgerechnet (1:0, +0,60 Einsätze).
+
+Offen: erste v12-Tipps mit und ohne Quote beobachten (Sonntagsprüfung 1.11. 08:00 mit
+`output/release-20261031-1/check_shadow.sh`, liest die aktuelle Policy).
+
 ## 31.10.2026 08:36 – Release 20261031-1 live: Shadow-Tipps ohne Quote, Policy v11 (PR #64)
 
 Owner-Auftrag 31.10.2026 (`docs/audits/2026-10-31-shadow-tipps-ohne-quote.md`): Tipps unter der Mindestquote
