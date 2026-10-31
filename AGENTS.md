@@ -62,6 +62,10 @@ Code, dann `PROJECT_HANDBUCH.md`, dann die Bibel. Historische Logs: `TODO_AKTUEL
 - **Shadow-Altersgrenze 24 Stunden seit 30.10.2026** (`docs/audits/2026-10-30-shadow-altersgrenze-24h.md`,
   Owner-Entscheid): Öffnungs- und Schlussquote dürfen einen Bet365-Stand bis 24 Stunden Alter tragen, weil viele
   Spiele nur den nächtlichen Stempel haben; `results.by_opening_age` trennt nach Alter; Policy `shadow-model-first-v10`.
+- **Shadow-Tipps ohne Quote seit 31.10.2026** (`docs/audits/2026-10-31-shadow-tipps-ohne-quote.md`, Owner-Auftrag):
+  Alle 46 Tormärkte sind Kandidaten; ohne Bet365-Tipp ab 1,30 wird der bestplatzierte Kandidat ohne frische Quote
+  unter 65 % Modellwahrscheinlichkeit Tipp (`shadow_unpriced`, nur Gewinn/Verlust-Zählung, nicht in Rendite und
+  1000er-Prüfstufe); Policy `shadow-model-first-v11`.
 - **Betrieb seit 25.10.2026 abends** (`docs/audits/2026-10-25-betrieb-massnahme-3.md`): Die
   Timer `wettfinder/tennis/esports/quotes` holen verpasste Läufe nach; die sechs Kerneinheiten
   alarmieren über `betboy-alert@%n.service` (Helfer `scripts/betboy_alert.py`, Vorlage unter

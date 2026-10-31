@@ -29,8 +29,9 @@ def test_contract_constants_and_policy_version():
     assert CLVTracker.OPENING_QUOTE_MAX_AGE_V1 == timedelta(minutes=10)
     assert CLVTracker.CLOSING_WINDOW == timedelta(minutes=15)
     # v7 since 28.10.2026: closing = last market state before kick-off (tests/test_shadow_closing_rule.py);
-    # v8 since 29.10.2026: twelve hours of provider age for opening and closing; v10 since 30.10.2026: 24 hours.
-    assert shadow.SHADOW_POLICY_VERSION == "shadow-model-first-v10"
+    # v8 since 29.10.2026: twelve hours of provider age for opening and closing; v10 since 30.10.2026: 24 hours;
+    # v11 since 31.10.2026: unpriced tips (tests/test_shadow_hybrid_cohort.py), the age rule is unchanged.
+    assert shadow.SHADOW_POLICY_VERSION == "shadow-model-first-v11"
 
 
 def test_opening_quote_up_to_24_hours_is_recorded_with_its_age(tmp_path):
