@@ -65,7 +65,9 @@ Code, dann `PROJECT_HANDBUCH.md`, dann die Bibel. Historische Logs: `TODO_AKTUEL
 - **Shadow-Tipps ohne Quote seit 31.10.2026** (`docs/audits/2026-10-31-shadow-tipps-ohne-quote.md`, Owner-Auftrag):
   Alle 46 Tormärkte sind Kandidaten; ohne Bet365-Tipp ab 1,30 wird der bestplatzierte Kandidat ohne frische Quote
   unter 65 % Modellwahrscheinlichkeit Tipp (`shadow_unpriced`, nur Gewinn/Verlust-Zählung, nicht in Rendite und
-  1000er-Prüfstufe); Policy `shadow-model-first-v11`.
+  1000er-Prüfstufe); Policy `shadow-model-first-v11`. Seit v12 (31.10.2026, Owner-Entscheid,
+  `docs/audits/2026-10-31-shadow-modellgrenze-70.md`) liegt die Shadow-Grenze bei 70 %
+  (`SHADOW_UNPRICED_MAX_PROBABILITY`), weil die Median-Bet365-Quote erst darüber unter 1,30 fällt; die App behält 65 %.
 - **Betrieb seit 25.10.2026 abends** (`docs/audits/2026-10-25-betrieb-massnahme-3.md`): Die
   Timer `wettfinder/tennis/esports/quotes` holen verpasste Läufe nach; die sechs Kerneinheiten
   alarmieren über `betboy-alert@%n.service` (Helfer `scripts/betboy_alert.py`, Vorlage unter

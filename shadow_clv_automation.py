@@ -122,11 +122,13 @@ SHADOW_MODEL_VERSION = "challenge-engine-coherent-joint-calibration-v14"
 # markets settled from the score are candidates, not only the 18 with a Bet365 mapping; the
 # best-ranked candidate without a fresh Bet365 quote is logged in shadow_unpriced when its model
 # probability stays under the app's model guard (docs/audits/2026-10-31-shadow-tipps-ohne-quote.md).
-SHADOW_POLICY_VERSION = "shadow-model-first-v11"
+# v12 (31.10.2026, owner decision): the shadow's own guard is 70 %; the app's 65 % belongs to its
+# 1.20 floor (docs/audits/2026-10-31-shadow-modellgrenze-70.md).
+SHADOW_POLICY_VERSION = "shadow-model-first-v12"
 SHADOW_MIN_ODDS = 1.30
-# The app's model guard (market_consensus.FLOOR_UNPRICED_MAX_PROBABILITY, 25.10.2026): from 65 %
-# model probability a price above the minimum is not plausible without a quote.
-SHADOW_UNPRICED_MAX_PROBABILITY = 0.65
+# Measured on 9589 app football forecasts with a Bet365 quote: the median quote stays at 1.30 or
+# more up to 70 % model probability (65-70 %: 1.36) and falls below it beyond (70-75 %: 1.28).
+SHADOW_UNPRICED_MAX_PROBABILITY = 0.70
 # Second cohort (docs/superpowers/plans/2026-10-22-hybrid-aktivierung.md): the
 # coherent hybrid is evaluated on the same fixtures with the same quote response
 # and logged under its own model version. The legacy cohort is written first
