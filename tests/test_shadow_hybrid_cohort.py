@@ -295,7 +295,7 @@ def test_paired_statistics_compare_only_fixtures_closed_in_both_cohorts(ledger):
 def test_a_tip_needs_an_opening_quote_of_at_least_1_30():
     # Owner decision 30.10.2026 (docs/audits/2026-10-30-shadow-mindestquote.md): the minimum
     # filters, the model-first order of the remaining candidates stays.
-    assert shadow.SHADOW_MIN_ODDS == 1.30  # since policy v9, unchanged under v10 and v11
+    assert shadow.SHADOW_MIN_ODDS == 1.30  # since policy v9, unchanged under v10 to v12
     now = datetime(2030, 1, 1, tzinfo=timezone.utc)
     first, second, third = _candidate("TOTAL_OVER_1_5"), _candidate("RESULT_HOME"), _candidate("BTTS_YES")
     observed = [(first, 1.17, now), (second, 1.3, now), (third, 1.85, now)]
@@ -332,12 +332,13 @@ def test_quotes_all_below_the_minimum_log_no_tip_and_keep_the_fixture_open(ledge
 
 
 # Policy v11 (31.10.2026, owner decision, docs/audits/2026-10-31-shadow-tipps-ohne-quote.md):
-# a fixture without a priced pick still gets a tip under the app's model guard.
+# a fixture without a priced pick still gets a tip under the model guard (70 % since v12).
 
-def test_model_guard_is_the_apps_and_all_goal_markets_are_candidates():
+def test_model_guard_and_all_goal_markets_are_candidates():
     import market_consensus
 
-    assert shadow.SHADOW_UNPRICED_MAX_PROBABILITY == market_consensus.FLOOR_UNPRICED_MAX_PROBABILITY
+    # v12 (31.10.2026): the shadow guard is 70 %, the app keeps 65 % for its 1.20 floor.
+    assert shadow.SHADOW_UNPRICED_MAX_PROBABILITY == 0.70 and market_consensus.FLOOR_UNPRICED_MAX_PROBABILITY == 0.65
     goal = {key for key, spec in engine.MARKET_BY_KEY.items() if spec.kind not in engine.COUNT_MARKET_KINDS}
     assert {key for key in engine.MARKET_BY_KEY if shadow._shadow_market(key)} == goal
     assert len(goal) == 46 and set(shadow._QUOTE_BETS) < goal
@@ -357,7 +358,9 @@ def test_unpriced_candidates_skip_quoted_ones_and_the_model_guard(monkeypatch):
     observed = [(quoted_low, 1.20, now)]  # a fresh quote under the minimum keeps the candidate out
     assert shadow._unpriced_candidates([quoted_low, stale, team_total, sure], observed) == [
         (team_total, "no_bet365_market"), (stale, "no_fresh_bet365_quote")]
-    assert shadow._unpriced_candidates([_candidate(probability=0.65)], []) == []
+    assert shadow._unpriced_candidates([_candidate(probability=0.70)], []) == []
+    low = _candidate(probability=0.69)
+    assert shadow._unpriced_candidates([low], []) == [(low, "no_fresh_bet365_quote")]
 
 
 def test_both_cohorts_log_an_unpriced_tip_without_a_bet365_quote(ledger, monkeypatch):
@@ -440,7 +443,7 @@ def test_unpriced_tips_settle_from_the_score_and_count_won_lost_only(ledger):
     assert stats["tips"] == 2 and stats["settled"] == 2 and stats["won"] == 2 and stats["lost"] == 0
     assert stats["hit_rate"] == 1.0 and stats["expected_hit_rate"] == pytest.approx(0.59)
     assert stats["by_reason"] == {"no_bet365_market": 1, "no_fresh_bet365_quote": 1}
-    assert stats["invalid_rows"] == 0 and stats["max_model_probability"] == 0.65
+    assert stats["invalid_rows"] == 0 and stats["max_model_probability"] == 0.70
     with shadow._connect() as connection:
         connection.execute("UPDATE shadow_unpriced SET result = 'Lost' WHERE fixture_id = 92")
     assert shadow._unpriced_statistics(shadow.SHADOW_MODEL_VERSION)["invalid_rows"] == 1
