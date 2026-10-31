@@ -118,8 +118,15 @@ SHADOW_MODEL_VERSION = "challenge-engine-coherent-joint-calibration-v14"
 # candidates stays model-first.
 # v10 (30.10.2026, owner decision): opening and closing stamps may be up to 24 hours old, because
 # many fixtures carry only the overnight stamp (docs/audits/2026-10-30-shadow-altersgrenze-24h.md).
-SHADOW_POLICY_VERSION = "shadow-model-first-v10"
+# v11 (31.10.2026, owner decision): a fixture without a priced pick still gets a tip. All goal
+# markets settled from the score are candidates, not only the 18 with a Bet365 mapping; the
+# best-ranked candidate without a fresh Bet365 quote is logged in shadow_unpriced when its model
+# probability stays under the app's model guard (docs/audits/2026-10-31-shadow-tipps-ohne-quote.md).
+SHADOW_POLICY_VERSION = "shadow-model-first-v11"
 SHADOW_MIN_ODDS = 1.30
+# The app's model guard (market_consensus.FLOOR_UNPRICED_MAX_PROBABILITY, 25.10.2026): from 65 %
+# model probability a price above the minimum is not plausible without a quote.
+SHADOW_UNPRICED_MAX_PROBABILITY = 0.65
 # Second cohort (docs/superpowers/plans/2026-10-22-hybrid-aktivierung.md): the
 # coherent hybrid is evaluated on the same fixtures with the same quote response
 # and logged under its own model version. The legacy cohort is written first
@@ -650,6 +657,28 @@ def _connect() -> sqlite3.Connection:
             PRIMARY KEY (candidate_id, kind, zurich_date)
         )"""
     )
+    # Policy v11: tips without a fresh Bet365 quote, judged by won/lost only (no price, no profit).
+    connection.execute(
+        """CREATE TABLE IF NOT EXISTS shadow_unpriced (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            fixture_id INTEGER NOT NULL,
+            model_version TEXT NOT NULL,
+            policy_version TEXT NOT NULL,
+            home_team TEXT NOT NULL,
+            away_team TEXT NOT NULL,
+            market_key TEXT NOT NULL,
+            selection TEXT NOT NULL,
+            model_probability REAL NOT NULL,
+            reason TEXT NOT NULL,
+            fixture_kickoff TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            result TEXT,
+            home_score INTEGER,
+            away_score INTEGER,
+            settled_at TEXT,
+            UNIQUE (fixture_id, model_version, policy_version)
+        )"""
+    )
     return connection
 
 
@@ -1093,6 +1122,103 @@ def step_settle_published(provider: ShadowProvider, now: datetime) -> int:
     return settled
 
 
+def _final_score(fixture):
+    """Full-time goals of a finished fixture, or ``None``."""
+    if not fixture or str(fixture.get("fixture", {}).get("status", {}).get("short") or "") not in FT_STATUSES:
+        return None
+    goals = fixture.get("goals") or {}
+    home_goals, away_goals = goals.get("home"), goals.get("away")
+    if (isinstance(home_goals, bool) or isinstance(away_goals, bool)
+            or not isinstance(home_goals, int) or not isinstance(away_goals, int)
+            or home_goals < 0 or away_goals < 0):
+        return None
+    return home_goals, away_goals
+
+
+def step_settle_unpriced(provider: ShadowProvider, now: datetime) -> int:
+    """Settle unpriced tips (policy v11) from the full-time score."""
+    threshold = _utc_iso(now - SETTLE_GRACE)
+    with _connect() as connection:
+        rows = connection.execute(
+            "SELECT id, fixture_id, market_key FROM shadow_unpriced WHERE result IS NULL AND fixture_kickoff < ?",
+            (threshold,),
+        ).fetchall()
+    if not rows:
+        return 0
+    by_id = {}
+    for fixture in provider.fixtures_by_ids(sorted({row[1] for row in rows})):
+        fixture_data = fixture.get("fixture") if isinstance(fixture, dict) else None
+        fixture_id = fixture_data.get("id") if isinstance(fixture_data, dict) else None
+        if _positive_int(fixture_id):
+            by_id[fixture_id] = fixture
+    settled = 0
+    with _connect() as connection:
+        for row_id, fixture_id, market_key in rows:
+            score = _final_score(by_id.get(fixture_id))
+            if score is None:
+                continue
+            try:
+                won = market_outcome(MARKET_BY_KEY[market_key], *score)
+            except (KeyError, ValueError) as exc:
+                errors.append(f"Unpriced {row_id}: {exc}")
+                continue
+            connection.execute(
+                "UPDATE shadow_unpriced SET result = ?, home_score = ?, away_score = ?, settled_at = ? WHERE id = ?",
+                ("Won" if won else "Lost", *score, _utc_iso(now), row_id),
+            )
+            settled += 1
+        connection.commit()
+    return settled
+
+
+def _unpriced_statistics(model_version: str) -> dict:
+    """Won/lost of the unpriced tips of one cohort against their mean model probability.
+
+    Without a price there is no profit: these tips never enter the return or the
+    1000-tip review, they show whether the model's hit rate holds where no quote exists.
+    """
+    connection = _connect()
+    try:
+        rows = connection.execute(
+            """SELECT market_key, model_probability, reason, result, home_score, away_score
+               FROM shadow_unpriced WHERE model_version = ? AND policy_version = ?
+               ORDER BY created_at, id""",
+            (model_version, SHADOW_POLICY_VERSION),
+        ).fetchall()
+    finally:
+        connection.close()
+    reasons = {"no_bet365_market": 0, "no_fresh_bet365_quote": 0}
+    won = lost = invalid = 0
+    probabilities = []
+    for market_key, probability, reason, result, home_score, away_score in rows:
+        if reason in reasons:
+            reasons[reason] += 1
+        if result is None:
+            continue
+        try:
+            expected = "Won" if market_outcome(MARKET_BY_KEY[market_key], home_score, away_score) else "Lost"
+        except (KeyError, TypeError, ValueError):
+            expected = None
+        if result != expected:
+            invalid += 1
+            continue
+        won += result == "Won"
+        lost += result == "Lost"
+        probabilities.append(probability)
+    settled = won + lost
+    return {
+        "tips": len(rows),
+        "settled": settled,
+        "won": won,
+        "lost": lost,
+        "invalid_rows": invalid,
+        "hit_rate": round(won / settled, 4) if settled else None,
+        "expected_hit_rate": round(sum(probabilities) / settled, 4) if settled else None,
+        "by_reason": reasons,
+        "max_model_probability": SHADOW_UNPRICED_MAX_PROBABILITY,
+    }
+
+
 def _published_statistics() -> dict:
     """Per kind: recorded rows, share with a playable quote, settled hit rate (goal markets)."""
     connection = _connect()
@@ -1179,6 +1305,20 @@ def _edge_cap_statistics() -> dict:
             "applied": False, "cohorts": summary}
 
 
+def _model_first_key(candidate):
+    return (
+        not market_is_basic_forecast(candidate.market_key),
+        candidate_selection_rank(candidate),
+        str(candidate.market_key),
+    )
+
+
+def _shadow_market(market_key) -> bool:
+    """Goal markets settled from the full-time score (policy v11); corners and cards are not."""
+    spec = MARKET_BY_KEY.get(str(market_key or ""))
+    return spec is not None and spec.kind in _GOAL_SETTLED_KINDS
+
+
 def _model_first_observations(credible, odds_response, now: datetime):
     """Rank observed model forecasts without using the size of their odds."""
     observed = []
@@ -1190,20 +1330,50 @@ def _model_first_observations(credible, odds_response, now: datetime):
         if quoted_at > now or now - quoted_at > CLVTracker.OPENING_QUOTE_MAX_AGE:
             continue
         observed.append((candidate, quote, quoted_at))
-    observed.sort(
-        key=lambda item: (
-            not market_is_basic_forecast(item[0].market_key),
-            candidate_selection_rank(item[0]),
-            str(item[0].market_key),
-        ),
-        reverse=True,
-    )
+    observed.sort(key=lambda item: _model_first_key(item[0]), reverse=True)
     return observed
 
 
 def _at_minimum_odds(observed):
     """Keep the model-first order and drop quotes below the shadow minimum (policy v9)."""
     return [item for item in observed if item[1] >= SHADOW_MIN_ODDS]
+
+
+def _unpriced_candidates(credible, observed):
+    """Candidates without a fresh Bet365 quote under the model guard, model-first (policy v11).
+
+    A candidate with a fresh quote is priced: below the minimum it stays out, it never
+    becomes an unpriced tip. Without a quote the app's model guard decides.
+    """
+    quoted = {id(item[0]) for item in observed}
+    unpriced = []
+    for candidate in credible:
+        if id(candidate) in quoted:
+            continue
+        probability = candidate.probability
+        if (type(probability) not in (int, float) or not math.isfinite(probability)
+                or not 0.0 < probability < SHADOW_UNPRICED_MAX_PROBABILITY):
+            continue
+        reason = "no_fresh_bet365_quote" if candidate.market_key in _QUOTE_BETS else "no_bet365_market"
+        unpriced.append((candidate, reason))
+    unpriced.sort(key=lambda item: _model_first_key(item[0]), reverse=True)
+    return unpriced
+
+
+def _record_unpriced(fixture_id: int, home_team: str, away_team: str, kickoff_text: str,
+                     pick, reason: str, model_version: str, now: datetime) -> bool:
+    """One unpriced tip per fixture, model and policy; False when the cohort already has one."""
+    with _connect() as connection:
+        cursor = connection.execute(
+            """INSERT OR IGNORE INTO shadow_unpriced
+               (fixture_id, model_version, policy_version, home_team, away_team, market_key,
+                selection, model_probability, reason, fixture_kickoff, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (fixture_id, model_version, SHADOW_POLICY_VERSION, home_team, away_team, pick.market_key,
+             str(pick.selection), float(pick.probability), reason, kickoff_text, _utc_iso(now)),
+        )
+        connection.commit()
+        return cursor.rowcount == 1
 
 
 # --------------------------------------------------------------------------
@@ -1402,14 +1572,19 @@ def step_schedule(provider: ShadowProvider, league_ids: list[int], zurich_today:
 
 
 def _current_prediction_exists(fixture_id: int, model_version=None) -> bool:
+    """A priced or an unpriced tip of this cohort for the fixture (one tip per fixture)."""
     connection = _connect()
     try:
+        key = (fixture_id, SHADOW_MODEL_VERSION if model_version is None else model_version,
+               SHADOW_POLICY_VERSION)
         row = connection.execute(
             """SELECT 1 FROM predictions
                WHERE fixture_id = ? AND model_version = ? AND policy_version = ?
+               UNION ALL
+               SELECT 1 FROM shadow_unpriced
+               WHERE fixture_id = ? AND model_version = ? AND policy_version = ?
                LIMIT 1""",
-            (fixture_id, SHADOW_MODEL_VERSION if model_version is None else model_version,
-             SHADOW_POLICY_VERSION),
+            key + key,
         ).fetchone()
     finally:
         connection.close()
@@ -1528,7 +1703,7 @@ def _evaluate_hybrid_cohort(tracker: CLVTracker, provider: ShadowProvider, detai
                                               goal_model=SHADOW_HYBRID_GOAL_MODEL)
         base_candidates = [
             candidate for candidate in candidates
-            if candidate.base_eligible and candidate.market_key in _QUOTE_BETS
+            if candidate.base_eligible and _shadow_market(candidate.market_key)
         ]
         credible = []
         for candidate in base_candidates:
@@ -1540,18 +1715,24 @@ def _evaluate_hybrid_cohort(tracker: CLVTracker, provider: ShadowProvider, detai
             return outcome
         if _current_prediction_exists(fixture_id, SHADOW_HYBRID_MODEL_VERSION):
             return outcome
-        if credible and odds_response is None:
+        if odds_response is None and any(candidate.market_key in _QUOTE_BETS for candidate in credible):
             odds_response = provider.odds(fixture_id)
         observed = _model_first_observations(credible, odds_response, now)
-        if not observed:
-            if credible:
-                result["hybrid_quote_missing"] = result.get("hybrid_quote_missing", 0) + 1
-            outcome["terminal"] = False  # Quote or context may still arrive before kickoff.
-            return outcome
         priced = _at_minimum_odds(observed)
         if not priced:
-            result["hybrid_below_minimum_odds"] = result.get("hybrid_below_minimum_odds", 0) + 1
-            outcome["terminal"] = False  # Like the legacy rule: context may still add a candidate.
+            unpriced = _unpriced_candidates(credible, observed)
+            if unpriced:
+                pick, reason = unpriced[0]
+                if _record_unpriced(fixture_id, home_team, away_team, kickoff_text, pick, reason,
+                                    SHADOW_HYBRID_MODEL_VERSION, now):
+                    result["hybrid_unpriced_logged"] = result.get("hybrid_unpriced_logged", 0) + 1
+                    outcome["logged"] = True
+                return outcome
+            if observed:
+                result["hybrid_below_minimum_odds"] = result.get("hybrid_below_minimum_odds", 0) + 1
+            elif credible:
+                result["hybrid_quote_missing"] = result.get("hybrid_quote_missing", 0) + 1
+            outcome["terminal"] = False  # Quote or context may still arrive before kickoff.
             return outcome
         pick, quote, quoted_at = priced[0]
         try:
@@ -1630,7 +1811,7 @@ def step_evaluate(tracker: CLVTracker, provider: ShadowProvider, now: datetime,
         base_candidates = [
             candidate
             for candidate in candidates
-            if candidate.base_eligible and candidate.market_key in _QUOTE_BETS
+            if candidate.base_eligible and _shadow_market(candidate.market_key)
         ]
         credible = []
         for candidate in base_candidates:
@@ -1645,10 +1826,13 @@ def step_evaluate(tracker: CLVTracker, provider: ShadowProvider, now: datetime,
             if candidate_is_forecast_credible(candidate):
                 credible.append(candidate)
         result["credible_candidates"] = result.get("credible_candidates", 0) + len(credible)
-        odds_response = provider.odds(fixture_id) if credible else None
+        # Only the 18 markets with a Bet365 mapping can be priced; the others need no request.
+        odds_response = (provider.odds(fixture_id)
+                         if any(candidate.market_key in _QUOTE_BETS for candidate in credible) else None)
         observed = _model_first_observations(credible, odds_response, now)
         priced = _at_minimum_odds(observed)
         pick, quote, quoted_at = priced[0] if priced else (None, None, None)
+        unpriced = [] if pick is not None else _unpriced_candidates(credible, observed)
         logged = False
         existing = False
         if pick is not None:
@@ -1683,6 +1867,16 @@ def step_evaluate(tracker: CLVTracker, provider: ShadowProvider, now: datetime,
                         )
                 except ValueError as exc:
                     errors.append(f"Logging {fixture_id}: {exc}")
+        elif unpriced:
+            # Policy v11: no priced pick, so the best-ranked candidate without a quote is the tip.
+            existing = _current_prediction_exists(fixture_id)
+            if not existing:
+                unpriced_pick, reason = unpriced[0]
+                logged = _record_unpriced(fixture_id, home_team, away_team, kickoff_text, unpriced_pick,
+                                          reason, SHADOW_MODEL_VERSION, now)
+                existing = not logged
+                if logged:
+                    result["unpriced_logged"] = result.get("unpriced_logged", 0) + 1
         elif observed:
             # Fresh quotes, all below the minimum: no tip and no data problem (policy v9).
             result["below_minimum_odds"] = result.get("below_minimum_odds", 0) + 1
@@ -2128,13 +2322,14 @@ def run(ctx):
     now = datetime.now(timezone.utc)
     zurich_today = _zurich_time(now).date()
 
-    settled = settled_published = 0
+    settled = settled_published = settled_unpriced = 0
     if _zurich_time(now).hour >= 9:
         with _connect() as connection:
             already_checked = bool(_meta_get(connection, _settlement_marker(zurich_today)))
         if not already_checked:
             settled = step_settle(tracker, provider, now)
             settled_published = step_settle_published(provider, now)
+            settled_unpriced = step_settle_unpriced(provider, now)
             with _connect() as connection:
                 _meta_set(connection, _settlement_marker(zurich_today), _utc_iso(now))
                 connection.commit()
@@ -2174,8 +2369,10 @@ def run(ctx):
             "fixtures_without_fresh_quote": evaluation.get("quote_missing", 0),
             "fixtures_below_minimum_odds": evaluation.get("below_minimum_odds", 0),
             "predictions_logged": evaluation["logged"],
+            "unpriced_logged": evaluation.get("unpriced_logged", 0),
             "closings_captured": closings,
             "predictions_settled": settled,
+            "unpriced_settled": settled_unpriced,
             "published_recorded": published["recorded"],
             "published_recorded_with_quote": published["recorded_with_quote"],
             "published_settled": settled_published,
@@ -2192,6 +2389,8 @@ def run(ctx):
         "evaluation": "won_lost_at_opening_quote",
         "results": results,
         "verdict": _result_verdict(results),
+        # Policy v11: tips without a fresh Bet365 quote, won/lost only, outside the return.
+        "unpriced_results": _unpriced_statistics(SHADOW_MODEL_VERSION),
         "clv_verdict": _verdict(stats_all),
         "reference_bookmaker": BOOKMAKER_NAME,
         "quote_source": QUOTE_SOURCE,
@@ -2200,6 +2399,7 @@ def run(ctx):
         "opening_quote_max_age_seconds": int(CLVTracker.OPENING_QUOTE_MAX_AGE.total_seconds()),
         "closing_quote_max_age_seconds": int(CLVTracker.CLOSING_QUOTE_MAX_AGE.total_seconds()),
         "minimum_odds": SHADOW_MIN_ODDS,
+        "unpriced_max_probability": SHADOW_UNPRICED_MAX_PROBABILITY,
         "hybrid_cohort": {
             "enabled": hybrid_cohort_enabled(),
             "goal_model": SHADOW_HYBRID_GOAL_MODEL,
@@ -2214,6 +2414,8 @@ def run(ctx):
             "fixtures_without_fresh_quote": evaluation.get("hybrid_quote_missing", 0),
             "fixtures_below_minimum_odds": evaluation.get("hybrid_below_minimum_odds", 0),
             "predictions_logged": evaluation.get("hybrid_logged", 0),
+            "unpriced_logged": evaluation.get("hybrid_unpriced_logged", 0),
+            "unpriced_results": _unpriced_statistics(SHADOW_HYBRID_MODEL_VERSION),
             "stats_30d": tracker.get_clv_statistics(
                 days=30, model_version=SHADOW_HYBRID_MODEL_VERSION, policy_version=SHADOW_POLICY_VERSION),
             "stats_all": tracker.get_clv_statistics(

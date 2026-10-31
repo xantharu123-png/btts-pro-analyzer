@@ -92,7 +92,9 @@ Bet365-Stand liefert. Damit gilt statt der Punkte 1 bis 3: mindestens **1000** a
 Kohorten (paarweise, gleiche Spiele, Policy v9 oder später einheitlich); Rendite-Differenz je Spiel (hybrid minus
 legacy) mit HAC-Intervall (`hybrid_cohort.paired_results`); Aktivierung nur bei unterer Grenze über 0 und ohne
 schlechtere Kalibrierung. Die Abbruchkriterien gelten mit 1000 statt 300 Paaren. Seit Policy v10 (30.10.2026,
-24-Stunden-Grenze, `docs/audits/2026-10-30-shadow-altersgrenze-24h.md`) zählen die Paare unter v10. Ursprünglicher Plan:
+24-Stunden-Grenze, `docs/audits/2026-10-30-shadow-altersgrenze-24h.md`) zählen die Paare unter v10, seit
+Policy v11 (31.10.2026, Tipps ohne Quote, `docs/audits/2026-10-31-shadow-tipps-ohne-quote.md`) unter v11; Tipps
+ohne Quote bilden keine Paare. Ursprünglicher Plan:
 
 1. Mindestens 300 abgerechnete Spiele mit gültigem Closing in **beiden** Kohorten
    (paarweise, gleiche Spiele).
