@@ -1,5 +1,27 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## 31.10.2026 08:36 – Release 20261031-1 live: Shadow-Tipps ohne Quote, Policy v11 (PR #64)
+
+Owner-Auftrag 31.10.2026 (`docs/audits/2026-10-31-shadow-tipps-ohne-quote.md`): Tipps unter der Mindestquote
+bleiben draussen, Tipps ohne auffindbare Quote kommen trotzdem. Befund vorher: Freitag 30.10. 42 Shadow-Spiele,
+3 Tipps; der Shadow prüfte nur 18 von 46 Tormärkten und verlangte immer eine Bet365-Quote. Regel v11: alle 46
+Tormärkte; Bet365-Tipp ab 1,30 wie bisher; sonst bestplatzierter Kandidat ohne frische Quote unter 65 %
+Modellwahrscheinlichkeit (`shadow_unpriced`, nur Treffer/Fehlschläge, nicht in Rendite und 1000er-Prüfstufe).
+
+Nach Owner-Freigabe PR #64 gemergt und um 08:36 CET als **`472846d`** per No-Backup-Fast-forward von `caedd05`
+ausgerollt (Helfer `output/release-20261031-1/deploy.sh`, abgeleitet vom Helfer 20261030-3, 10 Pfade, Code nur
+`shadow_clv_automation.py`; Offline-Prüfung lokal und auf dem Server ok; nur App-Neustart PID 1415177→1421292;
+Healthchecks ok, Snapshots unverändert, kein Backup, Einheiten unverändert). Prüfung danach (`verify-01.log`):
+Shadow 08:42 `success`/Exit 0, Policy v11, Konstanten 24 h/24 h/v11/1,3/0,65, Tabelle `shadow_unpriced` angelegt,
+Website HTTP 200, kein neuer Alarm. Der erste Lauf hatte 2 Spiele ohne Bet365-Quote (Liga 274), deren 8 bzw. 11
+Kandidaten alle bei 65 % oder höher lagen: kein Tipp.
+
+Messung danach (`price_by_probability.sh`, 9589 App-Fussballprognosen mit Bet365-Quote): Anteil Quote ≥ 1,30 bei
+Modellwahrscheinlichkeit 55–60 % 93 %, 60–65 % 88 %, 65–70 % 75 % (Median 1,36), 70–75 % 46 % (Median 1,28),
+75–80 % 31 %. Die 65-%-Grenze der App ist für 1,20 gesetzt; für 1,30 liegt der Median-Umschlag bei etwa 70 %.
+Offen: Owner-Entscheid, ob die Modellgrenze im Shadow auf 70 % geht (neue Policy). Die Sonntagsprüfung
+(1.11. 08:00) liest jetzt die aktuelle Policy (`output/release-20261031-1/check_shadow.sh`).
+
 ## 30.10.2026 20:47 – Release 20261030-3 live: Shadow-Altersgrenze 24 Stunden, Policy v10 (PR #62)
 
 Owner-Entscheid 30.10.2026 (`docs/audits/2026-10-30-shadow-altersgrenze-24h.md`): Öffnungs- und Schlussquote dürfen
