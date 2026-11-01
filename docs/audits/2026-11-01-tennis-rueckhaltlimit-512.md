@@ -23,7 +23,7 @@ Zeitbudget) nach dem Befund unten.
 
 `LIVE_OUTPUT_LIMIT = 512*1024**2` ersetzt die 128 MiB an beiden Stellen (Startwert und Obergrenze der
 „nur verschärfen“-Prüfung). Bei rund 2 MiB gezählt je Fall reicht das für etwa 250 Fälle; das Fall-Limit bleibt 400.
-Alle übrigen Grenzen (Zeit, Fälle, Rohzeilen, Rohbytes, Fall-Rückhalt 256 MiB) und das Fail-closed-Verhalten der
+Die übrigen Grenzen (Fälle, Rohzeilen, Rohbytes, Fall-Rückhalt 256 MiB) und das Fail-closed-Verhalten der
 Gesamtgrenzen (Owner 25.10.2026) bleiben.
 
 ## Zeitbudget 30 Minuten
