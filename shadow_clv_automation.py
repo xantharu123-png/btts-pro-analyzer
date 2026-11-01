@@ -102,6 +102,18 @@ EVAL_LATEST = timedelta(minutes=75)
 EVAL_FINAL_RETRY_MINUTES = 30  # Kontext-gesperrte Fixtures werden bis -30 min erneut versucht
 SETTLE_GRACE = timedelta(hours=2)
 FT_STATUSES = {"FT"}
+# Owner decision 01.11.2026: a tip on a fixture that was postponed, cancelled, abandoned or awarded, or
+# whose kick-off moved by more than twelve hours, is void. It never settles and stays outside every result
+# and the 1000-tip review (docs/audits/2026-11-01-shadow-verschobene-spiele.md).
+VOID_STATUSES = frozenset({"PST", "CANC", "ABD", "AWD", "WO"})
+VOID_KICKOFF_SHIFT = timedelta(hours=12)
+_NOT_VOIDED_PREDICTION = ("NOT EXISTS (SELECT 1 FROM shadow_void v WHERE v.ledger = 'predictions' "
+                          "AND v.row_key = CAST(predictions.id AS TEXT))")
+_NOT_VOIDED_UNPRICED = ("NOT EXISTS (SELECT 1 FROM shadow_void v WHERE v.ledger = 'unpriced' "
+                        "AND v.row_key = CAST(shadow_unpriced.id AS TEXT))")
+_NOT_VOIDED_PUBLISHED = ("NOT EXISTS (SELECT 1 FROM shadow_void v WHERE v.ledger = 'published' "
+                         "AND v.row_key = shadow_published.candidate_id || '|' || shadow_published.kind "
+                         "|| '|' || shadow_published.zurich_date)")
 MIN_HISTORY_GAMES = 220  # darunter wird die Vorsaison vorangestellt (Cold-Start)
 SHADOW_MODEL_VERSION = "challenge-engine-coherent-joint-calibration-v14"
 # Policy v6 (23.10.2026): the opening quote may carry a provider stamp up to
@@ -285,9 +297,10 @@ def _shadow_work_due(now: datetime, db_path: Path = SHADOW_DB) -> bool:
                     (_settlement_marker(zurich_now.date()),),
                 ).fetchone()
                 if not settled_today:
+                    not_voided = f" AND {_NOT_VOIDED_PREDICTION}" if "shadow_void" in tables else ""
                     settle_due = connection.execute(
                         "SELECT 1 FROM predictions "
-                        "WHERE result IS NULL AND fixture_kickoff < ? LIMIT 1",
+                        f"WHERE result IS NULL AND fixture_kickoff < ?{not_voided} LIMIT 1",
                         (_utc_iso(now - SETTLE_GRACE),),
                     ).fetchone()
                     if settle_due:
@@ -679,6 +692,20 @@ def _connect() -> sqlite3.Connection:
             away_score INTEGER,
             settled_at TEXT,
             UNIQUE (fixture_id, model_version, policy_version)
+        )"""
+    )
+    # Owner decision 01.11.2026: void tips of the three ledgers; the rows themselves stay unsettled.
+    connection.execute(
+        """CREATE TABLE IF NOT EXISTS shadow_void (
+            ledger TEXT NOT NULL,
+            row_key TEXT NOT NULL,
+            fixture_id INTEGER NOT NULL,
+            reason TEXT NOT NULL,
+            provider_status TEXT,
+            logged_kickoff TEXT NOT NULL,
+            provider_kickoff TEXT,
+            voided_at TEXT NOT NULL,
+            PRIMARY KEY (ledger, row_key)
         )"""
     )
     return connection
@@ -1081,8 +1108,8 @@ def step_settle_published(provider: ShadowProvider, now: datetime) -> int:
     threshold = _utc_iso(now - SETTLE_GRACE)
     with _connect() as connection:
         rows = connection.execute(
-            """SELECT candidate_id, kind, zurich_date, fixture_id, market_key FROM shadow_published
-               WHERE result IS NULL AND kickoff IS NOT NULL AND kickoff < ?""",
+            f"""SELECT candidate_id, kind, zurich_date, fixture_id, market_key FROM shadow_published
+               WHERE result IS NULL AND kickoff IS NOT NULL AND kickoff < ? AND {_NOT_VOIDED_PUBLISHED}""",
             (threshold,),
         ).fetchall()
     rows = [row for row in rows
@@ -1142,7 +1169,8 @@ def step_settle_unpriced(provider: ShadowProvider, now: datetime) -> int:
     threshold = _utc_iso(now - SETTLE_GRACE)
     with _connect() as connection:
         rows = connection.execute(
-            "SELECT id, fixture_id, market_key FROM shadow_unpriced WHERE result IS NULL AND fixture_kickoff < ?",
+            "SELECT id, fixture_id, market_key FROM shadow_unpriced "
+            f"WHERE result IS NULL AND fixture_kickoff < ? AND {_NOT_VOIDED_UNPRICED}",
             (threshold,),
         ).fetchall()
     if not rows:
@@ -1187,6 +1215,11 @@ def _unpriced_statistics(model_version: str) -> dict:
                ORDER BY created_at, id""",
             (model_version, SHADOW_POLICY_VERSION),
         ).fetchall()
+        voided = connection.execute(
+            f"""SELECT COUNT(*) FROM shadow_unpriced
+               WHERE model_version = ? AND policy_version = ? AND NOT ({_NOT_VOIDED_UNPRICED})""",
+            (model_version, SHADOW_POLICY_VERSION),
+        ).fetchone()[0]
     finally:
         connection.close()
     reasons = {"no_bet365_market": 0, "no_fresh_bet365_quote": 0}
@@ -1213,6 +1246,7 @@ def _unpriced_statistics(model_version: str) -> dict:
         "settled": settled,
         "won": won,
         "lost": lost,
+        "voided": voided,
         "invalid_rows": invalid,
         "hit_rate": round(won / settled, 4) if settled else None,
         "expected_hit_rate": round(sum(probabilities) / settled, 4) if settled else None,
@@ -1382,12 +1416,77 @@ def _record_unpriced(fixture_id: int, home_team: str, away_team: str, kickoff_te
 # Run steps
 # --------------------------------------------------------------------------
 
+def _void_reason(fixture, logged_kickoff) -> str | None:
+    """Why a tip on this fixture is void, or ``None`` (owner decision 01.11.2026)."""
+    data = fixture.get("fixture") if isinstance(fixture, dict) else None
+    if not isinstance(data, dict):
+        return None
+    status = data.get("status")
+    status = str(status.get("short") or "") if isinstance(status, dict) else ""
+    if status in VOID_STATUSES:
+        return f"status_{status.lower()}"
+    provider_kickoff, logged = _parse_iso(data.get("date")), _parse_iso(logged_kickoff)
+    if provider_kickoff is not None and logged is not None and abs(provider_kickoff - logged) > VOID_KICKOFF_SHIFT:
+        return "kickoff_moved"
+    return None
+
+
+def step_void(provider: ShadowProvider, now: datetime) -> int:
+    """Void open tips whose fixture was called off or moved (owner decision 01.11.2026).
+
+    Runs before the settlement: a void tip never settles, so a match played days later
+    cannot turn a quote taken for the original date into a win or a loss.
+    """
+    threshold = _utc_iso(now - SETTLE_GRACE)
+    with _connect() as connection:
+        rows = [("predictions", str(row_id), fixture_id, kickoff) for row_id, fixture_id, kickoff in connection.execute(
+            "SELECT id, fixture_id, fixture_kickoff FROM predictions "
+            f"WHERE result IS NULL AND fixture_kickoff < ? AND {_NOT_VOIDED_PREDICTION}", (threshold,))]
+        rows += [("unpriced", str(row_id), fixture_id, kickoff) for row_id, fixture_id, kickoff in connection.execute(
+            "SELECT id, fixture_id, fixture_kickoff FROM shadow_unpriced "
+            f"WHERE result IS NULL AND fixture_kickoff < ? AND {_NOT_VOIDED_UNPRICED}", (threshold,))]
+        # Only rows the settlement would fetch; corners and cards stay open anyway.
+        rows += [("published", f"{candidate_id}|{kind}|{day}", fixture_id, kickoff)
+                 for candidate_id, kind, day, fixture_id, market_key, kickoff in connection.execute(
+                     "SELECT candidate_id, kind, zurich_date, fixture_id, market_key, kickoff FROM shadow_published "
+                     f"WHERE result IS NULL AND kickoff IS NOT NULL AND kickoff < ? AND {_NOT_VOIDED_PUBLISHED}",
+                     (threshold,))
+                 if (spec := MARKET_BY_KEY.get(str(market_key or "").upper())) is not None
+                 and spec.kind in _GOAL_SETTLED_KINDS]
+    if not rows:
+        return 0
+    by_id = {}
+    for fixture in provider.fixtures_by_ids(sorted({row[2] for row in rows})):
+        fixture_data = fixture.get("fixture") if isinstance(fixture, dict) else None
+        fixture_id = fixture_data.get("id") if isinstance(fixture_data, dict) else None
+        if _positive_int(fixture_id):
+            by_id[fixture_id] = fixture
+    voided = 0
+    with _connect() as connection:
+        for ledger, row_key, fixture_id, kickoff in rows:
+            fixture = by_id.get(fixture_id)
+            reason = _void_reason(fixture, kickoff)
+            if reason is None:
+                continue
+            data = fixture["fixture"]
+            status = data.get("status")
+            cursor = connection.execute(
+                """INSERT OR IGNORE INTO shadow_void (ledger, row_key, fixture_id, reason, provider_status,
+                   logged_kickoff, provider_kickoff, voided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (ledger, row_key, fixture_id, reason, status.get("short") if isinstance(status, dict) else None,
+                 kickoff, data.get("date"), _utc_iso(now)),
+            )
+            voided += cursor.rowcount == 1
+        connection.commit()
+    return voided
+
+
 def step_settle(tracker: CLVTracker, provider: ShadowProvider, now: datetime) -> int:
     threshold = _utc_iso(now - SETTLE_GRACE)
     with _connect() as connection:
         rows = connection.execute(
-            """SELECT id, fixture_id, prediction, market_type FROM predictions
-               WHERE result IS NULL AND fixture_kickoff < ?""",
+            f"""SELECT id, fixture_id, prediction, market_type FROM predictions
+               WHERE result IS NULL AND fixture_kickoff < ? AND {_NOT_VOIDED_PREDICTION}""",
             (threshold,),
         ).fetchall()
     if not rows:
@@ -1934,14 +2033,14 @@ def _counts() -> tuple[int, int]:
     connection = _connect()
     try:
         open_count = connection.execute(
-            """SELECT COUNT(*) FROM predictions
-               WHERE result IS NULL AND model_version = ? AND policy_version = ?""",
+            f"""SELECT COUNT(*) FROM predictions
+               WHERE result IS NULL AND model_version = ? AND policy_version = ? AND {_NOT_VOIDED_PREDICTION}""",
             (SHADOW_MODEL_VERSION, SHADOW_POLICY_VERSION),
         ).fetchone()[0]
         pending_closing = connection.execute(
-            """SELECT COUNT(*) FROM predictions
+            f"""SELECT COUNT(*) FROM predictions
                WHERE closing_odds IS NULL AND result IS NULL
-                 AND model_version = ? AND policy_version = ?""",
+                 AND model_version = ? AND policy_version = ? AND {_NOT_VOIDED_PREDICTION}""",
             (SHADOW_MODEL_VERSION, SHADOW_POLICY_VERSION),
         ).fetchone()[0]
     finally:
@@ -2075,6 +2174,11 @@ def _result_statistics(model_version: str) -> dict:
                ORDER BY p.created_at, p.id""",
             (model_version, SHADOW_POLICY_VERSION),
         ).fetchall()
+        voided = connection.execute(
+            f"""SELECT COUNT(*) FROM predictions
+               WHERE model_version = ? AND policy_version = ? AND NOT ({_NOT_VOIDED_PREDICTION})""",
+            (model_version, SHADOW_POLICY_VERSION),
+        ).fetchone()[0]
     finally:
         connection.close()
     counts = {"Won": 0, "Lost": 0, "Push": 0}
@@ -2112,6 +2216,7 @@ def _result_statistics(model_version: str) -> dict:
         "won": counts["Won"],
         "lost": counts["Lost"],
         "push": counts["Push"],
+        "voided": voided,
         "invalid_rows": invalid,
         "hit_rate": round(counts["Won"] / decided, 4) if decided else None,
         "avg_odds": round(sum(prices) / len(prices), 3) if prices else None,
@@ -2324,11 +2429,12 @@ def run(ctx):
     now = datetime.now(timezone.utc)
     zurich_today = _zurich_time(now).date()
 
-    settled = settled_published = settled_unpriced = 0
+    settled = settled_published = settled_unpriced = voided = 0
     if _zurich_time(now).hour >= 9:
         with _connect() as connection:
             already_checked = bool(_meta_get(connection, _settlement_marker(zurich_today)))
         if not already_checked:
+            voided = step_void(provider, now)
             settled = step_settle(tracker, provider, now)
             settled_published = step_settle_published(provider, now)
             settled_unpriced = step_settle_unpriced(provider, now)
@@ -2375,6 +2481,7 @@ def run(ctx):
             "closings_captured": closings,
             "predictions_settled": settled,
             "unpriced_settled": settled_unpriced,
+            "tips_voided": voided,
             "published_recorded": published["recorded"],
             "published_recorded_with_quote": published["recorded_with_quote"],
             "published_settled": settled_published,

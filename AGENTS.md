@@ -68,6 +68,10 @@ Code, dann `PROJECT_HANDBUCH.md`, dann die Bibel. Historische Logs: `TODO_AKTUEL
   1000er-Prüfstufe); Policy `shadow-model-first-v11`. Seit v12 (31.10.2026, Owner-Entscheid,
   `docs/audits/2026-10-31-shadow-modellgrenze-70.md`) liegt die Shadow-Grenze bei 70 %
   (`SHADOW_UNPRICED_MAX_PROBABILITY`), weil die Median-Bet365-Quote erst darüber unter 1,30 fällt; die App behält 65 %.
+- **Shadow-Ungültigkeit seit 01.11.2026** (`docs/audits/2026-11-01-shadow-verschobene-spiele.md`, Owner-Entscheid):
+  Ein Tipp auf ein verschobenes, abgesagtes, abgebrochenes oder am grünen Tisch entschiedenes Spiel (`VOID_STATUSES`)
+  oder mit um mehr als zwölf Stunden verlegtem Anpfiff (`VOID_KICKOFF_SHIFT`) ist ungültig (`step_void` vor der
+  Abrechnung, `shadow_void`) und zählt in keinem Ergebnis; die Policy bleibt v12.
 - **Tennis-Rückhaltlimit seit 01.11.2026** (`docs/audits/2026-11-01-tennis-rueckhaltlimit-512.md`, Owner-Entscheid):
   Die Live-Vorbereitung darf 512 MiB Plan- und Nutzdatenheap halten (`LIVE_OUTPUT_LIMIT`, vorher 128 MiB, Abbruch nach
   60 bis 70 Fällen) und hat 1800 Sekunden Zeit (`LIVE_SECONDS_LIMIT`, vorher 1200); der Scan-Schritt der Pipeline

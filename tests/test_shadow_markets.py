@@ -386,11 +386,12 @@ class ShadowConditionTest(unittest.TestCase):
             connection = sqlite3.connect(db_path)
             try:
                 connection.execute(
-                    "CREATE TABLE predictions (result TEXT, closing_odds REAL, "
+                    "CREATE TABLE predictions (id INTEGER PRIMARY KEY, result TEXT, closing_odds REAL, "
                     "model_version TEXT, policy_version TEXT)"
                 )
                 connection.executemany(
-                    "INSERT INTO predictions VALUES (?, ?, ?, ?)",
+                    "INSERT INTO predictions (result, closing_odds, model_version, policy_version) "
+                    "VALUES (?, ?, ?, ?)",
                     (
                         (
                             None,
