@@ -16,6 +16,14 @@ from context_models.tennis_training import _TennisBatchDiscovery, _batch_reader
 from context_models.tennis_stream import _case_selection, _physical_rows
 from tennis.history_projection import PreparedTennisHistory
 
+# Owner decision 01.11.2026 (docs/audits/2026-11-01-tennis-rueckhaltlimit-512.md): 128 MiB of
+# conservatively counted plan and prepared heap failed the day after 60 to 70 cases (26.10.,
+# 27.10., 01.11.); 512 MiB holds about 250 cases on a host with 3.4 GB available. At 10 to 12
+# seconds per case 1200 seconds held about 90 cases; 1800 seconds hold about 150, inside the
+# 39-minute scan step of scripts/run_daily_pipeline.py.
+LIVE_OUTPUT_LIMIT = 512*1024**2
+LIVE_SECONDS_LIMIT = 1800
+
 
 def _heap(value):
     """Conservative owned-container accounting; shared children count twice."""
@@ -33,16 +41,16 @@ class LiveTennisReadBudget:
     def __init__(self):
         self.started, self.cpu_started = monotonic(), process_time()
         # New explicit live limits. None is a claimed measured daily PASS.
-        self.seconds, self.cpu_seconds = 1200, 1200
+        self.seconds, self.cpu_seconds = LIVE_SECONDS_LIMIT, LIVE_SECONDS_LIMIT
         self.case_limit, self.raw_row_limit, self.raw_byte_limit = 400, 2_000_000, 2*1024**3
-        self.output_limit = 128*1024**2
+        self.output_limit = LIVE_OUTPUT_LIMIT
         self.admitted_rows = self.admitted_bytes = self.actual_rows = self.actual_bytes = 0
         self.plan_bytes = self.prepared_bytes = self.completed_cases = 0
         self.sql_cancelled = False
 
     def check(self):
-        for name, maximum in (('seconds', 1200), ('cpu_seconds', 1200), ('case_limit', 400),
-                ('raw_row_limit', 2_000_000), ('raw_byte_limit', 2*1024**3), ('output_limit', 128*1024**2)):
+        for name, maximum in (('seconds', LIVE_SECONDS_LIMIT), ('cpu_seconds', LIVE_SECONDS_LIMIT), ('case_limit', 400),
+                ('raw_row_limit', 2_000_000), ('raw_byte_limit', 2*1024**3), ('output_limit', LIVE_OUTPUT_LIMIT)):
             value = getattr(self, name)
             if type(value) is not int or not 1 <= value <= maximum:
                 raise ValueError('live source limits may only tighten the named contract')

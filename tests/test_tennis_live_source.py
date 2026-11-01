@@ -106,7 +106,7 @@ def test_shared_deadline_cannot_restart_with_later_case(monkeypatch):
     monkeypatch.setattr(implementation, 'monotonic', lambda: clock[0])
     budget = implementation.LiveTennisReadBudget()
     first = implementation._LiveCaseBudget(budget)
-    clock[0] = 1201.
+    clock[0] = implementation.LIVE_SECONDS_LIMIT + 1.
     second = implementation._LiveCaseBudget(budget)
     for owner in (first, second):
         with pytest.raises(TimeoutError):
@@ -143,6 +143,19 @@ def test_prepared_output_ref_retention_is_separate_and_bounded():
     budget.output_limit = 1024
     with pytest.raises(ValueError, match='output/reference retention'):
         budget.keep_prepared(('x'*2048, {}, 'key'))
+
+
+def test_output_retention_limit_is_512_mib_and_time_1800_s_since_1_11_2026():
+    # Owner decision 01.11.2026: 128 MiB failed the day after 60 to 70 prepared cases, and
+    # 1200 seconds held only about 90 cases.
+    budget = implementation.LiveTennisReadBudget()
+    assert budget.output_limit == implementation.LIVE_OUTPUT_LIMIT == 512*1024**2
+    assert budget.seconds == budget.cpu_seconds == implementation.LIVE_SECONDS_LIMIT == 1800
+    budget.plan_bytes, budget.prepared_bytes = 200*1024**2, 312*1024**2
+    budget.check()
+    budget.prepared_bytes += 1
+    with pytest.raises(ValueError, match='output/reference retention'):
+        budget.check()
 
 
 @pytest.mark.parametrize('different_clocks', [False, True])

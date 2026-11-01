@@ -48,8 +48,9 @@ WATCH_WEEKDAY = 0  # Montag: nach den Wochenend-Matches
 # Production measurement (2026-09-20): 593k immutable references and 74
 # originals used 7.7 min for the full physical check alone. The daily scan
 # also prepares and publishes every original; 15 min cannot cover that work.
-# Keep a bounded budget: all Monday steps total 175 min, below systemd's 3h.
-DAILY_SCAN_TIMEOUT_SECONDS = 35 * 60
+# Keep a bounded budget: all Monday steps total 179 min, below systemd's 3h. Since 01.11.2026 the
+# live preparation may take 30 minutes (docs/audits/2026-11-01-tennis-rueckhaltlimit-512.md).
+DAILY_SCAN_TIMEOUT_SECONDS = 39 * 60
 
 CREATE_NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
 
