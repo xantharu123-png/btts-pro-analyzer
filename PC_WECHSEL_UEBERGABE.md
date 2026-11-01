@@ -1,5 +1,49 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## 01.11.2026 08:06 – Release 20261101-1 live: Tennis-Live-Vorbereitung 512 MiB und 30 Minuten (PR #68)
+
+Befund (nur lesend, `output/release-20261031-2/tennis_nights.sh`, `tennis_impact.sh`): Der Tennis-Tagesscan
+scheiterte am 26.10., 27.10. und 01.11. an `live tennis output/reference retention exceeded`, jeweils nach 60 bis 70
+vorbereiteten Fällen (gesamt 112/80/85); die Grenze für Plan- und Nutzdatenheap lag bei 128 MiB (konservativ
+gezählt). Die Alarme vom 26./27.10. hatten dieselbe Ursache. Der VPS hat 3,4 GB frei. Bei 10 bis 12 Sekunden je Fall
+hätte danach das Zeitbudget von 1200 Sekunden ab rund 90 Fällen gegriffen.
+
+Owner-Entscheide 01.11.2026 („Ja, 512 MB“, „Ja, beides ausrollen“;
+`docs/audits/2026-11-01-tennis-rueckhaltlimit-512.md`): `LIVE_OUTPUT_LIMIT = 512 MiB`, `LIVE_SECONDS_LIMIT = 1800`
+(Wand und CPU), Scan-Schritt in `scripts/run_daily_pipeline.py` 39 statt 35 Minuten (alle Montagsschritte 179
+Minuten, unter dem Systemd-Limit von 3 Stunden; Einheit unverändert). Übrige Grenzen und Fail-closed bleiben.
+
+PR #68 gemergt und um 08:06 CET als **`71dd528`** per No-Backup-Fast-forward von `7dd875f` ausgerollt (Helfer
+`output/release-20261101-1/deploy.sh`, abgeleitet vom Helfer 20261031-2, 9 Pfade; Offline-Prüfung lokal und auf dem
+Server ok inklusive der neuen Grenzen; nur App-Neustart PID 1423238→1434828; Healthchecks ok, Snapshots
+unverändert, kein Backup, Einheiten unverändert). Wirksam ab dem nächsten Tennis-Nachtlauf (2.11. um 00:05).
+
+Offen: Tennis-Nachtlauf 2.11. prüfen (Fälle, Dauer, Exit-Code).
+
+## 01.11.2026 – Prüfung: erste Shadow-Tipps unter shadow-model-first-v12
+
+Nur lesende Sonntagsprüfung 08:00 CET (`output/release-20261031-1/check_shadow.sh`, Log `verify-sunday.log`).
+Aktuelle Policy **`shadow-model-first-v12`**, Modellgrenze 70 % (`max_model_probability` 0,7); 90 Läufe seit
+31.10. 10:22 CET. Deutlich mehr Tipps als vorher (v10: 1, v11: 0): **16 Tipps** in knapp 22 Stunden (Samstag).
+
+- Tipps mit Quote: 4. Legacy 3 (Unter 3,5 Tore zu 1,40 und 1,62, Unter 4,5 zu 1,67), Hybrid 1 (Heimsieg zu 1,44).
+  Öffnung 1,1–4,9 h alt, **keiner über 12 h**.
+- Tipps ohne Quote: 12. Legacy 3, Hybrid 9; Modellwahrscheinlichkeit 64,9–69,7 %. Grund `no_bet365_market` 6
+  (Legacy 2, Hybrid 4), `no_fresh_bet365_quote` 6 (Legacy 1, Hybrid 5).
+- Abgerechnet: **0 von 16** (alle Anstösse 31.10. 12:00 bis 1.11. 01:07 UTC vorbei, Ergebnisse noch nicht
+  eingetragen). Treffer 0, Verluste/Fehlschläge 0, Gewinn 0,00 Einsätze je Kohorte; Trefferquote und
+  `expected_hit_rate` noch leer. Prüfstufe 0/1000, Paare 0/1000.
+- Zähler (Summen über Läufe, ein Spiel zählt mehrfach): `fixtures_without_fresh_quote` Legacy 138, Hybrid 33;
+  `fixtures_below_minimum_odds` 0; `fixtures_deferred` 127.
+- Betrieb: Shadow 0 fehlgeschlagene Läufe (Status 22 `completed`, 71 `partial`, 47 `idle`); Quotenläufe 8/8 ok in
+  24 h; Platzwächter `ok` (19,5 GB frei, DB 8,81 GB); App aktiv, Website HTTP 200, Server `7dd875f`.
+- **Neuer Alarm** 1.11. 00:22 CET: Tennis-Tageslauf Exit 1 bei 60/85 Spielen
+  (`ValueError: live tennis output/reference retention exceeded`); Korrektur liegt als PR #68 offen.
+
+Bei so wenigen Tipps ist jedes Ergebnis Zufall; keine Schlüsse über Gewinn oder Können.
+
+Offen: Abrechnung der 16 v12-Tipps beobachten; PR #68 (Tennis-Rückhalt) ist seit 08:06 live (Block oben).
+
 ## 31.10.2026 10:05 – Release 20261031-2 live: Shadow-Modellgrenze 70 %, Policy v12 (PR #66)
 
 Owner-Entscheid 31.10.2026 („Ja, 70 %“, `docs/audits/2026-10-31-shadow-modellgrenze-70.md`): Tipps ohne frische
