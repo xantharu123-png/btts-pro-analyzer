@@ -145,6 +145,17 @@ def test_prepared_output_ref_retention_is_separate_and_bounded():
         budget.keep_prepared(('x'*2048, {}, 'key'))
 
 
+def test_output_retention_limit_is_512_mib_since_1_11_2026():
+    # Owner decision 01.11.2026: 128 MiB failed the day after 60 to 70 prepared cases.
+    budget = implementation.LiveTennisReadBudget()
+    assert budget.output_limit == implementation.LIVE_OUTPUT_LIMIT == 512*1024**2
+    budget.plan_bytes, budget.prepared_bytes = 200*1024**2, 312*1024**2
+    budget.check()
+    budget.prepared_bytes += 1
+    with pytest.raises(ValueError, match='output/reference retention'):
+        budget.check()
+
+
 @pytest.mark.parametrize('different_clocks', [False, True])
 def test_actual_original_both_tours_equal_oracle_and_previous_owner_dies_before_next(tmp_path, monkeypatch, different_clocks):
     from contextlib import contextmanager
