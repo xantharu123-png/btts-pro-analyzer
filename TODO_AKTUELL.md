@@ -1,5 +1,25 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 01.11.2026 08:06 – Release 20261101-1 live: Tennis-Live-Vorbereitung 512 MiB und 30 Minuten (PR #68)
+
+Befund (nur lesend, `output/release-20261031-2/tennis_nights.sh`, `tennis_impact.sh`): Der Tennis-Tagesscan
+scheiterte am 26.10., 27.10. und 01.11. an `live tennis output/reference retention exceeded`, jeweils nach 60 bis 70
+vorbereiteten Fällen (gesamt 112/80/85); die Grenze für Plan- und Nutzdatenheap lag bei 128 MiB (konservativ
+gezählt). Die Alarme vom 26./27.10. hatten dieselbe Ursache. Der VPS hat 3,4 GB frei. Bei 10 bis 12 Sekunden je Fall
+hätte danach das Zeitbudget von 1200 Sekunden ab rund 90 Fällen gegriffen.
+
+Owner-Entscheide 01.11.2026 („Ja, 512 MB“, „Ja, beides ausrollen“;
+`docs/audits/2026-11-01-tennis-rueckhaltlimit-512.md`): `LIVE_OUTPUT_LIMIT = 512 MiB`, `LIVE_SECONDS_LIMIT = 1800`
+(Wand und CPU), Scan-Schritt in `scripts/run_daily_pipeline.py` 39 statt 35 Minuten (alle Montagsschritte 179
+Minuten, unter dem Systemd-Limit von 3 Stunden; Einheit unverändert). Übrige Grenzen und Fail-closed bleiben.
+
+PR #68 gemergt und um 08:06 CET als **`71dd528`** per No-Backup-Fast-forward von `7dd875f` ausgerollt (Helfer
+`output/release-20261101-1/deploy.sh`, abgeleitet vom Helfer 20261031-2, 9 Pfade; Offline-Prüfung lokal und auf dem
+Server ok inklusive der neuen Grenzen; nur App-Neustart PID 1423238→1434828; Healthchecks ok, Snapshots
+unverändert, kein Backup, Einheiten unverändert). Wirksam ab dem nächsten Tennis-Nachtlauf (2.11. um 00:05).
+
+Offen: Tennis-Nachtlauf 2.11. prüfen (Fälle, Dauer, Exit-Code).
+
 ## 01.11.2026 – Prüfung: erste Shadow-Tipps unter shadow-model-first-v12
 
 Nur lesende Sonntagsprüfung 08:00 CET (`output/release-20261031-1/check_shadow.sh`, Log `verify-sunday.log`).
@@ -22,7 +42,7 @@ Aktuelle Policy **`shadow-model-first-v12`**, Modellgrenze 70 % (`max_model_prob
 
 Bei so wenigen Tipps ist jedes Ergebnis Zufall; keine Schlüsse über Gewinn oder Können.
 
-Offen: Abrechnung der 16 v12-Tipps beobachten; PR #68 (Tennis-Rückhalt) wartet auf Owner-Merge.
+Offen: Abrechnung der 16 v12-Tipps beobachten; PR #68 (Tennis-Rückhalt) ist seit 08:06 live (Block oben).
 
 ## 31.10.2026 10:05 – Release 20261031-2 live: Shadow-Modellgrenze 70 %, Policy v12 (PR #66)
 
