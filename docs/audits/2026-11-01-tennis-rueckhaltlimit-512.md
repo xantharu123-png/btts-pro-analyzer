@@ -1,6 +1,7 @@
-# Tennis-Rückhaltlimit 512 MiB (Live-Vorbereitung, D3 zweiter Teil)
+# Tennis-Rückhaltlimit 512 MiB und Zeitbudget 30 Minuten (Live-Vorbereitung, D3 zweiter Teil)
 
-Datum: 01.11.2026. Owner-Entscheid im Chat („Ja, 512 MB“) nach dem Befund unten.
+Datum: 01.11.2026. Owner-Entscheide im Chat („Ja, 512 MB“, danach „Ja, beides ausrollen“ für das
+Zeitbudget) nach dem Befund unten.
 
 ## Befund (nur lesend, `output/release-20261031-2/tennis_nights.sh`, `tennis_impact.sh`)
 
@@ -25,9 +26,14 @@ Datum: 01.11.2026. Owner-Entscheid im Chat („Ja, 512 MB“) nach dem Befund un
 Alle übrigen Grenzen (Zeit, Fälle, Rohzeilen, Rohbytes, Fall-Rückhalt 256 MiB) und das Fail-closed-Verhalten der
 Gesamtgrenzen (Owner 25.10.2026) bleiben.
 
-## Nächster Engpass
+## Zeitbudget 30 Minuten
 
-Die Live-Vorbereitung hat ein Zeitbudget von 1200 Sekunden (Wand und CPU). Gemessen wurden 10 bis 12 Sekunden je
-Fall nach rund 190 Sekunden Anlauf: 85 Fälle brauchen etwa 1100 Sekunden, 112 Fälle wie am 26.10. etwa 1550. An
-Tagen mit mehr als rund 90 Fällen bricht der Scan deshalb künftig am Zeitbudget ab
-(`live tennis source time budget exhausted`), solange dieses nicht ebenfalls angehoben wird.
+Die Live-Vorbereitung hatte ein Zeitbudget von 1200 Sekunden (Wand und CPU). Gemessen wurden 10 bis 12 Sekunden je
+Fall nach rund 190 Sekunden Anlauf: 85 Fälle brauchen etwa 1100 Sekunden, 112 Fälle wie am 26.10. etwa 1550. Mit dem
+grösseren Rückhalt allein wäre ein solcher Tag am Zeitbudget gescheitert (`live tennis source time budget exhausted`).
+
+- `LIVE_SECONDS_LIMIT = 1800` für Wand- und CPU-Zeit (rund 150 Fälle).
+- Der Scan-Schritt in `scripts/run_daily_pipeline.py` steigt von 35 auf 39 Minuten
+  (`DAILY_SCAN_TIMEOUT_SECONDS`), damit die 30 Minuten samt Anlauf und Speicherung hineinpassen. Mit Rebuild
+  (15 min), Kalibrierungswächter am Montag (120 min) und Wochenreport (5 min) bleiben alle Schritte mit 179 Minuten
+  unter dem Systemd-Limit von 3 Stunden (`TimeoutStartSec=3h`, Einheit unverändert).

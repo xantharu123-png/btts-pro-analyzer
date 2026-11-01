@@ -42,7 +42,7 @@ def test_complete_scan_has_bounded_production_capacity_within_service_budget(mon
         return "complete"
     monkeypatch.setattr(run_daily_pipeline, "run_step", run)
     assert run_daily_pipeline.main() == 0
-    assert calls == [("rebuild_state.py", 900), ("tennis_daily.py", 2100)]
+    assert calls == [("rebuild_state.py", 900), ("tennis_daily.py", 2340)]
     assert 900 + run_daily_pipeline.DAILY_SCAN_TIMEOUT_SECONDS + 7200 + 300 < 3 * 3600
 
 

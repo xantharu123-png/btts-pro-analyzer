@@ -70,7 +70,8 @@ Code, dann `PROJECT_HANDBUCH.md`, dann die Bibel. Historische Logs: `TODO_AKTUEL
   (`SHADOW_UNPRICED_MAX_PROBABILITY`), weil die Median-Bet365-Quote erst darüber unter 1,30 fällt; die App behält 65 %.
 - **Tennis-Rückhaltlimit seit 01.11.2026** (`docs/audits/2026-11-01-tennis-rueckhaltlimit-512.md`, Owner-Entscheid):
   Die Live-Vorbereitung darf 512 MiB Plan- und Nutzdatenheap halten (`LIVE_OUTPUT_LIMIT`, vorher 128 MiB, Abbruch nach
-  60 bis 70 Fällen); das Zeitbudget von 1200 Sekunden reicht für rund 90 Fälle.
+  60 bis 70 Fällen) und hat 1800 Sekunden Zeit (`LIVE_SECONDS_LIMIT`, vorher 1200); der Scan-Schritt der Pipeline
+  hat 39 Minuten (`DAILY_SCAN_TIMEOUT_SECONDS`).
 - **Betrieb seit 25.10.2026 abends** (`docs/audits/2026-10-25-betrieb-massnahme-3.md`): Die
   Timer `wettfinder/tennis/esports/quotes` holen verpasste Läufe nach; die sechs Kerneinheiten
   alarmieren über `betboy-alert@%n.service` (Helfer `scripts/betboy_alert.py`, Vorlage unter
