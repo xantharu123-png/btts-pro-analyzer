@@ -1,5 +1,30 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 01.11.2026 13:57 – Release 20261101-2 live: Shadow-Tipps auf verschobene oder abgesagte Spiele ungültig (PR #71)
+
+Befund bei der Abrechnung am 01.11. (nur lesend, `output/release-20261101-1/open_priced.sh`, `open_priced2.sh`):
+v12-Tipps ohne Quote 9 von 12 gewonnen; mit Quote 2 abgerechnet (−0,56 Einheiten). Zwei Legacy-Tipps mit Quote der
+ukrainischen Premier League (Zorya – Epitsentr zu 1,40, Karpaty – Kudrivka zu 1,62) blieben offen: Die Spiele wurden
+vom 31.10. auf den 2.11. verlegt, der Anbieter behält dieselbe Fixture-ID. Ohne Regel wären beide am 3.11. zur Quote
+vom 31.10. abgerechnet worden. Der v9-Tipp Shakhtar – Obolon'-Brovar (30.10.) hat noch keinen Endstand.
+
+Owner-Entscheid 01.11.2026 („Ja, Regel bauen“, „Ja, beides“; `docs/audits/2026-11-01-shadow-verschobene-spiele.md`):
+Vor der täglichen Abrechnung setzt `step_void` offene Tipps aller drei Bücher auf ungültig, wenn der Anbieterstatus
+`PST`, `CANC`, `ABD`, `AWD` oder `WO` ist oder der Anpfiff mehr als zwölf Stunden vom erfassten abweicht (die
+Zwölf-Stunden-Grenze ist eine Setzung). Einträge stehen in `shadow_void`. Ungültige Tipps zählen in keinem Ergebnis
+und nicht in der 1000er-Prüfstufe (`results.voided`, `unpriced_results.voided`, `actions.tips_voided`). Die Policy
+bleibt v12, die Regel gilt rückwirkend für alle offenen Tipps.
+
+PR #71 gemergt und um 13:57 CET als **`edf4d6f`** per No-Backup-Fast-forward von `71dd528` ausgerollt (Helfer
+`output/release-20261101-2/deploy.sh`, abgeleitet vom Helfer 20261101-1, 8 Pfade inklusive Protokoll-PR #70;
+Offline-Prüfung lokal und auf dem Server ok inklusive der Ungültigkeitsregel; nur App-Neustart PID 1434828→1438595;
+Healthchecks ok, Snapshots unverändert, kein Backup, Einheiten unverändert). Erster Shadow-Lauf um 14:02 erfolgreich
+(Exit 0, `partial` wie üblich), Tabelle `shadow_void` angelegt und noch leer: Die Prüfung läuft mit der Abrechnung
+erst ab 2.11. 09:00 (`output/release-20261101-2/verify-01.log`).
+
+Offen: Am 2.11. nach 09:00 prüfen, ob `shadow_void` die beiden UPL-Tipps enthält (und Shakhtar, falls verlegt oder
+abgesagt); Tennis-Nachtlauf 2.11. prüfen.
+
 ## 01.11.2026 08:06 – Release 20261101-1 live: Tennis-Live-Vorbereitung 512 MiB und 30 Minuten (PR #68)
 
 Befund (nur lesend, `output/release-20261031-2/tennis_nights.sh`, `tennis_impact.sh`): Der Tennis-Tagesscan
@@ -42,7 +67,7 @@ Aktuelle Policy **`shadow-model-first-v12`**, Modellgrenze 70 % (`max_model_prob
 
 Bei so wenigen Tipps ist jedes Ergebnis Zufall; keine Schlüsse über Gewinn oder Können.
 
-Offen: Abrechnung der 16 v12-Tipps beobachten; PR #68 (Tennis-Rückhalt) ist seit 08:06 live (Block oben).
+Offen: Abrechnung der 16 v12-Tipps beobachten (Stand 01.11. und Ungültigkeitsregel im Block 13:57); PR #68 (Tennis-Rückhalt) ist seit 08:06 live.
 
 ## 31.10.2026 10:05 – Release 20261031-2 live: Shadow-Modellgrenze 70 %, Policy v12 (PR #66)
 
