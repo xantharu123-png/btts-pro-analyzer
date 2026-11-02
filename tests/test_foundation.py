@@ -542,6 +542,8 @@ class SeasonUtilsTests(unittest.TestCase):
             "ENG3", "ENG4", "DEN1", "NOR1", "GRE1", "CZE1", "ROU1", "SRB1",
             "CRO1", "UKR1", "POL1", "SVK1", "ARG1", "COL1", "IDN1", "ECU1",
             "SWE2", "NOR2", "DEN2", "IS1", "FIN1", "FIN2", "HUN1", "UNL",
+            "ESP2", "ITA2", "FRA2", "GER3", "TUR2", "POR2", "BEL2", "AUT2",
+            "SUI2", "KSA1", "ISR1", "CYP1", "BUL1", "RSA1",
         )
         for code in added_codes:
             mapping_reference.pop(code)
@@ -552,15 +554,15 @@ class SeasonUtilsTests(unittest.TestCase):
             reloaded_catalog = importlib.reload(league_catalog)
 
         self.assertIs(reloaded_catalog.ANALYZER_LEAGUE_IDS, mapping_reference)
-        self.assertEqual(len(mapping_reference), 52)
+        self.assertEqual(len(mapping_reference), 66)
 
-    def test_all_football_workspaces_share_the_same_52_leagues(self):
+    def test_all_football_workspaces_share_the_same_66_leagues(self):
         canonical_ids = {league.league_id for league in LEAGUES}
 
-        self.assertEqual(len(LEAGUES), 52)
-        self.assertEqual(len(LEAGUE_BY_CODE), 52)
-        self.assertEqual(len(ANALYZER_LEAGUE_IDS), 52)
-        self.assertEqual(len(ALTERNATIVE_MARKET_LEAGUES), 52)
+        self.assertEqual(len(LEAGUES), 66)
+        self.assertEqual(len(LEAGUE_BY_CODE), 66)
+        self.assertEqual(len(ANALYZER_LEAGUE_IDS), 66)
+        self.assertEqual(len(ALTERNATIVE_MARKET_LEAGUES), 66)
         self.assertSetEqual(set(ANALYZER_LEAGUE_IDS.values()), canonical_ids)
         self.assertSetEqual(set(ALTERNATIVE_MARKET_LEAGUES), canonical_ids)
         self.assertSetEqual(
@@ -599,6 +601,20 @@ class SeasonUtilsTests(unittest.TestCase):
         self.assertEqual(league_label_for_code("FIN2"), "Finland: Ykkönen")
         self.assertEqual(current_season_start_year("FIN1", date(2026, 2, 1)), 2026)
         self.assertEqual(current_season_start_year("FIN2", date(2026, 2, 1)), 2026)
+
+    def test_november_2026_additions_have_verified_ids_and_summer_rollover(self):
+        expected = {
+            "ESP2": 141, "ITA2": 136, "FRA2": 62, "GER3": 80, "TUR2": 204, "POR2": 95, "BEL2": 145,
+            "AUT2": 219, "SUI2": 208, "KSA1": 307, "ISR1": 383, "CYP1": 318, "BUL1": 172, "RSA1": 288,
+        }
+        for code, league_id in expected.items():
+            self.assertEqual(ANALYZER_LEAGUE_IDS[code], league_id)
+            self.assertEqual(current_season_start_year(code, date(2026, 11, 2)), 2026)
+            self.assertEqual(current_season_start_year(code, date(2027, 3, 1)), 2026)
+        self.assertEqual(league_label_for_code("ESP2"), "Spain: Segunda División")
+        self.assertEqual(league_label_for_code("SUI2"), "Switzerland: Challenge League")
+        self.assertNotIn(98, ALTERNATIVE_MARKET_LEAGUES)
+        self.assertNotIn(99, ALTERNATIVE_MARKET_LEAGUES)
 
     def test_european_season_rolls_in_july(self):
         self.assertEqual(current_season_start_year("PL", date(2026, 6, 30)), 2025)
