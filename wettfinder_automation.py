@@ -74,11 +74,13 @@ from ev_signal_sources import (
     MAX_AUTOMATED_MODEL_CANDIDATES,
     MAX_AUTOMATED_OTHER_CANDIDATES_PER_SPORT,
     MAX_AUTOMATED_RECOMMENDATIONS,
+    NEXT_DAY_MIN_GAMES,
     ESPORTS_DB,
     ModelSignal,
     TENNIS_DB,
     _reference_execution_matches_row,
     _validated_football_context_statuses,
+    automated_next_day,
     esports_signals,
     tennis_model_signals,
 )
@@ -2551,6 +2553,69 @@ def _default_football_context_refresh(
     return snapshot
 
 
+def _football_next_day(
+    previous_state: object,
+    search_date: date,
+    *,
+    rescan: bool,
+    scanner: Callable[[date], dict[str, Any]],
+    refresher: Callable[[list[ChallengeCandidate], date, datetime], dict[str, Any]],
+    max_batches: int,
+    now: datetime,
+    clock: Callable[[], datetime],
+    stage: Callable[..., Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Discover and check the next Zurich day on its own state (Folgetag, 02.11.2026).
+
+    Without a new daily discovery the persisted next-day state is reused. Any
+    failure drops the next day only; the match day keeps its own status.
+    """
+    summary: dict[str, Any] = {"search_date": search_date.isoformat()}
+    state = (
+        dict(previous_state)
+        if isinstance(previous_state, dict)
+        and previous_state.get("search_date") == search_date.isoformat()
+        else None
+    )
+    current = now
+    context_fixture_ids: list[int] = []
+    try:
+        if state is None or rescan:
+            snapshot = stage("football_discovery_next_day", scanner, search_date)
+            if not isinstance(snapshot, dict):
+                raise RuntimeError("football scanner returned no document")
+            state = _football_state_from_snapshot(
+                snapshot, attempted_at=current, search_date=search_date,
+            )
+            current = clock()
+        for _batch_index in range(max(0, max_batches)):
+            batch_fixture_ids = football_context_due_fixture_ids(state, now=current)
+            if not batch_fixture_ids:
+                break
+            pool = _discovered_candidates_for_fixtures(state, batch_fixture_ids)
+            if not pool:
+                raise RuntimeError("next-day football pool is invalid")
+            result = stage("football_context_next_day", refresher, pool, search_date, current)
+            if not isinstance(result, dict):
+                raise RuntimeError("football context refresher returned no document")
+            current = clock()
+            state = _merge_context_refresh(
+                state, result, fixture_ids=batch_fixture_ids, checked_at=current,
+            )
+            context_fixture_ids.extend(batch_fixture_ids)
+    except Exception as exc:
+        # Provider messages can carry request details; the public summary keeps the type only.
+        return {}, {**summary, "status": "failed", "failure_type": type(exc).__name__}
+    summary["context_fixture_count"] = len(context_fixture_ids)
+    if (
+        state.get("status") != "completed"
+        or int(state.get("operational_error_count") or 0) != 0
+        or _validated_football_context_statuses(state) is None
+    ):
+        return {}, {**summary, "status": "degraded"}
+    return state, {**summary, "status": "scanned"}
+
+
 def _apply_reference_quotes(
     model_rows: list[dict[str, Any]],
     price_rows: list[dict[str, Any]],
@@ -3513,6 +3578,7 @@ def run_wettfinder(
     riskobet_db_path: Optional[str | Path] = None,
     riskobet_latest_path: Optional[str | Path] = None,
     force_football: bool = False,
+    football_next_day: Optional[bool] = None,
     evidence_db_path: Optional[str | Path] = None,
     evidence_settlement_runner: Optional[Callable[..., dict]] = None,
     esports_settlement_runner: Optional[Callable[..., dict]] = None,
@@ -3703,6 +3769,7 @@ def run_wettfinder(
 
     context_fixture_ids: list[int] = []
     context_status = "not_due"
+    context_batches_used = 0
     for _batch_index in range(FOOTBALL_CONTEXT_MAX_BATCHES_PER_RUN):
         batch_fixture_ids = football_context_due_fixture_ids(
             football_state,
@@ -3710,6 +3777,7 @@ def run_wettfinder(
         )
         if not batch_fixture_ids:
             break
+        context_batches_used += 1
         context_fixture_ids.extend(batch_fixture_ids)
         context_candidates = _discovered_candidates_for_fixtures(
             football_state,
@@ -3854,6 +3922,58 @@ def run_wettfinder(
             if context_statuses.get(str(row.get("fixture_id"))) == "verified"
         ]
     )
+    # Owner decision 02.11.2026: a match day with fewer football games also lists
+    # the next day's games. That day has its own state and the remaining context
+    # batches; it never changes today's football status, tips, 15K list or evidence.
+    next_target = target + timedelta(days=1)
+    next_day_state: dict[str, Any] = {}
+    next_day_rows: list[dict[str, Any]] = []
+    today_games = len({
+        row.get("fixture_id")
+        for row in (*football_forecast_rows, *football_basis_forecast_rows)
+    })
+    next_day_summary: dict[str, Any] = {"status": "not_needed", "today_games": today_games}
+    if (
+        (production_state if football_next_day is None else football_next_day)
+        and today_games < NEXT_DAY_MIN_GAMES
+        and football_state.get("status") == "completed"
+        and context_statuses is not None
+    ):
+        app_config = config or load_app_config()
+        next_day_state, next_day_summary = _football_next_day(
+            previous.get("football_next_day"),
+            next_target,
+            rescan=force_football or due.due,
+            scanner=football_scanner or (
+                lambda scan_date: _default_football_scan(scan_date, app_config)
+            ),
+            refresher=football_context_refresher or (
+                lambda pool, scan_date, checked_at: _default_football_context_refresh(
+                    pool, scan_date, checked_at, app_config,
+                )
+            ),
+            max_batches=FOOTBALL_CONTEXT_MAX_BATCHES_PER_RUN - context_batches_used,
+            now=current,
+            clock=(lambda: current) if fixed_now else (lambda: _utc(runtime_clock())),
+            stage=stage,
+        )
+        next_day_summary["today_games"] = today_games
+        if not fixed_now:
+            current = _utc(runtime_clock())
+        next_statuses = _validated_football_context_statuses(next_day_state)
+        if next_statuses is not None:
+            next_day_rows = [
+                row
+                for row in _persisted_football_records(
+                    next_day_state,
+                    field_name="candidates",
+                    now=current,
+                    target_date=next_target,
+                    limit=None,
+                    basic_only=False,
+                )
+                if next_statuses.get(str(row.get("fixture_id"))) == "verified"
+            ]
     source_rows: list[dict[str, Any]] = [
         *football_forecast_rows,
         *football_basis_forecast_rows,
@@ -4035,6 +4155,48 @@ def run_wettfinder(
         # model row (build_scheduled_challenge_snapshot compares them).
         football_playable_rows = _floor_playable_rows(football_model_rows, now=current)
     football_quote_error_count = len(_operational_quote_errors(quote_errors))
+    # The next day gets the same price check for the 1.20 display floor. Its
+    # quote errors stay in its own summary and never degrade today's football.
+    next_day_price_rows = select_price_check_candidates(
+        (
+            ({**row, "status": "PRICE_REQUIRED"} if observe_production_prices else row)
+            for row in next_day_rows
+            if exact_market_target(row.get("market_key")) is not None
+        ),
+        now=current,
+        target_date=next_target,
+        preserve_order=True,
+        previous_checks=prior_price_checks,
+        max_fixtures=MAX_SCAN_FIXTURES,
+        max_markets_per_fixture=100,
+    ) if football_quote_loader is not None and next_day_rows else []
+    next_day_quotes: dict[str, MarketConsensus] = {}
+    next_day_quote_errors: list[str] = []
+    if next_day_price_rows:
+        try:
+            next_day_quotes, next_day_quote_errors = football_quote_loader(next_day_price_rows)
+        except Exception as exc:
+            next_day_quote_errors = _safe_quote_loader_error(exc)
+        if not fixed_now:
+            current = _utc(runtime_clock())
+    next_day_quotes = _bind_received_quotes(
+        next_day_quotes,
+        {
+            str(row.get("candidate_id") or "").strip(): row
+            for row in next_day_price_rows
+            if str(row.get("candidate_id") or "").strip()
+        },
+        football_quote_diagnostics,
+    )
+    next_day_price_status_counts, _next_day_playable = _apply_reference_quotes(
+        next_day_rows,
+        next_day_price_rows,
+        next_day_quotes,
+        now=current,
+        previous_rows=previous.get("model_candidates") or (),
+    )
+    _persist_quote_diagnostics(next_day_rows, next_day_price_rows, football_quote_diagnostics,
+                               now=current, errors=next_day_quote_errors)
 
     tennis_model_rows = [
         row for row in source_rows if row.get("source") == "tennis_shadow"
@@ -4675,6 +4837,36 @@ def run_wettfinder(
         document['football_original_admission']['completion'] = finish_metered_capture(
             Path(state_path).with_name('football-original-committed-admission-v2.json'),
             original_collection_admission['reservation_id'], usage=document['football_original_usage'], now=current)
+    # Folgetag: appended only after tips, 15K, RisikoBet and evidence were derived
+    # from today's rows, so none of them can contain a next-day game.
+    next_day_ledger = build_model_selection_ledger(
+        (),
+        build_daily_forecast_catalog(next_day_rows, (), now=current, target_date=next_target),
+        now=current,
+        target_date=next_target,
+        limit=MAX_AUTOMATIC_CANDIDATES,
+    ) if next_day_rows else []
+    if next_day_ledger:
+        document["model_candidates"] = [*document["model_candidates"], *next_day_ledger]
+        document["next_day_search_date"] = next_target.isoformat()
+        document["football_next_day"] = next_day_state
+        checked_next_day_keys = {row["key"] for row in next_day_price_rows if row.get("key")}
+        for row in next_day_ledger:
+            key = str(row.get("key") or "")
+            if key:
+                document["price_check_attempts"][key] = (
+                    current.isoformat() if key in checked_next_day_keys else prior_price_checks.get(key)
+                )
+        next_day_summary["status"] = "listed"
+    next_day_summary.update(
+        candidate_count=len(next_day_ledger),
+        games=len({row.get("fixture_id") for row in next_day_ledger}),
+        price_checked_count=len(next_day_price_rows),
+        price_status_counts=next_day_price_status_counts,
+        quote_operational_error_count=len(_operational_quote_errors(next_day_quote_errors)),
+    )
+    if isinstance(document["sources"].get("football"), dict):
+        document["sources"]["football"]["next_day"] = next_day_summary
     stage('forecast_publication', write_state, document, state_path)
     if production_state:
         from tip_publication import record_automatic_publication
@@ -4922,13 +5114,23 @@ def _refresh_price_document(document, *, quote_sport, config, now, quote_loader=
         )
         selected.extend(r for r in due_rows if r in extra_rows)
     else:
+        def price_pool():
+            return ({**r, 'status': 'PRICE_REQUIRED'} for r in due_rows if r not in extra_rows
+                    if r.get('status') in {'MODEL_SELECTION', 'PRICE_REQUIRED'}
+                    and exact_market_target(r.get('market_key')) is not None)
         selected = select_price_check_candidates(
-            ({**r, 'status': 'PRICE_REQUIRED'} for r in due_rows if r not in extra_rows
-             if r.get('status') in {'MODEL_SELECTION', 'PRICE_REQUIRED'}
-             and exact_market_target(r.get('market_key')) is not None),
+            price_pool(),
             now=current, target_date=target_search_date(current), preserve_order=True,
             previous_checks=checks,
             max_fixtures=MAX_SCAN_FIXTURES, max_markets_per_fixture=100)
+        # Listed next-day football rows (Folgetag) keep their 1.20 display floor current too.
+        next_day = automated_next_day(document, target_search_date(current))
+        if next_day is not None:
+            selected.extend(select_price_check_candidates(
+                price_pool(),
+                now=current, target_date=next_day, preserve_order=True,
+                previous_checks=checks,
+                max_fixtures=MAX_SCAN_FIXTURES, max_markets_per_fixture=100))
         if scheduled:
             # Price-only targets have no probability fields by construction.
             # Share the same fixture/request bound without inventing probabilities.

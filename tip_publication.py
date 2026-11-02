@@ -230,7 +230,7 @@ def record_automatic_publication(state_path, *, as_of=None, db_path=None, foreca
     No customer visit or account-specific ready-to-bet plan is implied. This
     reads the already written model artifact and never calls a data provider.
     """
-    from ev_signal_sources import automated_wettfinder_snapshot
+    from ev_signal_sources import automated_wettfinder_snapshot, listed_next_day_signal
     from wettfinder_surface import build_wettfinder_card, compose_wettfinder_catalog
     from daily3_selection import daily3_choices, POLICY_VERSION
     try:
@@ -238,9 +238,11 @@ def record_automatic_publication(state_path, *, as_of=None, db_path=None, foreca
         snapshot = automated_wettfinder_snapshot(state_path, now=instant)
         if snapshot.status is None:
             return {'status': 'source_unavailable'}
-        signals = {signal.key: signal for signal in snapshot.forecasts}
+        # A listed next-day game is archived on its own match day, so it is never counted twice.
+        forecasts = [signal for signal in snapshot.forecasts if not listed_next_day_signal(signal, now=instant)]
+        signals = {signal.key: signal for signal in forecasts}
         cards = [build_wettfinder_card(signal, quote=signal.reference_quote, now=instant)
-                 for signal in snapshot.forecasts]
+                 for signal in forecasts]
         catalog = compose_wettfinder_catalog(cards, sport_filter='Alle')
         source = snapshot.status.generated_at.isoformat()
         automatic = record_signal_catalog('wettfinder_default_inventory',

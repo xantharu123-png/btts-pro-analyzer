@@ -79,6 +79,10 @@ Code, dann `PROJECT_HANDBUCH.md`, dann die Bibel. Historische Logs: `TODO_AKTUEL
   Die Live-Vorbereitung darf 512 MiB Plan- und Nutzdatenheap halten (`LIVE_OUTPUT_LIMIT`, vorher 128 MiB, Abbruch nach
   60 bis 70 Fällen) und hat 1800 Sekunden Zeit (`LIVE_SECONDS_LIMIT`, vorher 1200); der Scan-Schritt der Pipeline
   hat 39 Minuten (`DAILY_SCAN_TIMEOUT_SECONDS`).
+- **Wettfinder-Folgetag seit 02.11.2026** (`docs/audits/2026-11-02-wettfinder-folgetag.md`, Owner-Entscheid): Hat
+  der Spieltag weniger als 30 Fussballspiele mit Auswahl (`NEXT_DAY_MIN_GAMES`), listet der Tageslauf auch den
+  nächsten Tag (`football_next_day`, `next_day_search_date`). Nur Modellauswahlen in der Wettfinder-Liste, nie Tipp,
+  15K, Daily3, Shadow, Evidenz oder Archiv. Ein Fehler dort lässt heute unverändert.
 - **Betrieb seit 25.10.2026 abends** (`docs/audits/2026-10-25-betrieb-massnahme-3.md`): Die
   Timer `wettfinder/tennis/esports/quotes` holen verpasste Läufe nach; die sechs Kerneinheiten
   alarmieren über `betboy-alert@%n.service` (Helfer `scripts/betboy_alert.py`, Vorlage unter
