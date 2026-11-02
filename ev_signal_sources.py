@@ -57,6 +57,10 @@ MAX_AUTOMATED_CHALLENGE_RELEASE_CANDIDATES = 15
 MAX_AUTOMATED_OTHER_CANDIDATES_PER_SPORT = 1_200
 MAX_AUTOMATED_MODEL_CANDIDATES = 112_800
 MAX_AUTOMATED_RECOMMENDATIONS = 3
+# Owner decision 02.11.2026 (docs/audits/2026-11-02-wettfinder-folgetag.md): a match day
+# with fewer football games also lists the next Zurich day's football model selections.
+# They never become a tip, a 15K row, a Daily3 choice or an evidence forecast.
+NEXT_DAY_MIN_GAMES = 30
 AUTOMATED_WETTFINDER_MAX_AGE = timedelta(hours=2, minutes=30)
 AUTOMATED_MODEL_MAX_AGE = timedelta(hours=24)
 AUTOMATED_VALIDATION_MARKET_HYPOTHESES = len(MARKET_SPECS)
@@ -769,6 +773,41 @@ _CONTEXT_FIXTURE_STATUSES = frozenset(
 )
 
 
+def automated_next_day(document: object, target: date) -> Optional[date]:
+    """Return the next Zurich day whose football rows this document lists, else None."""
+    if not isinstance(document, dict):
+        return None
+    next_day = target + timedelta(days=1)
+    state = document.get("football_next_day")
+    if (
+        document.get("next_day_search_date") != next_day.isoformat()
+        or not isinstance(state, dict)
+        or state.get("search_date") != next_day.isoformat()
+    ):
+        return None
+    return next_day
+
+
+def listed_next_day_signal(signal: "ModelSignal", *, now: datetime) -> bool:
+    """True for a listed next-day football selection (Folgetag), shown but never archived as published."""
+    scheduled = _parse_iso(signal.scheduled_start)
+    sport = str(signal.sport or "").strip().casefold().replace("ß", "ss")
+    return (
+        sport == "fussball"
+        and scheduled is not None
+        and scheduled.tzinfo is not None
+        and scheduled.astimezone(ZURICH_TZ).date() > now.astimezone(ZURICH_TZ).date()
+    )
+
+
+def _listed_day(row: dict, scheduled: datetime, target: date, next_day: Optional[date]) -> bool:
+    """A model row belongs to the match day or, for football only, the listed next day."""
+    day = scheduled.astimezone(ZURICH_TZ).date()
+    return day == target or (
+        next_day is not None and day == next_day and row.get("source") == "football_challenge"
+    )
+
+
 def _validated_football_context_statuses(
     football: object,
 ) -> Optional[dict[str, str]]:
@@ -1166,6 +1205,16 @@ def _load_automated_wettfinder_document(
     expected_target = local.date()
     if target != expected_target:
         return None
+    next_day = automated_next_day(document, target)
+    # Tips and the 15K list stay on the match day; only model rows may list the next day.
+    for strict_row in (*candidates, *challenge_release_candidates):
+        strict_start = _parse_iso(strict_row.get("scheduled_start"))
+        if (
+            strict_start is not None
+            and strict_start.tzinfo is not None
+            and strict_start.astimezone(ZURICH_TZ).date() != target
+        ):
+            return None
     from market_consensus import floor_only_pricing
     floor_policy = floor_only_pricing()
     # Price evidence may reject every model candidate. Under the old contract a
@@ -1277,7 +1326,7 @@ def _load_automated_wettfinder_document(
             scheduled is None
             or scheduled.tzinfo is None
             or scheduled.astimezone(timezone.utc) <= generated
-            or scheduled.astimezone(ZURICH_TZ).date() != target
+            or not _listed_day(row, scheduled, target, next_day)
         ):
             return None
         key = str(row.get("key") or "").strip()
@@ -1680,7 +1729,34 @@ def automated_wettfinder_forecasts(
     football = football if isinstance(football, dict) else {}
     football_statuses = _validated_football_context_statuses(football)
     football_context_available = football_statuses is not None
-    rows = _complete_saved_football_view(document, rows, now=current)
+    try:
+        target = date.fromisoformat(str(document.get("target_search_date")))
+    except (TypeError, ValueError):
+        return []
+    next_day = automated_next_day(document, target)
+    next_statuses = (
+        _validated_football_context_statuses(document.get("football_next_day"))
+        if next_day is not None
+        else None
+    )
+
+    def next_day_row(row: object) -> bool:
+        scheduled = _parse_iso(row.get("scheduled_start")) if isinstance(row, dict) else None
+        return (
+            next_day is not None
+            and row.get("source") == "football_challenge"
+            and scheduled is not None
+            and scheduled.tzinfo is not None
+            and scheduled.astimezone(ZURICH_TZ).date() == next_day
+        )
+
+    next_rows = [row for row in rows if next_day_row(row)]
+    rows = [
+        *_complete_saved_football_view(
+            document, [row for row in rows if not next_day_row(row)], now=current,
+        ),
+        *next_rows,
+    ]
     policies = _current_automated_policies()
     forecasts: List[ModelSignal] = []
     for row in rows:
@@ -1710,11 +1786,13 @@ def automated_wettfinder_forecasts(
             or normalized_sport == "fussball"
         )
         fixture_id = row.get("fixture_id")
+        row_statuses = next_statuses if next_day_row(row) else football_statuses
         if is_football and (
             not football_context_available
+            or row_statuses is None
             or isinstance(fixture_id, bool)
             or not isinstance(fixture_id, int)
-            or football_statuses.get(str(fixture_id)) != "verified"
+            or row_statuses.get(str(fixture_id)) != "verified"
         ):
             continue
         probability = row.get("probability")

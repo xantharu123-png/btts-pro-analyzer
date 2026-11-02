@@ -75,6 +75,7 @@ from ev_signal_sources import (
     AutomatedWettfinderStatus,
     ModelSignal,
     automated_wettfinder_snapshot,
+    listed_next_day_signal,
 )
 from ui_components import plain_german, scan_progress_fragment
 from config_loader import load_app_config
@@ -4766,6 +4767,8 @@ def _render_automated_daily_selection() -> None:
         rows.append((signal, card))
 
     target_label = _automatic_target_label(status.target_search_date) if status else 'Heute'
+    if any(listed_next_day_signal(signal, now=evaluation_now) for signal in signals):
+        target_label += ' und morgen'
     # Both columns exist even before the daily publication. No fictional
     # selection is added merely to fill the magazine layout.
     from daily3_selection import daily3_choices
