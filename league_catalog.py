@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 
-CATALOG_VERSION = 5
+CATALOG_VERSION = 6
 
 
 @dataclass(frozen=True)
@@ -87,6 +87,24 @@ LEAGUES = (
     # Finland (Nordic, user request 2026-07-30; ids verified against /leagues):
     LeagueDefinition(244, "Veikkausliiga", "Finland", "FIN1", calendar_year=True),
     LeagueDefinition(245, "Ykkönen", "Finland", "FIN2", calendar_year=True),
+    # Owner decision 2026-11-02 (at least 30 Wettfinder games a day): leagues with
+    # lineups and odds coverage, seasons August to spring; ids, names and seasons
+    # verified against /leagues?current=true and /fixtures?date on 2026-11-02.
+    # Japan J1/J2 stay out: the provider numbers the new autumn season unevenly.
+    LeagueDefinition(141, "Segunda División", "Spain", "ESP2"),
+    LeagueDefinition(136, "Serie B", "Italy", "ITA2"),
+    LeagueDefinition(62, "Ligue 2", "France", "FRA2"),
+    LeagueDefinition(80, "3. Liga", "Germany", "GER3"),
+    LeagueDefinition(204, "1. Lig", "Turkey", "TUR2"),
+    LeagueDefinition(95, "Segunda Liga", "Portugal", "POR2"),
+    LeagueDefinition(145, "Challenger Pro League", "Belgium", "BEL2"),
+    LeagueDefinition(219, "2. Liga", "Austria", "AUT2"),
+    LeagueDefinition(208, "Challenge League", "Switzerland", "SUI2"),
+    LeagueDefinition(307, "Pro League", "Saudi Arabia", "KSA1"),
+    LeagueDefinition(383, "Ligat Ha'al", "Israel", "ISR1"),
+    LeagueDefinition(318, "1. Division", "Cyprus", "CYP1"),
+    LeagueDefinition(172, "First League", "Bulgaria", "BUL1"),
+    LeagueDefinition(288, "Premier Soccer League", "South Africa", "RSA1"),
 )
 
 

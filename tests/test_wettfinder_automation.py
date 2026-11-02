@@ -2106,7 +2106,7 @@ def test_default_football_discovery_scans_all_configured_leagues(monkeypatch):
     )
 
     assert captured["league_ids"] == list(ALTERNATIVE_MARKET_LEAGUES)
-    assert len(captured["league_ids"]) == 52
+    assert len(captured["league_ids"]) == 66
     assert 5 in captured["league_ids"]
     assert captured["allow_above_challenge_probability"] is True
     assert captured["candidate_profile"] == "wettfinder"

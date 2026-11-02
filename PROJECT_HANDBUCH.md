@@ -1171,7 +1171,7 @@ Konkrete Blockaden:
 | `app.py` | Streamlit-Einstieg, Navigation und Scanner-Orchestrierung |
 | `config_loader.py` | INI, Umgebung und Streamlit-Secrets |
 | `api_budget.py` | prozessübergreifender API-Football-Tagesbudget-Governor |
-| `league_catalog.py` | kanonischer 51-Ligen-Katalog |
+| `league_catalog.py` | kanonischer Ligenkatalog (66 Ligen seit 02.11.2026) |
 | `advanced_analyzer.py` | BTTS-Analyse und Modellensemble |
 | `betting_math.py` | kanonische Quote-, No-Vig-, Risiko-EV-, Mindestquote- und Kelly-Mathematik |
 | `price_ledger.py` | append-only Nachweise für den stillgelegten manuellen Preisweg |
@@ -1182,7 +1182,7 @@ Konkrete Blockaden:
 | `tip_store.py` | sitzungsisolierte Ablage preisgeprüfter `BET`-/`SHADOW`-Tipps |
 | `my_tips.py` | aktive Tipps, manueller Abschluss und gemeinsame Verlaufsnavigation |
 | `ev_signal_sources.py` | versionsgebundener Signalvertrag aus Punkt-p, Haircut und Evidenzstufe |
-| `wettfinder_automation.py` | tägliche 51-Ligen-Discovery, eigener Normalmarktpool, Fixture-Kontext-Refresh, quellenspezifische Degraded-Behandlung und nachgelagerte ausführbare Preise |
+| `wettfinder_automation.py` | tägliche Discovery über den Ligenkatalog, eigener Normalmarktpool, Fixture-Kontext-Refresh, quellenspezifische Degraded-Behandlung und nachgelagerte ausführbare Preise |
 | `riskobet_domain.py`, `riskobet_candidates.py` | unveränderlicher Szenariovertrag, sportbezogene Modellierung und preisfreie Rangfolge |
 | `riskobet_store.py`, `riskobet_automation.py` | revisionsfeste Historie, atomarer Consumer-Snapshot und Sechs-Sport-Orchestrierung |
 | `riskobet_settlement.py`, `riskobet_settlement_automation.py` | prospektive Ergebnisbindung und kandidatenspezifisch isolierte Altmehrdeutigkeiten |
