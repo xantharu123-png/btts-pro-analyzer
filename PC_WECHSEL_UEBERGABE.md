@@ -1,5 +1,31 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## 03.11.2026 13:32 – Release 20261103-4 live: 15K je Spiel der wahrscheinlichste Markt mit Leg-Quote ab 1,25 (PR #82)
+
+Manueller Tageslauf auf Owner-Wunsch um 10:58 (`systemctl start betboy-wettfinder.service`, Exit 0 nach 23 Minuten,
+`output/release-20261103-3/manual_run_check.log`): keine neue Discovery (die von 03:35 gilt für heute), Kontext für
+21 Spiele aufgefrischt, 174 Preisprüfungen, Folgetag weiter 14 Spiele, Budget 6728 frei. Danach war die 15K-Seite
+leer: Sie zeigte je Spiel den wahrscheinlichsten Markt und blendete ihn bei Quote unter 1,20 aus (Sirius Heim über
+0,5 zu 1,01–1,05; Deportivo Pereira Heim unter 2,5 zu 1,02–1,04; Chapecoense Gast unter 2,5 ohne Quote), obwohl
+dieselben Spiele spielbare Märkte im Ticketpool hatten (`leads_why.log`). Die `ContextContractError`-Meldungen im
+Log sind nicht neu (zehn je Lauf seit mindestens 2.11., ohne Betriebsfehler).
+
+Owner-Entscheide „Ja, bauen“ und „Ja, beides“ (`docs/audits/2026-11-03-15k-liste-5.md`, Ergänzung):
+`challenge_leg_odds` (zugelassene Quote mit ausführbarem Angebot ab 1,25), `_challenge_page_selections` (je Spiel
+der wahrscheinlichste Markt mit Leg-Quote, höchstens fünf Spiele), Ticketpool nur mit Leg-fähigen Zeilen
+(`_challenge_leg_capable`). Ereignisführer und Rückfallweg der Seite entfernt; Märkte ohne Quote erscheinen auf der
+15K-Seite nicht mehr.
+
+PR #82 gemergt und um 13:32 CET als **`a0a4a76`** per No-Backup-Fast-forward von `9eddc5c` ausgerollt (Helfer
+`output/release-20261103-4/deploy.sh`, abgeleitet vom Helfer 20261103-3, 9 Pfade; Offline-Prüfung lokal und auf dem
+Server ok; nur App-Neustart PID 1462686→1467101; Healthchecks ok, Snapshots unverändert, kein Backup, Einheiten
+unverändert). Prüfung 13:42 (`verify-01.log`): Konstanten 5/5/15, Lader nimmt das laufende Dokument an (184
+Prognosen, 3 Tipps), 15K-Stand baut (3 im Pool, 9 Modellzeilen), Shadow-Lauf Exit 0, Seite 200. Die 15K-Seite zeigt
+Sirius – Halmstad (Heim unter 2,5 zu 1,91) mit den neuen Beschriftungen.
+
+Offen (Owner-Idee vom Nachmittag): 3 a day statt „defensiv ab 70 %“ auf ein Quotenband umstellen (1,70–3,20 oder um
+2,00), Rang nach Modellwahrscheinlichkeit; noch kein Entscheid.
+
 ## 03.11.2026 08:44 – Release 20261103-3 live: 15K erst filtern, dann auf fünf kürzen (PR #79)
 
 Owner-Entscheid „Ja, alles“. PR #79 und Protokoll-PR #80 gemergt und um 08:44 CET als **`9eddc5c`** per
