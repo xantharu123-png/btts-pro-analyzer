@@ -1,5 +1,29 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 03.11.2026 – Prüfung: erster Tageslauf mit 66 Ligen und Folgetag
+
+Nur lesend geprüft um 06:55 (`output/release-20261102-1/check_0311.sh`, `check_leagues_0311.sh`, Logs dazu):
+
+- Wettfinder-Lauf 03:35–04:08: `success`, Exit 0, 33 Minuten bei 60 Minuten Grenze. Die Discovery für heute dauerte
+  465 Sekunden, die für morgen 336 Sekunden. Discovery über 66 Ligen, kein Betriebsfehler.
+- Heute (3.11.):
+  - 24 Spiele gefunden, 21 modelliert, 18 mit Auswahl und geprüftem Kontext;
+  - 3 Top-Tipps, 3 Zeilen in der 15K-Liste.
+- Folgetag (4.11.):
+  - Status `listed`: 22 gefunden, 19 modelliert, 14 Spiele mit 60 Zeilen;
+  - 104 Preisprüfungen: 75 spielbar, 15 unter 1,20, 14 ohne Quote;
+  - keine Quotenfehler.
+- Die neuen Ligen hatten am Dienstag keine Spiele. Die 10 Dienstagsspiele aus der Ligenprüfung waren J2, das
+  ausgeschlossen ist. Für den 4.11. ist die belgische Challenger Pro League mit 8 Zeilen dabei.
+- Seite um 07:00:
+  - Kopf „Heute und morgen · Ergebnisstand: heute 04:03“;
+  - „Alle“ zeigt 54 Spiele, Fussball 29 (heute 18, morgen 14, drei fallen unter die 1,20-Untergrenze oder haben
+    schon begonnen).
+- Schönheitsfehler: Die Tennisbox trägt ebenfalls „Heute und morgen“, obwohl Tennis nur heute gelistet wird.
+  Ursache: `app.py` gibt die kombinierte Beschriftung an `_render_editorial_rail` weiter.
+- API-Football: 489 Abrufe bis 06:55 (Vortag 1190); 7011 von 7500 frei. Shadow lief seit dem Release ohne
+  Fehlschlag, die Quotenläufe 03:15 und 06:15 waren erfolgreich. Kein neuer Alarm, die Seite antwortet mit 200.
+
 ## 02.11.2026 23:33 – Release 20261102-1 live: 66 Ligen und Wettfinder-Folgetag (PR #73, PR #74)
 
 Prüfung 2.11. (nur lesend, `output/release-20261101-2/check_0211.sh`, Log `check_0211.log`):
@@ -50,8 +74,7 @@ Beide gemergt und um 23:33 CET als **`f5b2613`** per No-Backup-Fast-forward von 
 Wirksam ab dem Tageslauf am 3.11. um 03:35: neue Discovery über 66 Ligen (`league_scope_changed`), dazu der
 Folgetag, wenn heute weniger als 30 Spiele gelistet sind.
 
-Offen: Den Tageslauf vom 3.11. prüfen: Laufzeit, Spiele heute und morgen, `sources.football.next_day`, API-Verbrauch
-und ob die Seite gefüllt ist.
+Tageslauf vom 3.11. geprüft, siehe Block oben.
 
 ## 01.11.2026 13:57 – Release 20261101-2 live: Shadow-Tipps auf verschobene oder abgesagte Spiele ungültig (PR #71)
 
