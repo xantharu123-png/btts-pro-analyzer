@@ -1,5 +1,15 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 03.11.2026 08:44 – Release 20261103-3 live: 15K erst filtern, dann auf fünf kürzen (PR #79)
+
+Owner-Entscheid „Ja, alles“. PR #79 und Protokoll-PR #80 gemergt und um 08:44 CET als **`9eddc5c`** per
+No-Backup-Fast-forward von `9c958f5` ausgerollt (Helfer `output/release-20261103-3/deploy.sh`, abgeleitet vom Helfer
+20261103-2, 6 Pfade; Offline-Prüfung lokal und auf dem Server ok inklusive der neuen Reihenfolge; nur App-Neustart
+PID 1461147→1462686; Healthchecks ok, Snapshots unverändert, kein Backup, Einheiten unverändert). Prüfung 08:52
+(`verify-01.log`): Konstanten 5/5/15, Lader nimmt das laufende Dokument an, 15K-Stand baut (3 im Pool, 7
+Modellzeilen), Shadow-Lauf Exit 0, Seite 200. Die 15K-Seite zeigt heute 1 Spiel; 2 weitere Ereignisführer sind durch
+die Quote gesperrt, wie vor der Korrektur.
+
 ## 03.11.2026 08:06 – Release 20261103-2 live: 15K höchstens fünf Spiele, ein Ticket pro Tag (PR #78)
 
 Owner-Entscheide 03.11.2026 im Chat: Die „5 Tipps“ vom 1.11. kamen von der Grenze 3 für die Top-Tipps, die
@@ -22,7 +32,7 @@ Befund danach (`leads_check.log`): Die 15K-Seite kürzte die Ereignisführer auf
 Anpfiff filterte; ein gesperrter Führer nahm so einen Platz. Heute ohne Folgen (3 Führer, 2 durch die Quote gesperrt,
 1 sichtbar). Korrektur in PR #79: erst filtern, dann auf fünf kürzen.
 
-Offen: PR #79 mergen und ausrollen.
+PR #79 ist seit 08:44 live (Block oben).
 
 ## 03.11.2026 07:07 – Release 20261103-1 live: Tennisbox behält „Heute“ (PR #76)
 
