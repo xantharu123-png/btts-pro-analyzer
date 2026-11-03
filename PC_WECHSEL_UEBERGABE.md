@@ -1,5 +1,24 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## 03.11.2026 14:52 – Release 20261103-5 live: Doublebet statt 3 a day, Quote um 2,00 (PR #84)
+
+Owner-Entscheide „um 2.00 … Doublebet“ und „Ja, alles“ (`docs/audits/2026-11-03-doublebet.md`): Die Tagesauswahl
+(`daily3_selection`, Policy `doublebet-odds-around-2-most-probable-v14`) nimmt je Wette eine zugelassene Quote mit
+Median 1,80–2,20 aus allen Sportarten und wählt die Tagesfolge von bis zu drei Wetten mit der höchsten Summe der
+Modellwahrscheinlichkeiten. Die 70-%-Grenze und der Pflicht-Vergleich sind weg; Form- und Belagvergleich bleiben
+Hinweis. Anzeige heisst Doublebet (Reiter, Kopf, Kachel, Knöpfe); interne Namen (`daily3_*`, Feature `daily3`,
+`daily3.db`, Archive `daily3_rail`/`daily3_default_plan`) bleiben. Ältere Tage (Policy v13) sind nicht vergleichbar.
+Messlatte: Trefferquote gegen rund 50 %.
+
+PR #84 und Protokoll-PR #83 gemergt und um 14:52 CET als **`88e28dc`** per No-Backup-Fast-forward von `a0a4a76`
+ausgerollt (Helfer `output/release-20261103-5/deploy.sh`, abgeleitet vom Helfer 20261103-4, 20 Pfade;
+Offline-Prüfung lokal und auf dem Server ok inklusive Policy, Band und Umbenennung; nur App-Neustart PID
+1467101→1469227; Healthchecks ok, Snapshots unverändert, kein Backup, Einheiten unverändert). Prüfung 15:02
+(`verify-01.log`): Shadow-Lauf Exit 0, 181 Prognosen, heute eine Doublebet-Auswahl (Tennis Gea – Struff, Sieg Gea,
+66 %, Median 1,80, 17:00 MEZ), Seite 200 mit Reiter „Doublebet“ und Kachel „Bis zu drei Einzelwetten um Quote 2,00“.
+
+Offen: die ersten Doublebet-Tage beobachten (Anzahl Auswahlen, Trefferquote gegen 50 %).
+
 ## 03.11.2026 13:32 – Release 20261103-4 live: 15K je Spiel der wahrscheinlichste Markt mit Leg-Quote ab 1,25 (PR #82)
 
 Manueller Tageslauf auf Owner-Wunsch um 10:58 (`systemctl start betboy-wettfinder.service`, Exit 0 nach 23 Minuten,
@@ -23,8 +42,7 @@ unverändert). Prüfung 13:42 (`verify-01.log`): Konstanten 5/5/15, Lader nimmt 
 Prognosen, 3 Tipps), 15K-Stand baut (3 im Pool, 9 Modellzeilen), Shadow-Lauf Exit 0, Seite 200. Die 15K-Seite zeigt
 Sirius – Halmstad (Heim unter 2,5 zu 1,91) mit den neuen Beschriftungen.
 
-Offen (Owner-Idee vom Nachmittag): 3 a day statt „defensiv ab 70 %“ auf ein Quotenband umstellen (1,70–3,20 oder um
-2,00), Rang nach Modellwahrscheinlichkeit; noch kein Entscheid.
+Die Owner-Idee zu 3 a day wurde als Doublebet umgesetzt (Block oben).
 
 ## 03.11.2026 08:44 – Release 20261103-3 live: 15K erst filtern, dann auf fünf kürzen (PR #79)
 
