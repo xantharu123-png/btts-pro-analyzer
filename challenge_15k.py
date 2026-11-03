@@ -5333,13 +5333,17 @@ def _user_recorded_quote_evidence(
 def _challenge_display_selections(
     pool: list[ChallengeCandidate],
 ) -> list[ChallengeCandidate]:
-    """Keep one broad option visible without letting it dominate the five 15K games."""
-    focused = select_forecast_shortlist(pool, max_candidates=CHALLENGE_PAGE_MAX_GAMES)
-    broad = select_basis_forecasts(pool, max_candidates=1)
-    chosen = focused[: max(0, CHALLENGE_PAGE_MAX_GAMES - len(broad))]
+    """Keep a few broad options visible without letting them dominate 15K.
+
+    The caller filters by quote and kick-off and then shows the first
+    CHALLENGE_PAGE_MAX_GAMES games, so this pool stays the wider shortlist.
+    """
+    focused = select_forecast_shortlist(pool, max_candidates=MAX_PUBLIC_FORECASTS)
+    broad = select_basis_forecasts(pool, max_candidates=3)
+    chosen = focused[: max(0, MAX_PUBLIC_FORECASTS - len(broad))]
     seen_fixtures = {candidate.fixture_id for candidate in chosen}
     for candidate in broad + focused[len(chosen):]:
-        if len(chosen) >= CHALLENGE_PAGE_MAX_GAMES:
+        if len(chosen) >= MAX_PUBLIC_FORECASTS:
             break
         if candidate.fixture_id in seen_fixtures:
             continue
@@ -5422,7 +5426,7 @@ def _render_model_challenge(
     # Resolve the model direction before the floor; never flip it for a price.
     pool = coherent_consumer_forecasts(pool, model_clock=snapshot.get('scanned_at'))
     leads = consumer_event_leads(pool, model_clock=snapshot.get('scanned_at'))
-    selections = leads[:CHALLENGE_PAGE_MAX_GAMES] if leads else _challenge_display_selections(pool)
+    selections = leads if leads else _challenge_display_selections(pool)
     quotes = latest_reference_quotes(pool, quotes, shared_rows=read_shared_quote_rows(), now=now,
         blocked_at=snapshot.get('reference_quote_conflicts'))
     selections = [candidate for candidate in selections
@@ -5432,6 +5436,9 @@ def _render_model_challenge(
         candidate for candidate in selections
         if (kickoff := _candidate_kickoff(candidate)) is not None and kickoff > now
     ]
+    # Five visible games (owner decision 03.11.2026): cut after the quote and kick-off
+    # filters, otherwise a blocked lead would take one of the five places.
+    selections = selections[:CHALLENGE_PAGE_MAX_GAMES]
     if not selections:
         st.info("Heute keine ausreichend geprüfte 15K-Modellauswahl.")
         return
