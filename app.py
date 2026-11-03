@@ -4767,6 +4767,8 @@ def _render_automated_daily_selection() -> None:
         rows.append((signal, card))
 
     target_label = _automatic_target_label(status.target_search_date) if status else 'Heute'
+    # Only football lists the next day (Folgetag); the tennis box keeps the match day label.
+    rail_label = target_label
     if any(listed_next_day_signal(signal, now=evaluation_now) for signal in signals):
         target_label += ' und morgen'
     # Both columns exist even before the daily publication. No fictional
@@ -4813,7 +4815,7 @@ def _render_automated_daily_selection() -> None:
                     if card.provider_event_id or card.fixture_id else None,
                 starts_at=lambda card: card.scheduled_start,
                 probability=lambda card: card.model_probability)
-            _render_editorial_rail(choices, ordered_tennis, daily3_allowed=daily3_allowed, target_label=target_label,
+            _render_editorial_rail(choices, ordered_tennis, daily3_allowed=daily3_allowed, target_label=rail_label,
                 as_of=evaluation_now, source_run_id=status.generated_at.isoformat() if status else None)
 
 

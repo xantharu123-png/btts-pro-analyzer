@@ -16,7 +16,8 @@ sicher: Weltweit finden an diesen Tagen wenige gute Spiele statt.
 - Auch für den Folgetag werden Preise für die 1,20-Untergrenze geholt, im Tageslauf und in jedem Quotenlauf.
 - Im Dokument stehen die Morgen-Zeilen nur in `model_candidates`, dazu `next_day_search_date` und
   `sources.football.next_day` mit Status, Spielen, Zeilen und Preisprüfungen.
-- Die Morgen-Spiele erscheinen nur in der Wettfinder-Liste mit Datum und Uhrzeit, der Kopf zeigt „Heute und morgen“.
+- Die Morgen-Spiele erscheinen nur in der Wettfinder-Liste mit Datum und Uhrzeit, der Kopf zeigt „Heute und morgen“;
+  die Tennisbox behält „Heute“ (Korrektur 03.11.2026).
   Sie werden nie zu einem öffentlichen Tipp, einem 15K-Eintrag, einer 3-a-day-Wahl, einem Shadow-Eintrag oder einer
   Evidenzprognose. Im Archiv der veröffentlichten Auswahl (`tip_publication`) stehen sie erst an ihrem eigenen
   Spieltag, sonst würden sie doppelt gezählt.

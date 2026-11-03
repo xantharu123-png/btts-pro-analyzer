@@ -216,3 +216,14 @@ def test_tip_archive_skips_listed_next_day_games(listed, monkeypatch):
     monkeypatch.setattr(tip_publication, "record_signal_catalog", record)
     assert tip_publication.record_automatic_publication(artifact, as_of=NOW)["status"] == "completed"
     assert archived["wettfinder_default_inventory"] == ["wettfinder-football-fixture-1-btts"]
+
+
+def test_tennis_box_keeps_the_match_day_label():
+    # 3.11.2026: the header reads "Heute und morgen", the tennis box listed only today's matches.
+    import inspect
+
+    import app
+
+    source = inspect.getsource(app._render_automated_daily_selection)
+    assert source.index("rail_label = target_label") < source.index("target_label += ' und morgen'")
+    assert "time_parts = [target_label]" in source and "target_label=rail_label" in source
