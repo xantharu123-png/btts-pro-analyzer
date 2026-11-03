@@ -129,6 +129,9 @@ MAX_CONTEXT_FIXTURES = 20
 MAX_DISCOVERY_MARKETS_PER_FIXTURE = 8
 MAX_PRICE_CHECK_FIXTURES = 10
 MAX_PUBLIC_FORECASTS = 15
+# Owner decision 03.11.2026: the 15K page lists at most five games; the internal shortlist
+# and context bounds above are unchanged (docs/audits/2026-11-03-15k-liste-5.md).
+CHALLENGE_PAGE_MAX_GAMES = 5
 MAX_BASIC_FORECASTS = 10
 MAX_FEATURED_FORECASTS = 3
 # Safety-Ventil, kein Modell-Limit: Alle gültigen Provider-Fixtures der
@@ -5330,18 +5333,18 @@ def _user_recorded_quote_evidence(
 def _challenge_display_selections(
     pool: list[ChallengeCandidate],
 ) -> list[ChallengeCandidate]:
-    """Keep a few broad options visible without letting them dominate 15K."""
-    focused = select_forecast_shortlist(pool, max_candidates=MAX_PUBLIC_FORECASTS)
-    broad = select_basis_forecasts(pool, max_candidates=3)
-    chosen = focused[: max(0, MAX_PUBLIC_FORECASTS - len(broad))]
+    """Keep one broad option visible without letting it dominate the five 15K games."""
+    focused = select_forecast_shortlist(pool, max_candidates=CHALLENGE_PAGE_MAX_GAMES)
+    broad = select_basis_forecasts(pool, max_candidates=1)
+    chosen = focused[: max(0, CHALLENGE_PAGE_MAX_GAMES - len(broad))]
     seen_fixtures = {candidate.fixture_id for candidate in chosen}
     for candidate in broad + focused[len(chosen):]:
+        if len(chosen) >= CHALLENGE_PAGE_MAX_GAMES:
+            break
         if candidate.fixture_id in seen_fixtures:
             continue
         chosen.append(candidate)
         seen_fixtures.add(candidate.fixture_id)
-        if len(chosen) >= MAX_PUBLIC_FORECASTS:
-            break
     return chosen
 
 
@@ -5419,7 +5422,7 @@ def _render_model_challenge(
     # Resolve the model direction before the floor; never flip it for a price.
     pool = coherent_consumer_forecasts(pool, model_clock=snapshot.get('scanned_at'))
     leads = consumer_event_leads(pool, model_clock=snapshot.get('scanned_at'))
-    selections = leads[:MAX_PUBLIC_FORECASTS] if leads else _challenge_display_selections(pool)
+    selections = leads[:CHALLENGE_PAGE_MAX_GAMES] if leads else _challenge_display_selections(pool)
     quotes = latest_reference_quotes(pool, quotes, shared_rows=read_shared_quote_rows(), now=now,
         blocked_at=snapshot.get('reference_quote_conflicts'))
     selections = [candidate for candidate in selections

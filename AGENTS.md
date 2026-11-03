@@ -79,6 +79,10 @@ Code, dann `PROJECT_HANDBUCH.md`, dann die Bibel. Historische Logs: `TODO_AKTUEL
   Die Live-Vorbereitung darf 512 MiB Plan- und Nutzdatenheap halten (`LIVE_OUTPUT_LIMIT`, vorher 128 MiB, Abbruch nach
   60 bis 70 Fällen) und hat 1800 Sekunden Zeit (`LIVE_SECONDS_LIMIT`, vorher 1200); der Scan-Schritt der Pipeline
   hat 39 Minuten (`DAILY_SCAN_TIMEOUT_SECONDS`).
+- **15K-Liste 5 seit 03.11.2026** (`docs/audits/2026-11-03-15k-liste-5.md`, Owner-Entscheid): Die 15K-Seite zeigt
+  höchstens fünf Spiele (`CHALLENGE_PAGE_MAX_GAMES`), der bepreiste Ticketpool hat höchstens fünf Zeilen
+  (`MAX_AUTOMATED_CHALLENGE_RELEASE_CANDIDATES`, vorher 15). Weiter ein Ticket pro Tag mit ein bis drei Spielen;
+  `MAX_PUBLIC_FORECASTS` (interne Vorauswahl, Kontextgrenze) bleibt 15.
 - **Wettfinder-Folgetag seit 02.11.2026** (`docs/audits/2026-11-02-wettfinder-folgetag.md`, Owner-Entscheid): Hat
   der Spieltag weniger als 30 Fussballspiele mit Auswahl (`NEXT_DAY_MIN_GAMES`), listet der Tageslauf auch den
   nächsten Tag (`football_next_day`, `next_day_search_date`). Nur Modellauswahlen in der Wettfinder-Liste, nie Tipp,
