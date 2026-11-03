@@ -157,11 +157,11 @@ def test_shared_pool_actual_count_and_unfilled_slots(tmp_path, count):
     assert any(p.proto.popover.label == 'Auswahl & Regeln' for p in app.get('popover'))
     assert any('keine unabhängige Zweitbestätigung' in m.value for m in app.markdown)
     if count == 0:
-        assert [i.value for i in app.info] == ['Heute keine passende Daily3-Auswahl. Weitere Spiele findest du im Wettfinder.']
+        assert [i.value for i in app.info] == ['Heute keine passende Doublebet-Auswahl. Weitere Spiele findest du im Wettfinder.']
         assert not app.subheader
         assert len(captions.split()) < 32
     else:
-        assert any(s.value.startswith(f'{count} defensive Modell-Auswahl') for s in app.subheader)
+        assert any(s.value.startswith(f'{count} Doublebet-Auswahl') for s in app.subheader)
     if count == 3:
         _button(app, 'CHF 50 Tagesbudget bestätigen').click().run()
         _field(app, 'text_input', 'stake:').set_value('10')
@@ -169,7 +169,7 @@ def test_shared_pool_actual_count_and_unfilled_slots(tmp_path, count):
         _field(app, 'checkbox', 'exact:').check()
         _button(app, 'Einsatz vormerken').click().run()
         assert not app.exception
-        assert any(s.value == '2 defensive Modell-Auswahlen' for s in app.subheader)
+        assert any(s.value == '2 Doublebet-Auswahlen um Quote 2,00' for s in app.subheader)
         assert '1/3 Wetten erfasst' in ' '.join(c.value for c in app.caption)
         assert not any(button.label == 'Einsatz vormerken' for button in app.button)
         assert 'Nächste Wette erst nach Abrechnung' in ' '.join(c.value for c in app.caption)
@@ -195,7 +195,7 @@ def _render(db_path, missing_identity=False, price_state=None):
         signal = replace(priced(football(probability=probability), (1.8,)*3), minimum_odds=1.2)  # Flow tests reserve at the floor.
         if price_state in ('too_low', 'stale'):
             observed_at = NOW - timedelta(hours=2) if price_state == 'stale' else NOW
-            offer = 1.50 if price_state == 'stale' else 1.12
+            offer = 1.90 if price_state == 'stale' else 1.12  # stale offer inside the Doublebet band
             points = tuple(
                 QuotePoint(
                     bookmaker=f'Book {index}', odds=offer,
@@ -237,7 +237,7 @@ def _field(app, kind, prefix):
 def test_real_user_flow_start_reserve_place_settle_is_flat_and_persistent(tmp_path):
     app = AppTest.from_function(_render, args=(str(tmp_path/'daily3.db'),)).run(timeout=30)
     assert not app.exception
-    assert app.header[0].value == '3 a day keeps the job away'
+    assert app.header[0].value == 'Doublebet'
     assert app.session_state['snapshot_loads'] == 1
     assert not any('Analyse' in e.label for e in app.expander)
     _button(app, 'CHF 50 Tagesbudget bestätigen').click().run()

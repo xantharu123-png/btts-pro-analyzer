@@ -903,7 +903,7 @@ def test_wettfinder_defaults_to_automatic_and_hides_custom_search_controls(
 
 def test_daily3_mode_routes_to_its_view_without_starting_other_finders(monkeypatch):
     import daily3_ui
-    recording_st = _RecordingStreamlit(session_state={"wettfinder_mode_v2": "3 a day"})
+    recording_st = _RecordingStreamlit(session_state={"wettfinder_mode_v2": "Doublebet"})
     calls = []
     monkeypatch.setattr(app, "st", recording_st)
     monkeypatch.setattr(daily3_ui, "render_daily3", lambda st: calls.append(("daily3", st)))
@@ -1563,7 +1563,7 @@ def test_shared_navigation_is_one_area_control_with_route_callback(monkeypatch):
     label, options, kwargs = calls[0]
     assert label == "Hauptnavigation"
     assert [kwargs['format_func'](option) for option in options] == [
-        'Wettfinder', 'Manuelle Suche', 'RisikoBet', '3 a day', '15K', 'Live', 'Meine Tipps',
+        'Wettfinder', 'Manuelle Suche', 'RisikoBet', 'Doublebet', '15K', 'Live', 'Meine Tipps',
     ]
     assert kwargs['horizontal'] is True
     assert kwargs["key"] == "bb_area_navigation"
@@ -1703,14 +1703,14 @@ def test_shared_area_control_keeps_every_destination_reachable_without_a_bottom_
     assert not app_test.exception
     navigation = [item for item in app_test.radio if item.key == 'bb_area_navigation']
     assert len(navigation) == 1
-    assert navigation[0].options == ['Wettfinder', 'Manuelle Suche', 'RisikoBet', '3 a day', '15K', 'Live', 'Meine Tipps']
+    assert navigation[0].options == ['Wettfinder', 'Manuelle Suche', 'RisikoBet', 'Doublebet', '15K', 'Live', 'Meine Tipps']
     assert navigation[0].horizontal is True
     assert not [item for item in app_test.selectbox if item.key == 'bb_area_navigation']
     assert not app_test.get('button_group')
-    navigation[0].set_value('3 a day').run(timeout=30)
+    navigation[0].set_value('Doublebet').run(timeout=30)
     assert not app_test.exception
-    assert app_test.session_state['wettfinder_mode_v2'] == '3 a day'
-    assert any('PAGE: 3 a day' in item.value for item in app_test.markdown)
+    assert app_test.session_state['wettfinder_mode_v2'] == 'Doublebet'
+    assert any('PAGE: Doublebet' in item.value for item in app_test.markdown)
 
 
 def test_shadow_tennis_history_is_not_a_consumer_tips_area():

@@ -101,7 +101,7 @@ if scenario in {'RisikoBet', 'RisikoBet-Kurzform'} or st.session_state['workspac
     else:
         riskobet_ui.load_riskobet_view = lambda *_a, **_kw: _view(_bundle('1'), _bundle('2', sport='tennis'))
     riskobet_ui.render_riskobet()
-elif scenario == 'Daily3' or st.session_state.get('wettfinder_mode_v2') == '3 a day':
+elif scenario == 'Daily3' or st.session_state.get('wettfinder_mode_v2') == 'Doublebet':
     from daily3_ui import render_daily3
     from daily3_store import Daily3Store
     st.session_state['_betboy_account_scope'] = 'b'*32

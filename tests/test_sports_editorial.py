@@ -274,7 +274,7 @@ def test_shared_area_destinations_and_callback_are_synchronized(monkeypatch):
     label, options, kwargs = callbacks[0]
     assert len(callbacks) == 1
     assert [kwargs['format_func'](option) for option in options] == [
-        'Wettfinder', 'Manuelle Suche', 'RisikoBet', '3 a day', '15K', 'Live', 'Meine Tipps',
+        'Wettfinder', 'Manuelle Suche', 'RisikoBet', 'Doublebet', '15K', 'Live', 'Meine Tipps',
     ]
     assert label == 'Hauptnavigation' and kwargs['horizontal'] is True
     recording.session_state[kwargs['key']] = '15K'
@@ -348,7 +348,7 @@ def test_shared_navigation_is_reachable_when_plan_guard_stops_page(monkeypatch):
     assert len(navigation) == 1
     label, options, kwargs = navigation[0]
     assert label == 'Hauptnavigation'
-    assert options == ['Wettfinder', 'Manuelle Suche', 'RisikoBet', '3 a day', '15K', 'Live', 'Meine Tipps']
+    assert options == ['Wettfinder', 'Manuelle Suche', 'RisikoBet', 'Doublebet', '15K', 'Live', 'Meine Tipps']
     assert kwargs['key'] == 'bb_area_navigation' and kwargs['horizontal'] is True
     assert recording.selectboxes == []
     assert recording.segmented_controls == []
@@ -365,12 +365,12 @@ def test_navigation_callback_syncs_flat_area_and_route_before_next_render(monkey
     monkeypatch.setattr(app, 'st', recording)
     app._render_editorial_header('RisikoBet')
     assert list(callbacks) == ['bb_area_navigation']
-    for area, workspace in (('3 a day', 'Wettfinder'), ('15K', '15K')):
+    for area, workspace in (('Doublebet', 'Wettfinder'), ('15K', '15K')):
         recording.session_state['bb_area_navigation'] = area
         callbacks['bb_area_navigation']()
         assert recording.session_state['workspace'] == workspace
         assert recording.session_state['bb_area_navigation'] == area
-        assert recording.session_state['wettfinder_mode_v2'] == '3 a day'
+        assert recording.session_state['wettfinder_mode_v2'] == 'Doublebet'
 
 
 @pytest.mark.parametrize('sport', ['Basketball', 'Eishockey'])

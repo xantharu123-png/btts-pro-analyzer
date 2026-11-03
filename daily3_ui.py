@@ -11,7 +11,7 @@ from account_identity import AccountScopeUnavailable, storage_scope
 from betting_math import MINIMUM_RECOMMENDED_DECIMAL_ODDS
 from daily3_math import Daily3Error, decimal_odds, format_chf, parse_chf
 from daily3_identity import event_guard
-from daily3_selection import MIN_MODEL_PROBABILITY, daily3_choices, reservation_minimum_enforced
+from daily3_selection import DOUBLEBET_ODDS_MIN, DOUBLEBET_ODDS_MAX, daily3_choices, reservation_minimum_enforced
 from daily3_schedule import pending_ready_at, planning_allowance
 from daily3_store import Daily3Store, day_balance, expected_return_cents, payout_needs_confirmation
 from forecast_compact import render_compact_analysis_html
@@ -246,22 +246,22 @@ def _external_start(day, clock, zone):
 def render_daily3(st, *, snapshot_loader=None, store_factory=None, now=None):
     now = now or datetime.now(timezone.utc)
     today = now.astimezone(_TZ).date().isoformat()
-    st.header('3 a day keeps the job away')
+    st.header('Doublebet')
     notice = st.session_state.pop('_daily3_notice', None)
     if notice:
         st.error(notice[1])
-    st.caption('CHF 50 Tagesbudget · bis zu 3 Einzelwetten · Ziel +CHF 150, nicht garantiert')
+    st.caption('CHF 50 Tagesbudget · bis zu 3 Einzelwetten um Quote 2,00 · Ziel +CHF 150, nicht garantiert')
     with st.popover('Auswahl & Regeln'):
-        st.write(f'Mindestens {MIN_MODEL_PROBABILITY:.0%} in allen drei belegten Modellvarianten. Eine Auswahl pro Spiel; keine pauschalen Wettartenverbote. Ein positiver Form- oder Belagbonus ist keine Voraussetzung.')
-        st.write('Die früheste passende Auswahl beginnt die Tagesfolge. Bei gleichem Spielbeginn hat das geringere modellierte Verlustrisiko Vorrang; danach folgen Vielfalt und Formsignal.')
+        st.write(f'Jede Auswahl hat eine beobachtete Quote um 2,00: mittlere Marktquote {_odds_text(DOUBLEBET_ODDS_MIN)} bis {_odds_text(DOUBLEBET_ODDS_MAX)}. Eine Auswahl pro Spiel, aus allen Sportarten und Wettarten des Wettfinders; keine pauschalen Wettartenverbote.')
+        st.write('Gewählt wird die Tagesfolge von bis zu drei Wetten, deren Modellwahrscheinlichkeiten zusammen am höchsten sind. Die Quote sagt bei allen rund 50 %; die Reihenfolge im Band kommt allein vom Modell. Ein Vorsprung des Modells gegenüber dem Markt ist nicht belegt; die Trefferquote lässt sich an 50 % messen.')
         st.write('Planungsabstand: 3 Stunden für Fußball, Basketball und Eishockey; 4 Stunden für Tennis und E-Sport. Das sind Zeitpuffer, keine garantierten Spiel- oder Abrechnungszeiten. Die nächste Wette wird erst nach tatsächlicher Abrechnung verfügbar.')
-        st.write('Fußball: Formvergleich. ATP-Tennis: Vergleich mit und ohne Belaggewichtung, mit ausreichender Spielerhistorie. Keine unabhängigen Zweitmodelle. Für weitere Sportarten fehlen noch qualifizierte Vergleiche; ihre normalen Prognosen bleiben sichtbar.')
+        st.write('Fußball-Formvergleich und ATP-Belagvergleich erscheinen als Hinweis an der Karte, sind aber keine Voraussetzung. Keine unabhängigen Zweitmodelle.')
         st.write('Diese Auswahl nutzt den Prognosepool des Wettfinders, aber eine eigene Auswahlregel. Sie ist keine unabhängige Zweitbestätigung und keine nachgewiesene Sicherheitsrangliste. Fehlende Kontextdaten bleiben am Spiel sichtbar.')
         if _floor_only():
             # Owner 23.10.2026: no minimum-quote hints; the 1.20 floor only blocks.
-            st.write('Die Auswahlen entstehen ohne Buchmacherquote. Das CHF-150-Ziel verändert die Auswahl nicht; drei passende Auswahlen sind nicht täglich verfügbar.')
+            st.write('Die Auswahl setzt eine beobachtete Quote im Band voraus; die Istquote erfasst du mit der Wette. Das CHF-150-Ziel verändert die Auswahl nicht; drei passende Auswahlen sind nicht täglich verfügbar.')
         else:
-            st.write('Die Auswahlen entstehen ohne Buchmacherquote. Für eine tatsächliche Vormerkung gilt die Mindestquote der jeweiligen Auswahl, mindestens 1,20: der Preis, ab dem die vorsichtige Modellrechnung (Modellwahrscheinlichkeit abzüglich Unsicherheitsabschlag) 3 % Risiko-Erwartungswert erreicht. Sie ist keine erwartete Buchmacherquote. Das CHF-150-Ziel verändert die Auswahl nicht; drei passende Auswahlen sind nicht täglich verfügbar.')
+            st.write('Die Auswahl setzt eine beobachtete Quote im Band voraus. Für eine tatsächliche Vormerkung gilt die Mindestquote der jeweiligen Auswahl, mindestens 1,20: der Preis, ab dem die vorsichtige Modellrechnung (Modellwahrscheinlichkeit abzüglich Unsicherheitsabschlag) 3 % Risiko-Erwartungswert erreicht. Sie ist keine erwartete Buchmacherquote. Das CHF-150-Ziel verändert die Auswahl nicht; drei passende Auswahlen sind nicht täglich verfügbar.')
         st.write('Maximal CHF 50 eigene Mittel pro Tag, kein Nachschuss. Nur endgültig abgerechnete Rückzahlungen werden wieder verfügbar. Verfügbar ist eine Obergrenze, keine Einsatzempfehlung. Auch Gewinne können wieder verloren gehen.')
         st.write('Echte Wetten werden manuell erfasst; keine Buchmacheranbindung. Das Limit gilt nur für diesen Browserbereich, nicht für externe Wetten oder spätere Buchmacherkorrekturen. Wetten sind kein verlässliches Einkommen.')
     if snapshot_loader is None:
@@ -317,9 +317,9 @@ def render_daily3(st, *, snapshot_loader=None, store_factory=None, now=None):
                              used_slots=used, not_before=pending_ready_at(bets, now=now))
     if choices:
         noun = 'Auswahl' if len(choices) == 1 else 'Auswahlen'
-        st.subheader(f'{len(choices)} defensive Modell-{noun}')
+        st.subheader(f'{len(choices)} Doublebet-{noun} um Quote 2,00')
     elif used < 3:
-        st.info('Heute keine passende Daily3-Auswahl. Weitere Spiele findest du im Wettfinder.')
+        st.info('Heute keine passende Doublebet-Auswahl. Weitere Spiele findest du im Wettfinder.')
     if pending:
         st.caption('Nächste Wette erst nach Abrechnung der aktuellen Wette.')
     can_reserve = (storage_ready and day is not None and not day['closed'] and not prior_pending
@@ -343,7 +343,7 @@ def render_daily3(st, *, snapshot_loader=None, store_factory=None, now=None):
             card = build_wettfinder_card(choice.signal, quote=choice.signal.reference_quote, now=now)
             card = rendered_identity_card(card, choice.signal)
             st.markdown(render_editorial_card_html(card,
-                supporting_fact=choice.comparison.summary), unsafe_allow_html=True)
+                supporting_fact=choice.comparison.summary if choice.comparison else ''), unsafe_allow_html=True)
             block_reason = _reservation_block_reason(choice)
             if block_reason:
                 st.warning(block_reason)

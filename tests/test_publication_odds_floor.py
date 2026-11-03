@@ -26,12 +26,13 @@ def visible(signals):
     return result.featured + result.additional
 
 
-@pytest.mark.parametrize('price', [1.01, 1.12, 1.1999, 1.19999999, 1.20, 1.21])
+@pytest.mark.parametrize('price', [1.01, 1.12, 1.1999, 1.19999999, 1.20, 1.21, 1.90])
 def test_known_price_floor_filters_both_consumers_without_mutating_model(price):
     signal = priced(football(), (price,)*3)
     before = dict(vars(signal))
     assert bool(visible([signal])) is (price >= 1.20)
-    assert bool(daily3_choices([signal], now=NOW)) is (price >= 1.20)
+    # Doublebet (03.11.2026) needs the floor and the band around 2.00 (1.80 to 2.20).
+    assert bool(daily3_choices([signal], now=NOW)) is (1.80 <= price <= 2.20)
     assert vars(signal) == before
     assert 'MODELL-AUSWAHL' in render_top_card_html(
         build_wettfinder_card(signal, signal.reference_quote, now=NOW)
@@ -46,7 +47,9 @@ def test_current_single_book_quote_also_counts_but_best_offer_at_floor_remains_a
     # The gate accepts the best offer at 1.20; the floor checks the median since 25.10.2026
     # (docs/audits/2026-10-25-preispruefung-dreistufig.md), and 1.12 withholds the tip.
     assert bool(visible([higher])) is not floor_only_pricing()
-    assert bool(daily3_choices([higher], now=NOW)) is not floor_only_pricing()
+    # Doublebet: outside the band around 2.00 under both policies; inside it the floor rule carries over.
+    assert not daily3_choices([higher], now=NOW)
+    assert bool(daily3_choices([priced(football(), (1.70, 1.90, 2.00))], now=NOW))
 
 
 @pytest.mark.parametrize('price', [1.12, 1.20])
@@ -119,7 +122,7 @@ def test_quote_cannot_switch_to_opposing_outcome_or_limit_pool():
     home = priced(football(probability=.8))
     away = priced(football(key='RESULT_AWAY', probability=.2), (6.0,)*3)
     assert not visible([home, away])
-    alternatives = [priced(football(i, 'DC_1X', start_hours=3*(i-1)), (1.3,)*3) for i in range(2, 5)]
+    alternatives = [priced(football(i, 'DC_1X', start_hours=3*(i-1)), (1.9,)*3) for i in range(2, 5)]
     assert len(daily3_choices([home, *alternatives], now=NOW)) == 3
     assert home.key not in {c.key for c in visible([home, *alternatives])}
 

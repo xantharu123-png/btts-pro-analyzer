@@ -40,11 +40,10 @@ def test_defensive_floor_handles_reverse_zero_and_small_form_changes_honestly():
     for variants in ((.96, .97, .93), (.96, .96, .96), (.96, .955, .975), (.72, .65, .93)):
         item = football(probability=variants[0], variants=variants)
         choices = daily3_choices([item], now=NOW)
-        assert bool(choices) is (min(variants) >= .70)
-        if choices:
-            assert choices[0].signal.probability == variants[0]
-            assert choices[0].comparison.lowest_model_probability == min(variants)
-            assert '+-' not in choices[0].comparison.summary
+        # Doublebet (03.11.2026): the form comparison is supporting information without a floor.
+        assert choices and choices[0].signal.probability == variants[0]
+        assert choices[0].comparison.lowest_model_probability == min(variants)
+        assert '+-' not in choices[0].comparison.summary
 
 
 def test_qualified_match_signals_rank_defensively_independent_of_price():
