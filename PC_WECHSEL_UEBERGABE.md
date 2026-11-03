@@ -1,5 +1,19 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## 03.11.2026 07:07 – Release 20261103-1 live: Tennisbox behält „Heute“ (PR #76)
+
+Owner-Entscheide „Ja, korrigieren“ und „Ja, beides“: Die Tennisbox bekommt die Beschriftung des Spieltags. Den
+Folgetag gibt es nur für Fussball; der Kopf zeigt weiter „Heute und morgen“.
+
+PR #76 und Protokoll-PR #75 gemergt und um 07:07 CET als **`963fe91`** per No-Backup-Fast-forward von `f5b2613`
+ausgerollt:
+
+- Helfer `output/release-20261103-1/deploy.sh`, abgeleitet vom Helfer 20261102-1, 6 Pfade.
+- Offline-Prüfung lokal und auf dem Server ok.
+- Nur die App wurde neu gestartet (PID 1455861→1459798). Healthchecks ok, Snapshots unverändert, kein Backup,
+  Einheiten unverändert.
+- Seite um 07:09: Kopf „Heute und morgen“, Tennisbox „Heute“, 54 Spiele.
+
 ## 03.11.2026 – Prüfung: erster Tageslauf mit 66 Ligen und Folgetag
 
 Nur lesend geprüft um 06:55 (`output/release-20261102-1/check_0311.sh`, `check_leagues_0311.sh`, Logs dazu):
