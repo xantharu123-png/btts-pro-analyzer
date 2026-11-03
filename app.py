@@ -130,7 +130,7 @@ PAGE_INFO = {
 
 MAIN_PAGES = ("Wettfinder", "RisikoBet", "Live", "15K", "Meine Tipps")
 AREA_OPTIONS = (
-    "Automatisch", "Eigene Suche", "RisikoBet", "3 a day", "15K", "Live", "Meine Tipps",
+    "Automatisch", "Eigene Suche", "RisikoBet", "Doublebet", "15K", "Live", "Meine Tipps",
 )
 LEGACY_PAGE_ALIASES = {
     "Spiele": "Wettfinder",
@@ -2123,14 +2123,14 @@ def _area_for_workspace(workspace: str) -> str:
     if workspace in MAIN_PAGES and workspace != "Wettfinder":
         return workspace
     mode = st.session_state.get("wettfinder_mode_v2", "Automatisch")
-    return mode if mode in {"Automatisch", "Eigene Suche", "3 a day"} else "Automatisch"
+    return mode if mode in {"Automatisch", "Eigene Suche", "Doublebet"} else "Automatisch"
 
 
 def _set_active_area(area: str) -> None:
     """Update only navigation state; selecting a view never starts a scan."""
     if area not in AREA_OPTIONS:
         return
-    if area in {"Automatisch", "Eigene Suche", "3 a day"}:
+    if area in {"Automatisch", "Eigene Suche", "Doublebet"}:
         st.session_state["workspace"] = "Wettfinder"
         st.session_state["wettfinder_mode_v2"] = area
     else:
@@ -4826,8 +4826,8 @@ def _render_editorial_rail(choices, tennis_cards, *, daily3_allowed, target_labe
     with st.container(key='editorial_daily3_rail'):
         with st.container(key='editorial_daily3_cover'):
             st.image(str(assets / 'stadium-cover.png'), width='stretch', output_format='JPEG')
-            st.markdown('<div class="se-cover-content"><span class="se-cover-tag">DAILY3</span>'
-                '<h2>Deine Tagesauswahl.</h2><p>CHF 50 Tagesbudget<br>Bis zu drei Einzelwetten.</p></div>', unsafe_allow_html=True)
+            st.markdown('<div class="se-cover-content"><span class="se-cover-tag">DOUBLEBET</span>'
+                '<h2>Deine Tagesauswahl.</h2><p>CHF 50 Tagesbudget<br>Bis zu drei Einzelwetten um Quote 2,00.</p></div>', unsafe_allow_html=True)
         display_choices = ordered_event_rows(enumerate(choices, 1),
             event_key=lambda item: item[1].event_id, starts_at=lambda item: item[1].start,
             probability=lambda item: item[1].signal.probability)
@@ -4843,12 +4843,12 @@ def _render_editorial_rail(choices, tennis_cards, *, daily3_allowed, target_labe
                 as_of=as_of or datetime.now(timezone.utc), source_run_id=source_run_id,
                 policy_version=DAILY3_SELECTION_POLICY)
         if not daily3_allowed:
-            st.caption('Daily3 ist im Pro-Abo enthalten.')
+            st.caption('Doublebet ist im Pro-Abo enthalten.')
         elif not choices:
-            st.caption('Heute noch keine passende defensive Auswahl.')
+            st.caption('Heute noch keine Auswahl um Quote 2,00.')
         def _open_daily3():
-            _set_active_area("3 a day")
-        st.button('Daily3 öffnen', key='editorial_daily3_open', on_click=_open_daily3, use_container_width=True)
+            _set_active_area("Doublebet")
+        st.button('Doublebet öffnen', key='editorial_daily3_open', on_click=_open_daily3, use_container_width=True)
     with st.container(key='editorial_tennis_rail'):
         st.markdown('<p class="se-tennis-tag">TENNIS <span>' + escape(target_label) + '</span></p>', unsafe_allow_html=True)
         st.image(str(assets / 'tennis-cover.png'), width='stretch', output_format='JPEG')
@@ -4905,7 +4905,7 @@ def render_wettfinder() -> None:
     """One sport-first entry point for every pre-match finder."""
     with st.container(key="wettfinder_v2_page"):
         mode = _area_for_workspace("Wettfinder")
-        if mode == "3 a day":
+        if mode == "Doublebet":
             require_feature(st, "daily3")
             from daily3_ui import render_daily3
 

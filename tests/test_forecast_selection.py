@@ -81,9 +81,9 @@ def test_exact_esports_explanation_is_shared_and_rejects_foreign_evidence():
     assert 'Elo' not in analysis.basis
     from daily3_selection import _explanation
     assert _explanation(signal, 'esports', NOW)[0] == expected_reason
-    # The shared explanation is valid, but descriptive Elo facts alone are
-    # not a saved comparison for the more selective Daily3 shortlist.
-    assert not daily3_choices([signal], now=NOW)
+    # Doublebet (03.11.2026) admits every sport with a quote around 2.00; a saved
+    # comparison is supporting information, not a requirement.
+    assert [c.signal.key for c in daily3_choices([signal], now=NOW)] == [signal.key]
     assert len(compose_wettfinder_catalog(cards([signal])).featured) == 1
     for changed in (replace(signal, competitor_a='Foreign'),
                     replace(signal, modeled_at=(NOW-timedelta(minutes=1)).isoformat())):

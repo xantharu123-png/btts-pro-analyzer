@@ -6,7 +6,7 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 
-AREAS = ["Wettfinder", "Manuelle Suche", "RisikoBet", "3 a day", "15K", "Live", "Meine Tipps"]
+AREAS = ["Wettfinder", "Manuelle Suche", "RisikoBet", "Doublebet", "15K", "Live", "Meine Tipps"]
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -91,7 +91,7 @@ def _run_navigation(workspace="Wettfinder", mode="Automatisch", features=None, i
     with (
         patch("riskobet_ui.render_riskobet", lambda: st.markdown("PAGE: RisikoBet")),
         patch("my_tips.render_my_tips", lambda: st.markdown("PAGE: Meine Tipps")),
-        patch("daily3_ui.render_daily3", lambda _st: st.markdown("PAGE: 3 a day")),
+        patch("daily3_ui.render_daily3", lambda _st: st.markdown("PAGE: Doublebet")),
     ):
         namespace["main"]()
         if rail:
@@ -124,7 +124,7 @@ def test_one_horizontal_main_navigation_exposes_every_destination_without_a_drop
 
 @pytest.mark.parametrize(("workspace", "mode", "expected"), [
     ("Wettfinder", "Eigene Suche", "Eigene Suche"),
-    ("Tennis", "3 a day", "3 a day"),
+    ("Tennis", "Doublebet", "Doublebet"),
     ("15K Challenge", "Automatisch", "15K"),
     ("RisikoBet", "Eigene Suche", "RisikoBet"),
     ("System", "not-a-mode", "Automatisch"),
@@ -141,7 +141,7 @@ def test_legacy_routes_restore_the_corresponding_flat_area(workspace, mode, expe
 
 @pytest.mark.parametrize(("chosen", "workspace", "mode"), [
     ("Eigene Suche", "Wettfinder", "Eigene Suche"),
-    ("3 a day", "Wettfinder", "3 a day"),
+    ("Doublebet", "Wettfinder", "Doublebet"),
     ("RisikoBet", "RisikoBet", "Automatisch"),
     ("15K", "15K", "Automatisch"),
     ("Live", "Live", "Automatisch"),
@@ -162,7 +162,7 @@ def test_selecting_an_area_synchronizes_real_route_and_render(chosen, workspace,
     assert app.session_state["wettfinder_mode_v2"] == "Automatisch"
 
 
-@pytest.mark.parametrize("chosen", ["Eigene Suche", "RisikoBet", "3 a day", "15K", "Live"])
+@pytest.mark.parametrize("chosen", ["Eigene Suche", "RisikoBet", "Doublebet", "15K", "Live"])
 def test_paid_area_is_guarded_but_does_not_trap_the_shared_navigation(chosen):
     # Break caught: feature dispatch bypasses require_feature, or st.stop hides navigation.
     app = AppTest.from_function(_run_navigation, kwargs={"features": ["automatic", "saved"]}).run(timeout=30)
@@ -196,10 +196,10 @@ def test_daily3_rail_opens_daily3_via_the_same_active_area_state():
     next(button for button in app.button if button.key == "editorial_daily3_open").click().run(timeout=30)
     assert not app.exception
     assert _area(app) is not None
-    assert _area(app).value == "3 a day"
+    assert _area(app).value == "Doublebet"
     assert app.session_state["workspace"] == "Wettfinder"
-    assert app.session_state["wettfinder_mode_v2"] == "3 a day"
-    assert "PAGE: 3 a day" in _page_text(app)
+    assert app.session_state["wettfinder_mode_v2"] == "Doublebet"
+    assert "PAGE: Doublebet" in _page_text(app)
 
 
 def _run_real_my_tips_navigation():

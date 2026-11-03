@@ -1,21 +1,20 @@
-"""Defensive comparison shortlist, with the user's known-offer price floor.
+"""Doublebet: up to three single bets a day at odds around 2.00, the most probable by the model.
 
-Retain exact-bound model variants and at least 70% in all three. Compare form
-(football) or surface (ATP) against the same match's general strength; a positive
-two-percentage-point change is not necessary for a defensive day selection.
-Haircut, odds, RELEASED flags, target profit and account money are not ranking
-inputs. After coherent model selection, a real exactly matched offer from 1.20
-is required. Unknown prices remain background-only; admitted prices do not change ranking.
-Each choice additionally carries its own risk-adjusted minimum odds and the admitted
-offer. Both are reservation and display information only, never a selection input:
-real money may only be reserved at or above that minimum (audit 2026-10-16, K4).
-Time admission checks each actual leg, not imaginary future bets. Published choices are
-chronological planning, not guaranteed match durations or future cash credits.
+Owner decision 03.11.2026 (docs/audits/2026-11-03-doublebet.md). Every candidate needs an
+admitted current quote whose median lies in the band DOUBLEBET_ODDS_MIN..DOUBLEBET_ODDS_MAX;
+the bookmaker then says roughly 50 % to all of them, and the ranking inside the band comes
+from the model alone. Among the candidates that can be played as a day sequence (planning
+allowance, before Zurich midnight, no overlapping events) the sequence of at most three legs
+with the highest sum of model probabilities is chosen. Form (football) and surface (ATP)
+comparisons remain supporting information, no longer a requirement. Haircut, release flags,
+target profit and account money are not ranking inputs. Each choice carries its own
+reservation minimum and the admitted offer as display information only (audit 2026-10-16, K4).
+Published choices are chronological planning, not guaranteed match durations or cash credits.
 """
-from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import math
+from statistics import median
 from zoneinfo import ZoneInfo
 
 from betting_math import MINIMUM_RECOMMENDED_DECIMAL_ODDS
@@ -30,9 +29,11 @@ from forecast_price_checks import has_current_price_check
 from quote_publication import publication_quote
 from selection_coherence import consumer_event_identity
 
-POLICY_VERSION = 'daily3-defensive-day-sequence-checked-prices-v13'
-# Deliberate shortlist threshold, not a learned/calibrated safety boundary.
-MIN_MODEL_PROBABILITY = 0.70
+POLICY_VERSION = 'doublebet-odds-around-2-most-probable-v14'
+# Owner decision 03.11.2026: "um 2,00" is an admitted median quote from 1.80 to 2.20.
+DOUBLEBET_ODDS_MIN = 1.80
+DOUBLEBET_ODDS_MAX = 2.20
+MAX_LEGS = 3
 _TZ = ZoneInfo('Europe/Zurich')
 _SPORTS = {'fussball': 'football', 'fußball': 'football', 'football': 'football',
            'tennis': 'tennis', 'basketball': 'basketball', 'eishockey': 'hockey',
@@ -49,10 +50,11 @@ class Daily3Choice:
     sampled_at: datetime
     start: datetime
     family: str
-    comparison: Comparison
+    comparison: Comparison | None
     # Reservation/display facts, never selection inputs (see module docstring).
     minimum_odds: float | None = None
     offer_odds: float | None = None
+    offer_median_odds: float | None = None
 
     @property
     def price_blocked(self) -> bool:
@@ -71,7 +73,8 @@ class Daily3Choice:
         return dict(event_id=self.event_id, event_guard=event_guard(s), sport=self.sport, event_label=s.event_label or s.label,
             market_key=s.market_key, market=s.market, selection=s.selection, scheduled_start=self.start.isoformat(),
             signal_key=s.key, model_probability=s.probability, modeled_at=self.sampled_at.isoformat(),
-            model_version=s.model_version or f'Policy: {s.policy_version}', analysis_basis=self.basis + ' ' + self.comparison.summary,
+            model_version=s.model_version or f'Policy: {s.policy_version}',
+            analysis_basis=(self.basis + ' ' + (self.comparison.summary if self.comparison else '')).strip(),
             analysis_caution=self.caution, policy_version=POLICY_VERSION)
 
 
@@ -123,6 +126,16 @@ def admitted_offer_odds(signal, *, now):
     return None if quote is None else max(point.odds for point in quote.points)
 
 
+def admitted_median_odds(signal, *, now):
+    """Median of the admitted offers: what a typical book pays, as the 1.20 floor reads it."""
+    quote = publication_quote(getattr(signal, 'reference_quote', None), candidate=signal, now=now)
+    return None if quote is None else float(median(point.odds for point in quote.points))
+
+
+def in_doublebet_band(odds):
+    return odds is not None and DOUBLEBET_ODDS_MIN - 1e-9 <= odds <= DOUBLEBET_ODDS_MAX + 1e-9
+
+
 def _explanation(signal, sport, now):
     analysis = build_forecast_analysis(signal, now=now)
     if forecast_highlight_reason(signal, now=now, analysis=analysis, check_context=False):
@@ -143,16 +156,17 @@ def _explanation(signal, sport, now):
 
 def daily3_choices(signals, *, now, occupied_events=(), occupied_guards=(), used_slots=0, not_before=None):
     if now.tzinfo is None or now.utcoffset() is None:
-        raise ValueError('Daily3 requires an aware server clock')
+        raise ValueError('Doublebet requires an aware server clock')
     if type(used_slots) is not int or used_slots < 0:
         raise ValueError('Invalid actual slot count')
     now = now.astimezone(timezone.utc)
     if not_before is not None and (not_before.tzinfo is None or not_before.utcoffset() is None):
-        raise ValueError('Daily3 requires an aware planning clock')
+        raise ValueError('Doublebet requires an aware planning clock')
     ready = max(now, not_before.astimezone(timezone.utc)) if not_before is not None else now
     today = now.astimezone(_TZ).date()
     occupied = set(occupied_events)
     guards = tuple(occupied_guards)
+    slots = max(0, MAX_LEGS - used_slots)
     prepared = []
     for s in select_consumer_forecasts(signals, now=now):
         if not has_current_price_check(s, now=now):
@@ -160,9 +174,14 @@ def daily3_choices(signals, *, now, occupied_events=(), occupied_guards=(), used
         offer = admitted_offer_odds(s, now=now)
         if offer is None:
             continue
+        offer_median = admitted_median_odds(s, now=now)
+        if not in_doublebet_band(offer_median):
+            continue
         sport = _SPORTS.get(str(s.sport or '').strip().casefold())
         start, sampled = _clock(s.scheduled_start), _clock(s.modeled_at)
         if not sport or not start or not sampled or not now < start or start.astimezone(_TZ).date() != today:
+            continue
+        if start < ready or not fits_daily3_window(start, sport, used_slots):
             continue
         event = consumer_event_identity(s)
         if event.startswith('unresolved:') or event in occupied or not all((s.key, s.market_key, s.market, s.selection)):
@@ -170,37 +189,55 @@ def daily3_choices(signals, *, now, occupied_events=(), occupied_guards=(), used
         if any(events_overlap(event_guard(s), guard) for guard in guards):
             continue
         explanation = _explanation(s, sport, now)
-        if explanation is None or not MIN_MODEL_PROBABILITY <= s.probability < 1:
+        if explanation is None or not 0 < s.probability < 1:
             continue
-        comparison = daily3_comparison(s, now=now, minimum_probability=MIN_MODEL_PROBABILITY,
-                                       require_positive_change=False)
-        if comparison is None:
-            continue
+        # Supporting information only (owner 03.11.2026): no probability floor, no form bonus.
+        comparison = daily3_comparison(s, now=now, minimum_probability=0.0, require_positive_change=False)
         spec = MARKET_BY_KEY.get(s.market_key) if sport == 'football' else None
         family = spec.kind if spec else s.market_key
         prepared.append(Daily3Choice(s, event, sport, *explanation, sampled, start, family, comparison,
-                                     reservation_minimum_odds(s), offer))
-    unique = prepared
-    selected, sport_count, family_count = [], Counter(), Counter()
-    while unique and len(selected) < max(0, 3-used_slots):
-        eligible = [c for c in unique if c.start >= ready and
-                    fits_daily3_window(c.start, c.sport, used_slots+len(selected))]
-        if not eligible:
-            break
-        # Plan the earliest qualified game first rather than replacing the
-        # entire day's sequence with a higher probability late-night game.
-        # At the same kickoff, defensive strength precedes diversity/form.
-        eligible.sort(key=lambda c: (c.start, -c.comparison.lowest_model_probability,
-                                   sport_count[c.sport], family_count[(c.sport, c.family)],
-                                   -c.comparison.margin,
-                                   -c.sampled_at.timestamp(), c.start, c.event_id, c.signal.key))
-        # The shared complete pool is already coherent. Defensive shortlisting
-        # may only remove rows; it cannot re-anchor an opposing scenario.
-        match = eligible[0]
-        selected.append(match)
-        ready = planned_ready_at(match.start, match.sport)
-        sport_count[match.sport] += 1
-        family_count[(match.sport, match.family)] += 1
-        match_guard = event_guard(match.signal)
-        unique = [c for c in unique if not events_overlap(event_guard(c.signal), match_guard)]
-    return tuple(selected)
+                                     reservation_minimum_odds(s), offer, offer_median))
+    return _best_sequence(prepared, slots)
+
+
+def _follows(later, earlier):
+    """A leg that starts after the earlier leg's planning allowance and does not overlap its event."""
+    return (later.start >= planned_ready_at(earlier.start, earlier.sport)
+            and not events_overlap(event_guard(later.signal), event_guard(earlier.signal)))
+
+
+def _best_sequence(prepared, slots):
+    """The day sequence of at most ``slots`` legs with the highest sum of model probabilities.
+
+    Candidates are chained chronologically with their planning allowances; the
+    probabilities are positive, so a longer feasible sequence always beats a
+    shorter one. Ties go to the earlier first leg, then to stable keys.
+    """
+    if slots <= 0 or not prepared:
+        return ()
+    order = sorted(prepared, key=lambda c: (c.start, -c.signal.probability, c.event_id, c.signal.key))
+    best: list[dict[int, tuple[float, tuple]]] = []
+    for index, choice in enumerate(order):
+        options = {1: (choice.signal.probability, (choice,))}
+        for earlier_index in range(index):
+            if not _follows(choice, order[earlier_index]):
+                continue
+            for length, (score, chain) in best[earlier_index].items():
+                if length + 1 > slots:
+                    continue
+                candidate = (score + choice.signal.probability, chain + (choice,))
+                current = options.get(length + 1)
+                if current is None or candidate[0] > current[0] + 1e-12:
+                    options[length + 1] = candidate
+        best.append(options)
+    winner = None
+    for options in best:
+        for score, chain in options.values():
+            if winner is None or score > winner[0] + 1e-12 or (
+                    abs(score - winner[0]) <= 1e-12 and _chain_order(chain) < _chain_order(winner[1])):
+                winner = (score, chain)
+    return tuple(winner[1]) if winner else ()
+
+
+def _chain_order(chain):
+    return tuple((c.start, c.event_id, c.signal.key) for c in chain)

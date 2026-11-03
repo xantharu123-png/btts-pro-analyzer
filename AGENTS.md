@@ -85,6 +85,12 @@ Code, dann `PROJECT_HANDBUCH.md`, dann die Bibel. Historische Logs: `TODO_AKTUEL
   `MAX_PUBLIC_FORECASTS` (interne Vorauswahl, Kontextgrenze) bleibt 15. Seit dem Abend des 03.11.2026 zeigt die
   Seite je Spiel den wahrscheinlichsten Markt mit Leg-Quote ab 1,25 (`challenge_leg_odds`,
   `_challenge_page_selections`), und der Ticketpool nimmt nur solche Zeilen (`_challenge_leg_capable`).
+- **Doublebet statt 3 a day seit 03.11.2026** (`docs/audits/2026-11-03-doublebet.md`, Owner-Entscheid): Die
+  Tagesauswahl (`daily3_selection`, Policy `doublebet-odds-around-2-most-probable-v14`) nimmt je Wette eine
+  zugelassene Quote mit Median 1,80–2,20 (`DOUBLEBET_ODDS_MIN/MAX`) aus allen Sportarten und wählt die Tagesfolge
+  von bis zu drei Wetten mit der höchsten Summe der Modellwahrscheinlichkeiten. Die 70-%-Grenze und der Pflicht-
+  Vergleich sind weg; Form-/Belagvergleich bleibt Hinweis. Interne Namen (`daily3_*`, Feature `daily3`, Archive
+  `daily3_rail`/`daily3_default_plan`) bleiben; nur Anzeige und Policy heissen Doublebet.
 - **Wettfinder-Folgetag seit 02.11.2026** (`docs/audits/2026-11-02-wettfinder-folgetag.md`, Owner-Entscheid): Hat
   der Spieltag weniger als 30 Fussballspiele mit Auswahl (`NEXT_DAY_MIN_GAMES`), listet der Tageslauf auch den
   nächsten Tag (`football_next_day`, `next_day_search_date`). Nur Modellauswahlen in der Wettfinder-Liste, nie Tipp,

@@ -5,7 +5,7 @@ import pytest
 
 from challenge_engine import MARKET_BY_KEY
 from daily3_identity import event_guard
-from daily3_selection import MIN_MODEL_PROBABILITY, POLICY_VERSION, daily3_choices
+from daily3_selection import DOUBLEBET_ODDS_MAX, DOUBLEBET_ODDS_MIN, POLICY_VERSION, daily3_choices
 from ev_signal_sources import ModelSignal, _automated_analysis_fields
 from forecast_analysis import project_football_analysis
 from highlight_fixtures import football_checks
@@ -133,8 +133,8 @@ def test_tennis_facts_require_both_players_and_same_model_time():
     assert 'Sand' in _explanation(s, 'tennis', NOW)[0]
     assert _explanation(replace(s, competitor_a='Fremder Spieler'), 'tennis', NOW) is None
     assert _explanation(replace(s, modeled_at=(NOW-timedelta(minutes=1)).isoformat()), 'tennis', NOW) is None
-    # A descriptive surface fact alone is not a measured comparison advantage.
-    assert daily3_choices([s], now=NOW) == ()
+    # Doublebet (03.11.2026): a comparison is supporting information, not a requirement.
+    assert [c.signal.key for c in daily3_choices([s], now=NOW)] == [s.key]
 
 
 def test_optional_persisted_model_fields_survive_shared_loader_projection():
@@ -150,20 +150,27 @@ def test_bare_high_probability_does_not_create_an_explanation_or_force_three():
     assert len(daily3_choices([s], now=NOW)) == 1
 
 
-def test_low_probability_modal_winner_is_not_a_defensive_daily3_choice():
+def test_modal_winner_around_even_odds_is_a_doublebet_choice():
+    # Doublebet (03.11.2026): a 46 % home win at odds around 2.00 is exactly the kind of pick.
     choices = daily3_choices([_admitted_football(1, 'RESULT_AWAY', .21), _admitted_football(1, 'RESULT_HOME', .46),
                              _admitted_football(1, 'RESULT_DRAW', .33)], now=NOW)
-    assert choices == ()
+    assert [c.signal.market_key for c in choices] == ['RESULT_HOME']
 
 
-@pytest.mark.parametrize('probability,eligible', [(.195, False), (.5, False), (.699999, False),
-                                                (.7, False), (.729999, False), (.73, True), (.9, True)])
-def test_defensive_threshold_is_price_free_and_does_not_erase_normal_forecasts(probability, eligible):
+@pytest.mark.parametrize('odds,eligible', [(1.5, False), (1.79, False), (1.8, True), (2.0, True),
+                                         (2.2, True), (2.21, False), (3.0, False)])
+def test_odds_band_around_two_decides_and_does_not_erase_normal_forecasts(odds, eligible):
     from forecast_selection import select_consumer_forecasts
-    signal = _admitted_football(probability=probability)
+    from test_publication_odds_floor import priced
+    signal = priced(football(probability=.5), (odds,)*3)
     assert bool(daily3_choices([signal], now=NOW)) is eligible
     assert select_consumer_forecasts([signal], now=NOW) == [signal]
-    assert MIN_MODEL_PROBABILITY == .7
+    assert (DOUBLEBET_ODDS_MIN, DOUBLEBET_ODDS_MAX) == (1.8, 2.2)
+
+
+@pytest.mark.parametrize('probability', [.3, .5, .69, .9])
+def test_no_probability_floor_inside_the_band(probability):
+    assert len(daily3_choices([_admitted_football(probability=probability)], now=NOW)) == 1
 
 
 def test_same_kickoff_uses_defensive_variants_without_requiring_a_form_bonus():
@@ -185,10 +192,12 @@ def test_same_kickoff_uses_defensive_variants_without_requiring_a_form_bonus():
     assert tuple(pool) == before
 
 
-def test_no_defensive_backfill_or_return_to_an_older_higher_probability():
+def test_no_return_to_an_older_higher_probability():
     old = _admitted_football(probability=.95, now=NOW-timedelta(minutes=1))
     new = _admitted_football(probability=.60)
-    assert daily3_choices([old, new, _admitted_football(2, probability=.69)], now=NOW) == ()
+    choices = daily3_choices([old, new, _admitted_football(2, probability=.69)], now=NOW)
+    # Same kickoff: one leg only, the most probable current forecast, never the stale 95 %.
+    assert [(c.signal.key, c.signal.probability) for c in choices] == [('2:RESULT_HOME', .69)]
 
 
 def test_defensive_profile_never_uses_an_unexplained_high_probability_or_haircut():

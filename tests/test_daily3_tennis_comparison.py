@@ -75,15 +75,17 @@ def test_real_surface_ablation_and_shortlisting_leave_original_state_and_forecas
     ('probabilities_a', [.9, .75, True]), ('scheduled_start', 'bad'),
     ('modeled_at', (NOW+timedelta(seconds=1)).isoformat()),
 ])
-def test_wrong_or_insufficient_comparisons_are_not_admitted(field, value):
+def test_wrong_or_insufficient_comparisons_yield_no_comparison(field, value):
     s = _admitted(signal())
     s.context_evidence['daily3_comparison'][field] = value
-    assert daily3_choices([s], now=NOW) == ()
+    # Doublebet (03.11.2026): a wrong comparison never appears; the leg itself may still be admitted.
+    assert all(choice.comparison is None for choice in daily3_choices([s], now=NOW))
 
 
 def test_context_adjustment_or_stale_revision_cannot_borrow_original_ablation():
     s = _admitted(signal())
-    assert daily3_choices([replace(s, probability=s.probability+.001)], now=NOW) == ()
+    # Doublebet (03.11.2026): an adjusted probability loses the comparison, not the leg.
+    assert all(c.comparison is None for c in daily3_choices([replace(s, probability=s.probability+.001)], now=NOW))
     assert daily3_choices([replace(s, modeled_at=(NOW-timedelta(hours=4)).isoformat())], now=NOW) == ()
     assert daily3_choices([replace(s, market_key='over_2_5_sets')], now=NOW) == ()
 
@@ -107,7 +109,7 @@ def test_price_does_not_supply_model_evidence_or_change_its_order():
     changed = replace(s, minimum_odds=999, evidence_stage='RELEASED')
     assert daily3_choices([s], now=NOW)[0].comparison == daily3_choices([changed], now=NOW)[0].comparison
     del s.context_evidence['daily3_comparison']
-    assert daily3_choices([s], now=NOW) == ()
+    assert daily3_choices([s], now=NOW)[0].comparison is None  # Doublebet: admitted without a comparison
 
 
 @pytest.mark.parametrize('change', ['gate', 'wta', 'legacy', 'few_surface', 'few_overall', 'few_calibration'])
@@ -152,7 +154,7 @@ def test_general_comparison_keeps_real_serve_mixture_and_calibration():
 def test_incomplete_context_binding_cannot_claim_qualified_surface_comparison():
     s = _admitted(signal())
     del s.context_evidence['context_model']['reference']
-    assert daily3_choices([s], now=NOW) == ()
+    assert all(c.comparison is None for c in daily3_choices([s], now=NOW))  # never a claimed comparison
 
 
 @pytest.mark.parametrize('values', [[.811, .797, .82], [.733, .749, .767]])
@@ -172,7 +174,9 @@ def test_daily3_does_not_hide_disagreement_when_surface_bonus_is_not_required():
     s = _admitted(signal())
     s.context_evidence['daily3_comparison']['probabilities_a'] = [.811, .697, .82]
     s = replace(s, probability=.811)
-    assert daily3_choices([s], now=NOW) == ()
+    # Doublebet (03.11.2026): no floor, but the disagreement is reported as the lowest variant.
+    choice, = daily3_choices([s], now=NOW)
+    assert choice.comparison.lowest_model_probability == .697
 
 
 def test_real_worker_persists_comparison_with_its_actual_native_original(monkeypatch, tmp_path):

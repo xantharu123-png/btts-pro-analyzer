@@ -26,15 +26,19 @@ def test_wilson_endpoints_and_counts():
             baseline_upper(k, n)
 
 
-def test_model_disagreement_cannot_be_hidden_by_high_active_probability():
+def test_model_disagreement_is_reported_not_hidden_by_high_active_probability():
     s = football(probability=.95, variants=(.95, .69, .90))
-    assert daily3_choices([s], now=NOW) == ()
+    # Doublebet (03.11.2026): no probability floor; the comparison still reports the lowest variant.
+    choice, = daily3_choices([s], now=NOW)
+    assert choice.comparison.lowest_model_probability == .69
     assert select_consumer_forecasts([s], now=NOW) == [s]
 
 
 def test_missing_comparison_does_not_rewrite_or_remove_normal_forecast():
     s = football(probability=.98, comparison=False)
-    assert daily3_choices([s], now=NOW) == ()
+    # Doublebet (03.11.2026): admitted without a comparison; nothing is invented.
+    choice, = daily3_choices([s], now=NOW)
+    assert choice.comparison is None and 'Formsignal' not in choice.snapshot()['analysis_basis']
     assert select_consumer_forecasts([s], now=NOW) == [s]
     assert s.probability == .98
 
@@ -53,11 +57,13 @@ def test_no_market_name_ban_and_no_high_probability_ceiling(key):
     ('latest_kickoff', NOW.isoformat()), ('probabilities', [.99, .99, .99]),
     ('probabilities', [.75, float('nan'), .8]), ('probabilities', [.75, True, .8]),
 ])
-def test_wrong_or_insufficient_evidence_cannot_qualify(field, value):
+def test_wrong_or_insufficient_evidence_yields_no_comparison(field, value):
     s = football()
     envelope = deepcopy(s.analysis_evidence)
     envelope['basis']['market_comparison'][field] = value
-    assert daily3_choices([replace(s, analysis_evidence=envelope)], now=NOW) == ()
+    # Doublebet (03.11.2026): the leg is admitted, but wrong evidence never becomes a comparison.
+    choices = daily3_choices([replace(s, analysis_evidence=envelope)], now=NOW)
+    assert all(choice.comparison is None for choice in choices)
 
 
 def history_rows():
@@ -258,7 +264,8 @@ def test_national_comparison_rejects_wrong_scope_or_provenance(change):
     evidence['basis']['market_comparison'] = raw
     broken = replace(signal, analysis_evidence=evidence)
     assert read_football_analysis(vars(broken), now=NOW)['basis'].get('market_comparison') is None
-    assert daily3_choices([broken], now=NOW) == ()
+    # Doublebet (03.11.2026): admitted without a comparison; the wrong one never appears.
+    assert all(choice.comparison is None for choice in daily3_choices([broken], now=NOW))
 
 
 def test_national_comparison_does_not_transfer_to_club_fixture():

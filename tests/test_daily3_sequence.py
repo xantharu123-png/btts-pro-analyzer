@@ -98,7 +98,9 @@ def test_supported_late_single_can_be_daily3_first_leg_when_its_allowance_fits()
 
 
 def test_time_window_does_not_relax_quality_or_force_three_cards():
-    unsupported = football(122, probability=.69, now=PLAN_NOW, start_hours=3)
+    # Out of the odds band (1.80 to 2.20): never a Doublebet leg, however early it starts.
+    unsupported = priced(_football(122, probability=.69, now=PLAN_NOW, start_hours=3), (1.5,) * 3,
+                         now=PLAN_NOW)
     late = football(123, probability=.95, now=PLAN_NOW, start_hours=12)
     assert daily3_choices([unsupported], now=PLAN_NOW) == ()
     assert [choice.signal.key for choice in daily3_choices([unsupported, late], now=PLAN_NOW)] == [late.key]
