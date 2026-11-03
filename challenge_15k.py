@@ -24,7 +24,6 @@ import scan_jobs
 from account_identity import storage_scope
 from bet_finder_ui import (
     coherent_consumer_forecasts,
-    consumer_event_leads,
     group_consumer_markets_by_fixture,
     merge_consumer_forecast_catalog,
     partition_consumer_featured_forecasts,
@@ -46,6 +45,7 @@ from challenge_engine import (
     ChallengeCandidate,
     COUNT_MARKET_KINDS,
     MARKET_BY_KEY,
+    MIN_CHALLENGE_LEG_ODDS,
     MARKET_SPECS,
     MAX_CHALLENGE_STAKE_FRACTION,
     MODEL_SCOPE_CROSS_COMPETITION_PROVISIONAL_FORECAST,
@@ -88,7 +88,7 @@ from challenge_model_cache import load_model_artifact, save_model_artifact
 from cross_league_fdr import apply_cross_league_fdr
 from challenge_store import ChallengeLedger, SETTLEMENT_RULE_VERSION
 from config_loader import load_app_config
-from quote_publication import publication_allowed, latest_reference_quotes, quote_receipt, read_shared_quote_rows
+from quote_publication import publication_allowed, publication_quote, latest_reference_quotes, quote_receipt, read_shared_quote_rows
 from date_context import ZURICH_TIMEZONE, german_day_label, zurich_today
 from ui_components import (
     milestone_bar_html,
@@ -5330,26 +5330,50 @@ def _user_recorded_quote_evidence(
     }
 
 
-def _challenge_display_selections(
-    pool: list[ChallengeCandidate],
-) -> list[ChallengeCandidate]:
-    """Keep a few broad options visible without letting them dominate 15K.
+def challenge_leg_odds(quote, *, candidate, now):
+    """Odds at which a 15K ticket would price this market as a leg, else None.
 
-    The caller filters by quote and kick-off and then shows the first
-    CHALLENGE_PAGE_MAX_GAMES games, so this pool stays the wider shortlist.
+    The admitted publication quote (observed within 24 hours, median at or
+    above 1.20) must carry an executable offer of at least
+    ``MIN_CHALLENGE_LEG_ODDS``; below that the ticket builder drops the leg.
+    The ticket itself prices a leg only from a fresh consensus; that clock is
+    checked when the ticket is built, not here (owner decision 03.11.2026).
     """
-    focused = select_forecast_shortlist(pool, max_candidates=MAX_PUBLIC_FORECASTS)
-    broad = select_basis_forecasts(pool, max_candidates=3)
-    chosen = focused[: max(0, MAX_PUBLIC_FORECASTS - len(broad))]
-    seen_fixtures = {candidate.fixture_id for candidate in chosen}
-    for candidate in broad + focused[len(chosen):]:
-        if len(chosen) >= MAX_PUBLIC_FORECASTS:
-            break
-        if candidate.fixture_id in seen_fixtures:
+    admitted = publication_quote(quote, candidate=candidate, now=now)
+    if admitted is None:
+        return None
+    executable = admitted.executable_point
+    if executable is None:
+        return None
+    return executable.odds if executable.odds + 1e-9 >= MIN_CHALLENGE_LEG_ODDS else None
+
+
+def _challenge_page_selections(
+    pool: list[ChallengeCandidate],
+    quotes: dict[str, MarketConsensus],
+    *,
+    now: datetime,
+) -> list[ChallengeCandidate]:
+    """Per game the most probable market that can be a 15K ticket leg (owner decision 03.11.2026).
+
+    Games without such a market stay off the page; at most
+    ``CHALLENGE_PAGE_MAX_GAMES`` games, most probable first.
+    """
+    best: dict[int, ChallengeCandidate] = {}
+    for candidate in pool:
+        kickoff = _candidate_kickoff(candidate)
+        if kickoff is None or kickoff <= now:
             continue
-        chosen.append(candidate)
-        seen_fixtures.add(candidate.fixture_id)
-    return chosen
+        quote = quotes.get(candidate.candidate_id)
+        if not challenge_quote_matches_candidate(quote, candidate):
+            continue
+        if challenge_leg_odds(quote, candidate=candidate, now=now) is None:
+            continue
+        current = best.get(candidate.fixture_id)
+        if current is None or candidate.probability > current.probability:
+            best[candidate.fixture_id] = candidate
+    ordered = sorted(best.values(), key=lambda item: (-item.probability, item.kickoff, item.candidate_id))
+    return ordered[:CHALLENGE_PAGE_MAX_GAMES]
 
 
 def _challenge_card_signal(candidate: ChallengeCandidate, snapshot: dict[str, Any]):
@@ -5425,26 +5449,17 @@ def _render_model_challenge(
     quotes = deserialize_consensus_map(snapshot.get('reference_quotes'))
     # Resolve the model direction before the floor; never flip it for a price.
     pool = coherent_consumer_forecasts(pool, model_clock=snapshot.get('scanned_at'))
-    leads = consumer_event_leads(pool, model_clock=snapshot.get('scanned_at'))
-    selections = leads if leads else _challenge_display_selections(pool)
     quotes = latest_reference_quotes(pool, quotes, shared_rows=read_shared_quote_rows(), now=now,
         blocked_at=snapshot.get('reference_quote_conflicts'))
-    selections = [candidate for candidate in selections
-            if publication_allowed(
-                quotes.get(candidate.candidate_id), candidate=candidate, now=now)]
-    selections = [
-        candidate for candidate in selections
-        if (kickoff := _candidate_kickoff(candidate)) is not None and kickoff > now
-    ]
-    # Five visible games (owner decision 03.11.2026): cut after the quote and kick-off
-    # filters, otherwise a blocked lead would take one of the five places.
-    selections = selections[:CHALLENGE_PAGE_MAX_GAMES]
+    # Owner decision 03.11.2026: per game the most probable market that can be a
+    # ticket leg, at most CHALLENGE_PAGE_MAX_GAMES games.
+    selections = _challenge_page_selections(pool, quotes, now=now)
     if not selections:
         st.info("Heute keine ausreichend geprüfte 15K-Modellauswahl.")
         return
 
     st.subheader("15K-Modellauswahl")
-    st.caption("Nach Modell ausgewählt · exakt passende beobachtete Quote ab 1,20. Deine tatsächliche Quote erfasst du mit der Wette.")
+    st.caption("Je Spiel der wahrscheinlichste Markt mit spielbarer Quote ab 1,25, wie ein Ticket-Leg. Deine tatsächliche Quote erfasst du mit der Wette.")
     from tip_display_order import display_order_control, ordered_event_rows
     sort_mode = display_order_control(st, key='challenge_model_order')
     selections = ordered_event_rows(selections, mode=sort_mode,
@@ -5580,7 +5595,7 @@ def _render_model_challenge(
 def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
     config = load_app_config(st)
     manual_scan_available = bool(config.api_football_key and config.weather_key)
-    st.caption("Modellauswahl ohne Buchmacherquote; Istquote erst bei der Wett-Erfassung.")
+    st.caption("Modellauswahl mit beobachteter Quote ab 1,25; Istquote erst bei der Wett-Erfassung.")
     st.markdown("**Sport:** Fußball · separate 15K-Ticketprüfung")
     st.caption(
         "Weitere Sportarten erscheinen hier erst nach Modell- und Abrechnungsprüfung."

@@ -37,6 +37,7 @@ from challenge_15k import (
     CHALLENGE_SNAPSHOT_VERSION,
     MAX_SCAN_FIXTURES,
     ChallengeDataProvider,
+    challenge_leg_odds,
     refresh_discovered_candidates,
     scan_daily_challenge,
 )
@@ -2616,6 +2617,12 @@ def _football_next_day(
     return state, {**summary, "status": "scanned"}
 
 
+def _challenge_leg_capable(row: dict[str, Any], *, now: datetime) -> bool:
+    """A stored playable row whose fresh offer can price a 15K ticket leg."""
+    quote = MarketConsensus.from_dict(row.get("reference_quote"))
+    return challenge_leg_odds(quote, candidate=row, now=now) is not None
+
+
 def _apply_reference_quotes(
     model_rows: list[dict[str, Any]],
     price_rows: list[dict[str, Any]],
@@ -4360,8 +4367,10 @@ def run_wettfinder(
         dict(challenge_playable_by_key[key])
         for key in model_keys_in_order
         if key in challenge_playable_by_key
-        # The 15K ticket list keeps an observed price: a stake needs odds.
+        # The 15K ticket list keeps an observed price: a stake needs odds, and a
+        # leg needs the ticket's minimum odds (owner decision 03.11.2026).
         and challenge_playable_by_key[key].get("reference_price_status") == "PLAYABLE"
+        and _challenge_leg_capable(challenge_playable_by_key[key], now=current)
         and 0.58 - 1e-12 <= float(challenge_playable_by_key[key]["probability"]) <= 0.92 + 1e-12
         and float(challenge_playable_by_key[key]["conservative_probability"]) >= 0.55 - 1e-12
     ]
@@ -5074,6 +5083,7 @@ def _republish_floor_candidates(document: dict[str, Any], *, now: Optional[datet
         for row in _ranked_candidates(pool, now=current, target_date=target, preserve_order=True)
         if row.get("source") == "football_challenge"
         and row.get("reference_price_status") == "PLAYABLE"
+        and _challenge_leg_capable(row, now=current)
         and 0.58 - 1e-12 <= float(row["probability"]) <= 0.92 + 1e-12
         and float(row["conservative_probability"]) >= 0.55 - 1e-12
     ][:MAX_AUTOMATED_CHALLENGE_RELEASE_CANDIDATES]

@@ -484,10 +484,6 @@ def test_15k_model_keeps_validated_selection_without_confirmed_lineups():
     assert not candidate_is_credible(item)
     assert candidate_is_15k_model_eligible(item)
     assert challenge_15k._challenge_model_candidate_pool([item]) == [item]
-    assert challenge_15k._challenge_display_selections([item]) == [item]
-    second_market = candidate("1:SECOND", 1, 0.78)
-    second_market.context = deepcopy(item.context)
-    assert len(challenge_15k._challenge_display_selections([item, second_market])) == 1
 
     item.context["blocked_reasons"] = ["Bekanntes H2H-Veto"]
     item.context["passed"] = False
