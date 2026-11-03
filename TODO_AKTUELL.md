@@ -1,5 +1,29 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 03.11.2026 08:06 – Release 20261103-2 live: 15K höchstens fünf Spiele, ein Ticket pro Tag (PR #78)
+
+Owner-Entscheide 03.11.2026 im Chat: Die „5 Tipps“ vom 1.11. kamen von der Grenze 3 für die Top-Tipps, die
+unverändert bleibt. „3 a day“ bleibt bei drei Spielen. Die 15K-Seite zeigt höchstens fünf Spiele, das System schlägt
+weiter genau ein Ticket pro Tag vor (ein bis drei Spiele); eigene Tickets baut der Owner aus den fünf Spielen von
+Hand (`docs/audits/2026-11-03-15k-liste-5.md`).
+
+- `CHALLENGE_PAGE_MAX_GAMES = 5` (sichtbare 15K-Modellauswahl), `MAX_AUTOMATED_CHALLENGE_RELEASE_CANDIDATES = 5`
+  (bepreister Ticketpool, vorher 15). `MAX_PUBLIC_FORECASTS = 15` bleibt, weil es auch den Kontextabruf begrenzt.
+- Vorbedingung geprüft: Das laufende Dokument hatte 3 Pool-Zeilen, der Lader lehnt sonst mehr als fünf ab.
+
+PR #78 gemergt und um 08:06 CET als **`9c958f5`** per No-Backup-Fast-forward von `963fe91` ausgerollt (Helfer
+`output/release-20261103-2/deploy.sh`, abgeleitet vom Helfer 20261103-1, 9 Pfade; Offline-Prüfung lokal und auf dem
+Server ok inklusive der Zeilenzahl des laufenden Dokuments; nur App-Neustart PID 1459798→1461147; Healthchecks ok,
+Snapshots unverändert, kein Backup, Einheiten unverändert). Prüfung 08:12 (`verify-01.log`): Konstanten 5/5/15, der
+Lader nimmt das laufende Dokument an (191 Prognosen, 3 Tipps), die 15K-Seite baut ihren Stand (3 im Pool, 7
+Modellzeilen), Shadow-Lauf Exit 0, Seite 200.
+
+Befund danach (`leads_check.log`): Die 15K-Seite kürzte die Ereignisführer auf fünf, bevor sie nach Quote und
+Anpfiff filterte; ein gesperrter Führer nahm so einen Platz. Heute ohne Folgen (3 Führer, 2 durch die Quote gesperrt,
+1 sichtbar). Korrektur in PR #79: erst filtern, dann auf fünf kürzen.
+
+Offen: PR #79 mergen und ausrollen.
+
 ## 03.11.2026 07:07 – Release 20261103-1 live: Tennisbox behält „Heute“ (PR #76)
 
 Owner-Entscheide „Ja, korrigieren“ und „Ja, beides“: Die Tennisbox bekommt die Beschriftung des Spieltags. Den
