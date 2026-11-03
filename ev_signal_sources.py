@@ -53,7 +53,9 @@ AUTOMATED_FOOTBALL_RELEASE_CONTRACT = "football-hac-fdr-context-price-v1"
 # Resource envelopes, not presentation quotas: 1,200 football fixtures x 90
 # configured definitions. Top cards and pagination never truncate this pool.
 MAX_AUTOMATED_FOOTBALL_CANDIDATES = 108_000
-MAX_AUTOMATED_CHALLENGE_RELEASE_CANDIDATES = 15
+# Owner decision 03.11.2026 (docs/audits/2026-11-03-15k-liste-5.md): the 15K page shows at most
+# five games and proposes one ticket of one to three legs; the priced ticket pool follows.
+MAX_AUTOMATED_CHALLENGE_RELEASE_CANDIDATES = 5
 MAX_AUTOMATED_OTHER_CANDIDATES_PER_SPORT = 1_200
 MAX_AUTOMATED_MODEL_CANDIDATES = 112_800
 MAX_AUTOMATED_RECOMMENDATIONS = 3

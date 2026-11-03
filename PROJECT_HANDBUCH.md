@@ -228,7 +228,7 @@ geführt. Diese Signifikanzschicht gilt für jede Echtgeldfreigabe einschließli
 
 Der normale Consumer-Pool bleibt unverändert auf höchstens drei freigegebene
 Tipps begrenzt. Die 15K-Ticketwahl verwendet stattdessen das getrennte Feld
-`challenge_release_candidates` mit höchstens 15 Fußballmärkten. Es wird in
+`challenge_release_candidates` mit höchstens 5 Fußballmärkten (bis 02.11.2026: 15). Es wird in
 Modellreihenfolge geschrieben und vom Reader vollständig gegen `RELEASED`-,
 HAC/FDR-, Kontext-, Overlay- und Ausführungsprovenienz validiert. Ein
 erfolgreicher Nulltreffer-Lauf bleibt ein abgeschlossener Snapshot mit null
