@@ -1,5 +1,81 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 03.11.2026 – Prüfung: erster Tageslauf mit 66 Ligen und Folgetag
+
+Nur lesend geprüft um 06:55 (`output/release-20261102-1/check_0311.sh`, `check_leagues_0311.sh`, Logs dazu):
+
+- Wettfinder-Lauf 03:35–04:08: `success`, Exit 0, 33 Minuten bei 60 Minuten Grenze. Die Discovery für heute dauerte
+  465 Sekunden, die für morgen 336 Sekunden. Discovery über 66 Ligen, kein Betriebsfehler.
+- Heute (3.11.):
+  - 24 Spiele gefunden, 21 modelliert, 18 mit Auswahl und geprüftem Kontext;
+  - 3 Top-Tipps, 3 Zeilen in der 15K-Liste.
+- Folgetag (4.11.):
+  - Status `listed`: 22 gefunden, 19 modelliert, 14 Spiele mit 60 Zeilen;
+  - 104 Preisprüfungen: 75 spielbar, 15 unter 1,20, 14 ohne Quote;
+  - keine Quotenfehler.
+- Die neuen Ligen hatten am Dienstag keine Spiele. Die 10 Dienstagsspiele aus der Ligenprüfung waren J2, das
+  ausgeschlossen ist. Für den 4.11. ist die belgische Challenger Pro League mit 8 Zeilen dabei.
+- Seite um 07:00:
+  - Kopf „Heute und morgen · Ergebnisstand: heute 04:03“;
+  - „Alle“ zeigt 54 Spiele, Fussball 29 (heute 18, morgen 14, drei fallen unter die 1,20-Untergrenze oder haben
+    schon begonnen).
+- Schönheitsfehler: Die Tennisbox trägt ebenfalls „Heute und morgen“, obwohl Tennis nur heute gelistet wird.
+  Ursache: `app.py` gibt die kombinierte Beschriftung an `_render_editorial_rail` weiter.
+- API-Football: 489 Abrufe bis 06:55 (Vortag 1190); 7011 von 7500 frei. Shadow lief seit dem Release ohne
+  Fehlschlag, die Quotenläufe 03:15 und 06:15 waren erfolgreich. Kein neuer Alarm, die Seite antwortet mit 200.
+
+## 02.11.2026 23:33 – Release 20261102-1 live: 66 Ligen und Wettfinder-Folgetag (PR #73, PR #74)
+
+Prüfung 2.11. (nur lesend, `output/release-20261101-2/check_0211.sh`, Log `check_0211.log`):
+
+- Die Regel für ungültige Tipps griff um 09:02 Zürich. Die verlegten UPL-Tipps 1565513 und 1565514 stehen in
+  `shadow_void` (`kickoff_moved`, Status NS). 1565519 (Shakhtar) steht nicht darin.
+- Abrechnung 1.11.:
+  - mit Quote: 1 gewonnen, 1 verloren
+  - ohne Quote: 16 gewonnen, 8 verloren
+  - öffentliche Top-Tipps: 1 gewonnen, 3 verloren, 1 offen
+  - 15K: 12 gewonnen, 8 verloren, 4 offen
+- Der Tennis-Nachtlauf vom 2.11. um 00:05 endete mit Exit 0 nach 21 Minuten (512 MiB und 1800 Sekunden wirken).
+  Kein neuer Alarm.
+
+Owner-Frage, warum es nur 5 Tipps gab:
+
+- Höchstens 3 Top-Tipps stehen gleichzeitig (`MAX_AUTOMATED_RECOMMENDATIONS`). Der Wettfinder selbst hat keine
+  Obergrenze; begrenzt wird er durch die 52 Ligen. Am 1.11. waren es 114 gefundene Spiele, davon 68 im Wettfinder,
+  am 2.11. 38 gefundene und 28 im Wettfinder.
+- Owner-Wunsch: mindestens 30 Spiele im Wettfinder. 3 a day bleibt bei 3, für die 15K-Liste reichen bis zu 5 am Tag.
+
+Ligenprüfung („Ja, Ligen prüfen“; 8 API-Abrufe, `output/ligen-20261102/ERGEBNIS.md`):
+
+- Die Katalogligen haben vom 2. bis 8.11. 42, 30, 20, 40, 39, 127 und 158 Spiele.
+- Weltweit gibt es von Dienstag bis Donnerstag nur 136–240 Spiele.
+
+Owner-Entscheide „Ligen + Folgetag“ und „Ja, beides“:
+
+- PR #73: 14 Ligen dazu, 66 statt 52 (`docs/audits/2026-11-02-ligenkatalog-66.md`). Neu sind die zweiten Ligen aus
+  ES, IT, FR, PT, TR, BE, AT und CH, die 3. Liga, Saudi-Arabien, Israel, Zypern, Bulgarien und Südafrika. Japans J1
+  und J2 bleiben wegen uneinheitlicher Saisonnummern draussen.
+- PR #74: Folgetag (`docs/audits/2026-11-02-wettfinder-folgetag.md`). Hat der Spieltag weniger als 30 Fussballspiele
+  mit Auswahl, listet der Tageslauf auch den nächsten Tag. Das läuft auf eigenem Zustand und nur als
+  Modellauswahlen; daraus entsteht nie ein Tipp, ein 15K-Eintrag, eine 3-a-day-Wahl, ein Shadow-Eintrag, eine
+  Evidenzprognose oder ein Archiveintrag.
+- Lokal liefen die CI-Suiten für Lader, Publikation, Daily3 und 15K und die betroffenen Tests: 1589 bestanden unter
+  `gate`. Unter `floor` scheitern 12 Tests zu E-Sport, Eishockey und Teamsport, auf `main` genau dieselben 12.
+
+Beide gemergt und um 23:33 CET als **`f5b2613`** per No-Backup-Fast-forward von `edf4d6f` ausgerollt:
+
+- Helfer `output/release-20261102-1/deploy.sh`, abgeleitet vom Helfer 20261101-2, 16 Pfade inklusive Protokoll-PR #72.
+- Offline-Prüfung lokal und auf dem Server ok, inklusive Katalog 66 und Folgetag.
+- Nur die App wurde neu gestartet (PID 1438595→1455861). Healthchecks ok, Snapshots unverändert, kein Backup,
+  Einheiten unverändert.
+- Der erste Shadow-Lauf um 23:42 endete mit Exit 0. Die Seite antwortet mit 200, das heutige Dokument (52 Ligen)
+  wird weiter ausgeliefert (`verify-01.log`).
+
+Wirksam ab dem Tageslauf am 3.11. um 03:35: neue Discovery über 66 Ligen (`league_scope_changed`), dazu der
+Folgetag, wenn heute weniger als 30 Spiele gelistet sind.
+
+Tageslauf vom 3.11. geprüft, siehe Block oben.
+
 ## 01.11.2026 13:57 – Release 20261101-2 live: Shadow-Tipps auf verschobene oder abgesagte Spiele ungültig (PR #71)
 
 Befund bei der Abrechnung am 01.11. (nur lesend, `output/release-20261101-1/open_priced.sh`, `open_priced2.sh`):
