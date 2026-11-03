@@ -82,7 +82,9 @@ Code, dann `PROJECT_HANDBUCH.md`, dann die Bibel. Historische Logs: `TODO_AKTUEL
 - **15K-Liste 5 seit 03.11.2026** (`docs/audits/2026-11-03-15k-liste-5.md`, Owner-Entscheid): Die 15K-Seite zeigt
   höchstens fünf Spiele (`CHALLENGE_PAGE_MAX_GAMES`), der bepreiste Ticketpool hat höchstens fünf Zeilen
   (`MAX_AUTOMATED_CHALLENGE_RELEASE_CANDIDATES`, vorher 15). Weiter ein Ticket pro Tag mit ein bis drei Spielen;
-  `MAX_PUBLIC_FORECASTS` (interne Vorauswahl, Kontextgrenze) bleibt 15.
+  `MAX_PUBLIC_FORECASTS` (interne Vorauswahl, Kontextgrenze) bleibt 15. Seit dem Abend des 03.11.2026 zeigt die
+  Seite je Spiel den wahrscheinlichsten Markt mit Leg-Quote ab 1,25 (`challenge_leg_odds`,
+  `_challenge_page_selections`), und der Ticketpool nimmt nur solche Zeilen (`_challenge_leg_capable`).
 - **Wettfinder-Folgetag seit 02.11.2026** (`docs/audits/2026-11-02-wettfinder-folgetag.md`, Owner-Entscheid): Hat
   der Spieltag weniger als 30 Fussballspiele mit Auswahl (`NEXT_DAY_MIN_GAMES`), listet der Tageslauf auch den
   nächsten Tag (`football_next_day`, `next_day_search_date`). Nur Modellauswahlen in der Wettfinder-Liste, nie Tipp,
