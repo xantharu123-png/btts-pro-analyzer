@@ -138,6 +138,40 @@ def test_next_day_failure_leaves_today_unchanged(tmp_path):
     assert "secret" not in json.dumps(document)
 
 
+def test_partial_next_day_scan_still_lists_complete_fixtures(tmp_path):
+    # 05.11.2026: one ReadTimeout among 539 calls dropped the whole next day. Like the match
+    # day, a partial scan keeps fixtures whose own model and context record are complete.
+    def scan(day):
+        if day == TOMORROW:
+            snapshot = _next_day_snapshot()
+            snapshot["errors"] = ["Stats Fixture 9: ReadTimeout"]
+            return snapshot
+        return _today_snapshot()
+
+    artifact, document = _run(tmp_path, scan, football_next_day=True)
+
+    summary = document["sources"]["football"]["next_day"]
+    assert summary["status"] == "listed_partial" and summary["partial_operational_errors"] == 1
+    assert document["next_day_search_date"] == "2030-01-02"
+    assert document["football_next_day"]["status"] == "degraded"
+    assert 2 in _fixture_ids(document["model_candidates"])
+    assert document["run_status"] == "completed" and document["football"]["status"] == "completed"
+    assert any(listed_next_day_signal(s, now=NOW) for s in automated_wettfinder_forecasts(artifact, now=NOW))
+
+
+def test_next_day_without_context_accounting_is_still_dropped(tmp_path):
+    def scan(day):
+        if day == TOMORROW:
+            snapshot = _next_day_snapshot()
+            snapshot.pop("context_fixture_statuses")
+            return snapshot
+        return _today_snapshot()
+
+    _artifact, document = _run(tmp_path, scan, football_next_day=True)
+    assert document["sources"]["football"]["next_day"]["status"] in {"degraded", "failed"}
+    assert "next_day_search_date" not in document and 2 not in _fixture_ids(document["model_candidates"])
+
+
 @pytest.fixture
 def listed(tmp_path):
     artifact, _document = _run(tmp_path, _scanner([]), football_next_day=True)
