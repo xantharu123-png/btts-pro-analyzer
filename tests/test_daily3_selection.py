@@ -256,6 +256,24 @@ def test_daily_context_keeps_its_original_clock_without_expiring_after_75_minute
     assert signal.analysis_evidence['context']['injuries']['checked_at'] == before
 
 
+def test_daily_choice_survives_the_75_minute_stale_flag_but_top_window_does_not():
+    # 05.11.2026: the app loader marks a context older than 75 minutes as stale; the daily
+    # Doublebet choice vanished although each check was within its 24-hour daily lifetime.
+    from copy import deepcopy
+    from forecast_analysis import football_context_highlight_reason, read_football_analysis
+    signal = _admitted_football(now=NOW-timedelta(hours=2), start_hours=8)
+    evidence = deepcopy(signal.analysis_evidence)
+    evidence['context']['stale'] = True
+    signal = replace(signal, source='automated_wettfinder_forecast', analysis_evidence=evidence)
+    assert [choice.signal.key for choice in daily3_choices([signal], now=NOW)] == [signal.key]
+    context = read_football_analysis(vars(signal), now=NOW)['context']
+    assert context.get('stale') is True
+    assert football_context_highlight_reason(context, now=NOW) == 'Spielinformationen nicht aktuell belegt'
+    conflicting = deepcopy(evidence)
+    conflicting['context']['conflicting'] = True
+    assert daily3_choices([replace(signal, analysis_evidence=conflicting)], now=NOW) == ()
+
+
 @pytest.mark.parametrize('age,eligible', [
     (timedelta(hours=24), True),
     (timedelta(hours=24, seconds=1), False),

@@ -42,3 +42,17 @@ darüber, sieht man es, weil die Quote immer gleich ist.
   gegen 50 %; das ist der Massstab, ob das Modell im Band etwas erkennt.
 - Tests: Die Daily3-Suiten prüfen jetzt das Band und die Folge; Tests, die einen falschen Vergleich über den
   Ausschluss aus der Auswahl prüften, prüfen ihn jetzt über `choice.comparison is None`.
+
+## Korrektur 05.11.2026: Tageskontext gilt 24 Stunden, nicht 75 Minuten
+
+Befund aus dem Doublebet-Audit vom 5.11. (`output/check-20261104/doublebet_why.log`): Um 09:02 war AZ Alkmaar – Juventus
+gewählt, um 10:27 gab es keine Doublebet-Auswahl mehr. Der App-Lader markiert einen Fussball-Kontext 75 Minuten nach
+der Prüfung als veraltet (`context_stale`, `FOOTBALL_CONTEXT_MAX_AGE`). `football_context_highlight_reason` verwarf
+dann jede Auswahl, obwohl Doublebet für automatische Tagesprognosen eine Lebensdauer von 24 Stunden übergibt
+(`DAILY_MODEL_HIGHLIGHT_MAX_AGE`) und jede einzelne Prüfung innerhalb dieser Zeit lag. Die Kontextprüfung läuft nur im
+Tageslauf (03:35); Fussball-Auswahlen waren deshalb ab etwa 05:30 verschwunden, tagsüber blieben nur Tennis und E-Sport.
+
+Owner-Entscheid „Ja, beheben“: Bei einer Tageslebensdauer prüft die Kontextregel die Uhrzeit jeder einzelnen Prüfung
+gegen diese Lebensdauer und ignoriert das 75-Minuten-Flag. Widersprüchliche Prüfungen blockieren weiter, ebenso
+gesperrte Aufstellungen und Vetos. Aufrufer mit dem 75-Minuten-Fenster (Top-Hervorhebung im Wettfinder, RisikoBet)
+bleiben unverändert. Test: `test_daily_choice_survives_the_75_minute_stale_flag_but_top_window_does_not`.

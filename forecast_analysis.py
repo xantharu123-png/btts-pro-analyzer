@@ -554,7 +554,11 @@ def football_context_highlight_reason(context, *, now, max_age=_CONTEXT_MAX_AGE)
     if _mapping(_mapping(context).get('lineups')).get('status') == 'blocked':
         return 'Spielinformationen sprechen gegen die Auswahl'
     context = _context_projection(_mapping(context), include_names=False)
-    if context.get('stale') is True or context.get('conflicting') is True:
+    # The stale flag marks a context older than the 75-minute TOP window. A daily
+    # automatic selection (max_age of a day, owner 05.11.2026) judges each check's own
+    # clock against that lifetime instead; a conflicting check always vetoes.
+    stale_veto = context.get('stale') is True and max_age <= _CONTEXT_MAX_AGE
+    if stale_veto or context.get('conflicting') is True:
         return 'Spielinformationen nicht aktuell belegt'
     for axis, statuses in (
         ('h2h', ('passed', 'neutral')),
