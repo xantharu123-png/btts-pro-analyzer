@@ -24,6 +24,9 @@ _FIXTURE = {
     "challenge_neutral_venue": _SCALAR,
     "challenge_venue_unknown": _SCALAR,
     "challenge_senior_national_team": _SCALAR,
+    # UEFA league strength of the home-league transfer path (football_league_strength).
+    "challenge_league_strength": {key: _SCALAR for key in ("version", "home_league_id", "away_league_id",
+                                                            "home_factor", "away_factor")},
 }
 # The last five fields exist only for a non-legacy rate basis (coherent hybrid):
 # legacy captures stay byte-identical because absent keys are never written.
