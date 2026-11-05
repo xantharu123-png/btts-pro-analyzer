@@ -1,5 +1,32 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 05.11.2026 07:55 – Release 20261105-1 live: Folgetag listet auch einen Teilscan (PR #86)
+
+Status 5.11. 07:20 (nur lesend, `output/check-20261104/status-0511.log`, `why_0511.log`, `why2_0511.log`):
+
+- Betrieb grün: Tageslauf 03:35–04:17 (42 Minuten), Tennis-Nachtlauf Exit 0, Shadow und Quotenläufe ohne Fehler.
+- Der Folgetag war `degraded` und brachte 0 Morgen-Spiele, obwohl heute nur 19 Fussballspiele gelistet sind. Ursache:
+  ein einziger `ReadTimeout` (Stats Fixture 1551366) bei 539 Abrufen im Folgetag-Scan. `_football_next_day` verwarf
+  bei jedem Betriebsfehler den ganzen Tag, strenger als der Spieltag.
+- Alarm vom 4.11. 15:15 (Quotenlauf Exit 1): ebenfalls ein einzelner `ReadTimeout` (Quote für Fixture 1636219); alle
+  Quotenläufe danach erfolgreich.
+- Ergebnisse 4.11.: Wettfinder 12 gewonnen, 18 verloren, 25 noch offen; Doublebet Humbert verloren. Heute keine
+  Doublebet- und keine 15K-Auswahl.
+
+Owner-Entscheide „Ja, anpassen“ und „Ja, beides“: Wie der Spieltag behält der Folgetag bei einem Teilscan alle Spiele
+mit vollständigem Modell und geprüftem Kontext (Status `listed_partial`, `partial_operational_errors`). Verworfen wird
+er nur noch ohne Kontextbuchhaltung oder bei Abbruch (`docs/audits/2026-11-02-wettfinder-folgetag.md`, Ergänzung).
+
+PR #86 gemergt und um 07:55 CET als **`022eaaa`** per No-Backup-Fast-forward von `88e28dc` ausgerollt:
+
+- Helfer `output/release-20261105-1/deploy.sh`, abgeleitet vom Helfer 20261103-5, 6 Pfade inklusive Protokoll-PR #85.
+- Offline-Prüfung lokal und auf dem Server ok.
+- Nur die App wurde neu gestartet (PID 1469227→1489810). Healthchecks ok, Snapshots unverändert, kein Backup,
+  Einheiten unverändert.
+- Prüfung 08:02 (`verify-01.log`): Shadow-Lauf Exit 0, der Lader nimmt das Dokument an, Seite 200.
+
+Wirksam ab dem nächsten Tageslauf.
+
 ## 03.11.2026 14:52 – Release 20261103-5 live: Doublebet statt 3 a day, Quote um 2,00 (PR #84)
 
 Owner-Entscheide „um 2.00 … Doublebet“ und „Ja, alles“ (`docs/audits/2026-11-03-doublebet.md`): Die Tagesauswahl
