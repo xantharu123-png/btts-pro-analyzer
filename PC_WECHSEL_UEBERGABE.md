@@ -1,5 +1,49 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## 05.11.2026 21:15 – Release 20261105-5 live: Tennis-Tipps erst ab 60 % Modellchance (PR #95)
+
+Anlass: Owner-Frage „heute hatten wir viele Tennisspiele, die falsch waren, was ist los“ und Auftrag „alles machen“,
+danach „Ja, mergen + live“.
+
+Befund vom 4.11.: 3 von 11 Tennis-Tipps richtig, alle aus dem Paris Masters.
+- Ergebnisse und getippte Seite stimmen. Die Paarungen der Folgerunde bestätigen sie, und die Tour-Modelle waren frisch
+  gebaut.
+- Die Buchmacher-Favoriten verloren genauso oft: 52,5 % Treffer statt rund 62 % erwartet (n=59).
+- Das Modell `elo-serve-platt-v3` hat unter 60 % keinen Vorsprung vor einem Münzwurf:
+  - Hypothese August/September: 49,8 % Treffer (n=640).
+  - Getrennte Prüfung ab Oktober: 50,9 % (n=511), auf ATP und WTA gleich.
+  - Ab 60 % trifft es wie versprochen: 69,3 % bzw. 67,9 %.
+- Wettfinder-Tipps seit 05.10.: unter 60 % 44 von 95 richtig, ab 60 % 55 von 82.
+- Eine Kalibrierung je Tour bringt nichts (Log-Loss −0,0002, SE 0,0013).
+- Bericht: `docs/audits/2026-11-05-tennis-tipps-ab-60.md`.
+
+Plan-Schritt 2 (Kalibriergesetz v2) wurde auf 30 lokalen Ligen geprüft und verworfen.
+- Grundlage: 3039 Spiele.
+- Brier +0,00060 (SE 0,00014), Markt-Log-Loss +0,00150 (SE 0,00033), schlechter in 24–26 von 30 Ligen.
+- v1 ist in jedem Band schon auf unter 1 Punkt kalibriert.
+- Bericht: `docs/audits/2026-11-05-kalibrierung-schritt-2.md`.
+
+Plan-PR #92 und PR #95 sind gemergt. Um 21:15 CET ging **`6cbdb4d`** per No-Backup-Fast-forward von `45ab325` live:
+- Helfer `output/release-20261105-5/deploy.sh`, abgeleitet vom Helfer 20261105-4.
+- 9 Pfade inklusive Protokoll-PR #94 und Plan-PR #92.
+- Zusätzliche Zusicherungen für die Grenze in `tennis_model_signals` und ihr Fehlen in `tennis_signals`.
+- Offline-Prüfung lokal auf `6cbdb4d` und auf dem Server ok. Start erst nach dem Quotenlauf um 21:15
+  (`after_quotes.sh`).
+- Nur die App wurde neu gestartet (PID 1501934→1506090). Kein Backup, Einheiten und Snapshots unverändert.
+- Prüfung 21:22 (`verify-01.log`): Shadow-Lauf Exit 0, Seite 200, kein neuer Alarm. Unter dem neuen Code gibt es
+  keine Tennis-Signale unter 60 %. Für den 6.11. gibt es noch keine Tennis-Prognosen; der Tennis-Lauf um 00:05
+  erzeugt sie.
+
+Wirkung: Ab dem Wettfinder-Tageslauf am 06.11. um 03:35. Der reine Quotenlauf baut keine Tennis-Kandidaten neu.
+Am 5.11. wären von 7 Tipps Paul, Musetti und Shelton geblieben.
+
+Offen:
+- Trefferquote der Tennis-Tipps ab Release messen. Erwartet sind rund 68 % bei 67 % versprochen.
+- Plan-Schritt 3 (Ausfälle und Aufstellung als Zahl) als nächstes Paket.
+- Schritt 4 wartet auf den Shadow-Prüfplan.
+- Schritt 5 (Open-Meteo) braucht ein Owner-OK.
+- Schritt 6 (Marktmischung) widerspricht „Modell vor Preis“ und braucht einen ausdrücklichen Regelentscheid.
+
 ## 05.11.2026 18:03 – Release 20261105-4 live: Ligastärke im Europapokal-Heimatliga-Transfermodell (PR #93)
 
 Anlass: Plan „bessere Prognosen“ (`docs/superpowers/plans/2026-11-05-bessere-prognosen.md`, PR #92), Schritt 1,

@@ -95,6 +95,12 @@ Code, dann `PROJECT_HANDBUCH.md`, dann die Bibel. Historische Logs: `TODO_AKTUEL
   der Spieltag weniger als 30 Fussballspiele mit Auswahl (`NEXT_DAY_MIN_GAMES`), listet der Tageslauf auch den
   nächsten Tag (`football_next_day`, `next_day_search_date`). Nur Modellauswahlen in der Wettfinder-Liste, nie Tipp,
   15K, Daily3, Shadow, Evidenz oder Archiv. Ein Fehler dort lässt heute unverändert.
+- **Tennis-Tipps ab 60 % seit 05.11.2026** (`docs/audits/2026-11-05-tennis-tipps-ab-60.md`, Owner „alles machen“,
+  „Ja, mergen + live“): Ein Tennis-Siegertipp entsteht erst ab 60 % Modellchance (`TENNIS_WINNER_MIN_PROBABILITY`
+  in `ev_signal_sources.tennis_model_signals`). Darunter traf das Modell wie ein Münzwurf: 49,8 % in der Hypothese
+  August/September, 50,9 % in der getrennten Prüfung ab Oktober. Prognosen, Shadow, RisikoBet und der preisgebundene
+  Pfad `tennis_signals` bleiben unverändert. Die Grenze wirkt ab dem Wettfinder-Tageslauf, nicht im reinen Quotenlauf.
+  Kalibriergesetz v2 (Plan-Schritt 2) bleibt verworfen (`docs/audits/2026-11-05-kalibrierung-schritt-2.md`).
 - **Betrieb seit 25.10.2026 abends** (`docs/audits/2026-10-25-betrieb-massnahme-3.md`): Die
   Timer `wettfinder/tennis/esports/quotes` holen verpasste Läufe nach; die sechs Kerneinheiten
   alarmieren über `betboy-alert@%n.service` (Helfer `scripts/betboy_alert.py`, Vorlage unter
