@@ -1,5 +1,35 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## 05.11.2026 18:03 – Release 20261105-4 live: Ligastärke im Europapokal-Heimatliga-Transfermodell (PR #93)
+
+Anlass: Plan „bessere Prognosen“ (`docs/superpowers/plans/2026-11-05-bessere-prognosen.md`, PR #92), Schritt 1,
+Owner „Ja, starten“. Bei Europapokal-Spielen ohne genug Wettbewerbsspiele rechnete das Modell die Heimatliga-Tore
+beider Teams 1:1 gegeneinander. Vorher Sicherungspunkt-Tag `modell-sicherung-2026-11-05` auf `03ce254`.
+
+Daten: 1091 gespeicherte UEFA-Ergebnisse, nur gelesen. Owner-OK „Ja, ~90 Abrufe“ → genau 88 API-Football-Abrufe
+(Heimatligen 2024–2026, Hintergrund-Budget, keine Fehler; Daten in `output/ligastaerke-20261105/data/`). 751 Spiele
+mit der unveränderten Live-Rechnung nachgerechnet, Faktor je Heimatliga (Poisson-Offset, Ridge 0,3,
+Halbwertszeit 365 Tage, `scripts/uefa_league_strength_fit.py`). Walk-forward 551 Spiele: 1X2-Log-Loss
+1,031 → 0,939, Tor-Log-Likelihood +0,136 je Spiel (SE 0,033), kein Kalibrierungsband schlechter
+(`docs/audits/2026-11-05-ligastaerke-europapokal.md`). Liga ohne Wert → kein geprüftes Transfermodell (gesperrt);
+am 5.11. wären das 2 von 18 Spielen gewesen (Lugano–Kauno Žalgiris, Riga–Jablonec).
+
+PR #93 gemergt und um 18:03 CET als **`45ab325`** per No-Backup-Fast-forward von `03ce254` ausgerollt:
+
+- Helfer `output/release-20261105-4/deploy.sh`, abgeleitet vom Helfer 20261105-3, 10 Pfade inklusive Protokoll-PR #91,
+  zusätzliche Zusicherungen für Tabelle, Annotation, Sperre und ORIGINAL-Feld.
+- Offline-Prüfung lokal und auf dem Server ok.
+- Nur die App wurde neu gestartet (PID 1497027→1501934). Healthchecks ok, Snapshots unverändert, kein Backup,
+  Einheiten unverändert.
+- Prüfung 18:12 (`verify-01.log`): Shadow-Lauf Exit 0, Lader ok (382 Prognosen), Seite 200, kein neuer Alarm.
+  Das Tagesdokument von 07:54 trägt noch keine Ligastärke (0/18 Europapokal-Spiele). Doublebet bleibt heute
+  AZ Alkmaar – Juventus „Juventus unter 1,5 Tore“ 64,8 % aus dem Morgenlauf; mit Ligastärke läge die rohe
+  Modellchance bei rund 56 % (Juventus-Torerwartung 1,26 × 1,19).
+
+Offen: Wirkung erst ab dem nächsten Europapokal-Spieltag messbar: Abstand Modell–Markt im Tagesdokument
+(`output/check-20261104/scope_gap.py`, vorher 14,7 Punkte), danach Trefferquote und Brier gegen die Basiswerte.
+Rückweg bei Verschlechterung: Release auf `modell-sicherung-2026-11-05`.
+
 ## 05.11.2026 13:22 – Release 20261105-3 live: Wettfinder mit Schieberegler „Mindest-Modellchance“ (PR #90)
 
 Anlass: Im Wettfinder stand „Bayer Leverkusen über 2,5 Teamtore“ mit 29,2 % Modellchance. Der Wettfinder hatte keine
