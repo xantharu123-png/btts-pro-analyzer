@@ -97,6 +97,7 @@ from ui_components import (
 from football_data_history import fetch_history as fetch_stat_history
 from football_data_history import _normalized_team_name, _pseudo_team_id
 from football_data_history import merge_api_tail
+from football_league_strength import league_strength_annotation
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES, LEAGUE_BY_ID
 from market_consensus import (
     quote_below_publication_floor,
@@ -2744,9 +2745,28 @@ def scan_daily_challenge(
         fixture["fixture"]["id"]: fixture
         for fixture in fixtures
     }
+    # UEFA league strength (plan 2026-11-05, step 1). The annotation lives on
+    # the fixture itself, so every later model call, the ORIGINAL capture and
+    # the shadow see the same adjusted rates. Without an estimate for both
+    # source leagues the game keeps no validated transfer model.
+    league_strength_missing: set[int] = set()
+    for fixture in fixtures:
+        fixture.pop("challenge_league_strength", None)  # never reuse a stale annotation
+    for fixture_id, profiles in fixture_domestic_profiles.items():
+        annotation = (
+            league_strength_annotation(profiles[0][0], profiles[1][0])
+            if len(profiles) == 2
+            else None
+        )
+        if annotation is None:
+            league_strength_missing.add(fixture_id)
+        else:
+            fixture_by_id[fixture_id]["challenge_league_strength"] = annotation
     transfer_probe = _transfer_probe_validation_map()
     validation_target_fixture_ids: set[int] = set()
     for fixture_id, team_history in fixture_team_histories.items():
+        if fixture_id in league_strength_missing:
+            continue
         fixture = fixture_by_id[fixture_id]
         competition = fixture_competitions.get(fixture_id)
         probe_candidates = build_fixture_candidates(
@@ -2829,6 +2849,7 @@ def scan_daily_challenge(
         fixture_id
         for fixture_id, profiles in fixture_domestic_profiles.items()
         if fixture_id in fixture_team_histories
+        and fixture_id not in league_strength_missing
         and len(profiles) == 2
         and all(
             bool(domestic_validations.get(profile))
@@ -2905,10 +2926,18 @@ def scan_daily_challenge(
             if recent is not None:
                 football_recent_results[str(fixture_id)] = recent
         if fixture_id in fixture_team_histories:
+            strength = fixture.get("challenge_league_strength")
             for candidate in fixture_candidates:
                 candidate.reasons.append(
                     "Teamform und Heim/Auswärts-Stichprobe aus den jeweiligen Heimatligen"
                 )
+                if isinstance(strength, dict):
+                    candidate.reasons.append(
+                        "Ligastärke aus Europapokal-Duellen eingerechnet: Torerwartung Heim ×"
+                        + f"{strength['home_factor']:.2f}".replace(".", ",")
+                        + ", Gast ×"
+                        + f"{strength['away_factor']:.2f}".replace(".", ",")
+                    )
         all_candidates.extend(fixture_candidates)
         if progress_cb and (
             (fixture_index + 1) % progress_stride == 0
@@ -3170,6 +3199,7 @@ def scan_daily_challenge(
         "continental_fixtures_found": len(continental_fixture_ids),
         "continental_fallback_modeled": len(fixture_team_histories),
         "continental_fallback_failed": len(fallback_failed),
+        "continental_league_strength_missing": len(league_strength_missing),
         "continental_validation_fixtures": len(validation_target_fixture_ids),
         "continental_provisional_scope_fixtures": len(
             {

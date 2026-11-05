@@ -1397,6 +1397,24 @@ def _fixture_model(
     xg_coverage = min(
         cov_hs, cov_hc, cov_as, cov_ac, cov_fha, cov_fad, cov_faa, cov_fhd
     )
+    # UEFA league strength (plan 2026-11-05, step 1): only the home-league
+    # transfer path annotates its fixtures. A malformed or foreign annotation
+    # fails closed instead of silently falling back to the unadjusted rates.
+    league_strength = fixture.get("challenge_league_strength")
+    if league_strength is not None:
+        from football_league_strength import league_strength_factors
+        factors = league_strength_factors(league_strength)
+        if factors is None:
+            return None
+        home_factor, away_factor = factors
+        season_home, form_home, active_home = (
+            value * home_factor for value in (season_home, form_home, active_home)
+        )
+        season_away, form_away, active_away = (
+            value * away_factor for value in (season_away, form_away, active_away)
+        )
+        if max(season_home, form_home, active_home, season_away, form_away, active_away) > 8.0:
+            return None
     goal_model_info = None
     dixon_coles_fit = None
     if goal_model != GOAL_MODEL_LEGACY:
@@ -1445,7 +1463,15 @@ def _fixture_model(
     }
     if goal_model_info is not None:
         model.update(goal_model_info)
-    if include_provenance:
+    if league_strength is not None:
+        model["league_strength"] = dict(league_strength)
+    if include_provenance and league_strength is not None:
+        # The reference recipe describes unadjusted rates; it must not sign
+        # league-strength-adjusted ones.
+        model.update(history_refs=[], reference_weights={
+            "schema": 1, "kind": "unavailable", "reason": "football-league-strength-not-modeled",
+        })
+    elif include_provenance:
         from context_models.contracts import ContextContractError, ContextIntegrityError
         try:
             model.update(_football_reference_provenance(
