@@ -4753,6 +4753,23 @@ def _render_wettfinder_games(catalog, row_by_key, *, sport_filter: str, sort_mod
                 _render_wettfinder_game(group, row_by_key, featured_keys, index < 3)
 
 
+WETTFINDER_MIN_CHANCE_DEFAULT = 50
+
+
+def _wettfinder_min_chance_control() -> int:
+    """Viewer-chosen minimum model chance in percent (owner 05.11.2026)."""
+    with st.container(key='wettfinder_v2_min_chance'):
+        value = st.slider(
+            'Mindest-Modellchance (%)', 0, 95, WETTFINDER_MIN_CHANCE_DEFAULT, step=5,
+            key='wettfinder_min_chance',
+            help='Zeigt nur Auswahlen, die laut Modell mindestens so wahrscheinlich eintreffen. '
+                 'Gilt für die Spiele und die Tennisbox; Doublebet hat eine eigene Regel.',
+        )
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 95:
+        return WETTFINDER_MIN_CHANCE_DEFAULT
+    return value
+
+
 def _render_automated_daily_selection() -> None:
     evaluation_now = datetime.now(timezone.utc)
     snapshot = automated_wettfinder_snapshot(now=evaluation_now)
@@ -4776,8 +4793,7 @@ def _render_automated_daily_selection() -> None:
     from daily3_selection import daily3_choices
     daily3_allowed = _daily3_rail_allowed()
     choices = daily3_choices(snapshot.forecasts, now=evaluation_now) if daily3_allowed else ()
-    tennis_catalog = compose_wettfinder_catalog((card for _signal, card in rows), sport_filter='Tennis')
-    tennis_cards = tennis_catalog.featured + tennis_catalog.additional
+    cards = [card for _signal, card in rows]
     with st.container(key='editorial_auto_layout'):
         main_column, rail = st.columns([2.45, 1], gap='large')
         with main_column:
@@ -4790,10 +4806,17 @@ def _render_automated_daily_selection() -> None:
             with st.container(key='wettfinder_v2_sports'):
                 sport_filter = _segmented('Sportart', list(FINDER_SPORT_OPTIONS),
                     'wettfinder_automatic_sport_v2', 'Alle')
+            min_chance = _wettfinder_min_chance_control()
             sort_mode = display_order_control(st, key='wettfinder_automatic_order')
-            catalog = compose_wettfinder_catalog((card for _signal, card in rows), sport_filter=sport_filter)
+            # The viewer's minimum chance only narrows the view; the record keeps
+            # the unfiltered catalog so evaluations do not depend on a slider.
+            full_catalog = compose_wettfinder_catalog(cards, sport_filter=sport_filter)
+            catalog = (full_catalog if min_chance == 0 else
+                       compose_wettfinder_catalog(cards, sport_filter=sport_filter, min_probability=min_chance / 100))
             if not catalog.featured and not catalog.additional:
                 message = ('Aktuell ist noch kein automatisches Ergebnis verfügbar.' if status is None else
+                    f'Keine Auswahl ab {min_chance} % Modellchance. Regler nach links schieben, um mehr zu sehen.'
+                    if full_catalog.featured or full_catalog.additional else
                     'Für diesen Spieltag gibt es aktuell keine passende Auswahl.' if sport_filter == 'Alle' else
                     f'Für {sport_filter} gibt es aktuell keine passende Auswahl.')
                 st.info(message)
@@ -4802,13 +4825,15 @@ def _render_automated_daily_selection() -> None:
                                         sport_filter=sport_filter, sort_mode=sort_mode)
             if status is not None:
                 from tip_publication import record_signal_catalog
-                selected_order = [card.key for card in (*catalog.featured, *catalog.additional)]
+                selected_order = [card.key for card in (*full_catalog.featured, *full_catalog.additional)]
                 selected_signals = {card.key: signal for signal, card in rows}
                 record_signal_catalog("wettfinder_automatic",
                     (selected_signals[key] for key in selected_order),
                     as_of=evaluation_now,
-                    featured_keys=(card.key for card in catalog.featured),
+                    featured_keys=(card.key for card in full_catalog.featured),
                     source_run_id=status.generated_at.isoformat())
+            tennis_catalog = compose_wettfinder_catalog(cards, sport_filter='Tennis', min_probability=min_chance / 100)
+            tennis_cards = tennis_catalog.featured + tennis_catalog.additional
         with rail:
             ordered_tennis = ordered_event_rows(tennis_cards, mode=sort_mode,
                 event_key=lambda card: (card.sport, card.fixture_source, card.provider_event_id or card.fixture_id)
