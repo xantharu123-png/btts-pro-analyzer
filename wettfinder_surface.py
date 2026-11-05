@@ -653,13 +653,16 @@ def compose_wettfinder_catalog(
     *,
     sport_filter: str = "Alle",
     max_featured: int = 3,
+    min_probability: float = 0.0,
 ) -> WettfinderCatalog:
     """Compose coherent selections, then apply the known-offer minimum.
 
     Shared canonical coherence precedes every sport/section/page filter.
     Highlight qualification is retained from the common card-build clock;
     Unknown prices remain in the model pool, not public tips. No price can
-    select another direction.
+    select another direction. ``min_probability`` is the viewer's minimum
+    model chance (owner 05.11.2026); like the sport filter it only narrows
+    the view after coherence and compares the shown, rounded percentage.
     """
 
     if (
@@ -668,6 +671,13 @@ def compose_wettfinder_catalog(
         or max_featured < 1
     ):
         raise ValueError("max_featured must be a positive integer")
+    if (
+        isinstance(min_probability, bool)
+        or not isinstance(min_probability, (int, float))
+        or not math.isfinite(min_probability)
+        or not 0 <= min_probability <= 1
+    ):
+        raise ValueError("min_probability must be a fraction between 0 and 1")
     coherent = select_consumer_forecasts(cards)
     # Owner decision 23.10.2026: the lead of a game is its most probable shown
     # selection within one model revision; pools without a comparable
@@ -681,6 +691,8 @@ def compose_wettfinder_catalog(
         ordered = _round_robin_by_sport(original)
     else:
         ordered = [card for card in original if _token(card.sport) == requested]
+    if min_probability > 0:
+        ordered = [card for card in ordered if meets_min_probability(card, min_probability)]
     featured = _select_featured(
         (card for card in ordered if _fixture_identity(card) not in ranked_events or card.key in lead_keys),
         max_featured=max_featured,
@@ -690,6 +702,15 @@ def compose_wettfinder_catalog(
     groups = _group_additional(remaining)
     additional = tuple(card for group in groups for card in group.cards)
     return WettfinderCatalog(featured, additional, groups, event_leads)
+
+
+def meets_min_probability(card: WettfinderCard, min_probability: float) -> bool:
+    """Compare the percentage the card shows (one decimal), never an unknown chance."""
+    value = card.model_probability
+    if (isinstance(value, bool) or not isinstance(value, (int, float))
+            or not math.isfinite(value) or not 0 <= value <= 1):
+        return False
+    return round(value * 100, 1) >= round(min_probability * 100, 1)
 
 
 def group_wettfinder_games(catalog: WettfinderCatalog) -> tuple[WettfinderFixtureGroup, ...]:
