@@ -23,6 +23,11 @@ sicher: Weltweit finden an diesen Tagen wenige gute Spiele statt.
   Spieltag, sonst würden sie doppelt gezählt.
 - Schlägt der Folgetag fehl, fällt nur er weg. Status und Fehlerzähler von heute bleiben unverändert. Öffentlich
   steht nur die Fehlerart, nie der Fehlertext.
+- Ergänzung 05.11.2026 (Owner „Ja, anpassen“): Einzelne Abruffehler im Folgetag-Scan (Teilscan) lassen ihn wie den
+  Spieltag bestehen. Gelistet werden die Spiele mit vollständigem Modell und geprüftem Kontext, Status
+  `listed_partial` mit `partial_operational_errors`. Anlass: Am 5.11. verwarf ein einziger Timeout (1 von 539
+  Abrufen) den ganzen Folgetag. Verworfen wird er nur noch, wenn die Kontextbuchhaltung fehlt oder der Scan
+  abbricht.
 - Der App-Lader nimmt Morgen-Zeilen nur an, wenn alles davon zutrifft:
   - das Dokument nennt genau den nächsten Tag;
   - der Zustand des Folgetags trägt dasselbe Datum;

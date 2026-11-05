@@ -2568,8 +2568,10 @@ def _football_next_day(
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Discover and check the next Zurich day on its own state (Folgetag, 02.11.2026).
 
-    Without a new daily discovery the persisted next-day state is reused. Any
-    failure drops the next day only; the match day keeps its own status.
+    Without a new daily discovery the persisted next-day state is reused. A
+    failure drops the next day only; the match day keeps its own status. Like
+    the match day, a partial scan (single provider errors) keeps every fixture
+    whose own model and context record are complete (owner 05.11.2026).
     """
     summary: dict[str, Any] = {"search_date": search_date.isoformat()}
     state = (
@@ -2608,12 +2610,11 @@ def _football_next_day(
         # Provider messages can carry request details; the public summary keeps the type only.
         return {}, {**summary, "status": "failed", "failure_type": type(exc).__name__}
     summary["context_fixture_count"] = len(context_fixture_ids)
-    if (
-        state.get("status") != "completed"
-        or int(state.get("operational_error_count") or 0) != 0
-        or _validated_football_context_statuses(state) is None
-    ):
+    if _validated_football_context_statuses(state) is None:
         return {}, {**summary, "status": "degraded"}
+    partial_errors = int(state.get("operational_error_count") or 0)
+    if state.get("status") != "completed" or partial_errors:
+        return state, {**summary, "status": "scanned_partial", "partial_operational_errors": partial_errors}
     return state, {**summary, "status": "scanned"}
 
 
@@ -4866,7 +4867,9 @@ def run_wettfinder(
                 document["price_check_attempts"][key] = (
                     current.isoformat() if key in checked_next_day_keys else prior_price_checks.get(key)
                 )
-        next_day_summary["status"] = "listed"
+        next_day_summary["status"] = (
+            "listed_partial" if next_day_summary.get("status") == "scanned_partial" else "listed"
+        )
     next_day_summary.update(
         candidate_count=len(next_day_ledger),
         games=len({row.get("fixture_id") for row in next_day_ledger}),
