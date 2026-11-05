@@ -773,6 +773,31 @@ class TennisSignalTests(unittest.TestCase):
             [],
         )
 
+    def test_model_signal_starts_at_sixty_percent_for_either_side(self):
+        """Owner 05.11.2026: below 60 % the tennis winner pick hit like a coin flip."""
+        import json
+
+        from ev_signal_sources import TENNIS_WINNER_MIN_PROBABILITY
+
+        self.assertEqual(TENNIS_WINNER_MIN_PROBABILITY, 0.60)
+        rows = [("2099-01-01", "ATP", "T", f"A{i}", f"B{i}", p_a, 0)
+                for i, p_a in enumerate((0.5999, 0.60, 0.4001, 0.40, 0.55, 0.45, 0.71))]
+        db = _tennis_db(rows, self.tmp)
+        connection = sqlite3.connect(db)
+        try:
+            connection.execute(
+                "UPDATE predictions SET gates_json=?, model_version=?",
+                (json.dumps({"Belag": {"passed": True}}), TENNIS_MODEL_VERSION),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        signals = tennis_model_signals(db_path=db, today="2099-01-01")
+
+        self.assertEqual(sorted(signal.selection for signal in signals), ["Sieg A1", "Sieg A6", "Sieg B3"])
+        self.assertTrue(all(signal.probability >= 0.60 for signal in signals))
+
 
 class EsportsSignalTests(unittest.TestCase):
     def setUp(self):

@@ -40,6 +40,11 @@ from tennis.context_consumer import load_tennis_winner_context
 from tennis.shadow import TENNIS_MODEL_VERSION, TENNIS_POLICY_VERSION, latest_predictions
 
 TENNIS_DB = Path(__file__).resolve().parent / "tennis" / "data" / "tennis_shadow.db"
+# Owner question 05.11.2026 (docs/audits/2026-11-05-tennis-tipps-ab-60.md): below a 60 % winner
+# chance the tennis pick hit like a coin flip, in the hypothesis months August/September and again
+# in the separate test period October/November, on both tours; from 60 % it hit as promised.
+# A tennis winner tip is therefore published only from this chance on; forecasts stay unchanged.
+TENNIS_WINNER_MIN_PROBABILITY = 0.60
 ESPORTS_DB = Path(__file__).resolve().parent / "esports_shadow.db"
 AUTOMATED_WETTFINDER_PATH = (
     Path(__file__).resolve().parent
@@ -491,6 +496,8 @@ def tennis_model_signals(
         player = row["player_a"] if side == "A" else row["player_b"]
         probability = (shared["probabilities"][side] if shared is not None
                        else p_a if side == "A" else 1.0 - p_a)
+        if probability < TENNIS_WINNER_MIN_PROBABILITY:
+            continue
         minimum_odds = _minimum_odds(
             probability,
             WINNER_PROBABILITY_HAIRCUT,
