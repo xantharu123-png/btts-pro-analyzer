@@ -1,5 +1,28 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 05.11.2026 13:22 – Release 20261105-3 live: Wettfinder mit Schieberegler „Mindest-Modellchance“ (PR #90)
+
+Anlass: Im Wettfinder stand „Bayer Leverkusen über 2,5 Teamtore“ mit 29,2 % Modellchance. Der Wettfinder hatte keine
+Untergrenze für die Modellwahrscheinlichkeit; am 5.11. lagen 103 von 391 Prognosen unter 50 %
+(`output/check-20261104/leverkusen_why*.log`, `prob_floor_games.log`). Offener Verdacht: Der Quoten-Median 1,91 für
+Leverkusens Teamtore über 2,5 passt eher zu den Gesamttoren des Spiels; die Prüfung der Zuordnung ist noch nicht
+gelaufen (Sitzung startete nicht, Git-Fehler im neuen Worktree).
+
+Owner-Entscheid „ich möchte den filter selber wählen können … schiebe regel“: Regler oben unter den Sportarten,
+0–95 %, Schritte zu 5 %, Startwert 50 %. Er gilt für die Spiele und die Tennisbox; Doublebet und das Tipp-Protokoll
+bleiben ungefiltert (`docs/audits/2026-11-05-wettfinder-mindestchance.md`).
+
+PR #90 gemergt und um 13:22 CET als **`03ce254`** per No-Backup-Fast-forward von `b9cedc4` ausgerollt:
+
+- Helfer `output/release-20261105-3/deploy.sh`, abgeleitet vom Helfer 20261105-2, 7 Pfade inklusive Protokoll-PR #89.
+- Offline-Prüfung lokal und auf dem Server ok.
+- Nur die App wurde neu gestartet (PID 1494146→1497027). Healthchecks ok, Snapshots unverändert, kein Backup,
+  Einheiten unverändert.
+- Prüfung 13:32 (`verify-01.log`): Shadow-Lauf Exit 0, Lader ok (387 Prognosen), Doublebet weiter AZ Alkmaar –
+  Juventus, Seite 200, kein neuer Alarm. Live-Zählung: ohne Grenze 72 Spiele mit 247 Auswahlen, ab 50 % 68 Spiele mit
+  163, ab 60 % 48 Spiele mit 93; keine angezeigte Auswahl unter der Grenze. Auf der Seite steht der Regler grün auf
+  50 % („1–20 von 68 Spielen“).
+
 ## 05.11.2026 11:58 – Release 20261105-2 live: Doublebet-Tageskontext gilt 24 Stunden (PR #88)
 
 Doublebet-Audit 5.11. (nur lesend, `output/check-20261104/doublebet_audit.log`, `doublebet_why.log`): Die Auswahl
