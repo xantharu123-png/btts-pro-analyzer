@@ -25,7 +25,11 @@ PR #86 gemergt und um 07:55 CET als **`022eaaa`** per No-Backup-Fast-forward von
   Einheiten unverändert.
 - Prüfung 08:02 (`verify-01.log`): Shadow-Lauf Exit 0, der Lader nimmt das Dokument an, Seite 200.
 
-Wirksam ab dem nächsten Tageslauf.
+Auf Owner-Wunsch („Ja, starten“) lief der Tageslauf danach manuell (08:16–09:01, Exit 0,
+`output/release-20261105-1/manual_run-01.log`). Der Folgetag war erneut nur ein Teilscan und wurde jetzt als
+`listed_partial` gelistet: 39 Fussballspiele für den 6.11. (266 Zeilen), dazu 19 von heute. Neu dabei sind die
+zweiten Ligen aus Frankreich, der Türkei, Österreich, Spanien und Italien, die 3. Liga und Bulgarien. Doublebet
+heute: AZ Alkmaar – Juventus, Juventus unter 1,5 Tore (65 %, Median 1,85). API: 1787 Abrufe, 5713 frei.
 
 ## 03.11.2026 14:52 – Release 20261103-5 live: Doublebet statt 3 a day, Quote um 2,00 (PR #84)
 
