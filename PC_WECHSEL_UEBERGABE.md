@@ -1,5 +1,27 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## 05.11.2026 11:58 – Release 20261105-2 live: Doublebet-Tageskontext gilt 24 Stunden (PR #88)
+
+Doublebet-Audit 5.11. (nur lesend, `output/check-20261104/doublebet_audit.log`, `doublebet_why.log`): Die Auswahl
+AZ Alkmaar – Juventus (Juventus unter 1,5 Tore, 65 %, Median 1,85) folgte der Regel v14. Um 10:27 war sie verschwunden,
+weil der App-Lader einen Fussball-Kontext 75 Minuten nach der Prüfung als veraltet markiert und
+`football_context_highlight_reason` dann jede Auswahl verwarf, obwohl Doublebet eine Tageslebensdauer von 24 Stunden
+übergibt. Fussball fiel so ab etwa 05:30 aus der Tagesauswahl. Statistik im Band (Pool-Archiv): Das Modell
+überschätzt bei grossen Abständen zum Markt (66 % vorhergesagt, 55 % beobachtet, n=67); keine Regeländerung.
+
+Owner-Entscheid „Ja, beheben“: Bei Tageslebensdauer prüft die Kontextregel die Uhrzeit jeder Prüfung gegen diese
+Lebensdauer; widersprüchliche Prüfungen blockieren weiter, das 75-Minuten-Fenster der Top-Hervorhebung bleibt
+(`docs/audits/2026-11-03-doublebet.md`, Korrektur 05.11.2026).
+
+PR #88 gemergt und um 11:58 CET als **`b9cedc4`** per No-Backup-Fast-forward von `022eaaa` ausgerollt:
+
+- Helfer `output/release-20261105-2/deploy.sh`, abgeleitet vom Helfer 20261105-1, 6 Pfade inklusive Protokoll-PR #87.
+- Offline-Prüfung lokal und auf dem Server ok.
+- Nur die App wurde neu gestartet (PID 1489810→1494146). Healthchecks ok, Snapshots unverändert, kein Backup,
+  Einheiten unverändert.
+- Prüfung 12:02 (`verify-01.log`): Shadow-Lauf Exit 0, der Lader nimmt das Dokument an (388 Prognosen), Doublebet
+  wählt wieder AZ Alkmaar – Juventus (Anpfiff 21:00), 15K heute leer, Seite 200, kein neuer Alarm.
+
 ## 05.11.2026 07:55 – Release 20261105-1 live: Folgetag listet auch einen Teilscan (PR #86)
 
 Status 5.11. 07:20 (nur lesend, `output/check-20261104/status-0511.log`, `why_0511.log`, `why2_0511.log`):
