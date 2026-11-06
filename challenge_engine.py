@@ -133,7 +133,11 @@ GOAL_MODEL_OPTIONS = {
     "dixon_coles_venue_hybrid": {"half_life_days": 365.0, "level_prior": False, "venue_specific": True,
                                  "hybrid_totals": True},
 }
-GOAL_MODELS = (GOAL_MODEL_LEGACY,) + tuple(GOAL_MODEL_OPTIONS)
+# Pre-registered form strength (docs/audits/2026-11-06-formstaerke-test.md): legacy rates times
+# exp(0.11 * form gap). Opt-in and unregistered, so its candidates are never released; it exists
+# for measurement on new games until the owner decides (football_form_strength.py).
+GOAL_MODEL_FORM_STRENGTH = "legacy_form_strength_v1"
+GOAL_MODELS = (GOAL_MODEL_LEGACY,) + tuple(GOAL_MODEL_OPTIONS) + (GOAL_MODEL_FORM_STRENGTH,)
 # Shadow candidate basis (plan docs/superpowers/plans/2026-10-22-hybrid-aktivierung.md):
 # the coherent hybrid carries its own prediction/contract pins, so caches,
 # candidates and ORIGINALs of the two bases never satisfy each other's contract.
@@ -1415,9 +1419,37 @@ def _fixture_model(
         )
         if max(season_home, form_home, active_home, season_away, form_away, active_away) > 8.0:
             return None
+    form_strength = None
+    if goal_model == GOAL_MODEL_FORM_STRENGTH:
+        # Tested on same-league games only; the home-league transfer path fails closed.
+        if team_history is not None or league_strength is not None:
+            return None
+        from football_form_strength import (
+            EXCLUDED_LEAGUE_IDS, form_strength_annotation, form_strength_factors, team_form,
+        )
+        league_id = fixture.get("league", {}).get("id")
+        if league_id in EXCLUDED_LEAGUE_IDS:
+            return None
+        forms = [team_form(history, team_id, league_id, kickoff,
+                           fixture_datetime=_fixture_datetime, fixture_score=_fixture_score)
+                 for team_id in (home_id, away_id)]
+        if forms[0] is not None and forms[1] is not None:
+            form_strength = form_strength_annotation(*forms)
+            factors = form_strength_factors(form_strength)
+            if factors is None:
+                return None
+            home_factor, away_factor = factors
+            season_home, form_home, active_home = (
+                value * home_factor for value in (season_home, form_home, active_home)
+            )
+            season_away, form_away, active_away = (
+                value * away_factor for value in (season_away, form_away, active_away)
+            )
+            if max(season_home, form_home, active_home, season_away, form_away, active_away) > 8.0:
+                return None
     goal_model_info = None
     dixon_coles_fit = None
-    if goal_model != GOAL_MODEL_LEGACY:
+    if goal_model in GOAL_MODEL_OPTIONS:
         from football_dixon_coles import DixonColesUnavailable, clamp_rho, fit_for_fixture, reweight_totals
         options = GOAL_MODEL_OPTIONS[goal_model]
         try:
@@ -1465,7 +1497,14 @@ def _fixture_model(
         model.update(goal_model_info)
     if league_strength is not None:
         model["league_strength"] = dict(league_strength)
-    if include_provenance and league_strength is not None:
+    if goal_model == GOAL_MODEL_FORM_STRENGTH:
+        model["form_strength"] = dict(form_strength) if form_strength is not None else None
+    if include_provenance and goal_model == GOAL_MODEL_FORM_STRENGTH:
+        # The reference recipe describes unadjusted legacy rates; it must not sign form-adjusted ones.
+        model.update(history_refs=[], reference_weights={
+            "schema": 1, "kind": "unavailable", "reason": "football-form-strength-not-modeled",
+        })
+    elif include_provenance and league_strength is not None:
         # The reference recipe describes unadjusted rates; it must not sign
         # league-strength-adjusted ones.
         model.update(history_refs=[], reference_weights={
