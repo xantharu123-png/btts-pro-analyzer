@@ -101,6 +101,11 @@ Code, dann `PROJECT_HANDBUCH.md`, dann die Bibel. Historische Logs: `TODO_AKTUEL
   August/September, 50,9 % in der getrennten Prüfung ab Oktober. Prognosen, Shadow, RisikoBet und der preisgebundene
   Pfad `tennis_signals` bleiben unverändert. Die Grenze wirkt ab dem Wettfinder-Tageslauf, nicht im reinen Quotenlauf.
   Kalibriergesetz v2 (Plan-Schritt 2) bleibt verworfen (`docs/audits/2026-11-05-kalibrierung-schritt-2.md`).
+- **Formstärke ausgeschaltet seit 06.11.2026** (`docs/audits/2026-11-06-formstaerke-test.md`,
+  `docs/audits/2026-11-06-formstaerke-umsetzung.md`, Owner „Ja, umsetzen“): `GOAL_MODEL_FORM_STRENGTH` (κ 0,11, Form der
+  letzten 10 Ligaspiele) ist ein unregistrierter Rechenweg. Kein Produktionsaufrufer wählt ihn, Legacy bleibt die Basis.
+  Gemessen wird nur lesend mit `scripts/form_strength_measurement.py` ab 06.11.2026. Aktivieren ist ein eigener
+  Owner-Schritt mit registrierter Version, Pins und Cache-Neuaufbau; κ wird nicht nachjustiert.
 - **Betrieb seit 25.10.2026 abends** (`docs/audits/2026-10-25-betrieb-massnahme-3.md`): Die
   Timer `wettfinder/tennis/esports/quotes` holen verpasste Läufe nach; die sechs Kerneinheiten
   alarmieren über `betboy-alert@%n.service` (Helfer `scripts/betboy_alert.py`, Vorlage unter

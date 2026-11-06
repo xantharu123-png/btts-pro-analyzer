@@ -1,5 +1,44 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 06.11.2026 10:38 – Release 20261106-1 live: Formstärke als ausgeschalteter Rechenweg mit Messskript (PR #99)
+
+Anlass: Owner „Ja, vorbereiten“, „Ja, umsetzen“, „Ja, mergen + live“.
+
+- Befund aus Plan-Schritt 3 (`docs/audits/2026-11-05-ausfaelle-ruhetage-schritt-3.md`, PR #97): Die rohe
+  Live-Torerwartung unterschätzt formstarke Teams.
+- Vorab festgelegter Test (`docs/audits/2026-11-06-formstaerke-test.md`, PR #98): κ fest 0,11, Form = Tordifferenz pro
+  Spiel der letzten 10 Ligaspiele. Geprüft über den unveränderten Walk-forward-Weg auf kalibrierten Tormärkten,
+  16 634 Spiele aus 31 Ligen vor dem 01.09.2026.
+  - Brier −0,00136 (SE 0,00017), Log-Loss −0,00334 (SE 0,00039).
+  - Besser in 30 von 31 Ligen.
+  - 1X2-Log-Loss 1,0291 → 1,0179.
+  - Alle vier Bedingungen erfüllt, damit Kandidat.
+
+Umsetzung (PR #99, `docs/audits/2026-11-06-formstaerke-umsetzung.md`):
+- `football_form_strength.py` und der Rechenweg `challenge_engine.GOAL_MODEL_FORM_STRENGTH`
+  (`legacy_form_strength_v1`).
+  - Kein Produktionsaufrufer wählt ihn, seine Analyse-Version wird nie freigegeben, Legacy bleibt byte-gleich.
+  - Fail-closed im Europapokal (2/3/848), auf dem Heimatliga-Weg und bei Länderspielen.
+- `scripts/form_strength_measurement.py` misst beide Wege nur lesend auf den Liga-Historien in `.shadow_cache`, ab
+  06.11.2026 und nach den vier Bedingungen.
+- Probelauf mit Spielen ab 01.10., nur als Funktionsnachweis: 60 Ligen, Brier −0,0015, besser in 39 von 60 Ligen.
+
+PR #98 und #99 sind gemergt. Um 10:38 CET ging **`c8f8b22`** per No-Backup-Fast-forward von `6cbdb4d` live:
+- Helfer `output/release-20261106-1/`, 11 Pfade inklusive der Protokoll-PRs #96/#97.
+- Zusicherungen: Version, κ, Ausschlussliste, Registrierung, Standard `legacy`.
+- Offline-Prüfung lokal auf `c8f8b22` und auf dem Server ok.
+- Nur die App wurde neu gestartet (PID 1506090→1520643). Kein Backup, Einheiten und Snapshots unverändert.
+- Die Skripte wurden ohne `sed` auf dem Server hochgeladen. Zeilenenden werden lokal normalisiert, danach werden die
+  Hashes verglichen. Bei Dateien mit LF kürzte `sed` über PowerShell Zeilen, die auf „r“ enden; die Release-Skripte
+  waren davon nicht betroffen.
+- Prüfung 10:42 (`verify-01.log`): Shadow-Lauf Exit 0, Seite 200, kein neuer Alarm, Standardbasis `legacy`,
+  Produktionsversion v14.
+
+Offen:
+- In rund drei Wochen (etwa 1000 neue Ligaspiele) das Messskript laufen lassen und dem Owner vorlegen.
+- Erst danach entscheidet der Owner über die Aktivierung. Dafür braucht es eine registrierte Version, Pins und einen
+  Cache-Neuaufbau.
+
 ## 05.11.2026 21:15 – Release 20261105-5 live: Tennis-Tipps erst ab 60 % Modellchance (PR #95)
 
 Anlass: Owner-Frage „heute hatten wir viele Tennisspiele, die falsch waren, was ist los“ und Auftrag „alles machen“,
