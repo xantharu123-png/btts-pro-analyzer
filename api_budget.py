@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import sqlite3
 import threading
+import time
 from typing import Any, Optional
 from urllib.parse import urlparse
 
@@ -590,6 +591,10 @@ def reset_api_budget_governor_cache() -> None:
         _GOVERNORS.clear()
 
 
+TIMEOUT_ATTEMPTS = 2
+TIMEOUT_RETRY_DELAY_SECONDS = 3.0
+
+
 def api_football_get(
     url: str,
     *,
@@ -602,19 +607,30 @@ def api_football_get(
     api_key = headers.get("x-apisports-key") if isinstance(headers, Mapping) else None
     endpoint = label or urlparse(str(url)).path.strip("/") or "unknown"
     governor = get_api_budget_governor()
-    reservation = governor.reserve(
-        api_key=str(api_key or ""),
-        endpoint=endpoint,
-        priority=priority,
-    )
-    try:
-        response = requests.get(url, **request_kwargs)
-    except Exception as exc:
-        governor.complete(
-            reservation,
-            error=type(exc).__name__,
+    # One retry after a connect/read timeout (06./07.11.2026: single provider timeouts failed
+    # whole nightly runs). Each attempt holds its own quota reservation; any other error and a
+    # second timeout are raised unchanged.
+    for attempt in range(1, TIMEOUT_ATTEMPTS + 1):
+        reservation = governor.reserve(
+            api_key=str(api_key or ""),
+            endpoint=endpoint,
+            priority=priority,
         )
-        raise
+        try:
+            response = requests.get(url, **request_kwargs)
+        except requests.Timeout as exc:
+            governor.complete(reservation, error=type(exc).__name__)
+            if attempt == TIMEOUT_ATTEMPTS:
+                raise
+            time.sleep(TIMEOUT_RETRY_DELAY_SECONDS)
+            continue
+        except Exception as exc:
+            governor.complete(
+                reservation,
+                error=type(exc).__name__,
+            )
+            raise
+        break
     governor.complete(
         reservation,
         response_headers=getattr(response, "headers", None),

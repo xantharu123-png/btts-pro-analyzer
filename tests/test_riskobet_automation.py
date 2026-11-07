@@ -526,3 +526,25 @@ def test_public_source_errors_are_sanitized_in_run_and_latest(tmp_path):
     assert run.errors == ("tennis: source_failed:RuntimeError",)
     assert secret not in json.dumps(run.to_dict())
     assert secret not in store.latest_path.read_text(encoding="utf-8")
+
+
+def test_event_that_starts_while_the_run_is_built_drops_out_alone(tmp_path):
+    """06.11.2026: a kickoff between source cutoff and run completion failed the whole run."""
+    from dataclasses import replace
+    store = _store(tmp_path)
+    later = _event("football", 1)
+    soon = _event("football", 2)
+    soon_snapshot = replace(soon.snapshots[0], starts_at=NOW + timedelta(seconds=30))
+    soon_candidates = tuple(replace(candidate, snapshot_id=soon_snapshot.snapshot_id, starts_at=soon_snapshot.starts_at,
+                                    stage=EvidenceStage.SHADOW,
+                                    settlement_contract="riskobet-settlement-v1:football:result_90_minutes:away")
+                            for candidate in soon.candidates)
+    source = RiskSourceBatch(sport="football", snapshots=later.snapshots + (soon_snapshot,),
+                             candidates=later.candidates + soon_candidates)
+
+    run = run_riskobet(football_source=source, store=store, now=NOW, clock=lambda: NOW + timedelta(seconds=45))
+
+    assert run.status is RunStatus.COMPLETE
+    assert {snapshot.event_key for snapshot in run.snapshots} == {later.snapshots[0].event_key}
+    assert {candidate.event_key for candidate in run.candidates} == {later.snapshots[0].event_key}
+    assert json.loads(store.latest_path.read_text(encoding="utf-8"))["run_id"] == run.run_id

@@ -266,3 +266,64 @@ def test_budgeted_get_observes_provider_headers(tmp_path, monkeypatch):
     assert response.status_code == 200
     snapshot = api_budget.get_api_budget_governor().snapshot(api_key="wrapped-key")
     assert snapshot.remaining_estimate == 77
+
+
+def _wrapped_budget(tmp_path, monkeypatch):
+    monkeypatch.setenv("BETBOY_API_BUDGET_DB", str(tmp_path / "wrapped.db"))
+    monkeypatch.setenv("BETBOY_API_DAILY_LIMIT", "100")
+    monkeypatch.setenv("BETBOY_API_CRITICAL_FLOOR", "2")
+    monkeypatch.setenv("BETBOY_API_RECOMMENDATION_RESERVE", "10")
+    monkeypatch.setenv("BETBOY_API_BACKGROUND_RESERVE", "30")
+    api_budget.reset_api_budget_governor_cache()
+    monkeypatch.setattr(api_budget.time, "sleep", lambda _seconds: None)
+
+
+class _OkResponse:
+    status_code = 200
+    headers = {}
+
+
+def test_one_timeout_is_retried_once_with_its_own_reservation(tmp_path, monkeypatch):
+    """06./07.11.2026: single API-Football read timeouts failed whole nightly runs."""
+    _wrapped_budget(tmp_path, monkeypatch)
+    calls = []
+
+    def flaky(*_args, **_kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            raise api_budget.requests.ReadTimeout("read timed out")
+        return _OkResponse()
+
+    monkeypatch.setattr(api_budget.requests, "get", flaky)
+    response = api_budget.api_football_get("https://v3.football.api-sports.io/fixtures",
+                                           headers={"x-apisports-key": "retry-key"})
+    assert response.status_code == 200 and len(calls) == 2
+    with sqlite3.connect(tmp_path / "wrapped.db") as connection:
+        assert connection.execute("SELECT COUNT(*), SUM(error = 'ReadTimeout') FROM api_budget_events").fetchone() == (2, 1)
+
+
+def test_a_second_timeout_and_other_errors_are_not_retried_further(tmp_path, monkeypatch):
+    _wrapped_budget(tmp_path, monkeypatch)
+    calls = []
+
+    def always_timeout(*_args, **_kwargs):
+        calls.append(1)
+        raise api_budget.requests.ConnectTimeout("connect timed out")
+
+    monkeypatch.setattr(api_budget.requests, "get", always_timeout)
+    with pytest.raises(api_budget.requests.Timeout):
+        api_budget.api_football_get("https://v3.football.api-sports.io/fixtures",
+                                    headers={"x-apisports-key": "retry-key"})
+    assert len(calls) == 2
+
+    calls.clear()
+
+    def broken(*_args, **_kwargs):
+        calls.append(1)
+        raise api_budget.requests.ConnectionError("refused")
+
+    monkeypatch.setattr(api_budget.requests, "get", broken)
+    with pytest.raises(api_budget.requests.ConnectionError):
+        api_budget.api_football_get("https://v3.football.api-sports.io/fixtures",
+                                    headers={"x-apisports-key": "retry-key"})
+    assert len(calls) == 1
