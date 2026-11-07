@@ -1,5 +1,71 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## 07.11.2026 20:54 – Release 20261107-3 live: Shadow-Historien mit festem Namen, Budgetschutz ist Datenstatus (PR #103)
+
+- **Anlass:** Der Shadow-Lauf um 20:32 (und erneut um 20:52) endete nach der Formstärke-Umstellung mit Exit 1 und
+  löste einen Alarm aus („Historie Liga 128: API-Budget geschützt …“).
+  - Der Historien-Cache trug die Modellversion im Dateinamen und lud deshalb alle Liga-Historien neu.
+  - Nach dem Wettfinder-Lauf von Hand waren nur noch rund 2450 Abrufe übrig, die Reserve liegt bei 2500.
+- **Änderung:**
+  - `HISTORY_CACHE_VERSION` gibt den Historien einen festen Namen (bisheriges Legacy-Token). Ein Basiswechsel löst
+    keine Neuabrufe mehr aus.
+  - „API-Budget geschützt“ ist im Shadow Datenstatus mit Neuversuch.
+  - Das Messskript liest unter demselben Namen.
+- **Release:** **`0353dde`** per No-Backup-Fast-forward von `b5b082d` (`output/release-20261107-3/`, 3 Pfade),
+  App-PID 1535734→1537100.
+- **Prüfung 21:02:** Shadow-Lauf Exit 0, Seite 200, kein neuer Alarm.
+- **Lehre:** Ein Wettfinder-Lauf von Hand braucht viel Tageskontingent. Nach einer Umstellung von Cache-Namen kann
+  der Budgetschutz Hintergrundabrufe sperren.
+
+## 07.11.2026 20:23 – Release 20261107-2 live: Formstärke ist Produktionsbasis (PR #102)
+
+Anlass: Owner „alles machen“, Entscheide vom 07.11. (Formstärke „Jetzt einschalten“, Hybrid-Prüfung umstellen,
+Wetter über Open-Meteo, keine Marktmischung) und „Ja, mergen + live“.
+
+- Produktionsbasis `legacy_form_strength_v1`, Prognose-Version
+  `challenge-engine:legacy-form-strength-joint-calibration-v1`. Legacy behält `coherent-joint-calibration-v14`.
+  Die Ticket-Vertragssignatur ist unverändert. Ohne Zuschlag: Europapokal, Heimatliga-Weg, Länderspiele, unter
+  5 Ligaspielen (`docs/audits/2026-11-07-formstaerke-eingeschaltet.md`).
+- Produktionsaufrufer nennen die Basis: Scan an vier Stellen, `_cached_market_artifact`, Shadow. Die
+  Probe-Validierung im Europapokal-Weg trägt jetzt die Version; ohne sie wären die Europapokal-Prognosen
+  weggefallen.
+- Der Shadow ist eine neue Kohorte (`SHADOW_MODEL_VERSION` folgt der Produktion). Die Code-Pins auf oberster Ebene
+  bleiben Legacy. ORIGINALs mit Formzuschlag werden als „partial“ gespeichert.
+- Hybrid (Schritt 4): gemessen wird jetzt mit
+  `scripts/form_strength_measurement.py --baseline legacy_form_strength_v1 --candidate dixon_coles_hl365_hybrid`.
+- Wetter (Schritt 5) ist widerlegt: Wind +0,008 (SE 0,044), Regen +0,008 (SE 0,018), 4968 Lernspiele
+  (`docs/audits/2026-11-07-wetter-schritt-5.md`). Open-Meteo wird nur privat genutzt; für eine kommerzielle Nutzung
+  wäre ein bezahlter Plan nötig.
+- Tests: 15 737 bestanden, die 14 neu roten Tests sind behoben, die 16 bekannten bleiben. Die CI-Teilmengen unter
+  floor und gate sind grün.
+
+Release:
+- Um 20:23 CET ging **`b5b082d`** per No-Backup-Fast-forward von `c207b86` live (Helfer `output/release-20261107-2/`,
+  21 Pfade).
+- Offline-Prüfung lokal und auf dem Server ok.
+- Nur die App wurde neu gestartet (PID 1530420→1535734). Kein Backup, Einheiten und Snapshots unverändert.
+- Danach wurde der Wettfinder um 20:23 von Hand gestartet, um die Caches der neuen Version aufzubauen und den
+  heutigen Stand neu zu rechnen. Ergebnis: Exit 0 nach 24 Minuten (20:23–20:47), Status completed, 690 Fussball-Auswahlen alle mit der neuen Version, keine Betriebsfehler. Der Shadow-Lauf um 20:32 endete mit Exit 1: Der Historien-Cache trug die Modellversion im Namen, das Neuladen traf den API-Budgetschutz (Rest ~2450 < Reserve 2500), behoben mit PR #103.
+
+Offen:
+- Messung in rund drei Wochen: Formstärke gegen Legacy und Hybrid gegen Produktion.
+- Den nächtlichen Wettfinder-Lauf am 08.11. prüfen (Laufzeit, Exit-Code).
+
+## 07.11.2026 09:16 – Release 20261107-1 live: Wiederholung bei API-Timeouts, RisikoBet ohne Anpfiff-Abbruch (PR #101)
+
+- Anlass: Alarme vom 06./07.11.
+  - Einzelne API-Football-Zeitüberschreitungen beendeten Wettfinder und Shadow mit Exit 1.
+  - Atlante FC – Santos Laguna begann am 07.11. um 04:00, mitten in der RisikoBet-Runde. Dadurch scheiterte die
+    ganze Runde mit `FrozenRevisionError`.
+- `api_football_get` wiederholt nach `requests.Timeout` genau einmal, jeder Versuch mit eigener Budget-Reservierung.
+- `run_riskobet` lässt ein Ereignis, das während des Laufs beginnt, einzeln weg
+  (`docs/audits/2026-11-07-betrieb-zeitueberschreitung-risikobet.md`).
+- Release:
+  - **`c207b86`** per No-Backup-Fast-forward von `c8f8b22`, Start nach dem Quotenlauf um 09:15
+    (`output/release-20261107-1/`).
+  - App-PID 1520643→1530420.
+  - Prüfung um 09:22: Shadow-Lauf Exit 0, Seite 200, kein neuer Alarm.
+
 ## 06.11.2026 10:38 – Release 20261106-1 live: Formstärke als ausgeschalteter Rechenweg mit Messskript (PR #99)
 
 Anlass: Owner „Ja, vorbereiten“, „Ja, umsetzen“, „Ja, mergen + live“.
