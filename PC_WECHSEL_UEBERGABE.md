@@ -1,5 +1,22 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## 07.11.2026 20:54 – Release 20261107-3 live: Shadow-Historien mit festem Namen, Budgetschutz ist Datenstatus (PR #103)
+
+- **Anlass:** Der Shadow-Lauf um 20:32 (und erneut um 20:52) endete nach der Formstärke-Umstellung mit Exit 1 und
+  löste einen Alarm aus („Historie Liga 128: API-Budget geschützt …“).
+  - Der Historien-Cache trug die Modellversion im Dateinamen und lud deshalb alle Liga-Historien neu.
+  - Nach dem Wettfinder-Lauf von Hand waren nur noch rund 2450 Abrufe übrig, die Reserve liegt bei 2500.
+- **Änderung:**
+  - `HISTORY_CACHE_VERSION` gibt den Historien einen festen Namen (bisheriges Legacy-Token). Ein Basiswechsel löst
+    keine Neuabrufe mehr aus.
+  - „API-Budget geschützt“ ist im Shadow Datenstatus mit Neuversuch.
+  - Das Messskript liest unter demselben Namen.
+- **Release:** **`0353dde`** per No-Backup-Fast-forward von `b5b082d` (`output/release-20261107-3/`, 3 Pfade),
+  App-PID 1535734→1537100.
+- **Prüfung 21:02:** Shadow-Lauf Exit 0, Seite 200, kein neuer Alarm.
+- **Lehre:** Ein Wettfinder-Lauf von Hand braucht viel Tageskontingent. Nach einer Umstellung von Cache-Namen kann
+  der Budgetschutz Hintergrundabrufe sperren.
+
 ## 07.11.2026 20:23 – Release 20261107-2 live: Formstärke ist Produktionsbasis (PR #102)
 
 Anlass: Owner „alles machen“, Entscheide vom 07.11. (Formstärke „Jetzt einschalten“, Hybrid-Prüfung umstellen,
