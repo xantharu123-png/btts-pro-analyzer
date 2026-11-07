@@ -451,3 +451,17 @@ def test_unpriced_tips_settle_from_the_score_and_count_won_lost_only(ledger):
     source = Path(shadow.__file__).read_text(encoding="utf-8")
     assert source.count('"unpriced_results": _unpriced_statistics(') == 2
     assert "settled_unpriced = step_settle_unpriced(provider, now)" in source
+
+
+def test_history_cache_keeps_one_name_across_bases_and_budget_guard_is_data_status():
+    """07.11.2026: the basis switch renamed the history cache and the refetch hit the API budget guard."""
+    assert shadow.HISTORY_CACHE_VERSION == "challenge-engine-coherent-joint-calibration-v14"
+    assert shadow.HISTORY_CACHE_VERSION != shadow.SHADOW_MODEL_VERSION
+    path = shadow._cache_path("history", 128, 2026, "2026-11-07", shadow.HISTORY_CACHE_VERSION)
+    assert path.name == "history_challenge-engine-coherent-joint-calibration-v14_128_2026_2026-11-07.pkl"
+    import inspect
+    assert "HISTORY_CACHE_VERSION" in inspect.getsource(shadow._cached_history)
+    message = ("Historie Liga 128: API-Budget geschützt: background wurde bei geschätzten 2465 Rest-Calls "
+               "vor dem Reservebereich 2500 blockiert.")
+    assert shadow.is_data_status(message) and shadow.operational_errors([message]) == []
+    assert shadow.operational_errors(["Details 1555548: ReadTimeout"]) == ["Details 1555548: ReadTimeout"]
