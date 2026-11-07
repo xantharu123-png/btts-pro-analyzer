@@ -581,6 +581,14 @@ def run_riskobet(
                     if clock is not None else started_at)
     if clock is not None and any(snapshot.modeled_at > completed_at for snapshot in snapshots):
         raise ValueError("completed_at must not precede a source model clock")
+    # An event that kicked off between the source cutoff and this completion clock is no
+    # longer pre-match. It drops out alone (07.11.2026: one kickoff at 04:00 rejected the
+    # whole run); earlier stored revisions of that event stay untouched.
+    started = {snapshot.event_key for snapshot in snapshots if snapshot.starts_at <= completed_at}
+    started.update(candidate.event_key for candidate in candidates if candidate.starts_at <= completed_at)
+    if started:
+        snapshots = tuple(snapshot for snapshot in snapshots if snapshot.event_key not in started)
+        candidates = tuple(candidate for candidate in candidates if candidate.event_key not in started)
     run = RiskRunSnapshot(
         started_at=started_at,
         completed_at=completed_at,
