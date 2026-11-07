@@ -66,7 +66,7 @@ def test_legacy_capture_bytes_carry_no_basis_fields(monkeypatch):
     packet = original.to_dict()
     assert original_goal_basis(packet) == engine.GOAL_MODEL_LEGACY
     assert not {"goal_model", "rho", "fitted_rho", "dixon_coles", "legacy_lambdas"} & set(packet["goal_model"])
-    assert packet["prediction_version"] == engine.CHALLENGE_PREDICTION_VERSION
+    assert packet["prediction_version"] == engine.LEGACY_PREDICTION_VERSION
     assert packet["goal_provenance"]["reference_weights"]["kind"] == "football-goals-v1"
     assert compare_captured_joint(original)["law_version"]
 
@@ -122,7 +122,7 @@ def test_hybrid_window_outside_declared_history_fails_closed(monkeypatch):
 
 def test_executed_code_declares_the_basis_pins_and_publication_resolves_them(monkeypatch):
     code = executed_code_identity()
-    assert code["prediction_version"] == engine.CHALLENGE_PREDICTION_VERSION
+    assert code["prediction_version"] == engine.LEGACY_PREDICTION_VERSION
     assert code["goal_basis_identities"][HYBRID] == {
         "prediction_version": engine.prediction_version_for_goal_model(HYBRID),
         "model_contract_signature": engine.model_contract_signature_for_goal_model(HYBRID),

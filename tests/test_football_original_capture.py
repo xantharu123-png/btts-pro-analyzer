@@ -58,7 +58,7 @@ def test_new_same_call_api_retains_final_triplets_before_candidate_rounding():
     assert len(originals) == 1
     packet = originals[0].to_dict()
     assert packet["kind"] == "football-original-market-calculation-v2"
-    assert packet["prediction_version"] == engine.CHALLENGE_PREDICTION_VERSION
+    assert packet["prediction_version"] == engine.LEGACY_PREDICTION_VERSION
     legacy_keys = {spec.key for spec in engine.LEGACY_MARKET_SPECS}
     assert packet["probabilities"] == {key: list(val) for key, val in expected["probabilities"].items() if key in legacy_keys}
     assert packet["raw_probabilities"] == {key: list(val) for key, val in raw_model["probabilities"].items() if key in legacy_keys}

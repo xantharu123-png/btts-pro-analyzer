@@ -14,6 +14,7 @@ from challenge_engine import MARKET_SPECS, ValidationMetrics
 from tests.test_football_base_provenance import history, target
 
 HYBRID = engine.GOAL_MODEL_SHADOW_CANDIDATE
+FORM = engine.GOAL_MODEL_FORM_STRENGTH
 
 
 def _credible_metric(version):
@@ -29,15 +30,20 @@ def _credible_metric(version):
 def test_registered_pins_are_distinct_and_analysis_variants_are_never_registered():
     legacy_version = engine.prediction_version_for_goal_model(engine.GOAL_MODEL_LEGACY)
     hybrid_version = engine.prediction_version_for_goal_model(HYBRID)
-    assert legacy_version == engine.CHALLENGE_PREDICTION_VERSION
+    form_version = engine.prediction_version_for_goal_model(FORM)
+    # Production basis since 07.11.2026 is the form strength; legacy keeps its previous token.
+    assert legacy_version == engine.LEGACY_PREDICTION_VERSION == "challenge-engine:coherent-joint-calibration-v14"
+    assert form_version == engine.CHALLENGE_PREDICTION_VERSION and engine.PRODUCTION_GOAL_MODEL == FORM
+    assert engine.goal_model_for_prediction_version(form_version) == FORM
     assert hybrid_version == "challenge-engine:dc-hl365-hybrid-joint-calibration-v1"
     assert engine.model_contract_signature_for_goal_model(engine.GOAL_MODEL_LEGACY) == engine.CHALLENGE_MODEL_CONTRACT_SIGNATURE
     assert engine.model_contract_signature_for_goal_model(HYBRID).startswith(engine.CHALLENGE_MODEL_CONTRACT_SIGNATURE + "+")
     assert engine.goal_model_for_prediction_version(hybrid_version) == HYBRID
     assert engine.goal_model_for_prediction_version(legacy_version) == engine.GOAL_MODEL_LEGACY
-    tokens = {legacy_version, hybrid_version}
+    tokens = {legacy_version, hybrid_version, form_version}
+    assert len(tokens) == 3
     for variant in engine.GOAL_MODELS:
-        if variant in (engine.GOAL_MODEL_LEGACY, HYBRID):
+        if variant in (engine.GOAL_MODEL_LEGACY, HYBRID, FORM):
             continue
         version = engine.prediction_version_for_goal_model(variant)
         assert version not in tokens and engine.goal_model_for_prediction_version(version) is None
@@ -51,7 +57,9 @@ def test_registered_pins_are_distinct_and_analysis_variants_are_never_registered
 def test_validation_metrics_carry_the_version_of_their_basis():
     legacy = engine.validate_league_markets([])
     hybrid = engine.validate_league_markets([], goal_model=HYBRID)
-    assert {metric.prediction_version for metric in legacy.values()} == {engine.CHALLENGE_PREDICTION_VERSION}
+    assert {metric.prediction_version for metric in legacy.values()} == {engine.LEGACY_PREDICTION_VERSION}
+    form = engine.validate_league_markets([], goal_model=FORM)
+    assert {metric.prediction_version for metric in form.values()} == {engine.CHALLENGE_PREDICTION_VERSION}
     assert {metric.prediction_version for metric in hybrid.values()} == {engine.prediction_version_for_goal_model(HYBRID)}
     validation, _ = engine.build_market_model_artifact([], goal_model=HYBRID)
     assert {metric.prediction_version for metric in validation.values()} == {engine.prediction_version_for_goal_model(HYBRID)}
@@ -59,14 +67,23 @@ def test_validation_metrics_carry_the_version_of_their_basis():
 
 def test_candidates_of_the_hybrid_basis_carry_its_version_and_never_release():
     rows, current = history(), target()
+    # The production basis (form strength since 07.11.2026) is the only releasable one.
     legacy_validation = {spec.key: _credible_metric(engine.CHALLENGE_PREDICTION_VERSION) for spec in MARKET_SPECS}
     hybrid_validation = {key: replace(metric, prediction_version=engine.prediction_version_for_goal_model(HYBRID))
                          for key, metric in legacy_validation.items()}
-    legacy = engine.build_fixture_candidates(current, rows, legacy_validation, {})
+    legacy = engine.build_fixture_candidates(current, rows, legacy_validation, {}, goal_model=FORM)
     hybrid = engine.build_fixture_candidates(current, rows, hybrid_validation, {}, goal_model=HYBRID)
     borrowed = engine.build_fixture_candidates(current, rows, legacy_validation, {}, goal_model=HYBRID)
     assert legacy and hybrid and borrowed
     assert {candidate.prediction_version for candidate in legacy} == {engine.CHALLENGE_PREDICTION_VERSION}
+    old_legacy_validation = {key: replace(metric, prediction_version=engine.LEGACY_PREDICTION_VERSION)
+                             for key, metric in legacy_validation.items()}
+    old_legacy = engine.build_fixture_candidates(current, rows, old_legacy_validation, {})
+    assert {candidate.prediction_version for candidate in old_legacy} == {engine.LEGACY_PREDICTION_VERSION}
+    for candidate in old_legacy:
+        candidate.validation = old_legacy_validation[candidate.market_key]
+        candidate.context = {"passed": True, "release_context_complete": True, "release_eligible": True}
+        assert not engine.candidate_is_wettfinder_release_credible(candidate)
     assert {candidate.prediction_version for candidate in hybrid} == {engine.prediction_version_for_goal_model(HYBRID)}
     gate = "Markt hat das Walk-forward-Gate nicht bestanden"
     assert all(gate in candidate.blocked_reasons for candidate in borrowed)

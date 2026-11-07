@@ -1,4 +1,4 @@
-"""Form strength as an opt-in goal basis (pre-registered test 06.11.2026)."""
+"""Form strength: pre-registered test 06.11.2026, production basis since 07.11.2026."""
 import math
 from datetime import datetime, timedelta, timezone
 
@@ -9,6 +9,7 @@ import football_form_strength as form
 from tests.test_challenge_15k import fixture
 
 FORM = engine.GOAL_MODEL_FORM_STRENGTH
+LEGACY = engine.GOAL_MODEL_LEGACY
 KICKOFF = datetime(2030, 3, 1, 18, tzinfo=timezone.utc)
 
 
@@ -32,11 +33,24 @@ def _league(league_id=39, games=40):
     return rows
 
 
-def test_registry_keeps_the_basis_off_and_unreleasable():
+def test_form_strength_is_the_registered_production_basis():
     assert FORM in engine.GOAL_MODELS and FORM not in engine.GOAL_MODEL_OPTIONS
+    assert engine.PRODUCTION_GOAL_MODEL == FORM
     version = engine.prediction_version_for_goal_model(FORM)
-    assert version != engine.CHALLENGE_PREDICTION_VERSION
-    assert engine.goal_model_for_prediction_version(version) is None
+    assert version == engine.CHALLENGE_PREDICTION_VERSION == "challenge-engine:legacy-form-strength-joint-calibration-v1"
+    assert engine.goal_model_for_prediction_version(version) == FORM
+    assert engine.prediction_version_for_goal_model(LEGACY) == engine.LEGACY_PREDICTION_VERSION         == "challenge-engine:coherent-joint-calibration-v14"
+    assert engine.model_contract_signature_for_goal_model(FORM) == engine.CHALLENGE_MODEL_CONTRACT_SIGNATURE
+    import inspect
+    import challenge_15k
+    import shadow_clv_automation
+    # The engine API keeps the legacy default for replay and analysis; production callers name the basis.
+    assert inspect.signature(engine._fixture_model).parameters["goal_model"].default == LEGACY
+    scan_source = inspect.getsource(challenge_15k.scan_daily_challenge)
+    assert scan_source.count("goal_model=PRODUCTION_GOAL_MODEL") == 4
+    assert "goal_model=PRODUCTION_GOAL_MODEL" in inspect.getsource(challenge_15k._cached_market_artifact.__wrapped__)
+    assert shadow_clv_automation.SHADOW_MODEL_VERSION == engine.CHALLENGE_PREDICTION_VERSION.replace(":", "-")
+    assert "goal_model=PRODUCTION_GOAL_MODEL" in inspect.getsource(shadow_clv_automation)
     assert form.VERSION == "form-strength-v1-20261106"
     assert (form.KAPPA, form.WINDOW, form.MIN_GAMES) == (0.11, 10, 5)
 
@@ -55,20 +69,21 @@ def test_team_form_uses_the_last_ten_league_games_before_kickoff_only():
 def test_form_basis_multiplies_every_rate_variant_by_the_preregistered_factor():
     history = _league()
     target = fixture(900, KICKOFF, 1, 2, league_id=39)
-    legacy = engine._fixture_model(target, history)
+    legacy = engine._fixture_model(target, history, goal_model=LEGACY)
     adjusted = engine._fixture_model(target, history, goal_model=FORM)
     home_factor, away_factor = math.exp(0.11 * 3.0), math.exp(-0.11 * 3.0)
     for key in ("active_lambdas", "season_lambdas", "form_lambdas"):
         assert adjusted[key][0] == pytest.approx(legacy[key][0] * home_factor, rel=1e-12)
         assert adjusted[key][1] == pytest.approx(legacy[key][1] * away_factor, rel=1e-12)
     assert adjusted["form_strength"] == form.form_strength_annotation(2.0, -1.0)
-    assert "form_strength" not in legacy
+    assert adjusted["goal_model"] == FORM
+    assert "form_strength" not in legacy and "goal_model" not in legacy
 
 
 def test_without_enough_games_the_form_basis_applies_no_factor(monkeypatch):
     history = _league()
     target = fixture(900, KICKOFF, 1, 2, league_id=39)
-    legacy = engine._fixture_model(target, history)
+    legacy = engine._fixture_model(target, history, goal_model=LEGACY)
     real = form.team_form
     # Team 2 has fewer than MIN_GAMES league matches in this scenario (e.g. a promoted club).
     monkeypatch.setattr(form, "team_form", lambda h, team, *a, **k: None if team == 2 else real(h, team, *a, **k))
@@ -78,16 +93,30 @@ def test_without_enough_games_the_form_basis_applies_no_factor(monkeypatch):
     assert adjusted["form_strength"] is None
 
 
-def test_form_basis_fails_closed_outside_the_tested_league_path():
+def test_outside_the_tested_league_path_the_rates_stay_legacy():
     history = _league()
     target = fixture(900, KICKOFF, 1, 2, league_id=39)
-    assert engine._fixture_model(target, history, team_history=history, goal_model=FORM) is None
+
+    def same_rates(adjusted, legacy):
+        assert adjusted is not None and legacy is not None
+        for key in ("active_lambdas", "season_lambdas", "form_lambdas"):
+            assert adjusted[key] == legacy[key]
+        assert adjusted["form_strength"] is None and adjusted["goal_model"] == FORM
+
+    same_rates(engine._fixture_model(target, history, team_history=history, goal_model=FORM),
+               engine._fixture_model(target, history, team_history=history, goal_model=LEGACY))
     national = {**target, "challenge_senior_national_team": True}
-    assert engine._fixture_model(national, history, goal_model=FORM) is None
+    national_legacy = engine._fixture_model(national, history, goal_model=LEGACY)
+    national_form = engine._fixture_model(national, history, goal_model=FORM)
+    if national_legacy is None:
+        assert national_form is None
+    else:
+        same_rates(national_form, national_legacy)
     for uefa in (2, 3, 848):
         cup = _league(league_id=uefa)
-        assert engine._fixture_model(fixture(900, KICKOFF, 1, 2, league_id=uefa), cup) is not None
-        assert engine._fixture_model(fixture(900, KICKOFF, 1, 2, league_id=uefa), cup, goal_model=FORM) is None
+        cup_target = fixture(900, KICKOFF, 1, 2, league_id=uefa)
+        same_rates(engine._fixture_model(cup_target, cup, goal_model=FORM),
+                   engine._fixture_model(cup_target, cup, goal_model=LEGACY))
 
 
 def test_factors_accept_only_an_unchanged_annotation():
@@ -133,11 +162,11 @@ def test_walk_forward_records_equal_the_study_recipe():
 
     engine._fixture_model = study_patch
     try:
-        expected_records = engine._walk_forward_market_records(history)
+        expected_records = engine._walk_forward_market_records(history, goal_model=LEGACY)
     finally:
         engine._fixture_model = original
     actual = engine._walk_forward_market_records(history, goal_model=FORM)
-    legacy = engine._walk_forward_market_records(history)
+    legacy = engine._walk_forward_market_records(history, goal_model=LEGACY)
     key = "RESULT_HOME"
     assert actual[key]["probabilities"] == pytest.approx(expected_records[key]["probabilities"], rel=1e-12)
     assert actual[key]["probabilities"] != legacy[key]["probabilities"]

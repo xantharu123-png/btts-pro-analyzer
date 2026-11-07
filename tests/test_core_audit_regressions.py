@@ -10,6 +10,7 @@ import pytest
 import challenge_15k
 from challenge_15k import ChallengeDataProvider, refresh_discovered_candidates
 from challenge_engine import (
+    PRODUCTION_GOAL_MODEL,
     MARKET_SPECS,
     build_fixture_candidates,
     candidate_is_credible,
@@ -40,7 +41,7 @@ def _built(probability, *, profile="challenge", market="BTTS_YES", metric=None):
     with patch("challenge_engine.fixture_market_probabilities", return_value=model):
         row = build_fixture_candidates(
             target, [], {market: metric or _credible_metric()},
-            candidate_profile=profile,
+            candidate_profile=profile, goal_model=PRODUCTION_GOAL_MODEL,
         )[0]
     row.context = {
         "passed": True, "forecast_passed": True,

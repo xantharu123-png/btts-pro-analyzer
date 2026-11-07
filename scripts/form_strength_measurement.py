@@ -1,9 +1,14 @@
-"""Read-only measurement of the form-strength basis on new games (docs/audits/2026-11-06-formstaerke-test.md).
+"""Read-only measurement of one goal basis against another on new games.
+
+Default: the form strength (production since 07.11.2026) against the previous legacy basis
+(docs/audits/2026-11-06-formstaerke-test.md). ``--baseline legacy_form_strength_v1 --candidate
+dixon_coles_hl365_hybrid`` measures the hybrid against the production basis (owner decision 07.11.2026:
+this replaces the 300/1000-pair shadow plan of the hybrid).
 
 For every league history the app stores in ``.shadow_cache`` (current and previous season), the unchanged
-validation path ``challenge_engine._walk_forward_market_records`` runs once with the live legacy basis and once
-with ``GOAL_MODEL_FORM_STRENGTH``. Only calibrated goal-market forecasts of games kicked off on or after
-``--since`` are scored, against the four pre-registered conditions.
+validation path ``challenge_engine._walk_forward_market_records`` runs once per basis. Only calibrated
+goal-market forecasts of games kicked off on or after ``--since`` are scored, against the four
+pre-registered conditions (candidate minus baseline).
 
 No network, no provider call, no write. Run on the server, for example:
     nice -n 19 /opt/betboy/venv/bin/python -I scripts/form_strength_measurement.py --since 2026-11-06
@@ -137,20 +142,26 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--since", default="2026-11-06", help="first kickoff date that is scored (UTC)")
     parser.add_argument("--cache-dir", default=str(ROOT / ".shadow_cache"))
+    parser.add_argument("--baseline", default="legacy", help="goal basis compared against")
+    parser.add_argument("--candidate", default="legacy_form_strength_v1", help="goal basis under measurement")
     args = parser.parse_args(argv)
     since = datetime.fromisoformat(args.since).replace(tzinfo=timezone.utc)
     socket.socket.connect = lambda *a, **k: (_ for _ in ()).throw(OSError("offline measurement"))
     import pickle
     import challenge_engine as engine
     from runtime_paths import open_trusted_pickle
+    for basis in (args.baseline, args.candidate):
+        if basis not in engine.GOAL_MODELS:
+            parser.error(f"unknown goal basis: {basis}")
+    print(f"Basis {args.baseline} gegen Kandidat {args.candidate}, Spiele ab {args.since}", flush=True)
     token = engine.CHALLENGE_PREDICTION_VERSION.replace(":", "-")
     per_league, all_bands = {}, {"live": defaultdict(lambda: [0, 0.0, 0]), "form": defaultdict(lambda: [0, 0.0, 0])}
     for (league, season), (_day, path) in sorted(_latest_histories(Path(args.cache_dir), token).items()):
         with open_trusted_pickle(path) as stream:
             fixtures = pickle.load(stream)
         try:
-            live = scored_records(fixtures, engine.GOAL_MODEL_LEGACY, since)
-            form = scored_records(fixtures, engine.GOAL_MODEL_FORM_STRENGTH, since)
+            live = scored_records(fixtures, args.baseline, since)
+            form = scored_records(fixtures, args.candidate, since)
         except ValueError as exc:
             print(f"Liga {league} Saison {season}: übersprungen ({exc})", flush=True)
             continue
