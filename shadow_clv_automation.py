@@ -37,6 +37,7 @@ from api_budget import (  # noqa: E402
 from betting_math import BettingMathError, no_vig_market  # noqa: E402
 from challenge_engine import (  # noqa: E402
     CHALLENGE_PREDICTION_VERSION,
+    LEGACY_PREDICTION_VERSION,
     PRODUCTION_GOAL_MODEL,
     GOAL_MODEL_SHADOW_CANDIDATE,
     MARKET_BY_KEY,
@@ -118,6 +119,9 @@ _NOT_VOIDED_PUBLISHED = ("NOT EXISTS (SELECT 1 FROM shadow_void v WHERE v.ledger
 MIN_HISTORY_GAMES = 220  # darunter wird die Vorsaison vorangestellt (Cold-Start)
 # Follows the production basis (form strength since 07.11.2026); a new basis starts a new cohort.
 SHADOW_MODEL_VERSION = CHALLENGE_PREDICTION_VERSION.replace(":", "-")
+# League histories are model-independent provider data. Their cache keeps one stable name, so a new
+# basis never refetches them (07.11.2026: the rename hit the API budget guard and failed the run).
+HISTORY_CACHE_VERSION = LEGACY_PREDICTION_VERSION.replace(":", "-")
 # Policy v6 (23.10.2026): the opening quote may carry a provider stamp up to
 # three hours old (CLVTracker.OPENING_QUOTE_MAX_AGE) and its age is stored per
 # row; v5 required ten minutes. Rows of v5 stay in their own cohort.
@@ -740,7 +744,7 @@ def _cache_path(kind: str, league_id: int, season: int, day: str, model_version=
 
 
 def _cached_history(provider, league_id, season, fixture, day):
-    path = _cache_path("history", league_id, season, day)
+    path = _cache_path("history", league_id, season, day, HISTORY_CACHE_VERSION)
     if path.exists():
         try:
             with open_trusted_pickle(path) as handle:
@@ -989,7 +993,9 @@ def _log_edge_cap(prediction_id: int, model_version: str, pick, odds_response, n
 # data statuses of the day, not operational failures of the unit. Only the
 # remaining messages (exceptions, request failures) make the run fail and
 # trigger the failure alert.
-_DATA_STATUS_MARKERS = ("; Retry", "-Quote/Zeitstempel ", ": Details fehlen")
+# A budget-guarded provider call is a designed deferral, retried by a later run (as the quote runs treat
+# budget since 25.10.2026), not an operational failure.
+_DATA_STATUS_MARKERS = ("; Retry", "-Quote/Zeitstempel ", ": Details fehlen", "API-Budget geschützt")
 
 
 def is_data_status(message: str) -> bool:

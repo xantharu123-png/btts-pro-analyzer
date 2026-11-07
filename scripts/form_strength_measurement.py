@@ -154,7 +154,8 @@ def main(argv=None) -> int:
         if basis not in engine.GOAL_MODELS:
             parser.error(f"unknown goal basis: {basis}")
     print(f"Basis {args.baseline} gegen Kandidat {args.candidate}, Spiele ab {args.since}", flush=True)
-    token = engine.CHALLENGE_PREDICTION_VERSION.replace(":", "-")
+    # History cache files keep the stable legacy token (shadow_clv_automation.HISTORY_CACHE_VERSION).
+    token = engine.LEGACY_PREDICTION_VERSION.replace(":", "-")
     per_league, all_bands = {}, {"live": defaultdict(lambda: [0, 0.0, 0]), "form": defaultdict(lambda: [0, 0.0, 0])}
     for (league, season), (_day, path) in sorted(_latest_histories(Path(args.cache_dir), token).items()):
         with open_trusted_pickle(path) as stream:
