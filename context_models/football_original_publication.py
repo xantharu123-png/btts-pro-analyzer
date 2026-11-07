@@ -87,7 +87,9 @@ def executed_code_identity():
     return {"schema": 2, "kind": CODE_KIND, "modules": modules, "source_files": sources,
         "runtime_bindings": bindings, "authority": "execution-fingerprint-not-replay-qualification",
         "python": platform.python_version(), "numpy": numpy.__version__, "scipy": scipy.__version__,
-        "prediction_version": engine.CHALLENGE_PREDICTION_VERSION,
+        # Top-level pins name the legacy basis (as before 07.11.2026); other bases, including the
+        # production form strength, are declared below.
+        "prediction_version": engine.LEGACY_PREDICTION_VERSION,
         "model_contract_signature": engine.CHALLENGE_MODEL_CONTRACT_SIGNATURE,
         # Pins of every registered non-legacy rate basis (shadow candidates).
         "goal_basis_identities": {

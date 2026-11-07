@@ -101,9 +101,9 @@ def _edge_rows(db_path):
 
 def test_every_logged_tip_records_its_cap_verdict_without_filtering(ledger, monkeypatch):
     def build(detail, history, validation, calibration, **kwargs):
-        basis = kwargs.get("goal_model", engine.GOAL_MODEL_LEGACY)
-        # Legacy tip far above the market (fails the cap), hybrid tip close to it (passes).
-        return [_candidate(0.68 if basis == engine.GOAL_MODEL_LEGACY else 0.55)]
+        basis = kwargs.get("goal_model", engine.GOAL_MODEL_LEGACY)  # production basis is passed explicitly
+        # Production tip far above the market (fails the cap), hybrid tip close to it (passes).
+        return [_candidate(0.68 if basis == engine.PRODUCTION_GOAL_MODEL else 0.55)]
 
     monkeypatch.setattr(shadow, "build_fixture_candidates", build)
     quoted_at = ledger.now - timedelta(minutes=1)

@@ -35,7 +35,7 @@ def test_two_to_three_is_one_additional_settleable_projection_not_a_new_fit_targ
     assert len(engine.GOAL_PROJECTION_MARKET_SPECS) == 46
     assert KEY in engine.PROJECTION_ONLY_MARKET_KEYS
     assert not {"HOME_RANGE_2_3", "AWAY_RANGE_2_3"}.intersection(engine.MARKET_BY_KEY)
-    assert engine.CHALLENGE_PREDICTION_VERSION == "challenge-engine:coherent-joint-calibration-v14"
+    assert engine.LEGACY_PREDICTION_VERSION == "challenge-engine:coherent-joint-calibration-v14"
     assert engine.CHALLENGE_MARKET_CATALOG_SIGNATURE == CURRENT_CATALOG
 
 

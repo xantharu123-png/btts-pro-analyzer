@@ -43,7 +43,7 @@ def joint_sources(tmp_path_factory):
                 # variant-binding tests: captured runtime fingerprint is v15,
                 # never an arbitrary code envelope or default-law activation.
                 import challenge_engine as engine
-                patch.setattr(engine, "CHALLENGE_PREDICTION_VERSION", "challenge-engine:coherent-joint-calibration-v15")
+                patch.setattr(engine, "LEGACY_PREDICTION_VERSION", "challenge-engine:coherent-joint-calibration-v15")
             sources[law] = source_case(tmp_path_factory.mktemp("native-"+law[-2:]), patch, law_version=law)
     return sources
 

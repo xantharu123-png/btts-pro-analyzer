@@ -160,7 +160,7 @@ def test_candidate_native_case_uses_owning_d1_resolver_not_raw_poisson(tmp_path,
     with monkeypatch.context() as patch:
         # An explicitly selected OFFLINE candidate execution fingerprint, not
         # an activation or change to the production/default engine version.
-        patch.setattr(engine, 'CHALLENGE_PREDICTION_VERSION', 'challenge-engine:coherent-joint-calibration-v15')
+        patch.setattr(engine, 'LEGACY_PREDICTION_VERSION', 'challenge-engine:coherent-joint-calibration-v15')
         path, case, config = source_case(tmp_path, patch, law_version=NEW_LAW)
         before = path.read_bytes()
         result = assemble_training_cases((case,), config)
@@ -190,7 +190,7 @@ def test_active_v1_worker_cannot_apply_old_fit_to_explicit_candidate_original(tm
     from test_football_joint_training import source_case
     from test_football_joint_worker import fitted, compare, snapshots
     with monkeypatch.context() as patch:
-        patch.setattr(engine, 'CHALLENGE_PREDICTION_VERSION', 'challenge-engine:coherent-joint-calibration-v15')
+        patch.setattr(engine, 'LEGACY_PREDICTION_VERSION', 'challenge-engine:coherent-joint-calibration-v15')
         isolated = source_case(tmp_path, patch, law_version=NEW_LAW)
         path, case, config = isolated
         fitted((path, case, dict(config, model_variant=OLD_EFFECT)))

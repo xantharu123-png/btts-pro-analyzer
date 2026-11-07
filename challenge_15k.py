@@ -37,6 +37,7 @@ from api_budget import (
     api_football_get,
 )
 from challenge_engine import (
+    PRODUCTION_GOAL_MODEL,
     CANDIDATE_PROFILE_CHALLENGE,
     CANDIDATE_PROFILE_WETTFINDER,
     CHALLENGE_MODEL_CONTRACT_SIGNATURE,
@@ -676,6 +677,9 @@ def _transfer_probe_validation_map() -> dict[str, ValidationMetrics]:
         max_error_bin_size=30,
         max_error_bin_mean_probability=0.5,
         raw_brier_score=0.15,
+        # The probe stands for the production basis; a non-legacy basis never accepts an
+        # unversioned validation (form strength is the production basis since 07.11.2026).
+        prediction_version=CHALLENGE_PREDICTION_VERSION,
     )
     return {
         spec.key: probe
@@ -784,7 +788,7 @@ def _cached_market_artifact(
     )
     if cached is not None:
         return cached
-    validation, calibration = build_market_model_artifact(history)
+    validation, calibration = build_market_model_artifact(history, goal_model=PRODUCTION_GOAL_MODEL)
     save_model_artifact(
         CHALLENGE_PREDICTION_VERSION,
         league_id,
@@ -2688,6 +2692,7 @@ def scan_daily_challenge(
         if fixture_market_probabilities(
             fixture,
             histories.get(competition, []),
+            goal_model=PRODUCTION_GOAL_MODEL,
         ) is None:
             fallback_targets.append(fixture)
 
@@ -2733,6 +2738,7 @@ def scan_daily_challenge(
                 fixture,
                 histories.get(fixture_competitions.get(fixture_id), []),
                 team_history=team_history,
+                goal_model=PRODUCTION_GOAL_MODEL,
             )
             is not None
         ):
@@ -2775,6 +2781,7 @@ def scan_daily_challenge(
             transfer_probe,
             {},
             team_history=team_history,
+            goal_model=PRODUCTION_GOAL_MODEL,
             allow_above_challenge_probability=(
                 allow_above_challenge_probability
             ),
@@ -2890,6 +2897,7 @@ def scan_daily_challenge(
             validation,
             calibration,
             team_history=fixture_team_histories.get(fixture_id),
+            goal_model=PRODUCTION_GOAL_MODEL,
             model_scope=(
                 MODEL_SCOPE_SENIOR_NATIONAL
                 if (
