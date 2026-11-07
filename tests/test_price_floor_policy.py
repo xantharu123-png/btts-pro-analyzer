@@ -118,10 +118,14 @@ def test_card_shows_neither_bookmaker_quote_nor_minimum_quote():
     assert "Risikopreis ab" not in top
 
 
+from challenge_engine import CHALLENGE_PREDICTION_VERSION  # noqa: E402
+
+
 def _release_row(**overrides):
     row = {
-        "prediction_version": "challenge-engine:coherent-joint-calibration-v14",
-        "validation_prediction_version": "challenge-engine:coherent-joint-calibration-v14",
+        # The production basis (form strength since 07.11.2026) is the only releasable version.
+        "prediction_version": CHALLENGE_PREDICTION_VERSION,
+        "validation_prediction_version": CHALLENGE_PREDICTION_VERSION,
         "model_scope": "same_competition", "context_stale": False, "statistical_release_passed": True,
         "tested_hypotheses": 864,  # nine leagues x 96 markets (cross-league FDR)
         "paired_loss_mean": 0.05, "paired_loss_hac_standard_error": 0.005,

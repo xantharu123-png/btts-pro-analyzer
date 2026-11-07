@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 from challenge_engine import (
+    PRODUCTION_GOAL_MODEL,
     CHALLENGE_PREDICTION_VERSION,
     MARKET_SPECS,
     ValidationMetrics,
@@ -93,6 +94,7 @@ def test_high_probability_market_isolated_from_15k_challenge_corridor():
             [],
             {"AWAY_UNDER_2_5": _credible_metric()},
             allow_above_challenge_probability=True,
+            goal_model=PRODUCTION_GOAL_MODEL,
         )
 
     candidate = normal_rows[0]

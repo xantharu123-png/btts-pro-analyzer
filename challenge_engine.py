@@ -41,7 +41,12 @@ CHALLENGE_MODEL_CONTRACT_SIGNATURE = (
 )
 # Prediction/cache provenance is separate from the immutable monetary ticket
 # contract. Finder profiles/history updates must not invalidate old tickets.
-CHALLENGE_PREDICTION_VERSION = "challenge-engine:coherent-joint-calibration-v14"
+# Production basis since 07.11.2026 (owner "Jetzt einschalten"): legacy rates with the pre-registered
+# form strength (docs/audits/2026-11-07-formstaerke-eingeschaltet.md). The previous legacy token stays
+# registered for the legacy basis, its caches and its frozen ORIGINALs.
+LEGACY_PREDICTION_VERSION = "challenge-engine:coherent-joint-calibration-v14"
+FORM_STRENGTH_PREDICTION_VERSION = "challenge-engine:legacy-form-strength-joint-calibration-v1"
+CHALLENGE_PREDICTION_VERSION = FORM_STRENGTH_PREDICTION_VERSION
 # Catalog coverage changes independently of the immutable calibrated law.
 CHALLENGE_MARKET_CATALOG_SIGNATURE = "football-market-catalog:96-bounded-multigoal-v2"
 CANDIDATE_PROFILE_CHALLENGE = "challenge"
@@ -134,9 +139,10 @@ GOAL_MODEL_OPTIONS = {
                                  "hybrid_totals": True},
 }
 # Pre-registered form strength (docs/audits/2026-11-06-formstaerke-test.md): legacy rates times
-# exp(0.11 * form gap). Opt-in and unregistered, so its candidates are never released; it exists
-# for measurement on new games until the owner decides (football_form_strength.py).
+# exp(0.11 * form gap) in domestic league games; elsewhere the legacy rates unchanged. Production
+# basis since 07.11.2026 (owner decision; football_form_strength.py).
 GOAL_MODEL_FORM_STRENGTH = "legacy_form_strength_v1"
+PRODUCTION_GOAL_MODEL = GOAL_MODEL_FORM_STRENGTH
 GOAL_MODELS = (GOAL_MODEL_LEGACY,) + tuple(GOAL_MODEL_OPTIONS) + (GOAL_MODEL_FORM_STRENGTH,)
 # Shadow candidate basis (plan docs/superpowers/plans/2026-10-22-hybrid-aktivierung.md):
 # the coherent hybrid carries its own prediction/contract pins, so caches,
@@ -146,11 +152,14 @@ GOAL_MODELS = (GOAL_MODEL_LEGACY,) + tuple(GOAL_MODEL_OPTIONS) + (GOAL_MODEL_FOR
 GOAL_MODEL_SHADOW_CANDIDATE = "dixon_coles_hl365_hybrid"
 assert GOAL_MODEL_SHADOW_CANDIDATE in GOAL_MODEL_OPTIONS
 GOAL_MODEL_PREDICTION_VERSIONS = {
-    GOAL_MODEL_LEGACY: CHALLENGE_PREDICTION_VERSION,
+    GOAL_MODEL_LEGACY: LEGACY_PREDICTION_VERSION,
+    GOAL_MODEL_FORM_STRENGTH: FORM_STRENGTH_PREDICTION_VERSION,
     GOAL_MODEL_SHADOW_CANDIDATE: "challenge-engine:dc-hl365-hybrid-joint-calibration-v1",
 }
 GOAL_MODEL_CONTRACT_SIGNATURES = {
     GOAL_MODEL_LEGACY: CHALLENGE_MODEL_CONTRACT_SIGNATURE,
+    # The monetary ticket contract is unchanged; the prediction version separates the bases.
+    GOAL_MODEL_FORM_STRENGTH: CHALLENGE_MODEL_CONTRACT_SIGNATURE,
     GOAL_MODEL_SHADOW_CANDIDATE: CHALLENGE_MODEL_CONTRACT_SIGNATURE + "+dc-hl365-hybrid-v1",
 }
 
@@ -1324,11 +1333,15 @@ def _fixture_model(
         fixture.get("league", {}).get("id") == 5
         or fixture.get("challenge_senior_national_team") is True
     ):
-        if goal_model != GOAL_MODEL_LEGACY:
+        if goal_model not in (GOAL_MODEL_LEGACY, GOAL_MODEL_FORM_STRENGTH):
             return None  # Fail closed: the club-league fit has no senior-international basis.
-        return _senior_national_fixture_model(
+        national = _senior_national_fixture_model(
             fixture, history, observations, include_provenance=include_provenance,
         )
+        if national is not None and goal_model == GOAL_MODEL_FORM_STRENGTH:
+            # Form strength was tested on league games only: national rates stay unchanged.
+            national.update(goal_model=GOAL_MODEL_FORM_STRENGTH, form_strength=None)
+        return national
     league_means = _league_goal_means(history, kickoff)
     if league_means is None:
         return None
@@ -1421,18 +1434,16 @@ def _fixture_model(
             return None
     form_strength = None
     if goal_model == GOAL_MODEL_FORM_STRENGTH:
-        # Tested on same-league games only; the home-league transfer path fails closed.
-        if team_history is not None or league_strength is not None:
-            return None
         from football_form_strength import (
             EXCLUDED_LEAGUE_IDS, form_strength_annotation, form_strength_factors, team_form,
         )
         league_id = fixture.get("league", {}).get("id")
-        if league_id in EXCLUDED_LEAGUE_IDS:
-            return None
-        forms = [team_form(history, team_id, league_id, kickoff,
-                           fixture_datetime=_fixture_datetime, fixture_score=_fixture_score)
-                 for team_id in (home_id, away_id)]
+        # Tested on domestic league games only: UEFA club competitions and the home-league
+        # transfer path keep the legacy rates (no factor), as every game with too few matches.
+        applicable = team_history is None and league_strength is None and league_id not in EXCLUDED_LEAGUE_IDS
+        forms = ([team_form(history, team_id, league_id, kickoff,
+                            fixture_datetime=_fixture_datetime, fixture_score=_fixture_score)
+                  for team_id in (home_id, away_id)] if applicable else [None, None])
         if forms[0] is not None and forms[1] is not None:
             form_strength = form_strength_annotation(*forms)
             factors = form_strength_factors(form_strength)
@@ -1498,13 +1509,9 @@ def _fixture_model(
     if league_strength is not None:
         model["league_strength"] = dict(league_strength)
     if goal_model == GOAL_MODEL_FORM_STRENGTH:
+        model["goal_model"] = GOAL_MODEL_FORM_STRENGTH
         model["form_strength"] = dict(form_strength) if form_strength is not None else None
-    if include_provenance and goal_model == GOAL_MODEL_FORM_STRENGTH:
-        # The reference recipe describes unadjusted legacy rates; it must not sign form-adjusted ones.
-        model.update(history_refs=[], reference_weights={
-            "schema": 1, "kind": "unavailable", "reason": "football-form-strength-not-modeled",
-        })
-    elif include_provenance and league_strength is not None:
+    if include_provenance and league_strength is not None:
         # The reference recipe describes unadjusted rates; it must not sign
         # league-strength-adjusted ones.
         model.update(history_refs=[], reference_weights={
@@ -1533,6 +1540,12 @@ def _fixture_model(
                 rates=(active_home, active_away),
                 home_effect_known=not _venue_home_edge_unknown(fixture),
             )
+        if form_strength is not None:
+            # The selected sources were resolved above (the publication keeps them as inspected),
+            # but the legacy reference recipe does not describe form-adjusted rates.
+            model.update(history_refs=[], reference_weights={
+                "schema": 1, "kind": "unavailable", "reason": "football-form-strength-not-modeled",
+            })
     return model
 
 
@@ -4895,6 +4908,9 @@ __all__ = [
     "CHALLENGE_MODEL_CONTRACT_SIGNATURE",
     "CHALLENGE_PREDICTION_VERSION",
     "GOAL_MODEL_LEGACY",
+    "GOAL_MODEL_FORM_STRENGTH",
+    "PRODUCTION_GOAL_MODEL",
+    "LEGACY_PREDICTION_VERSION",
     "GOAL_MODEL_SHADOW_CANDIDATE",
     "GOAL_MODELS",
     "goal_model_for_prediction_version",

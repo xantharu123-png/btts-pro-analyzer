@@ -71,7 +71,8 @@ def _expected_raw_matrix(family, record, model):
     try:
         if family == "goals":
             basis = model.get("goal_model", engine.GOAL_MODEL_LEGACY)
-            if basis == engine.GOAL_MODEL_LEGACY:
+            if basis in (engine.GOAL_MODEL_LEGACY, engine.GOAL_MODEL_FORM_STRENGTH):
+                # Form strength only rescales the legacy means; the captured raw means carry it.
                 return engine.score_matrix(*record["raw_means"])
             if basis not in engine.GOAL_MODEL_OPTIONS:
                 raise ValueError("unknown captured goal basis")

@@ -36,7 +36,8 @@ from api_budget import (  # noqa: E402
 )
 from betting_math import BettingMathError, no_vig_market  # noqa: E402
 from challenge_engine import (  # noqa: E402
-    GOAL_MODEL_LEGACY,
+    CHALLENGE_PREDICTION_VERSION,
+    PRODUCTION_GOAL_MODEL,
     GOAL_MODEL_SHADOW_CANDIDATE,
     MARKET_BY_KEY,
     MODEL_SCOPE_CROSS_COMPETITION_UNVALIDATED,
@@ -115,7 +116,8 @@ _NOT_VOIDED_PUBLISHED = ("NOT EXISTS (SELECT 1 FROM shadow_void v WHERE v.ledger
                          "AND v.row_key = shadow_published.candidate_id || '|' || shadow_published.kind "
                          "|| '|' || shadow_published.zurich_date)")
 MIN_HISTORY_GAMES = 220  # darunter wird die Vorsaison vorangestellt (Cold-Start)
-SHADOW_MODEL_VERSION = "challenge-engine-coherent-joint-calibration-v14"
+# Follows the production basis (form strength since 07.11.2026); a new basis starts a new cohort.
+SHADOW_MODEL_VERSION = CHALLENGE_PREDICTION_VERSION.replace(":", "-")
 # Policy v6 (23.10.2026): the opening quote may carry a provider stamp up to
 # three hours old (CLVTracker.OPENING_QUOTE_MAX_AGE) and its age is stored per
 # row; v5 required ten minutes. Rows of v5 stay in their own cohort.
@@ -165,7 +167,7 @@ def hybrid_cohort_enabled() -> bool:
 
 def _basis_cache_version(goal_model: str):
     """Cache name component of a rate basis; ``None`` keeps the legacy file names."""
-    if goal_model == GOAL_MODEL_LEGACY:
+    if goal_model == PRODUCTION_GOAL_MODEL:
         return None
     return prediction_version_for_goal_model(goal_model).replace(":", "-")
 SHADOW_REVIEW_MIN_CLV_BETS = 300
@@ -805,7 +807,7 @@ def _cached_history(provider, league_id, season, fixture, day):
     return history
 
 
-def _cached_validation(league_id, season, history, day, goal_model=GOAL_MODEL_LEGACY):
+def _cached_validation(league_id, season, history, day, goal_model=PRODUCTION_GOAL_MODEL):
     path = _cache_path("validation", league_id, season, day, _basis_cache_version(goal_model))
     if path.exists():
         try:
@@ -819,8 +821,7 @@ def _cached_validation(league_id, season, history, day, goal_model=GOAL_MODEL_LE
             ImportError,
         ):
             path.unlink(missing_ok=True)
-    validation = (validate_league_markets(history) if goal_model == GOAL_MODEL_LEGACY
-                  else validate_league_markets(history, goal_model=goal_model))
+    validation = validate_league_markets(history, goal_model=goal_model)
     atomic_write_bytes(
         path,
         pickle.dumps(validation, protocol=pickle.HIGHEST_PROTOCOL),
@@ -828,7 +829,7 @@ def _cached_validation(league_id, season, history, day, goal_model=GOAL_MODEL_LE
     return validation
 
 
-def _cached_calibration(league_id, season, history, day, goal_model=GOAL_MODEL_LEGACY):
+def _cached_calibration(league_id, season, history, day, goal_model=PRODUCTION_GOAL_MODEL):
     path = _cache_path("calibration", league_id, season, day, _basis_cache_version(goal_model))
     if path.exists():
         try:
@@ -842,8 +843,7 @@ def _cached_calibration(league_id, season, history, day, goal_model=GOAL_MODEL_L
             ImportError,
         ):
             path.unlink(missing_ok=True)
-    calibration = (fit_market_calibration(history) if goal_model == GOAL_MODEL_LEGACY
-                   else fit_market_calibration(history, goal_model=goal_model))
+    calibration = fit_market_calibration(history, goal_model=goal_model)
     atomic_write_bytes(
         path,
         pickle.dumps(calibration, protocol=pickle.HIGHEST_PROTOCOL),
@@ -1892,6 +1892,7 @@ def step_evaluate(tracker: CLVTracker, provider: ShadowProvider, now: datetime,
         )
         candidates = build_fixture_candidates(
             detail, history, validation, calibration,
+            goal_model=PRODUCTION_GOAL_MODEL,
             **(
                 {"model_scope": (
                     MODEL_SCOPE_SENIOR_NATIONAL if national_history

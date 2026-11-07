@@ -121,7 +121,7 @@ def test_cached_market_artifact_builds_and_saves_one_paired_cold_result():
         market_catalog_signature=challenge_15k.CHALLENGE_MARKET_CATALOG_SIGNATURE,
         expected_market_keys=tuple(spec.key for spec in MARKET_SPECS),
     )
-    build_mock.assert_called_once_with(history)
+    build_mock.assert_called_once_with(history, goal_model=challenge_15k.PRODUCTION_GOAL_MODEL)
     save_mock.assert_called_once_with(
         challenge_15k.CHALLENGE_PREDICTION_VERSION,
         39,

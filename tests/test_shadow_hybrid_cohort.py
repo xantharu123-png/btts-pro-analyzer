@@ -69,7 +69,7 @@ def ledger(tmp_path, monkeypatch):
     calls = {"validation": [], "candidates": [], "hybrid_loads": 0}
     monkeypatch.setattr(shadow, "_cached_history", lambda *args, **kwargs: [{"fixture": {"id": 1}}])
 
-    def cached_validation(league_id, season, history, day, goal_model=engine.GOAL_MODEL_LEGACY):
+    def cached_validation(league_id, season, history, day, goal_model=engine.PRODUCTION_GOAL_MODEL):
         calls["validation"].append(goal_model)
         return {}
 
@@ -83,7 +83,7 @@ def ledger(tmp_path, monkeypatch):
     monkeypatch.setattr(shadow, "_load_hybrid_artifacts", load_hybrid)
 
     def build(detail, history, validation, calibration, **kwargs):
-        calls["candidates"].append(kwargs.get("goal_model", engine.GOAL_MODEL_LEGACY))
+        calls["candidates"].append(kwargs.get("goal_model", engine.PRODUCTION_GOAL_MODEL))
         return [_candidate()]
 
     monkeypatch.setattr(shadow, "build_fixture_candidates", build)
@@ -115,7 +115,7 @@ def test_versions_and_cache_names_separate_the_two_bases():
     assert shadow.SHADOW_HYBRID_MODEL_VERSION != shadow.SHADOW_MODEL_VERSION
     legacy = shadow._cache_path("validation", 39, 2030, "2030-01-01")
     hybrid = shadow._cache_path("validation", 39, 2030, "2030-01-01", shadow._basis_cache_version(HYBRID))
-    assert legacy.name != hybrid.name and shadow._basis_cache_version(engine.GOAL_MODEL_LEGACY) is None
+    assert legacy.name != hybrid.name and shadow._basis_cache_version(engine.PRODUCTION_GOAL_MODEL) is None
 
 
 def test_hybrid_cohort_logs_a_second_row_from_the_same_quote_response(ledger, monkeypatch):
@@ -127,8 +127,8 @@ def test_hybrid_cohort_logs_a_second_row_from_the_same_quote_response(ledger, mo
     assert {row[2] for row in rows} == {shadow.SHADOW_POLICY_VERSION}
     assert provider.odds_calls == 1  # one quote response for both cohorts
     assert result["logged"] == 1 and result["hybrid_logged"] == 1 and result["evaluated"] == 1
-    assert ledger.calls["candidates"] == [engine.GOAL_MODEL_LEGACY, HYBRID]
-    assert ledger.calls["validation"] == [engine.GOAL_MODEL_LEGACY] and ledger.calls["hybrid_loads"] == 1
+    assert ledger.calls["candidates"] == [engine.PRODUCTION_GOAL_MODEL, HYBRID]
+    assert ledger.calls["validation"] == [engine.PRODUCTION_GOAL_MODEL] and ledger.calls["hybrid_loads"] == 1
     assert shadow.errors == []
 
 
@@ -137,7 +137,7 @@ def test_flag_zero_switches_the_hybrid_cohort_off(ledger, monkeypatch):
     assert shadow.hybrid_cohort_enabled() is False
     result = shadow.step_evaluate(ledger.tracker, _Provider(), ledger.now, date.today(), 10)
     assert [row[1] for row in _rows(ledger.db_path)] == [shadow.SHADOW_MODEL_VERSION]
-    assert "hybrid_logged" not in result and ledger.calls["candidates"] == [engine.GOAL_MODEL_LEGACY]
+    assert "hybrid_logged" not in result and ledger.calls["candidates"] == [engine.PRODUCTION_GOAL_MODEL]
 
 
 def test_hybrid_failure_never_blocks_the_legacy_ledger(ledger, monkeypatch):
@@ -159,7 +159,7 @@ def test_senior_internationals_have_no_hybrid_cohort(ledger, monkeypatch):
         connection.execute("UPDATE shadow_fixtures SET league_id = 5")
     shadow.step_evaluate(ledger.tracker, _Provider(), ledger.now, date.today(), 10)
     assert [row[1] for row in _rows(ledger.db_path)] == [shadow.SHADOW_MODEL_VERSION]
-    assert ledger.calls["candidates"] == [engine.GOAL_MODEL_LEGACY] and ledger.calls["hybrid_loads"] == 0
+    assert ledger.calls["candidates"] == [engine.PRODUCTION_GOAL_MODEL] and ledger.calls["hybrid_loads"] == 0
 
 
 def test_hybrid_without_artifacts_defers_the_fixture_until_the_league_is_built(ledger, monkeypatch):
@@ -171,7 +171,7 @@ def test_hybrid_without_artifacts_defers_the_fixture_until_the_league_is_built(l
     assert [row[1] for row in _rows(ledger.db_path)] == [shadow.SHADOW_MODEL_VERSION]
     assert result["logged"] == 1 and result["evaluated"] == 0 and result.get("deferred") == 1
     assert result["hybrid_not_ready"] == 1 and "hybrid_logged" not in result
-    assert ledger.calls["candidates"] == [engine.GOAL_MODEL_LEGACY] and shadow.errors == []
+    assert ledger.calls["candidates"] == [engine.PRODUCTION_GOAL_MODEL] and shadow.errors == []
     # The next run finds the artifacts: the hybrid row is logged from a fresh quote, the legacy
     # row is never duplicated and the fixture closes.
     monkeypatch.setattr(shadow, "_load_hybrid_artifacts", lambda league_id, season, day: ({}, {}))
@@ -197,9 +197,9 @@ def test_hybrid_without_quote_above_the_model_guard_keeps_the_fixture_open(ledge
     monkeypatch.delenv(shadow.SHADOW_HYBRID_FLAG, raising=False)
 
     def build(detail, history, validation, calibration, **kwargs):
-        basis = kwargs.get("goal_model", engine.GOAL_MODEL_LEGACY)
+        basis = kwargs.get("goal_model", engine.PRODUCTION_GOAL_MODEL)
         ledger.calls["candidates"].append(basis)
-        return [] if basis == engine.GOAL_MODEL_LEGACY else [_candidate(probability=0.70)]
+        return [] if basis == engine.PRODUCTION_GOAL_MODEL else [_candidate(probability=0.70)]
 
     monkeypatch.setattr(shadow, "build_fixture_candidates", build)
     monkeypatch.setattr(shadow, "_model_first_observations", lambda credible, odds_response, now: [])
@@ -214,7 +214,7 @@ def test_warm_up_builds_both_hybrid_artifacts_in_one_pass_within_the_budget(ledg
     monkeypatch.setattr(shadow, "_load_hybrid_artifacts", _REAL_LOAD_HYBRID_ARTIFACTS)
     passes = []
 
-    def one_pass(history, goal_model=engine.GOAL_MODEL_LEGACY):
+    def one_pass(history, goal_model=engine.PRODUCTION_GOAL_MODEL):
         passes.append(goal_model)
         return {"RESULT_HOME": "validation"}, {"RESULT_HOME": "calibration"}
 
@@ -235,7 +235,7 @@ def test_failed_warm_up_marks_the_league_for_the_day_and_is_not_retried(ledger, 
     monkeypatch.setattr(shadow, "_load_hybrid_artifacts", _REAL_LOAD_HYBRID_ARTIFACTS)
     attempts = []
 
-    def failing(history, goal_model=engine.GOAL_MODEL_LEGACY):
+    def failing(history, goal_model=engine.PRODUCTION_GOAL_MODEL):
         attempts.append(goal_model)
         raise RuntimeError("walk-forward failed")
 
