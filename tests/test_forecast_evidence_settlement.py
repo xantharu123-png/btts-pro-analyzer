@@ -288,6 +288,41 @@ def test_finite_budget_rotates_and_missing_causal_clocks_never_trigger_provider(
     assert {call[1][0] for call in provider.calls} == {1, 2, 3}
 
 
+
+def _recent_and_stale_events(db, monkeypatch):
+    """Events 1-3 kicked off four days before event 9; all still unresolved."""
+    later = START + timedelta(days=4)
+    recent = football_row(9)
+    recent["scheduled_start"] = later.isoformat()
+    record(db, monkeypatch, [football_row(i) for i in range(1, 4)] + [recent])
+    return later + timedelta(hours=3)
+
+
+def test_recent_kickoffs_are_checked_before_long_unresolved_events(tmp_path, monkeypatch):
+    from forecast_evidence_settlement import run_forecast_evidence_settlements
+    db = tmp_path / "evidence.db"
+    current = _recent_and_stale_events(db, monkeypatch)
+    provider = FootballProvider(status="NS")
+    for step in range(4):
+        summary = run_forecast_evidence_settlements(db_path=db, now=current + timedelta(minutes=30 * step),
+            football_provider=provider, max_events_per_sport=1)
+        assert summary["checked_events"] == 1
+        assert "football:event_budget_reached" in summary["errors"]
+    assert {call[1] for call in provider.calls if call[0] == "details"} == {(9,)}
+
+
+def test_long_unresolved_events_still_use_the_remaining_budget(tmp_path, monkeypatch):
+    from forecast_evidence_settlement import run_forecast_evidence_settlements
+    db = tmp_path / "evidence.db"
+    current = _recent_and_stale_events(db, monkeypatch)
+    provider = FootballProvider(status="NS")
+    for step in range(3):
+        run_forecast_evidence_settlements(db_path=db, now=current + timedelta(minutes=30 * step),
+            football_provider=provider, max_events_per_sport=2)
+    batches = [set(call[1]) for call in provider.calls if call[0] == "details"]
+    assert len(batches) == 3 and all(9 in batch and len(batch) == 2 for batch in batches)
+    assert set().union(*batches) == {1, 2, 3, 9}
+
 def h2h_row(sport="tennis"):
     row = football_row()
     row.update(candidate_id=f"{sport}:55", sport=sport, event_identity=f"native-model-{sport}:55",

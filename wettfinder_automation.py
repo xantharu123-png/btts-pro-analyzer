@@ -4782,25 +4782,9 @@ def run_wettfinder(
                 "status": "completed" if not evidence["rejected"] else "partial",
             }
             if production_state or evidence_settlement_runner is not None:
-                from forecast_evidence_settlement import run_forecast_evidence_settlements
-                settle_evidence = evidence_settlement_runner or run_forecast_evidence_settlements
-                provider = None
-                if production_state:
-                    app_config = config or load_app_config()
-                    provider = ChallengeDataProvider(app_config.api_football_key or "", app_config.weather_key)
-                # The already budgeted native final-detail response also owns
-                # the actual player-minute/lineup history. Previously this
-                # receiver was outside capture, so those facts were discarded.
-                # No additional requests, inferred minutes or backdated data.
-                with (capture_football_worker(provider) if provider is not None else nullcontext()) as result_capture:
-                    document["forecast_evidence"]["settlement"] = stage('forecast_results', settle_evidence,
-                        db_path=evidence_path, football_provider=provider,
-                        now=current if fixed_now else None,
-                        tennis_db_path=TENNIS_DB, esports_db_path=ESPORTS_DB,
-                    )
-                if result_capture is not None:
-                    document["forecast_evidence"]["settlement"].update(
-                        capture_report_fields({"context_capture": result_capture.report()}))
+                document["forecast_evidence"]["settlement"] = stage('forecast_results', _settle_forecast_evidence,
+                    evidence_path, config=config, now=current if fixed_now else None,
+                    runner=evidence_settlement_runner, production=production_state)
         except Exception as exc:
             document["forecast_evidence"] = {"status": "failed", "failure_type": type(exc).__name__}
             document["run_status"] = "degraded"
@@ -5368,8 +5352,50 @@ def _refresh_scheduled_prices(document, *, path, config, now):
     return result
 
 
+def _settle_forecast_evidence(evidence_path, *, config=None, now=None, runner=None, production=False):
+    """Collect real results of started forecasts (nightly run and every quotes run).
+
+    The already budgeted native final-detail response also owns the actual
+    player-minute/lineup history, so it is received inside the football
+    capture worker. No additional requests, inferred minutes or backdated data.
+    """
+    from forecast_evidence_settlement import run_forecast_evidence_settlements
+    settle = runner or run_forecast_evidence_settlements
+    provider = None
+    if production:
+        app_config = config or load_app_config()
+        provider = ChallengeDataProvider(app_config.api_football_key or "", app_config.weather_key)
+    with (capture_football_worker(provider) if provider is not None else nullcontext()) as result_capture:
+        summary = settle(db_path=evidence_path, football_provider=provider, now=now,
+                         tennis_db_path=TENNIS_DB, esports_db_path=ESPORTS_DB)
+    if result_capture is not None:
+        summary.update(capture_report_fields({"context_capture": result_capture.report()}))
+    return summary
+
+
+def _quotes_run_settlement(evidence_path, *, config, now, runner, production):
+    """Results between nightly runs (10.11.2026): compact, never part of the snapshot.
+
+    Unresolved results are data status, as in the nightly run; only a crash
+    counts as an operational error of the quotes unit.
+    """
+    try:
+        full = _settle_forecast_evidence(evidence_path, config=config, now=now, runner=runner,
+                                         production=production)
+    except Exception as exc:
+        return {'status': 'failed', 'error_type': type(exc).__name__}
+    compact = {'status': 'completed', **{key: int(full.get(key) or 0) for key in (
+        'due_forecasts', 'checked_events', 'terminal_results', 'unresolved_forecasts', 'operational_error_count')}}
+    compact['diagnostics'] = dict(Counter(str(item) for item in full.get('errors') or ()))
+    capture = full.get('context_capture')
+    if isinstance(capture, Mapping):
+        compact['context_capture'] = {'status': capture.get('status'),
+                                      'receipts': len(capture.get('receipt_refs') or ())}
+    return compact
+
+
 def refresh_prices_only(*, state_path=STATE_PATH, config=None, now=None, quote_loader=None,
-                        quote_sport="football", evidence_db_path=None):
+                        quote_sport="football", evidence_db_path=None, evidence_settlement_runner=None):
     """Refresh bounded prices without models, under the daily publication lock."""
     if quote_sport not in {'football', 'tennis', 'all'}:
         raise ValueError('unsupported quote sport')
@@ -5399,6 +5425,13 @@ def refresh_prices_only(*, state_path=STATE_PATH, config=None, now=None, quote_l
                 summary['closing_evidence'] = {'status': 'failed', 'error_type': type(exc).__name__}
                 summary['operational_errors'] = int(summary.get('operational_errors', summary.get('errors', 0))) + 1
         write_state(document, path)
+        # Still under the publication lock, so the nightly run cannot overlap.
+        if canonical or evidence_settlement_runner is not None:
+            summary['evidence_settlement'] = _quotes_run_settlement(
+                evidence_db_path or ROOT / 'runtime_state' / 'forecast_evidence.db', config=config,
+                now=now, runner=evidence_settlement_runner, production=canonical)
+            if summary['evidence_settlement']['status'] == 'failed':
+                summary['operational_errors'] = int(summary.get('operational_errors', summary.get('errors', 0))) + 1
         return summary
 
 

@@ -53,6 +53,7 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 | Codex | Branch integrieren, Konflikte lösen, Prüfbefehle, Release vorbereiten (`docs/handoffs/2026-10-21-codex-auftrag.md`) |
 | Claude | Wettfinder mit 66 Ligen und Folgetag (PR #73, #74, live seit 02.11. 23:33): Tageslauf 3.11. geprüft (33 min, heute 18 und morgen 14 Fussballspiele, Seite 54/29). 15K seit 3.11. 13:32: höchstens fünf Spiele, je Spiel der wahrscheinlichste Markt mit Leg-Quote ab 1,25 (PR #78, #79, #82) |
 | Claude | Doublebet (PR #84, live seit 03.11. 14:52): die ersten Tage beobachten, Anzahl Auswahlen und Trefferquote gegen 50 % (`docs/audits/2026-11-03-doublebet.md`) |
+| Claude | Abrechnung (PR offen, `docs/audits/2026-11-10-abrechnung-quotenlauf.md`): Ergebnisse auch in jedem Quotenlauf, Spiele der letzten 72 Stunden zuerst; nach dem Release prüfen, dass Spiele vom Vortag am Morgen abgerechnet sind |
 | Claude | Fallenfilter (`docs/audits/2026-11-09-fallenfilter-vorab.md`): bis zur Auswertung nur `scripts/trap_filter_measurement.py --count-only`, am 30.11.2026 auswerten, zusammen mit der Formstärke-Messung |
 | Claude | `ops_alerts.json` und `disk_status.json` in der App anzeigen (Betriebsstatus); No-Vig-CLV steht seit 28.10. im Shadow-Artefakt (`no_vig_clv`) |
 | Owner | Gestaltung (Massnahme 7): Zahlenformat Punkt oder Komma, Begriffe, Raster, 15K-Währung, Daily3-Slogan (`docs/audits/2026-10-28-massnahme-7-oberflaeche.md`); Aufbewahrung der Kontextquittungen, WAL, `user_version` (`docs/audits/2026-10-28-massnahme-9-plattenwaechter.md`) |
