@@ -42,3 +42,17 @@ abgerechnet sein?“ Danach Owner „Ja, beheben“.
   - `test_active_15k_model_surface_obeys_bound_floor_before_slot_selection[1.2-True]`
   - `test_production_stages_preserve_document_order_and_private_callbacks` (Folgetag-Suche in der erwarteten
     Reihenfolge)
+
+## Release 20261110-1
+
+- **Auftrag:** Owner „Ja, live stellen“, PR #107 gemergt (`5c3ada9`).
+- **Ausrollen:** No-Backup-Fast-forward `0353dde` → `5c3ada9` am 10.11.2026 um 11:43 CET mit dem
+  geprüften Helfer (`output/release-20261110-1/`, `deploy-01.log`).
+  - Offline-Importprüfung ok, App neu gestartet, Health lokal und öffentlich ok.
+  - `wettfinder_latest.json` und `riskobet_latest.json` unverändert, keine Einheit geändert, kein Backup.
+- **Erster Quotenlauf danach, 12:15 CET:** Exit 0 in 6 Sekunden.
+  - `evidence_settlement`: 213 fällige Prognosen, 60 Spiele geprüft, 155 Ergebnisse eingetragen, 58 offen.
+  - Kein Betriebsfehler, Budgetgrenze nicht erreicht.
+- **Montag 09.11.:** Die vier Fussballspiele sind abgerechnet.
+- **Noch offen:** 5 Fussballspiele vom 1. bis 8.11. sowie 26 Tennisspiele aus September und Oktober. Sie belegen
+  nur noch Restplätze.
