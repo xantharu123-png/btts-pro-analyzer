@@ -45,3 +45,12 @@ Scannern machen“. Vereinbart ist ein Vorgehen in drei Schritten, das hier ist 
   am Spieltag.
 - **Schritt 3:** Tennis, Eishockey, E-Sport und RisikoBet mit morgen. Das Tennisquoten-Kontingent von The Odds API
   liegt bei 500 Abrufen im Monat, verbraucht werden bisher etwa 250.
+
+## Release 20261110-4
+
+- **Auftrag:** Owner „Ja, live stellen“, PR #112 gemergt (`544c299`).
+- **Ausrollen:** No-Backup-Fast-forward `bae99ee` → `544c299` am 10.11.2026 um 21:04 CET (`output/release-20261110-4/`).
+  - Offline-Importprüfung ok, auch die Prüfung „keine Grenze `NEXT_DAY_MIN_GAMES`“.
+  - Health ok, Snapshots unverändert, keine Einheit geändert, kein Backup.
+- **Wirkung:** ab dem Nachtlauf am 11.11.2026 um 03:35. In der Länderspielpause bis etwa 17.11. gibt es nur wenige
+  Spiele.

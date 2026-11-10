@@ -39,3 +39,16 @@ Stand 10.11.2026. Owner-Frage „wie kann das sein, heute kein Doublebet?“, da
   - `test_native_conflicting_role_ids_fail_before_any_request`
 - **Tennis:** Die heutigen Stockholm-Spiele fanden bei The Odds API kein passendes Ereignis (`IDENTITY_MISMATCH`). Die
   genaue Ursache braucht einen Abruf der Ereignisliste. Dafür ist ein Owner-OK nötig.
+
+## Release 20261110-3
+
+- **Auftrag:** Owner „Ja, live stellen“, PR #111 gemergt (`bae99ee`).
+- **Ausrollen:** No-Backup-Fast-forward `fa7205f` → `bae99ee` am 10.11.2026 um 16:32 CET (`output/release-20261110-3/`).
+  - Offline-Importprüfung ok, Health ok.
+  - Snapshots unverändert, keine Einheit geändert, kein Backup.
+- **Quotenlauf 18:15 CET:** Die NHL-Spiele wurden noch nicht neu geprüft. Der letzte Versuch lag 2 Stunden und 59
+  Minuten zurück, unter der Sperre von 3 Stunden (`REFRESH_AFTER`).
+- **Quotenlauf 21:15 CET:** Exit 0.
+  - `team_sports`: 6 Spiele geprüft, 6 zugeordnet, 12 Quoten, keine Lücke, kein Fehler.
+  - Beispiel: Ottawa gegen Washington, beste Quote 1,81 und 2,15, je 9 Buchmacher.
+  - API-Sports Hockey liefert also Quoten für die laufende Saison.
