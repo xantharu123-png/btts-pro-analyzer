@@ -142,6 +142,41 @@ def test_nhl_abbreviations_resolved_only_by_exact_native_event():
     assert prices._nhl_names(r,payload) is None
 
 
+
+@pytest.mark.parametrize('start', [datetime(2026, 9, 5, 18, tzinfo=timezone.utc),
+                                   datetime(2026, 9, 6, 0, tzinfo=timezone.utc)])
+def test_nhl_game_is_found_under_its_north_american_date(tmp_path, start):
+    """The NHL schedule lists a game under its local date, also after midnight UTC (10.11.2026: OTT-WSH)."""
+    from datetime import date
+    rows = [row('ice_hockey', side=side, provider_event_id='2026020288', scheduled_start=start.isoformat(),
+                competitor_a='OTT', competitor_b='WSH', selected_competitor='OTT' if side == 'home' else 'WSH')
+            for side in ('home', 'away')]
+    entry = {'id': 2026020288, 'startTimeUTC': start.isoformat().replace('+00:00', 'Z'),
+             'homeTeam': {'abbrev': 'OTT', 'placeName': {'default': 'Ottawa'}, 'commonName': {'default': 'Senators'}},
+             'awayTeam': {'abbrev': 'WSH', 'placeName': {'default': 'Washington'}, 'commonName': {'default': 'Capitals'}}}
+    local_day = date(2026, 9, 5)
+
+    def week(first):
+        # Like api-web.nhle.com/v1/schedule/{date}: seven days from that date, games under their local date.
+        return {'gameWeek': [{'date': (first + timedelta(days=i)).isoformat(),
+                              'games': [entry] if first + timedelta(days=i) == local_day else []} for i in range(7)]}
+    native = dict(id=81, date=start.isoformat(), league={'name': 'NHL'}, status={'short': 'NS'},
+                  teams={'home': {'name': 'Ottawa Senators'}, 'away': {'name': 'Washington Capitals'}})
+    calls = []
+
+    def get(url, **kwargs):
+        calls.append(url)
+        if url.startswith('https://api-web.nhle.com/v1/schedule/'):
+            first = date.fromisoformat(url.rsplit('/', 1)[1])
+            return SimpleNamespace(status_code=200, headers={}, json=lambda: week(first))
+        return SimpleNamespace(status_code=200, headers={}, json=lambda: {
+            'errors': [], 'response': [native] if url.endswith('/games') else odds(native)})
+
+    summary = prices.refresh_team_sport_prices(rows, api_key='test', now=start - timedelta(hours=6),
+                                               path=tmp_path/'quotes.json', governor=Governor(), get=get)
+    assert summary['identity_gaps'] == [] and summary['matched_games'] == 1 and summary['quotes'] == 2
+    assert calls[0] == 'https://api-web.nhle.com/v1/schedule/' + (start.date() - timedelta(days=1)).isoformat()
+
 def test_no_requests_without_supported_models(tmp_path):
     def unexpected(*args,**kwargs): raise AssertionError('request')
     assert prices.refresh_team_sport_prices([row('tennis')],api_key='test',now=NOW,path=tmp_path/'x',get=unexpected)['status']=='no_events'

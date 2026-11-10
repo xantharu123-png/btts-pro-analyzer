@@ -368,12 +368,16 @@ def refresh_team_sport_prices(rows, *, api_key, now=None, path=CACHE_PATH, gover
                         raise ValueError('conflicting_origin_identity')
                     names = (group[0]['competitor_a'], group[0]['competitor_b'])
                     if sport == 'ice_hockey' and origin == 'NHL':
-                        if date not in nhl_cache:
-                            native = get('https://api-web.nhle.com/v1/schedule/' + date, timeout=10, allow_redirects=False)
+                        # The NHL lists a game under its North American date, but an
+                        # evening game starts after midnight UTC (10.11.2026). The week
+                        # from the previous UTC day contains both possible dates.
+                        week = (_parse_utc(start) - timedelta(days=1)).date().isoformat()
+                        if week not in nhl_cache:
+                            native = get('https://api-web.nhle.com/v1/schedule/' + week, timeout=10, allow_redirects=False)
                             if native.status_code != 200:
                                 raise ValueError('native_identity_unavailable')
-                            nhl_cache[date] = native.json()
-                        names = _nhl_names(group[0], nhl_cache[date])
+                            nhl_cache[week] = native.json()
+                        names = _nhl_names(group[0], nhl_cache[week])
                     if names is None:
                         for r in group:
                             doc['quotes'].pop(_key(r), None)
