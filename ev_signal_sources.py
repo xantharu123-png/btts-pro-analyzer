@@ -64,10 +64,10 @@ MAX_AUTOMATED_CHALLENGE_RELEASE_CANDIDATES = 5
 MAX_AUTOMATED_OTHER_CANDIDATES_PER_SPORT = 1_200
 MAX_AUTOMATED_MODEL_CANDIDATES = 112_800
 MAX_AUTOMATED_RECOMMENDATIONS = 3
-# Owner decision 02.11.2026 (docs/audits/2026-11-02-wettfinder-folgetag.md): a match day
-# with fewer football games also lists the next Zurich day's football model selections.
-# They never become a tip, a 15K row, a Daily3 choice or an evidence forecast.
-NEXT_DAY_MIN_GAMES = 30
+# Owner decision 02.11.2026 (docs/audits/2026-11-02-wettfinder-folgetag.md), always since
+# 10.11.2026 (docs/audits/2026-11-10-folgetag-immer.md): the daily run also lists the next
+# Zurich day's football model selections. They never become a tip, a 15K row, a Daily3
+# choice or an evidence forecast.
 AUTOMATED_WETTFINDER_MAX_AGE = timedelta(hours=2, minutes=30)
 AUTOMATED_MODEL_MAX_AGE = timedelta(hours=24)
 AUTOMATED_VALIDATION_MARKET_HYPOTHESES = len(MARKET_SPECS)
