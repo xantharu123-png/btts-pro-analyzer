@@ -4753,7 +4753,9 @@ def _render_wettfinder_games(catalog, row_by_key, *, sport_filter: str, sort_mod
                 _render_wettfinder_game(group, row_by_key, featured_keys, index < 3)
 
 
-WETTFINDER_MIN_CHANCE_DEFAULT = 50
+# Owner 10.11.2026 „Liste ab 70 %“: the page starts with the selections the model rates at
+# 70 % or more (07.10.–09.11.: 72,3 % hit, 1353 tips; docs/audits/2026-11-10-liste-ab-70.md).
+WETTFINDER_MIN_CHANCE_DEFAULT = 70
 
 
 def _wettfinder_min_chance_control() -> int:
