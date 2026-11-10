@@ -53,6 +53,7 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 | Codex | Branch integrieren, Konflikte lösen, Prüfbefehle, Release vorbereiten (`docs/handoffs/2026-10-21-codex-auftrag.md`) |
 | Claude | Wettfinder mit 66 Ligen und Folgetag (PR #73, #74, live seit 02.11. 23:33): Tageslauf 3.11. geprüft (33 min, heute 18 und morgen 14 Fussballspiele, Seite 54/29). 15K seit 3.11. 13:32: höchstens fünf Spiele, je Spiel der wahrscheinlichste Markt mit Leg-Quote ab 1,25 (PR #78, #79, #82) |
 | Claude | Doublebet (PR #84, live seit 03.11. 14:52): die ersten Tage beobachten, Anzahl Auswahlen und Trefferquote gegen 50 % (`docs/audits/2026-11-03-doublebet.md`) |
+| Claude | Liste ab 70 % (PR offen, `docs/audits/2026-11-10-liste-ab-70.md`): Wettfinder-Regler startet bei 70 %; Rückblick 72,3 % Treffer bei Quote um 1,28; auf neuen Tipps mit `output/quoten-20261109/hit_by_model.py` nachmessen |
 | Claude | Abrechnung (live seit 10.11.2026, `docs/audits/2026-11-10-abrechnung-quotenlauf.md`): in den nächsten Tagen beobachten, dass Spiele vom Vorabend am Morgen abgerechnet sind; 5 Fussballspiele vom 1. bis 8.11. und 26 Tennisspiele aus September/Oktober bleiben ohne Ergebnis |
 | Claude | Fallenfilter (`docs/audits/2026-11-09-fallenfilter-vorab.md`): bis zur Auswertung nur `scripts/trap_filter_measurement.py --count-only`, am 30.11.2026 auswerten, zusammen mit der Formstärke-Messung |
 | Claude | `ops_alerts.json` und `disk_status.json` in der App anzeigen (Betriebsstatus); No-Vig-CLV steht seit 28.10. im Shadow-Artefakt (`no_vig_clv`) |

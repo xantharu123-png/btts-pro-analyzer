@@ -120,12 +120,13 @@ def _render_page_for_test():
         app.automated_wettfinder_snapshot, app.datetime, tip_publication.record_signal_catalog = saved
 
 
-def test_real_streamlit_slider_starts_at_fifty_and_moves_the_page():
+def test_real_streamlit_slider_starts_at_seventy_and_moves_the_page():
     from streamlit.testing.v1 import AppTest
     ui = AppTest.from_function(_render_page_for_test).run(timeout=60)
     assert not ui.exception
     slider, = [item for item in ui.slider if item.key == 'wettfinder_min_chance']
-    assert slider.value == 50 and slider.label == 'Mindest-Modellchance (%)'
+    # Owner 10.11.2026 „Liste ab 70 %“: the page starts with the 70 % list, the viewer can slide lower.
+    assert slider.value == 70 and slider.label == 'Mindest-Modellchance (%)'
     assert [block.label.split(' vs ')[0] for block in ui.expander] == ['Heimteam 2']
     slider.set_value(25).run(timeout=60)
     assert not ui.exception
