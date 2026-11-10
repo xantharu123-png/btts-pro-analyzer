@@ -25,7 +25,7 @@ ein Plan, wer was macht. Dieser Plan ändert noch keinen Code und keine Website.
 
 | Frage | Vorschlag |
 |---|---|
-| Icon | Entwurf 1 „Chance-Ring“: weisser Ball in einem zu 70 % gefüllten Ring auf BetBoy-Grün `#16784b`. Alternativen: „Datenbalken“, „Mittelkreis“. Dateien: `output/betboy-store-20261110/icon-entwurf-*.svg` |
+| Icon | **Entschieden 10.11.2026: „Mittelkreis“**, ein weisser Ball im Mittelkreis mit Mittellinie auf BetBoy-Grün `#16784b`. Entwürfe und fertige Grössen liegen in `output/betboy-store-20261110/` |
 | Name im Store | „BetBoy“ bleibt. Wegen „Bet“ prüft Google genauer, das ist in Ordnung. |
 | Preis | kostenlos, ohne Werbung, ohne Käufe. Glücksspielwerbung ist in Tipp-Apps ohnehin verboten. |
 | Adresse der App | `betboy.bmmestudios.com` statt `vps-a30a123f.vps.ovh.net`, weil sie zur Marke passt und die Android-App sie bestätigen muss |
