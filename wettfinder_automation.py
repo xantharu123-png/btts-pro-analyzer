@@ -75,7 +75,6 @@ from ev_signal_sources import (
     MAX_AUTOMATED_MODEL_CANDIDATES,
     MAX_AUTOMATED_OTHER_CANDIDATES_PER_SPORT,
     MAX_AUTOMATED_RECOMMENDATIONS,
-    NEXT_DAY_MIN_GAMES,
     ESPORTS_DB,
     ModelSignal,
     TENNIS_DB,
@@ -3930,9 +3929,10 @@ def run_wettfinder(
             if context_statuses.get(str(row.get("fixture_id"))) == "verified"
         ]
     )
-    # Owner decision 02.11.2026: a match day with fewer football games also lists
-    # the next day's games. That day has its own state and the remaining context
-    # batches; it never changes today's football status, tips, 15K list or evidence.
+    # Owner decision 02.11.2026, always since 10.11.2026 ("heute und morgen"): the
+    # daily run also lists the next day's games. That day has its own state and the
+    # remaining context batches, so today goes first; it never changes today's
+    # football status, tips, 15K list or evidence.
     next_target = target + timedelta(days=1)
     next_day_state: dict[str, Any] = {}
     next_day_rows: list[dict[str, Any]] = []
@@ -3943,7 +3943,6 @@ def run_wettfinder(
     next_day_summary: dict[str, Any] = {"status": "not_needed", "today_games": today_games}
     if (
         (production_state if football_next_day is None else football_next_day)
-        and today_games < NEXT_DAY_MIN_GAMES
         and football_state.get("status") == "completed"
         and context_statuses is not None
     ):

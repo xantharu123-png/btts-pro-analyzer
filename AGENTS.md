@@ -91,10 +91,11 @@ Code, dann `PROJECT_HANDBUCH.md`, dann die Bibel. Historische Logs: `TODO_AKTUEL
   von bis zu drei Wetten mit der höchsten Summe der Modellwahrscheinlichkeiten. Die 70-%-Grenze und der Pflicht-
   Vergleich sind weg; Form-/Belagvergleich bleibt Hinweis. Interne Namen (`daily3_*`, Feature `daily3`, Archive
   `daily3_rail`/`daily3_default_plan`) bleiben; nur Anzeige und Policy heissen Doublebet.
-- **Wettfinder-Folgetag seit 02.11.2026** (`docs/audits/2026-11-02-wettfinder-folgetag.md`, Owner-Entscheid): Hat
-  der Spieltag weniger als 30 Fussballspiele mit Auswahl (`NEXT_DAY_MIN_GAMES`), listet der Tageslauf auch den
-  nächsten Tag (`football_next_day`, `next_day_search_date`). Nur Modellauswahlen in der Wettfinder-Liste, nie Tipp,
-  15K, Daily3, Shadow, Evidenz oder Archiv. Ein Fehler dort lässt heute unverändert.
+- **Wettfinder-Folgetag seit 02.11.2026** (`docs/audits/2026-11-02-wettfinder-folgetag.md`, Owner-Entscheid), seit
+  10.11.2026 immer, ohne Grenze von 30 Spielen (`docs/audits/2026-11-10-folgetag-immer.md`, Owner „heute und
+  morgen“, Schritt 1): Der Tageslauf listet auch den nächsten Tag (`football_next_day`, `next_day_search_date`).
+  Nur Modellauswahlen in der Wettfinder-Liste, nie Tipp, 15K, Daily3, Shadow, Evidenz oder Archiv. Ein Fehler dort
+  lässt heute unverändert.
 - **Tennis-Tipps ab 60 % seit 05.11.2026** (`docs/audits/2026-11-05-tennis-tipps-ab-60.md`, Owner „alles machen“,
   „Ja, mergen + live“): Ein Tennis-Siegertipp entsteht erst ab 60 % Modellchance (`TENNIS_WINNER_MIN_PROBABILITY`
   in `ev_signal_sources.tennis_model_signals`). Darunter traf das Modell wie ein Münzwurf: 49,8 % in der Hypothese

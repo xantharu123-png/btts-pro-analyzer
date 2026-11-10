@@ -1,4 +1,4 @@
-"""Folgetag (owner decision 02.11.2026): a match day with fewer football games lists the next day.
+"""Folgetag (owner 02.11.2026, always since 10.11.2026): the daily run also lists the next day.
 
 The next day's games are model selections only. They never become a tip, a 15K row, a
 Daily3 choice or an archived publication, and a failure there leaves today unchanged.
@@ -11,8 +11,8 @@ import pytest
 
 import wettfinder_automation as automation
 from config_loader import AppConfig
+import ev_signal_sources
 from ev_signal_sources import (
-    NEXT_DAY_MIN_GAMES,
     _load_automated_wettfinder_document,
     automated_next_day,
     automated_wettfinder_forecasts,
@@ -76,8 +76,24 @@ def _fixture_ids(rows):
     return {row.get("fixture_id") for row in rows}
 
 
-def test_threshold_is_thirty_games():
-    assert NEXT_DAY_MIN_GAMES == automation.NEXT_DAY_MIN_GAMES == 30
+def test_next_day_has_no_game_threshold():
+    # Owner 10.11.2026 "heute und morgen": no longer only below 30 football games.
+    assert not hasattr(automation, "NEXT_DAY_MIN_GAMES")
+    assert not hasattr(ev_signal_sources, "NEXT_DAY_MIN_GAMES")
+
+
+def _full_day_snapshot(games=30) -> dict:
+    snapshot = _today_snapshot()
+    base = snapshot["wettfinder_candidates"][0]
+    candidates = []
+    for fixture_id in range(100, 100 + games):
+        candidate = replace(base, candidate_id=f"fixture-{fixture_id}-btts", fixture_id=fixture_id)
+        candidate.context = dict(base.context)
+        candidates.append(candidate)
+    snapshot.update(wettfinder_candidates=candidates, discovery_candidates=candidates,
+                    context_fixture_statuses={str(c.fixture_id): "verified" for c in candidates},
+                    base_fixture_count=games, context_fixtures=games, context_verified_fixtures=games)
+    return snapshot
 
 
 def test_small_match_day_lists_next_day_games_as_model_selections_only(tmp_path):
@@ -102,14 +118,19 @@ def test_small_match_day_lists_next_day_games_as_model_selections_only(tmp_path)
                for signal in automated_wettfinder_signals(artifact, now=NOW))
 
 
-def test_full_match_day_does_not_scan_the_next_day(tmp_path, monkeypatch):
-    monkeypatch.setattr(automation, "NEXT_DAY_MIN_GAMES", 1)
+def test_full_match_day_also_lists_the_next_day(tmp_path):
     calls = []
-    _artifact, document = _run(tmp_path, _scanner(calls), football_next_day=True)
 
-    assert calls == [TODAY]
-    assert "next_day_search_date" not in document and "football_next_day" not in document
-    assert document["sources"]["football"]["next_day"]["status"] == "not_needed"
+    def scan(day):
+        calls.append(day)
+        return _next_day_snapshot() if day == TOMORROW else _full_day_snapshot()
+
+    _artifact, document = _run(tmp_path, scan, football_next_day=True)
+    summary = document["sources"]["football"]["next_day"]
+    assert summary["today_games"] >= 30
+    assert calls == [TODAY, TOMORROW]
+    assert summary["status"] == "listed" and document["next_day_search_date"] == "2030-01-02"
+    assert 2 in _fixture_ids(document["model_candidates"]) and 2 not in _fixture_ids(document["candidates"])
 
 
 def test_isolated_runs_keep_the_single_day_unless_asked(tmp_path):
