@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import hashlib
 import json
@@ -34,6 +34,27 @@ from riskobet_settlement_automation import (
 MAX_EVENTS_PER_SPORT = 40
 MAX_SOURCE_REVISIONS_PER_EVENT = 500
 ROTATION_SECONDS = 30 * 60
+# Results are collected by the nightly run and by every quotes run (10.11.2026).
+# An event without a final result this long after kickoff (postponed, abandoned,
+# unproven identity) only uses budget that recent kickoffs leave free.
+RECENT_KICKOFF_WINDOW = timedelta(hours=72)
+
+
+def _rotated(items: list, current: datetime, count: int) -> list:
+    if count <= 0 or not items:
+        return []
+    if len(items) <= count:
+        return list(items)
+    offset = (int(current.timestamp()) // ROTATION_SECONDS * count) % len(items)
+    return [items[(offset + i) % len(items)] for i in range(count)]
+
+
+def _budgeted_events(items: list, current: datetime, budget: int) -> list:
+    """Recent kickoffs first; long-unresolved events rotate through the rest."""
+    recent = [item for item in items if item[0][3] >= current - RECENT_KICKOFF_WINDOW]
+    stale = [item for item in items if item[0][3] < current - RECENT_KICKOFF_WINDOW]
+    chosen = _rotated(recent, current, budget)
+    return chosen + _rotated(stale, current, budget - len(chosen))
 
 
 def _native_identity(row: Mapping) -> tuple | None:
@@ -241,7 +262,10 @@ def run_forecast_evidence_settlements(
     team_history_path: str | Path | None = None,
     max_events_per_sport: int = MAX_EVENTS_PER_SPORT,
 ) -> dict:
-    """Collect real outcomes, rotating finite event budgets once per half hour.
+    """Collect real outcomes within a finite event budget per sport and call.
+
+    Recent kickoffs (``RECENT_KICKOFF_WINDOW``) come first and rotate per half
+    hour if they alone exceed the budget; older unresolved events fill the rest.
 
     ``now`` is an injectable observation clock for deterministic replay/tests;
     live callers should omit it so a provider response gets its actual read time.
@@ -289,8 +313,7 @@ def run_forecast_evidence_settlements(
         items = list(native_events.items())
         items.sort(key=lambda item: (item[0][3], item[1][0]["event_key"]))
         if len(items) > max_events_per_sport:
-            offset = (int(current.timestamp()) // ROTATION_SECONDS * max_events_per_sport) % len(items)
-            items = [items[(offset + i) % len(items)] for i in range(max_events_per_sport)]
+            items = _budgeted_events(items, current, max_events_per_sport)
             errors.append(f"{sport}:event_budget_reached")
         selected[sport] = items
 

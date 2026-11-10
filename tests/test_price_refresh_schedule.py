@@ -56,6 +56,50 @@ def test_price_refresh_hands_received_quotes_to_evidence_without_model_run(tmp_p
     assert 'not-for-publication' not in path.read_text()
 
 
+
+@pytest.mark.parametrize("outcome", ["completed", "crashed"])
+def test_every_quotes_run_also_collects_results(tmp_path, monkeypatch, outcome):
+    row, quote = _football()
+    path, _original = _state(tmp_path, [row])
+    monkeypatch.setattr('forecast_evidence.record_current_closing_quotes',
+                        lambda *args, **kwargs: {'status': 'completed', 'recorded': 0, 'rejected': 0})
+    calls = []
+    def settle(**kwargs):
+        calls.append(kwargs)
+        if outcome == "crashed":
+            raise RuntimeError("database is locked")
+        return {"due_forecasts": 5, "checked_events": 2, "terminal_results": 4, "unresolved_forecasts": 1,
+                "errors": ["football:event_budget_reached", "football:result_source_failed"],
+                "operational_error_count": 1}
+    evidence_path = tmp_path/'evidence.db'
+    result = automation.refresh_prices_only(state_path=path, now=NOW,
+        quote_loader=lambda *args, **kw: ({quote.candidate_id: quote}, []),
+        evidence_db_path=evidence_path, evidence_settlement_runner=settle)
+    assert len(calls) == 1
+    assert calls[0]["db_path"] == evidence_path and calls[0]["football_provider"] is None
+    assert calls[0]["now"] == NOW
+    if outcome == "completed":
+        assert result["evidence_settlement"] == {
+            "status": "completed", "due_forecasts": 5, "checked_events": 2, "terminal_results": 4,
+            "unresolved_forecasts": 1, "operational_error_count": 1,
+            "diagnostics": {"football:event_budget_reached": 1, "football:result_source_failed": 1}}
+        # Result gaps are reported; like team prices they never fail the quotes unit.
+        assert int(result.get("operational_errors", 0)) == 0
+    else:
+        assert result["evidence_settlement"] == {"status": "failed", "error_type": "RuntimeError"}
+        assert int(result.get("operational_errors", 0)) == 1
+    assert "evidence_settlement" not in json.loads(path.read_text())
+
+
+def test_test_snapshot_without_injected_runner_collects_no_results(tmp_path, monkeypatch):
+    row, quote = _football()
+    path, _original = _state(tmp_path, [row])
+    monkeypatch.setattr('forecast_evidence_settlement.run_forecast_evidence_settlements',
+                        lambda **kwargs: pytest.fail('results outside the production snapshot'))
+    result = automation.refresh_prices_only(state_path=path, now=NOW,
+        quote_loader=lambda *args, **kw: ({quote.candidate_id: quote}, []))
+    assert "evidence_settlement" not in result
+
 def _native_loaders(monkeypatch, football, tennis, *, outcome="quotes"):
     calls = []
     def receive(sport, quote, rows, kwargs):
