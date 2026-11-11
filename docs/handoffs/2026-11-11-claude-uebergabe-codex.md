@@ -4,6 +4,16 @@ Dieses Dokument übergibt den Stand vom 09. bis 11.11.2026 vollständig. Es erg�
 `STATUS.md` (eine Seite Stand) und die Protokolle unter `docs/audits/`. Bei Widersprüchen gilt wie immer zuerst der
 Code.
 
+## Nachtrag 11.11.2026, 14:15 CET
+
+- Produktion läuft jetzt auf `4f00d0f` (PR #118, Release 20261111-3, Beleg `output/release-20261111-3/`).
+- Doublebet nimmt das Eishockey-Modell auf (Policy v15, `DOUBLEBET_RESEARCH_SPORTS`); Basketball und alle anderen
+  Flächen behalten den Ausschluss. Team-Quoten werden zuerst für Spiele mit Modell geholt. Details:
+  `docs/audits/2026-11-11-doublebet-eishockey.md`.
+- Die Regel „nie hinter `555797b` zurückrollen“ gilt weiter.
+- Basketball (EuroLeague) bekommt nie eine Quote: Unsere Zeilen tragen Vereinskürzel, API-Sports volle Namen.
+  Bewusst nicht behoben, weil das Modell schwach ist (29 Spiele, 51,7 % getroffen bei 67,6 % versprochen).
+
 ## 0. Kurzfassung zum Einfügen
 
 > Lies zuerst `AGENTS.md`, `STATUS.md` und dieses Dokument (`docs/handoffs/2026-11-11-claude-uebergabe-codex.md`).

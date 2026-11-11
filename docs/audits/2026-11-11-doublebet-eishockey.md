@@ -73,3 +73,14 @@ die Doublebet-Suiten unter dem Produktionsvertrag `BETBOY_TEST_PRICE_POLICY=floo
 ## Rückweg
 
 `DOUBLEBET_RESEARCH_SPORTS = frozenset()` stellt den alten Zustand her.
+
+## Release 20261111-3
+
+- **Auftrag:** Owner „Ja, live stellen“, PR #118 gemergt (`4f00d0f`), CI grün.
+- **Ausrollen:** No-Backup-Fast-forward `555797b` → `4f00d0f` am 11.11.2026 um 14:15 CET (`output/release-20261111-3/`).
+  - Prüfblock vorher offline gegen einen Worktree des Ziels: `OFFLINE_RELEASE_IMPORTS=ok`. Die gesammelte Prüfung
+    auf Policy v14 wurde auf v15 umgestellt, dazu vier neue Prüfungen für diesen PR.
+  - Auf dem Server: Prüfblock ok, Health lokal und öffentlich ok, Snapshots unverändert, kein Backup, keine Einheit
+    geändert, App-Prozess neu gestartet.
+- **Nach dem Release (14:16):** Der Live-Code führt die 8 NHL-Zeilen als zugelassenes Modell. Sie haben noch keine
+  Quote. Der nächste Quotenlauf um 15:15 holt sie zuerst.
