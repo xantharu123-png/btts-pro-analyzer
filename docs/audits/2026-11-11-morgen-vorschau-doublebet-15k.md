@@ -65,3 +65,17 @@ der Owner freigegeben („alles machen“). Schritt 1 (Wettfinder listet immer m
 - **Schritt 3:** Tennis, Eishockey, E-Sport und RisikoBet mit morgen.
 - **Beobachten:** Wie oft die Doublebet-Vorschau leer bleibt. Morgen braucht dieselben Kontextprüfungen wie heute
   (24 Stunden alt, ohne Veto), und der Folgetag bekommt nur die Kontrollen, die heute übrig lässt.
+
+## Release 20261111-2
+
+- **Auftrag:** Owner „Ja, live stellen“ am 11.11.2026, PR #114 zusammen mit PR #115 (`555797b`).
+- **Ausrollen:** No-Backup-Fast-forward `544c299` → `555797b` um 09:02 CET (`output/release-20261111-2/`).
+  - Beide Teile laufen zusammen live. Die App und der Tageslauf tragen damit dieselbe Version, bevor ein Nachtlauf
+    Morgen-Zeilen anderer Sportarten schreibt.
+  - Ein zuvor vorbereitetes Release nur mit PR #114 (`release-20261111-1`) wurde nie ausgerollt.
+- **Offline-Prüfung:** Lokal fand sie eine veraltete Kontrolle auf `_listed_day`. Diese wurde durch
+  `listed_next_day_row` ersetzt. Danach ok, auch auf dem Server.
+- **Server:** Health ok, Snapshots unverändert, keine Einheit geändert, kein Backup.
+- **Live-Seite (`live-heute-und-morgen.jpg`):**
+  - „Heute und morgen“ mit Türkei gegen Belgien am 12.11., Regler 70.
+  - Am 11.11. noch keine Doublebet-Vorschau, weil morgen keine Wette alle Bedingungen erfüllte.
