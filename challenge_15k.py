@@ -2159,6 +2159,21 @@ def _load_scheduled_challenge_snapshot(
         return None
 
 
+def _load_next_day_challenge_preview(
+    scope: dict[str, Any],
+) -> Optional[dict[str, Any]]:
+    """Tomorrow's read-only 15K preview from the daily artifact, never a provider scan."""
+    try:
+        from wettfinder_automation import (
+            build_next_day_challenge_preview,
+            load_state,
+        )
+
+        return build_next_day_challenge_preview(load_state(), scope=scope)
+    except (ImportError, OSError, TypeError, ValueError):
+        return None
+
+
 def _snapshot_moment(snapshot: object) -> Optional[datetime]:
     if not isinstance(snapshot, dict):
         return None
@@ -5477,8 +5492,14 @@ def _render_model_challenge(
     snapshot: dict[str, Any],
     ledger: ChallengeLedger,
     settings: dict[str, Any],
+    *,
+    preview: bool = False,
 ) -> None:
-    """Display 15K model selections before any bookmaker quote is entered."""
+    """Display 15K model selections before any bookmaker quote is entered.
+
+    ``preview`` shows a later day read-only (owner 11.11.2026): the cards only,
+    no ticket selection, no stake and no ledger entry before the match day.
+    """
     raw_pool = snapshot.get("challenge_model_candidates")
     if raw_pool is None:
         raw_pool = snapshot.get("base_shortlist") or snapshot.get("price_candidates") or []
@@ -5492,12 +5513,19 @@ def _render_model_challenge(
     # Owner decision 03.11.2026: per game the most probable market that can be a
     # ticket leg, at most CHALLENGE_PAGE_MAX_GAMES games.
     selections = _challenge_page_selections(pool, quotes, now=now)
-    if not selections:
+    if preview:
+        st.subheader("Morgen (Vorschau)")
+        st.caption("Je Spiel der wahrscheinlichste Markt mit spielbarer Quote ab 1,25. Ein Ticket "
+                   "lässt sich erst am Spieltag erfassen; bis dahin kann sich die Auswahl ändern.")
+        if not selections:
+            st.info("Für morgen noch keine ausreichend geprüfte 15K-Modellauswahl.")
+            return
+    elif not selections:
         st.info("Heute keine ausreichend geprüfte 15K-Modellauswahl.")
         return
-
-    st.subheader("15K-Modellauswahl")
-    st.caption("Je Spiel der wahrscheinlichste Markt mit spielbarer Quote ab 1,25, wie ein Ticket-Leg. Deine tatsächliche Quote erfasst du mit der Wette.")
+    else:
+        st.subheader("15K-Modellauswahl")
+        st.caption("Je Spiel der wahrscheinlichste Markt mit spielbarer Quote ab 1,25, wie ein Ticket-Leg. Deine tatsächliche Quote erfasst du mit der Wette.")
     from tip_display_order import display_order_control, ordered_event_rows
     sort_mode = display_order_control(st, key='challenge_model_order')
     selections = ordered_event_rows(selections, mode=sort_mode,
@@ -5531,6 +5559,8 @@ def _render_model_challenge(
                         card, grouped=True, include_match=index == 0, show_form=show_form,
                     ), unsafe_allow_html=True)
 
+    if preview:
+        return  # Read-only: tickets and stakes stay on the match day.
     by_id = {candidate.candidate_id: candidate for candidate in selections}
     labels = {
         candidate.candidate_id: (
@@ -5698,6 +5728,14 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
         search_date == _challenge_today()
         and sorted(selected_leagues) == sorted(available_ids)
     )
+    if (
+        search_date == _challenge_today() + timedelta(days=1)
+        and sorted(selected_leagues) == sorted(available_ids)
+    ):
+        # Owner 11.11.2026: tomorrow comes read-only from the daily artifact; no
+        # browser scan, no automatic recheck and no ticket before the match day.
+        _render_next_day_challenge_preview(current_scope, ledger, settings)
+        return
     if scheduled_scope:
         st.caption(
             "Der aktuelle Tageslauf erscheint hier automatisch."
@@ -5788,7 +5826,8 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
             "Dieser Modellstand ist nicht mehr aktuell. Bitte einen neuen Tageslauf abwarten."
         )
         return
-    _render_model_challenge(snapshot, ledger, settings)
+    # A ticket is placed only on the match day (owner 11.11.2026), also after a manual scan.
+    _render_model_challenge(snapshot, ledger, settings, preview=search_date != _challenge_today())
     if scheduled_scope:
         _scheduled_challenge_refresh_fragment(current_scope)
     elif (
@@ -5808,6 +5847,35 @@ def _render_analysis(ledger: ChallengeLedger, settings: dict[str, Any]) -> None:
             "Diese große individuelle Auswahl wird nicht im Browser wiederholt. "
             "Der planmäßige Alle-Ligen-Lauf aktualisiert den Pflichtkontext weiter."
         )
+
+
+def _render_next_day_challenge_preview(
+    scope: dict[str, Any],
+    ledger: ChallengeLedger,
+    settings: dict[str, Any],
+) -> None:
+    """Tomorrow's 15K cards from the daily artifact, read-only (owner 11.11.2026)."""
+    snapshot = _load_next_day_challenge_preview(scope)
+    if (
+        not isinstance(snapshot, dict)
+        or snapshot.get("version") != CHALLENGE_SNAPSHOT_VERSION
+        or snapshot.get("scope") != scope
+    ):
+        st.info("Für morgen liegt noch keine 15K-Vorschau aus dem Tageslauf vor.")
+        return
+    try:
+        scanned_at = datetime.fromisoformat(snapshot["scanned_at"]).astimezone(timezone.utc)
+        snapshot_age = (datetime.now(timezone.utc) - scanned_at).total_seconds() / 60.0
+    except (KeyError, TypeError, ValueError):
+        snapshot_age = float("inf")
+    if snapshot_age > CHALLENGE_MODEL_MAX_AGE_MINUTES or snapshot_age < -1:
+        st.warning("Dieser Modellstand ist nicht mehr aktuell. Bitte einen neuen Tageslauf abwarten.")
+        return
+    st.caption(
+        f"Datenstand: {_format_time(snapshot.get('scanned_at'))} · "
+        f"{snapshot.get('fixtures_found', 0)} Spiele geprüft"
+    )
+    _render_model_challenge(snapshot, ledger, settings, preview=True)
 
 
 def render_challenge_15k() -> None:

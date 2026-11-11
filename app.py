@@ -4792,9 +4792,11 @@ def _render_automated_daily_selection() -> None:
         target_label += ' und morgen'
     # Both columns exist even before the daily publication. No fictional
     # selection is added merely to fill the magazine layout.
-    from daily3_selection import daily3_choices
+    from daily3_selection import daily3_choices, doublebet_preview_choices
     daily3_allowed = _daily3_rail_allowed()
     choices = daily3_choices(snapshot.forecasts, now=evaluation_now) if daily3_allowed else ()
+    # Owner 11.11.2026: tomorrow's Doublebet only as a read-only preview, never recorded.
+    preview_choices = doublebet_preview_choices(snapshot.forecasts, now=evaluation_now) if daily3_allowed else ()
     cards = [card for _signal, card in rows]
     with st.container(key='editorial_auto_layout'):
         main_column, rail = st.columns([2.45, 1], gap='large')
@@ -4843,10 +4845,12 @@ def _render_automated_daily_selection() -> None:
                 starts_at=lambda card: card.scheduled_start,
                 probability=lambda card: card.model_probability)
             _render_editorial_rail(choices, ordered_tennis, daily3_allowed=daily3_allowed, target_label=rail_label,
-                as_of=evaluation_now, source_run_id=status.generated_at.isoformat() if status else None)
+                as_of=evaluation_now, source_run_id=status.generated_at.isoformat() if status else None,
+                preview_choices=preview_choices)
 
 
-def _render_editorial_rail(choices, tennis_cards, *, daily3_allowed, target_label, as_of=None, source_run_id=None):
+def _render_editorial_rail(choices, tennis_cards, *, daily3_allowed, target_label, as_of=None, source_run_id=None,
+                           preview_choices=()):
     from html import escape
     from pathlib import Path
     assets = Path(__file__).parent / 'assets' / 'editorial'
@@ -4873,6 +4877,17 @@ def _render_editorial_rail(choices, tennis_cards, *, daily3_allowed, target_labe
             st.caption('Doublebet ist im Pro-Abo enthalten.')
         elif not choices:
             st.caption('Heute noch keine Auswahl um Quote 2,00.')
+        if daily3_allowed and preview_choices:
+            # Read-only preview (owner 11.11.2026): listed, never recorded or reserved.
+            st.markdown('<p class="se-tennis-tag">DOUBLEBET <span>Morgen (Vorschau)</span></p>', unsafe_allow_html=True)
+            for index, choice in ordered_event_rows(enumerate(preview_choices, 1),
+                    event_key=lambda item: item[1].event_id, starts_at=lambda item: item[1].start,
+                    probability=lambda item: item[1].signal.probability):
+                signal = choice.signal
+                st.markdown('<div class="se-rail-choice"><span class="se-choice-rank">' + str(index)
+                    + '</span><div><strong>' + escape(signal.event_label) + '</strong><span>'
+                    + escape(signal.market + ' · ' + signal.selection) + '</span></div></div>', unsafe_allow_html=True)
+            st.caption('Vormerken erst am Spieltag.')
         def _open_daily3():
             _set_active_area("Doublebet")
         st.button('Doublebet öffnen', key='editorial_daily3_open', on_click=_open_daily3, use_container_width=True)

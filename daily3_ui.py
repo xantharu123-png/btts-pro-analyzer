@@ -11,7 +11,8 @@ from account_identity import AccountScopeUnavailable, storage_scope
 from betting_math import MINIMUM_RECOMMENDED_DECIMAL_ODDS
 from daily3_math import Daily3Error, decimal_odds, format_chf, parse_chf
 from daily3_identity import event_guard
-from daily3_selection import DOUBLEBET_ODDS_MIN, DOUBLEBET_ODDS_MAX, daily3_choices, reservation_minimum_enforced
+from daily3_selection import (DOUBLEBET_ODDS_MIN, DOUBLEBET_ODDS_MAX, daily3_choices, doublebet_preview_choices,
+                              reservation_minimum_enforced)
 from daily3_schedule import pending_ready_at, planning_allowance
 from daily3_store import Daily3Store, day_balance, expected_return_cents, payout_needs_confirmation
 from forecast_compact import render_compact_analysis_html
@@ -243,6 +244,33 @@ def _external_start(day, clock, zone):
     return first
 
 
+def render_doublebet_preview(st, choices, *, now):
+    """Tomorrow's plan, read-only (owner 11.11.2026): no form, no store, no publication record.
+
+    Without a choice nothing is shown; no fictional preview fills the page.
+    """
+    if not choices:
+        return
+    st.subheader('Morgen (Vorschau)')
+    st.caption('Vorschau aus dem heutigen Tageslauf. Vormerken erst am Spieltag; '
+               'bis dahin kann sich die Auswahl mit neuen Quoten ändern.')
+    from wettfinder_identity import rendered_identity_card
+    from wettfinder_surface import render_editorial_card_html
+    with st.container(key='daily3_preview_layout'):
+        panels = st.columns(len(choices))
+    display_choices = ordered_event_rows(enumerate(choices),
+        event_key=lambda item: item[1].event_id, starts_at=lambda item: item[1].start,
+        probability=lambda item: item[1].signal.probability)
+    for display_index, (index, choice) in enumerate(display_choices):
+        with panels[display_index], st.container(border=True):
+            st.caption(f'Morgen · Wette {index+1} · {choice.start.astimezone(_TZ):%H:%M} · '
+                       f'Planungsabstand {int(planning_allowance(choice.sport).total_seconds()/3600)} Std.')
+            card = build_wettfinder_card(choice.signal, quote=choice.signal.reference_quote, now=now)
+            card = rendered_identity_card(card, choice.signal)
+            st.markdown(render_editorial_card_html(card,
+                supporting_fact=choice.comparison.summary if choice.comparison else ''), unsafe_allow_html=True)
+
+
 def render_daily3(st, *, snapshot_loader=None, store_factory=None, now=None):
     now = now or datetime.now(timezone.utc)
     today = now.astimezone(_TZ).date().isoformat()
@@ -392,6 +420,8 @@ def render_daily3(st, *, snapshot_loader=None, store_factory=None, now=None):
             for index, choice in enumerate(choices)]
         record_selected_tips('daily3_plan', publication_rows, as_of=now,
             source_run_id=publication_status.generated_at.isoformat(), policy_version=POLICY_VERSION)
+    # Owner 11.11.2026: tomorrow as a read-only preview, never part of the record above.
+    render_doublebet_preview(st, doublebet_preview_choices(snapshot.forecasts, now=now), now=now)
     visible_days = sorted({d['date'] for d in prior_pending} | ({today} if day else set()), reverse=True)
     for day_id in visible_days:
         bets = list(history[day_id]['bets'].values())

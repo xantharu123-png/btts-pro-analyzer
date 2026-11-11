@@ -95,7 +95,10 @@ Code, dann `PROJECT_HANDBUCH.md`, dann die Bibel. Historische Logs: `TODO_AKTUEL
   10.11.2026 immer, ohne Grenze von 30 Spielen (`docs/audits/2026-11-10-folgetag-immer.md`, Owner „heute und
   morgen“, Schritt 1): Der Tageslauf listet auch den nächsten Tag (`football_next_day`, `next_day_search_date`).
   Nur Modellauswahlen in der Wettfinder-Liste, nie Tipp, 15K, Daily3, Shadow, Evidenz oder Archiv. Ein Fehler dort
-  lässt heute unverändert.
+  lässt heute unverändert. Seit 11.11.2026 (Schritt 2, `docs/audits/2026-11-11-morgen-vorschau-doublebet-15k.md`)
+  zeigen Doublebet und 15K morgen als reine Vorschau (`doublebet_preview_choices`, `build_next_day_challenge_preview`,
+  `_render_model_challenge(preview=True)`): Vormerken und Ticket nur am Spieltag, weiter nie Tipp, Evidenz, Archiv
+  oder Shadow.
 - **Tennis-Tipps ab 60 % seit 05.11.2026** (`docs/audits/2026-11-05-tennis-tipps-ab-60.md`, Owner „alles machen“,
   „Ja, mergen + live“): Ein Tennis-Siegertipp entsteht erst ab 60 % Modellchance (`TENNIS_WINNER_MIN_PROBABILITY`
   in `ev_signal_sources.tennis_model_signals`). Darunter traf das Modell wie ein Münzwurf: 49,8 % in der Hypothese

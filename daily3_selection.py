@@ -12,7 +12,7 @@ reservation minimum and the admitted offer as display information only (audit 20
 Published choices are chronological planning, not guaranteed match durations or cash credits.
 """
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 import math
 from statistics import median
 from zoneinfo import ZoneInfo
@@ -136,9 +136,9 @@ def in_doublebet_band(odds):
     return odds is not None and DOUBLEBET_ODDS_MIN - 1e-9 <= odds <= DOUBLEBET_ODDS_MAX + 1e-9
 
 
-def _explanation(signal, sport, now):
+def _explanation(signal, sport, now, match_day=None):
     analysis = build_forecast_analysis(signal, now=now)
-    if forecast_highlight_reason(signal, now=now, analysis=analysis, check_context=False):
+    if forecast_highlight_reason(signal, now=now, analysis=analysis, check_context=False, match_day=match_day):
         return None
     if sport == 'football':
         evidence = read_football_analysis(vars(signal), now=now)
@@ -154,7 +154,13 @@ def _explanation(signal, sport, now):
     return basis, analysis.caution
 
 
-def daily3_choices(signals, *, now, occupied_events=(), occupied_guards=(), used_slots=0, not_before=None):
+def daily3_choices(signals, *, now, occupied_events=(), occupied_guards=(), used_slots=0, not_before=None,
+                   target_day=None):
+    """The Doublebet day sequence; ``target_day`` plans tomorrow for the read-only preview.
+
+    Only the planned day changes. Price checks, admitted offers and model clocks are
+    still judged at the real ``now``; a preview is never reserved, recorded or archived.
+    """
     if now.tzinfo is None or now.utcoffset() is None:
         raise ValueError('Doublebet requires an aware server clock')
     if type(used_slots) is not int or used_slots < 0:
@@ -164,6 +170,11 @@ def daily3_choices(signals, *, now, occupied_events=(), occupied_guards=(), used
         raise ValueError('Doublebet requires an aware planning clock')
     ready = max(now, not_before.astimezone(timezone.utc)) if not_before is not None else now
     today = now.astimezone(_TZ).date()
+    if target_day is not None:
+        # Fail closed: only the match day or the listed next day, never a datetime.
+        if type(target_day) is not date or target_day not in (today, today + timedelta(days=1)):
+            raise ValueError('Doublebet plans only today or tomorrow')
+        today = target_day
     occupied = set(occupied_events)
     guards = tuple(occupied_guards)
     slots = max(0, MAX_LEGS - used_slots)
@@ -188,7 +199,7 @@ def daily3_choices(signals, *, now, occupied_events=(), occupied_guards=(), used
             continue
         if any(events_overlap(event_guard(s), guard) for guard in guards):
             continue
-        explanation = _explanation(s, sport, now)
+        explanation = _explanation(s, sport, now, today)
         if explanation is None or not 0 < s.probability < 1:
             continue
         # Supporting information only (owner 03.11.2026): no probability floor, no form bonus.
@@ -198,6 +209,19 @@ def daily3_choices(signals, *, now, occupied_events=(), occupied_guards=(), used
         prepared.append(Daily3Choice(s, event, sport, *explanation, sampled, start, family, comparison,
                                      reservation_minimum_odds(s), offer, offer_median))
     return _best_sequence(prepared, slots)
+
+
+def doublebet_preview_choices(signals, *, now):
+    """Read-only Doublebet plan for tomorrow (owner 11.11.2026, "heute und morgen", Schritt 2).
+
+    Same rule and pool as the match day, with a fresh day: no booked slots, no
+    occupied events. Callers only display it; reserving waits for the match day,
+    and nothing here is recorded as a tip, evidence, archive or shadow.
+    """
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError('Doublebet requires an aware server clock')
+    tomorrow = now.astimezone(_TZ).date() + timedelta(days=1)
+    return daily3_choices(signals, now=now, target_day=tomorrow)
 
 
 def _follows(later, earlier):
