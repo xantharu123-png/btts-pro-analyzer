@@ -304,6 +304,23 @@ def test_request_budget_caps_each_sport_to_eight_events(tmp_path):
     assert result['checked']==8 and len(calls)==1
 
 
+def test_model_rows_are_priced_before_price_only_snapshot_rows(tmp_path):
+    """11.11.2026: eight earlier games without a model took the budget while the NHL model rows waited."""
+    path = tmp_path/'prices.json'
+    early = [row(provider_event_id=f'snap-{i}', competitor_a=f'Club {i}', selected_competitor=f'Club {i}',
+                 candidate_id=f'price:snap-{i}:home', key=f'price:snap-{i}:home') for i in range(8)]
+    model = row(provider_event_id='model-1', competitor_a='Club M', selected_competitor='Club M',
+                source='team_sport_research', scheduled_start=(NOW+timedelta(hours=9)).isoformat())
+    def get(url, **kwargs):
+        return SimpleNamespace(status_code=200, headers={}, json=lambda: {'errors': [], 'response': []})
+    result = prices.refresh_team_sport_prices([*early, model], api_key='test', now=NOW, path=path,
+                                              governor=Governor(), get=get)
+    attempts = json.loads(path.read_text(encoding='utf-8'))['attempts']
+    assert result['checked'] == 8
+    assert any('|model-1|' in key for key in attempts)
+    assert sum('|snap-' in key for key in attempts) == 7
+
+
 def _worker_snapshot():
     """A literal immutable existing forecast, never a model execution."""
     from riskobet_domain import EventModelSnapshot, FactorEvidence, stable_event_key

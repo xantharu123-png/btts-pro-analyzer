@@ -574,20 +574,27 @@ def football_context_highlight_reason(context, *, now, max_age=_CONTEXT_MAX_AGE)
     return ''
 
 
-def forecast_highlight_reason(signal, *, now, analysis=None, check_context=True, match_day=None):
+def forecast_highlight_reason(signal, *, now, analysis=None, check_context=True, match_day=None,
+                              admit_research_sports=frozenset()):
     """Empty qualifies presentation; model-only qualification preserves direction.
 
     ``match_day`` names the Zurich day whose daily automatic rows keep the daily
     model lifetime; by default the current day. Only the read-only Doublebet
     preview of the listed next day passes tomorrow (owner 11.11.2026).
+
+    ``admit_research_sports`` names team-sport research models a caller admits
+    without independent confirmation. Only Doublebet passes ice hockey (owner
+    11.11.2026); such a row keeps the daily model lifetime of its match day.
     """
-    if getattr(signal, 'source', None) == 'team_sport_research':
+    sport = str(signal.sport or '').strip().casefold().replace('ß', 'ss')
+    research = getattr(signal, 'source', None) == 'team_sport_research'
+    if research and sport not in admit_research_sports:
         return 'Modell noch nicht unabhängig bestätigt'
     clock = _clock(signal.modeled_at)
     if clock is None:
         return 'Modellzeit unbekannt'
     max_age = MODEL_HIGHLIGHT_MAX_AGE
-    if getattr(signal, 'source', None) == 'automated_wettfinder_forecast':
+    if research or getattr(signal, 'source', None) == 'automated_wettfinder_forecast':
         start = _clock(getattr(signal, 'scheduled_start', None))
         day = now.astimezone(_ZURICH).date() if match_day is None else match_day
         if start is not None and start > now and start.astimezone(_ZURICH).date() == day:
@@ -603,7 +610,6 @@ def forecast_highlight_reason(signal, *, now, analysis=None, check_context=True,
     # Shared direction selection retains every model-only gate above.
     if not check_context:
         return ''
-    sport = str(signal.sport or '').strip().casefold().replace('ß', 'ss')
     if sport in {'fussball', 'football'}:
         evidence = read_football_analysis(vars(signal), now=now)
         context = _mapping(evidence.get('context')) if evidence else {}

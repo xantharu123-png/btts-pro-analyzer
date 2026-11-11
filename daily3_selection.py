@@ -29,10 +29,15 @@ from forecast_price_checks import has_current_price_check
 from quote_publication import publication_quote
 from selection_coherence import consumer_event_identity
 
-POLICY_VERSION = 'doublebet-odds-around-2-most-probable-v14'
+POLICY_VERSION = 'doublebet-odds-around-2-most-probable-v15'
 # Owner decision 03.11.2026: "um 2,00" is an admitted median quote from 1.80 to 2.20.
 DOUBLEBET_ODDS_MIN = 1.80
 DOUBLEBET_ODDS_MAX = 2.20
+# Owner decision 11.11.2026 ("Ja, Eishockey zulassen", v15): the ice-hockey research model may
+# enter Doublebet. Its settled favourites hit 57.9 % against 60.3 % promised (164 NHL games);
+# the basketball model (51.7 % against 67.6 %, 29 EuroLeague games) stays out, and every other
+# surface keeps the research gate (docs/audits/2026-11-11-doublebet-eishockey.md).
+DOUBLEBET_RESEARCH_SPORTS = frozenset({'eishockey', 'ice_hockey'})
 MAX_LEGS = 3
 _TZ = ZoneInfo('Europe/Zurich')
 _SPORTS = {'fussball': 'football', 'fußball': 'football', 'football': 'football',
@@ -138,7 +143,8 @@ def in_doublebet_band(odds):
 
 def _explanation(signal, sport, now, match_day=None):
     analysis = build_forecast_analysis(signal, now=now)
-    if forecast_highlight_reason(signal, now=now, analysis=analysis, check_context=False, match_day=match_day):
+    if forecast_highlight_reason(signal, now=now, analysis=analysis, check_context=False, match_day=match_day,
+                                 admit_research_sports=DOUBLEBET_RESEARCH_SPORTS):
         return None
     if sport == 'football':
         evidence = read_football_analysis(vars(signal), now=now)

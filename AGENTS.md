@@ -90,7 +90,10 @@ Code, dann `PROJECT_HANDBUCH.md`, dann die Bibel. Historische Logs: `TODO_AKTUEL
   zugelassene Quote mit Median 1,80–2,20 (`DOUBLEBET_ODDS_MIN/MAX`) aus allen Sportarten und wählt die Tagesfolge
   von bis zu drei Wetten mit der höchsten Summe der Modellwahrscheinlichkeiten. Die 70-%-Grenze und der Pflicht-
   Vergleich sind weg; Form-/Belagvergleich bleibt Hinweis. Interne Namen (`daily3_*`, Feature `daily3`, Archive
-  `daily3_rail`/`daily3_default_plan`) bleiben; nur Anzeige und Policy heissen Doublebet.
+  `daily3_rail`/`daily3_default_plan`) bleiben; nur Anzeige und Policy heissen Doublebet. Seit 11.11.2026 (Policy
+  v15, Owner „Ja, Eishockey zulassen“, `docs/audits/2026-11-11-doublebet-eishockey.md`) nimmt nur das Doublebet das
+  Eishockey-Forschungsmodell auf (`DOUBLEBET_RESEARCH_SPORTS`, `forecast_highlight_reason(admit_research_sports=)`);
+  Basketball und alle anderen Flächen behalten „Modell noch nicht unabhängig bestätigt“.
 - **Wettfinder-Folgetag seit 02.11.2026** (`docs/audits/2026-11-02-wettfinder-folgetag.md`, Owner-Entscheid), seit
   10.11.2026 immer, ohne Grenze von 30 Spielen (`docs/audits/2026-11-10-folgetag-immer.md`, Owner „heute und
   morgen“, Schritt 1): Der Tageslauf listet auch den nächsten Tag (`football_next_day`, `next_day_search_date`).

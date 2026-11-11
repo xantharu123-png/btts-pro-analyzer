@@ -346,7 +346,12 @@ def refresh_team_sport_prices(rows, *, api_key, now=None, path=CACHE_PATH, gover
                 critical_floor=5, recommendation_reserve=10, background_reserve=15)
             games_cache, nhl_cache, used = {}, {}, {}
             attempts = {}
-            for group_id, group in sorted(grouped.items(), key=lambda item: item[0][3]):
+            # Model rows (Wettfinder, Doublebet) first, then price-only snapshot rows, each by
+            # start (11.11.2026): eight European games without a model took the per-sport budget
+            # while the NHL model rows of the same day waited for a later run.
+            def priority(item):
+                return (not any(r.get('source') == 'team_sport_research' for r in item[1]), item[0][3])
+            for group_id, group in sorted(grouped.items(), key=priority):
                 if monotonic() >= deadline:
                     break
                 sport, origin, event, start = group_id
