@@ -4,7 +4,7 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 „Stand“ ersetzen, nicht anhängen; Historie steht in `TODO_AKTUELL.md` und
 `PC_WECHSEL_UEBERGABE.md`. Regeln und Einstieg: `AGENTS.md`.
 
-## Stand: 25.10.2026
+## Stand: 11.11.2026 (Übergabe an Codex: `docs/handoffs/2026-11-11-claude-uebergabe-codex.md`)
 
 | Bereich | Status |
 |---|---|
@@ -53,6 +53,7 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 | Codex | Branch integrieren, Konflikte lösen, Prüfbefehle, Release vorbereiten (`docs/handoffs/2026-10-21-codex-auftrag.md`) |
 | Claude | Wettfinder mit 66 Ligen und Folgetag (PR #73, #74, live seit 02.11. 23:33): Tageslauf 3.11. geprüft (33 min, heute 18 und morgen 14 Fussballspiele, Seite 54/29). 15K seit 3.11. 13:32: höchstens fünf Spiele, je Spiel der wahrscheinlichste Markt mit Leg-Quote ab 1,25 (PR #78, #79, #82) |
 | Claude | Doublebet (PR #84, live seit 03.11. 14:52): die ersten Tage beobachten, Anzahl Auswahlen und Trefferquote gegen 50 % (`docs/audits/2026-11-03-doublebet.md`) |
+| Codex | Übergabe vom 11.11.2026 lesen (`docs/handoffs/2026-11-11-claude-uebergabe-codex.md`): 12.11. Nachtlauf auf Morgen-Zeilen prüfen, 30.11. Fallenfilter/Formstärke/Liste ab 70 % auswerten, Tennis morgen (Schritt 3b), alte Testfehler, nie unter `555797b` zurückrollen |
 | Claude | Heute und morgen, Schritt 1 (live seit 10.11.2026 21:04, wirkt ab Nachtlauf 11.11., `docs/audits/2026-11-10-folgetag-immer.md`): Wettfinder listet immer auch morgen; Verbrauch an Wochenend-Tagen beobachten; Schritt 2 (Doublebet/15K-Vorschau) und 3 (Tennis, Eishockey, E-Sport, RisikoBet) offen |
 | Claude | Heute und morgen, Schritt 2 (live seit 11.11.2026 09:02, `docs/audits/2026-11-11-morgen-vorschau-doublebet-15k.md`): Doublebet und 15K zeigen morgen als reine Vorschau, Vormerken und 15K-Ticket nur am Spieltag, morgen nie Tipp, Evidenz, Archiv oder Shadow; nach Release beobachten, wie oft die Doublebet-Vorschau leer bleibt |
 | Claude | NHL-Quoten (live seit 10.11.2026 16:32, `docs/audits/2026-11-10-nhl-spielplan-vortag.md`): Quotenlauf 21:15 ordnete 6 von 6 Spielen zu (12 Quoten, je 9 Buchmacher); Tennis-Zuordnung (`IDENTITY_MISMATCH`) braucht Owner-OK für einen Abruf der Ereignisliste |
