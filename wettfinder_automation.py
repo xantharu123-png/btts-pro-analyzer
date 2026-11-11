@@ -2673,6 +2673,136 @@ def _football_next_day(
     return state, {**summary, "status": "scanned"}
 
 
+NEXT_DAY_TEAM_SPORTS = ("basketball", "ice_hockey")
+
+
+def _team_sport_next_day(
+    previous: Mapping[str, Any],
+    sources: Optional[Mapping[str, object]],
+    *,
+    target: date,
+    clock: Callable[[], datetime],
+    stage: Callable[..., Any],
+) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
+    """Tomorrow's basketball and ice hockey research rows (owner step 3a, 11.11.2026).
+
+    Without new research (``sources`` is None) the previous run's rows for the
+    same next day are projected again from their own snapshots while still
+    valid. A native NHL game within 24 hours stays a match-day row. A failure
+    drops that sport's next day only, and RisikoBet never sees these snapshots.
+    Rows are projected at a clock read after loading, never before a model clock.
+    """
+    from types import SimpleNamespace
+
+    from riskobet_automation import snapshot_from_dict
+    from team_sport_forecasts import (
+        SOURCE as TEAM_SOURCE, SPORT_NAMES, automatic_team_sport_day, team_sport_forecast_rows,
+        valid_research_row,
+    )
+
+    next_target = target + timedelta(days=1)
+
+    def tomorrow_rows(snapshots) -> list[dict[str, Any]]:
+        now = _utc(clock())
+        kept = []
+        for row in team_sport_forecast_rows(SimpleNamespace(snapshots=tuple(snapshots)), now=now,
+                                            target_date=next_target):
+            start = _parse_iso(row["scheduled_start"])
+            if (start.astimezone(ZURICH_TZ).date() == next_target and valid_research_row(row, now=now)
+                    and not automatic_team_sport_day(starts_at=start, now=now, target_date=target,
+                                                     sport=row["team_sport_snapshot"]["sport"],
+                                                     provider=row["fixture_source"])):
+                kept.append(row)
+        return kept
+
+    previous_rows = (
+        previous.get("model_candidates") or ()
+        if isinstance(previous, Mapping) and previous.get("next_day_search_date") == next_target.isoformat()
+        else ()
+    )
+    rows: list[dict[str, Any]] = []
+    summaries: dict[str, dict[str, Any]] = {}
+    for sport in NEXT_DAY_TEAM_SPORTS:
+        summary: dict[str, Any] = {"search_date": next_target.isoformat()}
+        if sources is None:
+            snapshots = {}
+            for row in previous_rows:
+                if not isinstance(row, dict) or row.get("source") != TEAM_SOURCE or row.get("sport") != SPORT_NAMES[sport]:
+                    continue
+                try:
+                    snapshot = snapshot_from_dict(row.get("team_sport_snapshot"))
+                except (KeyError, TypeError, ValueError):
+                    continue
+                snapshots[snapshot.snapshot_id] = snapshot
+            sport_rows = tomorrow_rows(snapshots.values())
+            summary["source"] = "reused"
+        elif sport in sources:
+            summary["source"] = "scanned"
+            try:
+                source = sources[sport]
+                batch = stage(f"{sport}_next_day", source) if callable(source) else source
+                if not isinstance(batch, RiskSourceBatch) or batch.sport != sport:
+                    raise TypeError("next-day source returned no batch of its sport")
+                sport_rows = tomorrow_rows(batch.snapshots)
+            except Exception as exc:
+                # Provider messages can carry request details; the summary keeps the type only.
+                summaries[sport] = {**summary, "status": "failed", "failure_type": type(exc).__name__}
+                continue
+            if batch.errors:
+                summary["partial_errors"] = len(batch.errors)
+        else:
+            continue
+        rows.extend(sport_rows)
+        summaries[sport] = summary
+    return rows, summaries
+
+
+def _normalized_sport(row: Mapping[str, Any]) -> str:
+    return str(row.get("sport") or "").strip().casefold().replace("ß", "ss")
+
+
+def _other_sports_next_day_ledger(
+    existing_rows: Iterable[dict[str, Any]],
+    rows: Iterable[dict[str, Any]],
+    *,
+    now: datetime,
+    next_target: date,
+) -> list[dict[str, Any]]:
+    """Tomorrow's basketball, ice hockey and e-sport ledger (owner step 3a, 11.11.2026).
+
+    It takes only what the reader's caps leave after today and football's next
+    day; a key or event already listed stays out. E-sport prices are classified
+    again at the publication clock, as ``_revalidate_publication_price_overlays``
+    does for today, so the reader reproduces each stored status.
+    """
+    existing = [row for row in existing_rows if isinstance(row, dict)]
+    taken_keys = {str(row.get("key") or "").strip() for row in existing}
+    taken_events = {str(row.get("event_identity") or "").strip() for row in existing} - {""}
+    counts = Counter(_normalized_sport(row) for row in existing)
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        key = str(row.get("key") or "").strip()
+        event = str(row.get("event_identity") or "").strip()
+        if not key or key in taken_keys or (event and event in taken_events):
+            continue
+        grouped.setdefault(_normalized_sport(row), []).append(row)
+    ledger: list[dict[str, Any]] = []
+    for sport, sport_rows in grouped.items():
+        limit = min(MAX_AUTOMATIC_OTHER_CANDIDATES_PER_SPORT - counts[sport],
+                    MAX_AUTOMATIC_CANDIDATES - len(existing) - len(ledger))
+        if limit < 1:
+            continue
+        ledger.extend(build_model_selection_ledger((), sport_rows, now=now, target_date=next_target, limit=limit))
+    esports = [row for row in ledger if row.get("source") == "esports_shadow"]
+    priced = [dict(row) for row in esports if row.get("reference_quote") is not None]
+    quotes = {
+        str(row.get("candidate_id") or ""): MarketConsensus.from_dict(row["reference_quote"])
+        for row in priced
+    }
+    _apply_reference_quotes(esports, priced, quotes, now=now, price_evaluated_at=now)
+    return ledger
+
+
 def _challenge_leg_capable(row: dict[str, Any], *, now: datetime) -> bool:
     """A stored playable row whose fresh offer can price a 15K ticket leg."""
     quote = MarketConsensus.from_dict(row.get("reference_quote"))
@@ -3368,6 +3498,74 @@ def _default_cricket_risk_source(
     )
 
 
+def _next_day_team_event_filter(target_date: date, sport: str):
+    """Keep events on the next Zurich day that today's research does not own."""
+    next_target = target_date + timedelta(days=1)
+    from team_sport_forecasts import automatic_team_sport_day
+
+    def keep(event, start, source_time):
+        if start.astimezone(ZURICH_TZ).date() != next_target:
+            return False
+        provider = event.get('provider') or event.get('source')
+        native = (sport == 'ice_hockey' and provider == 'NHL' and event.get('source') in (None, 'NHL')
+                  and event.get('sport') in (None, 'ice_hockey') and event.get('source_contract') is None)
+        # A native NHL game within 24 hours stays a match-day row of today's research.
+        return not automatic_team_sport_day(starts_at=start, now=source_time, target_date=target_date,
+                                            sport=sport, provider='NHL' if native else None)
+    return keep
+
+
+def _next_day_basketball_source(
+    target_date: date,
+    now: datetime,
+    history_loader: Optional[Callable[..., Iterable[Mapping[str, object]]]] = None,
+) -> RiskSourceBatch:
+    """Tomorrow's basketball research (owner step 3a, 11.11.2026), never stored in RisikoBet.
+
+    ESPN lists a game under its North American date, so tonight's games (after
+    midnight in Zurich) come with today's date: the window reads both days, one
+    request each, and keeps the next Zurich day only.
+    """
+    from scanners.basketball_scanner import BasketballScanner
+
+    scanner = BasketballScanner()
+    events = scanner.get_upcoming_games("All", target_date, target_date + timedelta(days=1))
+    return _riskobet_research_batch(
+        "basketball",
+        events,
+        adapt_basketball_research,
+        now=now,
+        source_errors=scanner.errors.values(),
+        history_loader=history_loader or _scanner_completed_history_loader(
+            scanner, "basketball", target_date=target_date),
+        event_day_filter=_next_day_team_event_filter(target_date, "basketball"),
+    )
+
+
+def _next_day_ice_hockey_source(
+    target_date: date,
+    now: datetime,
+    history_loader: Optional[Callable[..., Iterable[Mapping[str, object]]]] = None,
+    *, clock: Optional[Callable[[], datetime]] = None,
+) -> RiskSourceBatch:
+    """Tomorrow's ice hockey research (step 3a): one schedule window, no context capture."""
+    from scanners.hockey_scanner import HockeyScanner, completed_hockey_loader
+
+    scanner = HockeyScanner()
+    # The NHL week from today also holds tonight's games under their North American date.
+    events = scanner.get_upcoming_games(target_date, target_date + timedelta(days=1))
+    return _riskobet_research_batch(
+        "ice_hockey",
+        events,
+        adapt_ice_hockey_research,
+        now=now,
+        source_errors=scanner.errors.values(),
+        history_loader=history_loader or completed_hockey_loader(scanner, target_date),
+        clock=clock,
+        event_day_filter=_next_day_team_event_filter(target_date, "ice_hockey"),
+    )
+
+
 def _riskobet_default_sources(
     football_state: object,
     *,
@@ -3444,6 +3642,16 @@ def _riskobet_default_sources(
                     now,
                     research_history_loaders.get("cricket"),
                 ),
+                # Owner step 3a (11.11.2026): tomorrow's Wettfinder model rows. The run
+                # takes these out before RisikoBet, whose catalog stays on today.
+                "next_day": {
+                    "basketball": lambda: _next_day_basketball_source(
+                        target_date, now, research_history_loaders.get("basketball"),
+                    ),
+                    "ice_hockey": lambda: _next_day_ice_hockey_source(
+                        target_date, now, research_history_loaders.get("ice_hockey"), clock=clock,
+                    ),
+                },
             }
         )
     return sources, due
@@ -3642,6 +3850,8 @@ def run_wettfinder(
     riskobet_latest_path: Optional[str | Path] = None,
     force_football: bool = False,
     football_next_day: Optional[bool] = None,
+    team_esports_next_day: Optional[bool] = None,
+    next_day_team_sources: Optional[Mapping[str, object]] = None,
     evidence_db_path: Optional[str | Path] = None,
     evidence_settlement_runner: Optional[Callable[..., dict]] = None,
     esports_settlement_runner: Optional[Callable[..., dict]] = None,
@@ -3708,7 +3918,17 @@ def run_wettfinder(
         )
     if any(not callable(loader) for loader in (riskobet_result_loaders or {}).values()):
         raise TypeError("RisikoBet result loaders must be callable")
+    if next_day_team_sources is not None and (
+        not isinstance(next_day_team_sources, Mapping)
+        or set(next_day_team_sources) - set(NEXT_DAY_TEAM_SPORTS)
+    ):
+        raise ValueError("next-day team sources must map basketball/ice_hockey")
     production_state = _same_artifact_path(state_path, STATE_PATH)
+    # Owner "heute und morgen", step 3a (11.11.2026): ice hockey, basketball and
+    # e-sport also list tomorrow's model selections (football: ``football_next_day``).
+    list_other_next_day = (
+        production_state if team_esports_next_day is None else team_esports_next_day
+    )
 
     def stage(name, callback, *args, **kwargs):
         if production_state:
@@ -4620,6 +4840,8 @@ def run_wettfinder(
             if row.get("key")
         },
     }
+    team_next_rows: list[dict[str, Any]] = []
+    team_next_summaries: dict[str, dict[str, Any]] = {}
     if enable_riskobet:
         if production_state and riskobet_sources is None:
             from runtime_paths import CONTEXT_MODEL_DB_PATH
@@ -4644,8 +4866,11 @@ def run_wettfinder(
                     **default_source_kwargs,
                 )
             )
+            # Tomorrow's loaders serve the Wettfinder list only; RisikoBet keeps today.
+            default_next_day_sources = configured_risk_sources.pop("next_day", None)
         else:
             configured_risk_sources = dict(riskobet_sources or {})
+            default_next_day_sources = None
             risk_source_due = {
                 sport: sport in configured_risk_sources
                 for sport in (
@@ -4657,6 +4882,24 @@ def run_wettfinder(
                     "esports",
                 )
             }
+        if list_other_next_day:
+            # Read before the publication clock, so every tomorrow model clock
+            # precedes generated_at; a failure leaves today unchanged.
+            try:
+                team_next_rows, team_next_summaries = _team_sport_next_day(
+                    previous,
+                    next_day_team_sources if next_day_team_sources is not None else default_next_day_sources,
+                    target=target, stage=stage,
+                    clock=(lambda: current) if fixed_now else (lambda: _utc(runtime_clock())),
+                )
+            except Exception as exc:
+                team_next_rows, team_next_summaries = [], {
+                    sport: {"search_date": next_target.isoformat(), "status": "failed",
+                            "failure_type": type(exc).__name__}
+                    for sport in NEXT_DAY_TEAM_SPORTS
+                }
+            if not fixed_now:
+                current = _utc(runtime_clock())
         try:
             settlement_summary: Optional[dict[str, object]] = None
             should_settle = (
@@ -4918,6 +5161,35 @@ def run_wettfinder(
     )
     if isinstance(document["sources"].get("football"), dict):
         document["sources"]["football"]["next_day"] = next_day_summary
+    if list_other_next_day:
+        # Step 3a (11.11.2026): appended after tips, 15K, RisikoBet and evidence like
+        # football's next day. Built at the publication clock the reader validates with.
+        esports_next_rows = [
+            row for row in esports_model_rows
+            if (start := _parse_iso(row.get("scheduled_start"))) is not None
+            and start.astimezone(ZURICH_TZ).date() == next_target
+        ]
+        other_next_ledger = _other_sports_next_day_ledger(
+            document["model_candidates"], [*team_next_rows, *esports_next_rows],
+            now=_utc(_parse_iso(document["generated_at"])), next_target=next_target,
+        )
+        document["model_candidates"] = [*document["model_candidates"], *other_next_ledger]
+        for name, label, base in (
+            ("basketball", "Basketball", team_next_summaries.get("basketball")),
+            ("ice_hockey", "Eishockey", team_next_summaries.get("ice_hockey")),
+            ("esports", "E-Sport", {"search_date": next_target.isoformat()}),
+        ):
+            if base is None:
+                continue
+            listed_rows = [row for row in other_next_ledger if row.get("sport") == label]
+            document["sources"].setdefault(name, {})["next_day"] = {
+                **base,
+                "status": base.get("status") or ("listed" if listed_rows else "empty"),
+                "candidate_count": len(listed_rows),
+                "games": len({row.get("event_identity") for row in listed_rows}),
+            }
+        if other_next_ledger:
+            document["next_day_search_date"] = next_target.isoformat()
     stage('forecast_publication', write_state, document, state_path)
     if production_state:
         from tip_publication import record_automatic_publication

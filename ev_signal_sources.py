@@ -797,24 +797,68 @@ def automated_next_day(document: object, target: date) -> Optional[date]:
     return next_day
 
 
-def listed_next_day_signal(signal: "ModelSignal", *, now: datetime) -> bool:
-    """True for a listed next-day football selection (Folgetag), shown but never archived as published."""
+# Owner "heute und morgen", step 3a (11.11.2026): besides football these sports list
+# the next Zurich day as model selections, each declared by its own source summary.
+NEXT_DAY_SOURCE_BY_SPORT = {"basketball": "basketball", "eishockey": "ice_hockey", "e-sport": "esports"}
+
+
+def automated_next_day_sports(document: object, target: date) -> frozenset[str]:
+    """Normalized sports whose next-day model rows this document lists (Folgetag).
+
+    Every sport needs the document marker ``next_day_search_date``. Football also
+    needs its own next-day state (``automated_next_day``); basketball, ice hockey
+    and e-sport need ``sources[<source>]["next_day"]`` listed for that day. A
+    sport's next day therefore never depends on football's.
+    """
+    if not isinstance(document, dict):
+        return frozenset()
+    next_day = (target + timedelta(days=1)).isoformat()
+    if document.get("next_day_search_date") != next_day:
+        return frozenset()
+    sports = {"fussball"} if automated_next_day(document, target) is not None else set()
+    sources = document.get("sources")
+    sources = sources if isinstance(sources, dict) else {}
+    for sport, name in NEXT_DAY_SOURCE_BY_SPORT.items():
+        source = sources.get(name)
+        summary = source.get("next_day") if isinstance(source, dict) else None
+        if (
+            isinstance(summary, dict)
+            and summary.get("search_date") == next_day
+            and summary.get("status") == "listed"
+        ):
+            sports.add(sport)
+    return frozenset(sports)
+
+
+def listed_next_day_signal(
+    signal: "ModelSignal", *, now: datetime, decided_at: Optional[datetime] = None,
+) -> bool:
+    """True for a listed next-day selection (Folgetag), shown but never archived as published.
+
+    Since 11.11.2026 every listed sport counts (football, basketball, ice hockey,
+    e-sport). A native NHL game within 24 hours of the run (``decided_at``, else
+    ``now``) belongs to the match day (team_sport_forecasts.automatic_team_sport_day).
+    """
     scheduled = _parse_iso(signal.scheduled_start)
-    sport = str(signal.sport or "").strip().casefold().replace("ß", "ss")
-    return (
-        sport == "fussball"
-        and scheduled is not None
-        and scheduled.tzinfo is not None
-        and scheduled.astimezone(ZURICH_TZ).date() > now.astimezone(ZURICH_TZ).date()
-    )
-
-
-def _listed_day(row: dict, scheduled: datetime, target: date, next_day: Optional[date]) -> bool:
-    """A model row belongs to the match day or, for football only, the listed next day."""
-    day = scheduled.astimezone(ZURICH_TZ).date()
-    return day == target or (
-        next_day is not None and day == next_day and row.get("source") == "football_challenge"
-    )
+    if (
+        scheduled is None
+        or scheduled.tzinfo is None
+        or scheduled.astimezone(ZURICH_TZ).date() <= now.astimezone(ZURICH_TZ).date()
+    ):
+        return False
+    if signal.source != TEAM_RESEARCH_SOURCE:
+        return True
+    from team_sport_forecasts import automatic_team_sport_day
+    decision = decided_at or now
+    snapshot = signal.team_sport_snapshot
+    try:
+        return not automatic_team_sport_day(
+            starts_at=scheduled, now=decision, target_date=decision.astimezone(ZURICH_TZ).date(),
+            sport=snapshot.get("sport") if isinstance(snapshot, Mapping) else None,
+            provider=signal.fixture_source,
+        )
+    except ValueError:
+        return True
 
 
 def _validated_football_context_statuses(
@@ -1214,7 +1258,8 @@ def _load_automated_wettfinder_document(
     expected_target = local.date()
     if target != expected_target:
         return None
-    next_day = automated_next_day(document, target)
+    next_day_sports = automated_next_day_sports(document, target)
+    next_day = target + timedelta(days=1)
     # Tips and the 15K list stay on the match day; only model rows may list the next day.
     for strict_row in (*candidates, *challenge_release_candidates):
         strict_start = _parse_iso(strict_row.get("scheduled_start"))
@@ -1248,6 +1293,38 @@ def _load_automated_wettfinder_document(
     # rule.
     dropped_strict_keys: set[str] = set()
     inconsistent_model_keys: set[str] = set()
+    withheld_next_day_keys: set[str] = set()
+
+    def listed_next_day_row(row: dict) -> bool:
+        """A model row on the declared next day of its sport (Folgetag).
+
+        Such a row is shown only in the model list and can never be a tip or a
+        15K row (strict rows must be on the match day, checked above). An
+        invalid one is therefore withheld alone instead of failing today's
+        document (owner rule "Ein Fehler dort lässt heute unverändert").
+        Structure, identity and the next-day declaration stay document-wide.
+        """
+        sport = str(row.get("sport") or "").strip().casefold().replace("ß", "ss")
+        scheduled = _parse_iso(row.get("scheduled_start"))
+        if (
+            sport not in next_day_sports
+            or scheduled is None
+            or scheduled.tzinfo is None
+            or scheduled.astimezone(timezone.utc) <= generated
+            or scheduled.astimezone(ZURICH_TZ).date() != next_day
+        ):
+            return False
+        if row.get("source") != TEAM_RESEARCH_SOURCE:
+            return True
+        # Native NHL within 24 hours of the run belongs to the match day.
+        from team_sport_forecasts import automatic_team_sport_day
+        snapshot = row.get("team_sport_snapshot")
+        return not automatic_team_sport_day(
+            starts_at=scheduled, now=generated, target_date=target,
+            sport=snapshot.get("sport") if isinstance(snapshot, dict) else None,
+            provider=row.get("fixture_source"),
+        )
+
     for row in [*candidates, *challenge_release_candidates]:
         if (
             not isinstance(row, dict)
@@ -1296,6 +1373,8 @@ def _load_automated_wettfinder_document(
                 return None
             dropped_strict_keys.add(key)
     for row in model_candidates:
+        key = str(row.get("key") or "").strip()
+        listed_next = listed_next_day_row(row)
         if (
             not isinstance(row, dict)
             or row.get("status") != "MODEL_SELECTION"
@@ -1304,12 +1383,19 @@ def _load_automated_wettfinder_document(
                 for field in ("offered_odds", "bookmaker_odds", "n1bet_odds")
             )
         ):
+            if listed_next:
+                withheld_next_day_keys.add(key)
+                continue
             return None
         if row.get('source') == TEAM_RESEARCH_SOURCE:
             if not valid_research_row(row, now=generated):
+                if listed_next:
+                    withheld_next_day_keys.add(key)
+                    continue
                 return None
             from team_sport_forecasts import automatic_team_sport_day
-            if not automatic_team_sport_day(starts_at=_parse_iso(row['scheduled_start']), now=generated,
+            if not listed_next and not automatic_team_sport_day(
+                    starts_at=_parse_iso(row['scheduled_start']), now=generated,
                     target_date=target, sport=row['team_sport_snapshot']['sport'], provider=row['fixture_source']):
                 return None
             scheduled_by_key[row['key']] = _parse_iso(row['scheduled_start'])
@@ -1320,6 +1406,9 @@ def _load_automated_wettfinder_document(
             haircut,
             float(probability),
         ):
+            if listed_next:
+                withheld_next_day_keys.add(key)
+                continue
             return None
         expected_minimum = _minimum_odds(float(probability), float(haircut))
         supplied_minimum = row.get("minimum_odds")
@@ -1329,16 +1418,18 @@ def _load_automated_wettfinder_document(
             or not isinstance(supplied_minimum, (int, float))
             or abs(float(supplied_minimum) - expected_minimum) > 0.011
         ):
+            if listed_next:
+                withheld_next_day_keys.add(key)
+                continue
             return None
         scheduled = _parse_iso(row.get("scheduled_start"))
         if (
             scheduled is None
             or scheduled.tzinfo is None
             or scheduled.astimezone(timezone.utc) <= generated
-            or not _listed_day(row, scheduled, target, next_day)
+            or not (scheduled.astimezone(ZURICH_TZ).date() == target or listed_next)
         ):
             return None
-        key = str(row.get("key") or "").strip()
         quote_payload = row.get("reference_quote")
         price_evaluated_at = generated
         inconsistent = False
@@ -1374,7 +1465,7 @@ def _load_automated_wettfinder_document(
         ):
             inconsistent = True
         if inconsistent:
-            if not floor_policy:
+            if not floor_policy and not listed_next:
                 return None
             inconsistent_model_keys.add(key)
             continue
@@ -1402,12 +1493,19 @@ def _load_automated_wettfinder_document(
     ]
     withheld = len(inconsistent_model_keys | dropped_strict_keys)
     projected_document["price_inconsistent_rows"] = withheld
-    if withheld:
+    if withheld or withheld_next_day_keys:
         import logging
-        logging.getLogger(__name__).warning(
-            "automated wettfinder document: %d row(s) withheld for an inconsistent price status",
-            withheld,
-        )
+        logger = logging.getLogger(__name__)
+        if withheld:
+            logger.warning(
+                "automated wettfinder document: %d row(s) withheld for an inconsistent price status",
+                withheld,
+            )
+        if withheld_next_day_keys:
+            logger.warning(
+                "automated wettfinder document: %d invalid next-day row(s) withheld",
+                len(withheld_next_day_keys),
+            )
     return projected_document, generated, projected_candidates
 
 
