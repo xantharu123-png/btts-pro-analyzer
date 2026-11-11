@@ -1,5 +1,27 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 11.11.2026 10:00 – Übergabe an Codex: Stand 09.–11.11. (Releases 20261110-1 bis 20261111-2)
+
+- **Ausführlich:** `docs/handoffs/2026-11-11-claude-uebergabe-codex.md`. Dort stehen Release-Verfahren, Termine,
+  offene Aufgaben, Risiken und alte Testfehler.
+- **Live:** `555797b` seit 11.11. 09:02, alle Dienste Exit 0, letzter Alarm 07.11.
+- **Neu live:**
+  - Ergebnisse auch im Quotenlauf (#107).
+  - Wettfinder-Regler startet bei 70 % (#109).
+  - NHL-Quoten über den Spielplan ab Vortag (#111).
+  - Folgetag immer (#112).
+  - Doublebet- und 15K-Vorschau für morgen (#114).
+  - Morgen auch für Eishockey, Basketball und E-Sport (#115).
+- **Vorab festgelegt:** Fallenfilter (#105), Auswertung am 30.11., bis dahin nur `--count-only`.
+- **Widerlegt:** Startelf (#105).
+- **Offen:**
+  - Tennis morgen (eigener Lauf nötig) und Tennis-Zweitquelle; The Odds API deckt nur grosse Turniere ab.
+  - Google Play (PR #106, Owner-Punkte).
+  - Alte Testfehler.
+  - Nachtlauf 12.11. auf Morgen-Zeilen prüfen.
+- **Risiko:** Nicht unter `555797b` zurückrollen. Der alte Lader verwirft Dokumente mit Morgen-Zeilen anderer
+  Sportarten.
+
 ## 07.11.2026 20:54 – Release 20261107-3 live: Shadow-Historien mit festem Namen, Budgetschutz ist Datenstatus (PR #103)
 
 - **Anlass:** Der Shadow-Lauf um 20:32 (und erneut um 20:52) endete nach der Formstärke-Umstellung mit Exit 1 und
