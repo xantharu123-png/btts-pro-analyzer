@@ -239,7 +239,8 @@ def record_automatic_publication(state_path, *, as_of=None, db_path=None, foreca
         if snapshot.status is None:
             return {'status': 'source_unavailable'}
         # A listed next-day game is archived on its own match day, so it is never counted twice.
-        forecasts = [signal for signal in snapshot.forecasts if not listed_next_day_signal(signal, now=instant)]
+        forecasts = [signal for signal in snapshot.forecasts if not listed_next_day_signal(
+            signal, now=instant, decided_at=snapshot.status.generated_at)]
         signals = {signal.key: signal for signal in forecasts}
         cards = [build_wettfinder_card(signal, quote=signal.reference_quote, now=instant)
                  for signal in forecasts]

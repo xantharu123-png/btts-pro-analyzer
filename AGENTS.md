@@ -94,6 +94,9 @@ Code, dann `PROJECT_HANDBUCH.md`, dann die Bibel. Historische Logs: `TODO_AKTUEL
 - **Wettfinder-Folgetag seit 02.11.2026** (`docs/audits/2026-11-02-wettfinder-folgetag.md`, Owner-Entscheid), seit
   10.11.2026 immer, ohne Grenze von 30 Spielen (`docs/audits/2026-11-10-folgetag-immer.md`, Owner „heute und
   morgen“, Schritt 1): Der Tageslauf listet auch den nächsten Tag (`football_next_day`, `next_day_search_date`).
+  Seit 11.11.2026 auch Eishockey, Basketball und E-Sport (Schritt 3a, `docs/audits/2026-11-11-morgen-teamsport-esport.md`):
+  je Sportart in `sources.<sportart>.next_day` gekennzeichnet (`automated_next_day_sports`), RisikoBet bleibt bei heute,
+  eine ungültige Morgen-Zeile hält der Lader einzeln zurück; Tennis folgt (Schritt 3b).
   Nur Modellauswahlen in der Wettfinder-Liste, nie Tipp, 15K, Daily3, Shadow, Evidenz oder Archiv. Ein Fehler dort
   lässt heute unverändert.
 - **Tennis-Tipps ab 60 % seit 05.11.2026** (`docs/audits/2026-11-05-tennis-tipps-ab-60.md`, Owner „alles machen“,
