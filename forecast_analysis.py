@@ -574,8 +574,13 @@ def football_context_highlight_reason(context, *, now, max_age=_CONTEXT_MAX_AGE)
     return ''
 
 
-def forecast_highlight_reason(signal, *, now, analysis=None, check_context=True):
-    """Empty qualifies presentation; model-only qualification preserves direction."""
+def forecast_highlight_reason(signal, *, now, analysis=None, check_context=True, match_day=None):
+    """Empty qualifies presentation; model-only qualification preserves direction.
+
+    ``match_day`` names the Zurich day whose daily automatic rows keep the daily
+    model lifetime; by default the current day. Only the read-only Doublebet
+    preview of the listed next day passes tomorrow (owner 11.11.2026).
+    """
     if getattr(signal, 'source', None) == 'team_sport_research':
         return 'Modell noch nicht unabhängig bestätigt'
     clock = _clock(signal.modeled_at)
@@ -584,8 +589,8 @@ def forecast_highlight_reason(signal, *, now, analysis=None, check_context=True)
     max_age = MODEL_HIGHLIGHT_MAX_AGE
     if getattr(signal, 'source', None) == 'automated_wettfinder_forecast':
         start = _clock(getattr(signal, 'scheduled_start', None))
-        if (start is not None and start > now
-                and start.astimezone(_ZURICH).date() == now.astimezone(_ZURICH).date()):
+        day = now.astimezone(_ZURICH).date() if match_day is None else match_day
+        if start is not None and start > now and start.astimezone(_ZURICH).date() == day:
             max_age = DAILY_MODEL_HIGHLIGHT_MAX_AGE
     if not timedelta(0) <= now-clock <= max_age:
         return 'Modellstand nicht aktuell belegt'

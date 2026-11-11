@@ -2442,6 +2442,62 @@ def build_scheduled_challenge_snapshot(
     }
 
 
+def build_next_day_challenge_preview(
+    document: object,
+    *,
+    scope: Optional[dict[str, Any]] = None,
+) -> Optional[dict[str, Any]]:
+    """Read-only 15K preview of the listed next day (owner 11.11.2026, "heute und morgen").
+
+    Rebuilt from the same artifact as the match day, with the next day's own
+    football state and model rows and without any release pool: no ticket, tip,
+    evidence or archive can follow. Only a validated next day of a current
+    artifact qualifies; otherwise None (fail-closed, no provider scan).
+    """
+    if not isinstance(document, dict):
+        return None
+    try:
+        target = date.fromisoformat(str(document.get("target_search_date")))
+    except ValueError:
+        return None
+    next_day = automated_next_day(document, target)
+    if next_day is None:
+        return None
+    snapshot = build_scheduled_challenge_snapshot(
+        {
+            **document,
+            "football": document.get("football_next_day"),
+            "target_search_date": next_day.isoformat(),
+            "challenge_release_candidates": [],
+        },
+        scope=scope,
+    )
+    if snapshot is None:
+        return None
+
+    def next_day_only(candidates: list[ChallengeCandidate]) -> list[ChallengeCandidate]:
+        kept = []
+        for candidate in candidates:
+            kickoff = _parse_iso(candidate.kickoff)
+            if kickoff is not None and kickoff.tzinfo is not None and (
+                kickoff.astimezone(ZURICH_TZ).date() == next_day
+            ):
+                kept.append(candidate)
+        return kept
+
+    for field in ("forecast_shortlist", "basis_forecasts", "challenge_model_candidates", "base_shortlist"):
+        snapshot[field] = next_day_only(snapshot[field])
+    kept_ids = {candidate.candidate_id for candidate in snapshot["base_shortlist"]}
+    snapshot["reference_quotes"] = {
+        key: value for key, value in snapshot["reference_quotes"].items() if key in kept_ids
+    }
+    snapshot["challenge_display_records"] = {
+        key: value for key, value in snapshot["challenge_display_records"].items() if key in kept_ids
+    }
+    snapshot.update(shortlist=[], price_candidates=[], approved_candidates=0)
+    return snapshot
+
+
 def write_state(document: dict[str, Any], path: str | Path = STATE_PATH) -> None:
     """Atomically replace the public runtime artifact."""
     state_path = Path(path)
