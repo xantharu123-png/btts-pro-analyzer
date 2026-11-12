@@ -20,7 +20,7 @@ from zoneinfo import ZoneInfo
 from betting_math import MINIMUM_RECOMMENDED_DECIMAL_ODDS
 from challenge_engine import MARKET_BY_KEY
 from daily3_identity import event_guard, events_overlap
-from daily3_comparison import Comparison, daily3_comparison
+from daily3_comparison import NATIONAL_SCOPE, Comparison, daily3_comparison
 from daily3_schedule import fits_daily3_window, planned_ready_at
 from forecast_analysis import (DAILY_MODEL_HIGHLIGHT_MAX_AGE, build_forecast_analysis,
     football_context_highlight_reason, forecast_highlight_reason, read_football_analysis)
@@ -29,7 +29,7 @@ from forecast_price_checks import has_current_price_check
 from quote_publication import publication_quote
 from selection_coherence import consumer_event_identity
 
-POLICY_VERSION = 'doublebet-odds-around-2-most-probable-v15'
+POLICY_VERSION = 'doublebet-odds-around-2-most-probable-v16'
 # Owner decision 03.11.2026: "um 2,00" is an admitted median quote from 1.80 to 2.20.
 DOUBLEBET_ODDS_MIN = 1.80
 DOUBLEBET_ODDS_MAX = 2.20
@@ -38,6 +38,9 @@ DOUBLEBET_ODDS_MAX = 2.20
 # the basketball model (51.7 % against 67.6 %, 29 EuroLeague games) stays out, and every other
 # surface keeps the research gate (docs/audits/2026-11-11-doublebet-eishockey.md).
 DOUBLEBET_RESEARCH_SPORTS = frozenset({'eishockey', 'ice_hockey'})
+# Owner decision 12.11.2026 ("Ja, zulassen", v16): A-Länderspiele (model_scope NATIONAL_SCOPE)
+# may enter Doublebet although the provider covers no injuries for them; the card says so
+# (docs/audits/2026-11-12-doublebet-laenderspiele.md).
 MAX_LEGS = 3
 _TZ = ZoneInfo('Europe/Zurich')
 _SPORTS = {'fussball': 'football', 'fußball': 'football', 'football': 'football',
@@ -154,7 +157,10 @@ def _explanation(signal, sport, now, match_day=None):
         # actual vetoes, conflicts and missing observations remain exclusions.
         kwargs = ({'max_age': DAILY_MODEL_HIGHLIGHT_MAX_AGE}
                   if signal.source == 'automated_wettfinder_forecast' else {})
-        if football_context_highlight_reason(context, now=now, **kwargs):
+        # Owner 12.11.2026 (v16): the provider covers no injuries for senior national teams.
+        # model_scope is bound to the evidence identity; club games keep the full requirement.
+        national = getattr(signal, 'model_scope', None) == NATIONAL_SCOPE
+        if football_context_highlight_reason(context, now=now, uncovered_injuries_ok=national, **kwargs):
             return None
     basis = ' '.join(part for part in (analysis.basis, analysis.samples, analysis.data_age) if part)
     return basis, analysis.caution

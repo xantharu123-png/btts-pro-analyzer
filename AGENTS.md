@@ -93,7 +93,11 @@ Code, dann `PROJECT_HANDBUCH.md`, dann die Bibel. Historische Logs: `TODO_AKTUEL
   `daily3_rail`/`daily3_default_plan`) bleiben; nur Anzeige und Policy heissen Doublebet. Seit 11.11.2026 (Policy
   v15, Owner „Ja, Eishockey zulassen“, `docs/audits/2026-11-11-doublebet-eishockey.md`) nimmt nur das Doublebet das
   Eishockey-Forschungsmodell auf (`DOUBLEBET_RESEARCH_SPORTS`, `forecast_highlight_reason(admit_research_sports=)`);
-  Basketball und alle anderen Flächen behalten „Modell noch nicht unabhängig bestätigt“.
+  Basketball und alle anderen Flächen behalten „Modell noch nicht unabhängig bestätigt“. Seit 12.11.2026 (Policy
+  v16, Owner „Ja, zulassen“, `docs/audits/2026-11-12-doublebet-laenderspiele.md`) dürfen A-Länderspiele
+  (`model_scope = senior_national_pooled`) ohne Verletzungsdaten ins Doublebet, wenn die Quelle sie ausdrücklich
+  nicht abdeckt (`uncovered_injuries_ok`); Vereinsspiele, ein fehlgeschlagener Abruf und alle anderen Flächen
+  behalten die volle Kontextprüfung.
 - **Wettfinder-Folgetag seit 02.11.2026** (`docs/audits/2026-11-02-wettfinder-folgetag.md`, Owner-Entscheid), seit
   10.11.2026 immer, ohne Grenze von 30 Spielen (`docs/audits/2026-11-10-folgetag-immer.md`, Owner „heute und
   morgen“, Schritt 1): Der Tageslauf listet auch den nächsten Tag (`football_next_day`, `next_day_search_date`).
