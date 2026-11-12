@@ -76,3 +76,16 @@ Lokal grün:
 ## Rückweg
 
 In `daily3_selection._explanation` `uncovered_injuries_ok=False` setzen. Das stellt v15 wieder her.
+
+## Release 20261112-1
+
+- **Auftrag:** Owner „Ja, live stellen“. PR #120 gemergt (`9aee28d`), CI grün.
+- **Ausrollen:** No-Backup-Fast-forward `4f00d0f` → `9aee28d` am 12.11.2026 um 08:44 CET
+  (`output/release-20261112-1/`).
+  - Vorher lief der Prüfblock offline gegen einen Worktree des Ziels: `OFFLINE_RELEASE_IMPORTS=ok`.
+  - Neu im Prüfblock: Policy v16 statt v15, dazu vier Prüfungen für diesen PR.
+  - Auf dem Server: Prüfblock ok, Health lokal und öffentlich ok, Snapshots unverändert, kein Backup, keine Einheit
+    geändert, App-Prozess neu gestartet.
+- **Nach dem Release (08:44):** Der Live-Code wählt fürs Doublebet heute Tschechien – Spanien (Spanien unter
+  2,5 Tore, 1,90, 71 %); der Hinweis nennt die fehlenden Verletzungsdaten. Die Vorschau für den 13.11. zeigt
+  Columbus – Tampa Bay (Sieg Tampa, 1,82) und Serbien – Deutschland (Deutschland unter 2,5 Tore, 1,88).

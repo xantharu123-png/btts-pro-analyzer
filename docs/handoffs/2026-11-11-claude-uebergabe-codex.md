@@ -4,6 +4,16 @@ Dieses Dokument übergibt den Stand vom 09. bis 11.11.2026 vollständig. Es erg�
 `STATUS.md` (eine Seite Stand) und die Protokolle unter `docs/audits/`. Bei Widersprüchen gilt wie immer zuerst der
 Code.
 
+## Nachtrag 12.11.2026, 08:44 CET
+
+- Produktion läuft jetzt auf `9aee28d` (PR #120, Release 20261112-1, Beleg `output/release-20261112-1/`).
+- Doublebet nimmt A-Länderspiele auch ohne Verletzungsdaten auf, wenn die Quelle sie ausdrücklich nicht abdeckt
+  (Policy v16, `uncovered_injuries_ok`, nur `model_scope = senior_national_pooled`). Vereinsspiele und alle anderen
+  Flächen bleiben unverändert. Details: `docs/audits/2026-11-12-doublebet-laenderspiele.md`.
+- Nachtlauf 12.11. geprüft: Die Zeilen für morgen sind da (Fussball 60, Basketball 6, Eishockey 2, dazu 18
+  NHL-Zeilen der Nacht). E-Sport hat für morgen keine Spiele gefunden. NHL-Quoten kamen im Quotenlauf um 06:15.
+- Die Regel „nie hinter `555797b` zurückrollen“ gilt weiter.
+
 ## Nachtrag 11.11.2026, 14:15 CET
 
 - Produktion läuft jetzt auf `4f00d0f` (PR #118, Release 20261111-3, Beleg `output/release-20261111-3/`).
