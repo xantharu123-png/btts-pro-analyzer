@@ -549,8 +549,13 @@ def _sport_analysis(signal, sport, now):
     return None
 
 
-def football_context_highlight_reason(context, *, now, max_age=_CONTEXT_MAX_AGE):
-    """Qualify typed original football checks, not lineup completeness or prose."""
+def football_context_highlight_reason(context, *, now, max_age=_CONTEXT_MAX_AGE, uncovered_injuries_ok=False):
+    """Qualify typed original football checks, not lineup completeness or prose.
+
+    ``uncovered_injuries_ok`` accepts only the provider's explicit "not covered" injury fact
+    (Doublebet for senior national teams, owner 12.11.2026); a failed or missing injury
+    check and every other veto still exclude the row.
+    """
     if _mapping(_mapping(context).get('lineups')).get('status') == 'blocked':
         return 'Spielinformationen sprechen gegen die Auswahl'
     context = _context_projection(_mapping(context), include_names=False)
@@ -566,6 +571,9 @@ def football_context_highlight_reason(context, *, now, max_age=_CONTEXT_MAX_AGE)
         ('injuries', ('passed', 'observed')),
     ):
         check = _mapping(context.get(axis))
+        if (axis == 'injuries' and uncovered_injuries_ok and check.get('availability') == 'not_covered'
+                and check.get('coverage_available') is False):
+            continue
         checked = _clock(check.get('checked_at'))
         if (check.get('status') not in statuses or check.get('availability') != 'available'
                 or checked is None or not timedelta(0) <= now-checked <= max_age
