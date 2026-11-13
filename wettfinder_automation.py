@@ -2673,6 +2673,58 @@ def _football_next_day(
     return state, {**summary, "status": "scanned"}
 
 
+# Owner 13.11.2026 ("alles erledigen"): a football game that starts in the night after the
+# match day was never settled. Its own match-day run records forecasts at about
+# 03:45-04:10 Zurich, after kickoff, and a next-day row was never evidence. The run before
+# therefore records next-day football rows that start before 04:30 Zurich as evidence only.
+# They stay a next-day preview: never a tip, 15K row, Doublebet choice, shadow or archive.
+NIGHT_GAME_KICKOFF_BEFORE = (4, 30)
+
+
+def _night_game_cutoff(next_target: date) -> datetime:
+    hour, minute = NIGHT_GAME_KICKOFF_BEFORE
+    return datetime(next_target.year, next_target.month, next_target.day, hour, minute, tzinfo=ZURICH_TZ)
+
+
+def _night_game_rows(rows: Iterable[Mapping[str, Any]], next_target: date) -> list:
+    """Next-day football rows that start before the match-day run can record them."""
+    from forecast_evidence import _SPORTS
+
+    day_start = datetime(next_target.year, next_target.month, next_target.day, tzinfo=ZURICH_TZ)
+    cutoff = _night_game_cutoff(next_target)
+    kept = []
+    for row in rows:
+        if _SPORTS.get(str(row.get("sport") or "").casefold()) != "football":
+            continue
+        start = _parse_iso(row.get("scheduled_start") or row.get("starts_at"))
+        if start is not None and day_start <= start < cutoff:
+            kept.append(row)
+    return kept
+
+
+def _record_night_game_evidence(document: Mapping[str, Any], rows: list, evidence_path: Path, *,
+                                next_target: date) -> dict[str, Any]:
+    """Record night games with the run's own decision clock and policy, apart from today's run."""
+    from forecast_evidence import record_forecast_run
+
+    night_document = {key: document[key] for key in (
+        "generated_at", "decision_at", "selection_policy_version", "betting_policy_version") if key in document}
+    night_document["model_candidates"] = list(rows)
+    summary: dict[str, Any] = {"kickoff_before": _night_game_cutoff(next_target).isoformat()}
+    try:
+        recorded = record_forecast_run(night_document, evidence_path, model_version=CHALLENGE_PREDICTION_VERSION)
+    except Exception as exc:
+        return {**summary, "status": "failed", "failure_type": type(exc).__name__}
+    return {
+        **summary,
+        "run_id": recorded["run_id"],
+        "recorded": recorded["recorded"],
+        "rejected_count": len(recorded["rejected"]),
+        "quote_rejected_count": len(recorded["quotes_rejected"]),
+        "status": "completed" if not recorded["rejected"] else "partial",
+    }
+
+
 NEXT_DAY_TEAM_SPORTS = ("basketball", "ice_hockey")
 
 
@@ -5130,7 +5182,8 @@ def run_wettfinder(
             Path(state_path).with_name('football-original-committed-admission-v2.json'),
             original_collection_admission['reservation_id'], usage=document['football_original_usage'], now=current)
     # Folgetag: appended only after tips, 15K, RisikoBet and evidence were derived
-    # from today's rows, so none of them can contain a next-day game.
+    # from today's rows, so none of them can contain a next-day game. Only night games
+    # (before 04:30 Zurich) are recorded as evidence below (owner 13.11.2026).
     next_day_ledger = build_model_selection_ledger(
         (),
         build_daily_forecast_catalog(next_day_rows, (), now=current, target_date=next_target),
@@ -5152,6 +5205,16 @@ def run_wettfinder(
         next_day_summary["status"] = (
             "listed_partial" if next_day_summary.get("status") == "scanned_partial" else "listed"
         )
+        night_rows = _night_game_rows(next_day_ledger, next_target)
+        if night_rows and (production_state or evidence_db_path is not None):
+            night_summary = stage(
+                "forecast_recording_night_games", _record_night_game_evidence, document, night_rows,
+                evidence_db_path or ROOT / "runtime_state" / "forecast_evidence.db", next_target=next_target,
+            )
+            document["forecast_evidence_night_games"] = night_summary
+            if night_summary["status"] == "failed":
+                document["run_status"] = "degraded"
+                document["operational_error_count"] += 1
     next_day_summary.update(
         candidate_count=len(next_day_ledger),
         games=len({row.get("fixture_id") for row in next_day_ledger}),

@@ -282,3 +282,95 @@ def test_tennis_box_keeps_the_match_day_label():
     source = inspect.getsource(app._render_automated_daily_selection)
     assert source.index("rail_label = target_label") < source.index("target_label += ' und morgen'")
     assert "time_parts = [target_label]" in source and "target_label=rail_label" in source
+
+
+# Owner 13.11.2026 ("alles erledigen"): a football game that starts in the night after the
+# match day (before 04:30 Zurich) was never settled. The match-day run records forecasts at
+# about 03:45-04:10, after its kickoff, and a next-day row was never evidence. Since then the
+# run before records such night games as evidence only; they stay a next-day preview.
+NIGHT_KICKOFF = "2030-01-02T01:30:00+00:00"  # 02:30 Zurich
+DAY_KICKOFF = "2030-01-02T15:00:00+00:00"
+
+
+def _night_and_day_snapshot() -> dict:
+    night = _today_snapshot(candidate_id="fixture-2-btts", fixture_id=2,
+                            kickoff=NIGHT_KICKOFF)["wettfinder_candidates"][0]
+    day = _today_snapshot(candidate_id="fixture-3-btts", fixture_id=3,
+                          kickoff=DAY_KICKOFF)["wettfinder_candidates"][0]
+    snapshot = _today_snapshot()
+    snapshot.update(wettfinder_candidates=[night, day], discovery_candidates=[night, day],
+                    context_fixture_statuses={"2": "verified", "3": "verified"},
+                    fixture_kickoffs=[NIGHT_KICKOFF, DAY_KICKOFF],
+                    base_fixture_count=2, context_fixtures=2, context_verified_fixtures=2)
+    return snapshot
+
+
+def _evidence_fixtures(path):
+    import sqlite3
+
+    with sqlite3.connect(path) as connection:
+        return {row[0] for row in connection.execute(
+            "SELECT json_extract(payload_json, '$.quote_identity.fixture_id') FROM forecast_rows")}
+
+
+def test_night_game_of_the_next_day_is_recorded_as_evidence_only(tmp_path, monkeypatch):
+    import forecast_evidence
+
+    monkeypatch.setattr(forecast_evidence, "_now", lambda: NOW)
+    evidence = tmp_path / "evidence.db"
+
+    def scan(day):
+        return _night_and_day_snapshot() if day == TOMORROW else _today_snapshot()
+
+    artifact, document = _run(tmp_path, scan, football_next_day=True, evidence_db_path=evidence,
+                              evidence_settlement_runner=lambda **_kwargs: {})
+
+    assert _evidence_fixtures(evidence) == {1, 2}
+    night_rows = [row for row in document["model_candidates"] if row["fixture_id"] == 2]
+    assert night_rows and 3 in _fixture_ids(document["model_candidates"])
+    summary = document["forecast_evidence_night_games"]
+    assert summary["status"] == "completed" and summary["recorded"] == len(night_rows)
+    assert summary["kickoff_before"] == "2030-01-02T04:30:00+01:00"
+    assert document["forecast_evidence"]["recorded"] == len(
+        [row for row in document["model_candidates"] if row["fixture_id"] == 1])
+    # Still only a next-day preview: no tip, no 15K row, no archive entry.
+    assert 2 not in _fixture_ids(document["candidates"])
+    assert 2 not in _fixture_ids(document["challenge_release_candidates"])
+    forecasts = automated_wettfinder_forecasts(artifact, now=NOW)
+    assert {s.key for s in forecasts if listed_next_day_signal(s, now=NOW)} == {
+        row["key"] for row in document["model_candidates"] if row["fixture_id"] in {2, 3}}
+    assert document["run_status"] == "completed"
+
+
+def test_night_games_are_not_recorded_without_an_evidence_store(tmp_path):
+    def scan(day):
+        return _night_and_day_snapshot() if day == TOMORROW else _today_snapshot()
+
+    _artifact, document = _run(tmp_path, scan, football_next_day=True)
+    assert "forecast_evidence_night_games" not in document
+
+
+@pytest.mark.parametrize("kickoff,kept", [
+    ("2030-01-01T23:00:00+00:00", True),    # 00:00 Zurich on the next day
+    ("2030-01-02T03:29:59+00:00", True),    # 04:29:59 Zurich
+    ("2030-01-02T03:30:00+00:00", False),   # 04:30 Zurich: the match-day run records it
+    ("2030-01-02T15:00:00+00:00", False),
+    ("2030-01-01T22:59:59+00:00", False),   # still the match day
+    ("2030-01-02T23:30:00+00:00", False),   # 00:30 two days later
+])
+def test_night_game_window_uses_the_zurich_clock_of_the_next_day(kickoff, kept):
+    row = {"sport": "Fußball", "fixture_id": 2, "scheduled_start": kickoff}
+    assert automation._night_game_rows([row], TOMORROW) == ([row] if kept else [])
+
+
+def test_night_game_window_follows_summer_time():
+    summer = date(2030, 7, 2)
+    early = {"sport": "Fußball", "scheduled_start": "2030-07-02T02:29:00+00:00"}  # 04:29 CEST
+    late = {"sport": "Fußball", "scheduled_start": "2030-07-02T02:30:00+00:00"}   # 04:30 CEST
+    assert automation._night_game_rows([early, late], summer) == [early]
+
+
+def test_night_game_window_takes_football_only():
+    hockey = {"sport": "Eishockey", "scheduled_start": "2030-01-02T01:30:00+00:00"}
+    unknown = {"sport": "Fußball", "scheduled_start": "nicht lesbar"}
+    assert automation._night_game_rows([hockey, unknown], TOMORROW) == []
