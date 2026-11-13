@@ -4,6 +4,9 @@ Dieses Dokument 체bergibt den Stand vom 09. bis 11.11.2026 vollst채ndig. Es erg�
 `STATUS.md` (eine Seite Stand) und die Protokolle unter `docs/audits/`. Bei Widerspr체chen gilt wie immer zuerst der
 Code.
 
+**Fortsetzung:** Der Stand vom 13.11.2026 steht in `docs/handoffs/2026-11-13-claude-uebergabe-codex.md`. Dort
+zuerst lesen; dieses Dokument bleibt f체r Release-Verfahren, Risiken, Regeln und Pfade g체ltig.
+
 ## Nachtrag 12.11.2026, 08:44 CET
 
 - Produktion l채uft jetzt auf `9aee28d` (PR #120, Release 20261112-1, Beleg `output/release-20261112-1/`).
