@@ -155,6 +155,10 @@ Fenster, das Ergebnis, die drei Bedingungen, die Verlängerung bei zu wenig Date
 - Ob bis zum 28.11. 150 Fallen zusammenkommen, ist auch mit der Berichtigung offen.
 - Bis zur Auswertung gilt weiter: nur `--count-only`.
 
+**Hinweis 13.11.2026, abends (keine Regeländerung):** Fussballspiele mit Anstoss vor 04:30 Uhr bekamen bisher nie
+ein Ergebnis und fielen als „offen“ weg. Ab dem Release der Nachtspiel-Abrechnung
+(`docs/audits/2026-11-13-nachtspiele-abrechnung.md`) werden sie abgerechnet und können mitzählen. Im Bericht nennen.
+
 **Zählung nach der Änderung** (13.11., 10:01, `--count-only`, nur Anzahlen):
 
 | Zeitraum | abgerechnet | Fallen | übrige mit Quote | ohne Quote | Quote nur über die Auswahl |

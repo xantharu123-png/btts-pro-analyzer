@@ -108,7 +108,11 @@ Code, dann `PROJECT_HANDBUCH.md`, dann die Bibel. Historische Logs: `TODO_AKTUEL
   lässt heute unverändert. Seit 11.11.2026 (Schritt 2, `docs/audits/2026-11-11-morgen-vorschau-doublebet-15k.md`)
   zeigen Doublebet und 15K morgen als reine Vorschau (`doublebet_preview_choices`, `build_next_day_challenge_preview`,
   `_render_model_challenge(preview=True)`): Vormerken und Ticket nur am Spieltag, weiter nie Tipp, Evidenz, Archiv
-  oder Shadow.
+  oder Shadow. Ausnahme seit 13.11.2026 (Owner „alles erledigen“, `docs/audits/2026-11-13-nachtspiele-abrechnung.md`):
+  Fussballzeilen des Folgetags mit Anstoss vor 04:30 Zürcher Zeit speichert der Lauf als Evidenz
+  (`NIGHT_GAME_KICKOFF_BEFORE`, `forecast_evidence_night_games`), weil ihr eigener Spieltag-Lauf erst nach dem
+  Anstoss speichert und sie sonst nie abgerechnet würden. Sie bleiben Vorschau, nie Tipp, 15K, Doublebet, Shadow
+  oder Archiv.
 - **Tennis-Tipps ab 60 % seit 05.11.2026** (`docs/audits/2026-11-05-tennis-tipps-ab-60.md`, Owner „alles machen“,
   „Ja, mergen + live“): Ein Tennis-Siegertipp entsteht erst ab 60 % Modellchance (`TENNIS_WINNER_MIN_PROBABILITY`
   in `ev_signal_sources.tennis_model_signals`). Darunter traf das Modell wie ein Münzwurf: 49,8 % in der Hypothese

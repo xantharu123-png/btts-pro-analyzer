@@ -5,6 +5,11 @@ Codex übernimmt am **Montag, 16.11.2026**. Dieses Dokument steht für sich: Es 
 (`2026-11-11-claude-uebergabe-codex.md`, `2026-11-13-claude-uebergabe-codex.md`) bleiben als Verlauf stehen. Wo sie
 abweichen, gilt dieses Dokument. Bei Widersprüchen gilt wie immer zuerst der Code, dann `AGENTS.md`.
 
+**Nachtrag 13.11.2026, abends:** Der Owner macht vorerst mit Claude weiter („ich mache im Moment mit dir weiter“).
+Die Übernahme durch Codex ist verschoben; dieses Dokument bleibt für den späteren Wechsel gültig. Seither neu: die
+Nachtspiel-Abrechnung (`docs/audits/2026-11-13-nachtspiele-abrechnung.md`). Fussballspiele mit Anstoss vor 04:30 Uhr
+werden schon im Lauf davor als Evidenz gespeichert, damit sie abgerechnet werden. Den Stand nennt `STATUS.md`.
+
 Inhalt: 0 Kurzfassung · 1 Montag zuerst · 2 Stand · 3 Was die App zeigt · 4 Verlauf · 5 Arbeitsweise ·
 6 Release-Verfahren · 7 Server-Zugriff · 8 Messungen und Termine · 9 Offene Aufgaben · 10 Risiken und Lehren ·
 11 Regeln · 12 Owner · 13 Pfade · 14 Was nicht geprüft ist
