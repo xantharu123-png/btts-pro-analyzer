@@ -175,3 +175,5 @@ ein Ergebnis und fielen als „offen“ weg. Ab dem Release der Nachtspiel-Abrec
   einer hochgeladenen Kopie dieses Stands (sha256 `54e972b16fca8dbf3459c44aabc36829779f76878f6733cbdbb7a3309673b1ec`)
   und einem kleinen Starter (`output/fallenfilter-20261113/tfm_count_20261113.py`, nicht in Git). Bis das Release
   da ist, zählt der Befehl im Server-Checkout weiter nach der alten Zuordnung und zeigt 0 Tipps mit Quote.
+- **Seit Release 20261113-1 (13.11.2026, 22:12 CET)** liegt die berichtigte Fassung auf dem Server. Der normale
+  Befehl reicht. Zählung 22:13: 60 abgerechnete Tipps, 3 Fallen, 4 übrige mit Quote, 53 ohne Quote.

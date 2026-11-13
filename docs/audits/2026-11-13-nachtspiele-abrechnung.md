@@ -95,3 +95,27 @@ einem Lauf von Hand. Die Abrechnung nimmt je Auswahl die erste Prognose mit voll
 
 Den Block nach `next_day_summary["status"] = …` in `run_wettfinder` entfernen, der `_night_game_rows` aufruft.
 Gespeicherte Prognosen bleiben gültig.
+
+## Release 20261113-1
+
+Owner „Ja, live stellen“ am 13.11.2026.
+
+- **Merge:** PR #125 um 22:04 CET, `origin/main` = `7efa8f556d74fb9542441d747be571fec6dadcd1`. Die CI war grün
+  (ruff und schnelle Teilmenge; Lader, Publikation, Daily3 und 15K unter `floor` und `gate`).
+- **Dateien:** 14, alle von `9aee28d` bis `7efa8f5`. Darunter liegt neben dieser Änderung das berichtigte
+  Fallenfilter-Skript aus PR #123; sonst nur Doku und Tests. Keine Einheit, kein `.sh`, keine Requirements.
+- **Generator:** `output/release-20261113-1/gen_deploy52.py`, abgeleitet von `gen_deploy51.py` über `make_gen.py`.
+  Neue Asserts: `NIGHT_GAME_KICKOFF_BEFORE == (4, 30)`, `_night_game_rows` und `_record_night_game_evidence`
+  vorhanden, Aufruf in `run_wettfinder`, `forecast_evidence_night_games`, `selection_entry_quotes` im Messskript.
+- **Offline-Prüfung lokal** gegen einen Worktree von `7efa8f5`: `OFFLINE_RELEASE_IMPORTS=ok`.
+- **Hochladen:** sha256 auf dem Server gleich (`deploy-20261113-1.sh` `db0883a7…`, `run_release-20261113-1.sh`
+  `fa98a879…`).
+- **Ausrollen:** Fenster um 22:12:50 (Abstand zum nächsten Shadow-Lauf 550 s). Ergebnis `HEAD=7efa8f5…`,
+  `APP_PID=1600156->1621055`, `NO_NEW_BACKUP=yes`, `UNITS_UNCHANGED=yes`, `DEPLOY_EXIT=0`. Log
+  `output/release-20261113-1/deploy-01.log`.
+- **Danach (22:13):** Health lokal und öffentlich 200, alle Timer aktiv, keine neue fehlgeschlagene Einheit, die
+  Live-Seite lädt. Der normale Fallenfilter-Befehl auf dem Server zählt jetzt nach der berichtigten Zuordnung
+  (60 abgerechnete Tipps, 3 Fallen, 4 übrige mit Quote, 53 ohne).
+- **Offen:** Der Nachtlauf am 14.11. um 03:35 ist der erste mit der neuen Regel. Er speichert die Nachtspiele vom
+  15.11.; im Tagesdokument steht das Ergebnis unter `forecast_evidence_night_games`. Ob dann ein Ergebnis kommt,
+  zeigt sich nach dem ersten Nachtspiel.
