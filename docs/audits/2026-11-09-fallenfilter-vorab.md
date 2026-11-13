@@ -6,6 +6,9 @@ Bedingungen fest, **bevor** ein einziger Tipp aus dem Messfenster abgerechnet is
 Am Code der App ändert sich nichts. Gemessen wird nur, mit `scripts/trap_filter_measurement.py`: Das Skript liest die
 Daten, ruft nichts ab und schreibt nichts.
 
+**Nachtrag vom 13.11.2026:** Die Zuordnung der Einstiegsquote ist berichtigt, bevor ein einziger Tipp mit Quote
+gezählt war. Siehe „Nachtrag 13.11.2026“ am Ende. Der Text vom 09.11. steht unverändert da.
+
 ## Anlass
 
 Auswertung vom 09.11.2026 auf den veröffentlichten Tipps vom 07.10. bis 09.11.2026. Gezählt wurde jede Auswahl einmal,
@@ -30,6 +33,7 @@ von api-football:11 und wurde im Median 16 Stunden vor Anstoss gespeichert.
   - Modellwahrscheinlichkeit: das Feld `probability` des veröffentlichten Tipps.
   - Einstiegsquote: die früheste gespeicherte Quote mit `kind = entry` in `forecast_quotes` zur `forecast_id` des
     Tipps, von welchem Buchmacher auch immer. Es ist die rohe Quote, ohne Margenbereinigung.
+    (Seit 13.11.2026 gilt statt „zur `forecast_id` des Tipps“ die Zuordnung aus dem Nachtrag am Ende.)
 - **Der Filter wählt keine Tipps nach Quote aus.** Er nimmt nur Tipps heraus, bei denen der Buchmacher stark
   widerspricht, so wie die 1,20-Grenze im Hintergrund. Reihenfolge und Modellwahrscheinlichkeit bleiben unverändert.
 - Tipps ohne gespeicherte Einstiegsquote kann der Filter nicht prüfen. Sie zählen nicht zum Test und werden nur
@@ -107,3 +111,46 @@ Rückblick auf die bekannten Tipps vom 07.10. bis 09.11.2026, mit dem Skript nac
 - Die rohe Quote enthält die Marge des Buchmachers. 5 Punkte über 1/Quote sind bereinigt etwas mehr. Das bleibt so,
   weil der Anlass auf der rohen Quote beruht.
 - Im Fenster liegt die Länderspielpause bis etwa 17.11. In dieser Zeit gibt es weniger Ligaspiele.
+
+## Nachtrag 13.11.2026: Einstiegsquote über die Auswahl
+
+Owner-Auftrag „B“ vom 13.11.2026. Es ist die einzige Änderung an dieser Festlegung.
+
+**Befund vor der Änderung** (13.11., 08:32, `--count-only`, 3,3 Tage im Fenster): 58 abgerechnete Tipps, davon
+0 Fallen, 0 übrige mit Quote und 58 ohne Quote.
+
+**Ursache:**
+
+- Seit PR #112 (live seit 10.11., „Folgetag immer“) erscheint ein Fussballtipp meist schon am Vortag auf der Liste
+  `wettfinder_automatic`. Diese Morgen-Zeilen tragen keine `forecast_id`, weil sie nach Regel nie Evidenz sind.
+- Die Messung suchte die Quote nur über die `forecast_id` der ersten Veröffentlichung. Für jeden Tipp, der zuerst am
+  Vortag erschien, fand sie deshalb nie eine Quote, auch wenn zur selben Auswahl später eine gespeichert wurde.
+- PR #112 ging am ersten Tag des Fensters live, einen Tag nach dieser Festlegung. Die Regel scheiterte also an einer
+  Nebenwirkung dieses Umbaus, nicht an den Daten.
+- Dazu kommt die Länderspielpause: Am 10. und 11.11. wurde keine Einstiegsquote gespeichert, am 12. und 13.11. je
+  rund 20 Prognosen mit Quote. Details: `docs/handoffs/2026-11-13-claude-uebergabe-codex.md`, Abschnitt 3.
+
+**Was niemand angesehen hat:** Trefferquoten nach Falle oder Nicht-Falle. Mit der alten Zuordnung war kein einziger
+Tipp eingeordnet. Geprüft wurde nur die Struktur: Anzahl je Sportart und Liste, und ob eine Quote vorhanden ist.
+
+**Neue Zuordnung, für das ganze Fenster:**
+
+- Einstiegsquote eines Tipps ist die früheste gespeicherte Quote mit `kind = entry` über **alle** Prognosen in
+  `forecast_rows` mit demselben Ereignis, demselben Markt und derselben Auswahl wie der Tipp (`event_key`,
+  `market_key`, `selection`). Die `forecast_id` des Tipps spielt für die Zuordnung keine Rolle mehr.
+- Haben zwei Prognosen derselben Auswahl eine Quote mit gleichem Zeitstempel, zählt die mit der kleineren
+  `forecast_id`. So hängt das Ergebnis nicht von der Reihenfolge in der Datenbank ab.
+
+**Unverändert:** die Schwelle 0,05, die rohe Quote, die Modellwahrscheinlichkeit aus der ersten Veröffentlichung, das
+Fenster, das Ergebnis, die drei Bedingungen, die Verlängerung bei zu wenig Daten, die Folgen und „Kein Nachjustieren“.
+
+**Was das bedeutet:**
+
+- Die Quote kann nach der ersten Veröffentlichung gespeichert sein. Bei einem Tipp vom Vortag liegt sie höchstens
+  24 Stunden vor Anstoss, der Tipp erschien früher. Das war schon vorher möglich und ist unter „Folgen“ geregelt.
+- Für Tipps mit eigener `forecast_id` und Quote ändert sich nur etwas, wenn eine frühere Prognose derselben Auswahl
+  eine noch frühere Quote hat.
+- Der Bericht nennt zusätzlich, wie viele Tipps ihre Quote nur über die Auswahl haben.
+- Der Rückblick oben (07.10. bis 09.11., 566 Fallen) ist mit der alten Zuordnung gerechnet und bleibt so stehen.
+- Ob bis zum 28.11. 150 Fallen zusammenkommen, ist auch mit der Berichtigung offen.
+- Bis zur Auswertung gilt weiter: nur `--count-only`.
