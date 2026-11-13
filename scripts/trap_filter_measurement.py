@@ -1,8 +1,10 @@
 """Read-only forward measurement of the pre-registered trap filter (docs/audits/2026-11-09-fallenfilter-vorab.md).
 
 A published selection is a "trap" when its model probability is at least 5 points above 1/odds of the first stored
-entry quote of its forecast (forecast_evidence.forecast_quotes, kind=entry). The pre-registered test uses the
-selections whose first publication lies in [--since, --until) and asks:
+entry quote of that selection (forecast_evidence.forecast_quotes, kind=entry, over every forecast row with the same
+event, market and selection; amendment of 13.11.2026, before any quoted tip was counted: rows published the day
+before carry no forecast_id). The pre-registered test uses the selections whose first publication lies in
+[--since, --until) and asks:
 
 A. Do the traps hit significantly less often than the model promised?
 B. Do the traps hit significantly less often than the other selections with an entry quote?
@@ -60,6 +62,23 @@ def first_entry_quotes(rows):
     return out
 
 
+def selection_entry_quotes(forecast_quotes, forecast_rows):
+    """Earliest entry quote per (event_key, market_key, selection) over all forecast rows of that selection.
+
+    ``forecast_quotes`` comes from first_entry_quotes(); ``forecast_rows`` yields (forecast_id, event_key,
+    market_key, selection). Equal timestamps: the smaller forecast_id wins, so the result never depends on row order.
+    """
+    out, rank = {}, {}
+    for forecast_id, event_key, market_key, selection in forecast_rows:
+        quote = forecast_quotes.get(forecast_id)
+        if not quote:
+            continue
+        key, order = (event_key, market_key, selection), (_utc(quote[2]), str(forecast_id))
+        if key not in rank or order < rank[key]:
+            out[key], rank[key] = quote, order
+    return out
+
+
 def latest_results(rows):
     """Latest outcome per (event_key, market_key, selection) from (..., outcome, observed_at) rows."""
     out = {}
@@ -80,8 +99,12 @@ def gap(probability, odds):
     return probability - 1.0 / odds
 
 
-def tip_records(first, quotes, results, since, until):
-    """Settled (WIN/LOSS) selections first published in [since, until); traps marked, no quote -> trap None."""
+def tip_records(first, quotes, results, since, until, forecast_quotes=None):
+    """Settled (WIN/LOSS) selections first published in [since, until); traps marked, no quote -> trap None.
+
+    ``quotes`` is keyed by selection (selection_entry_quotes). ``forecast_quotes`` (by forecast_id) only tells
+    whether the tip's own forecast had a quote, which is what the rule looked at before 13.11.2026.
+    """
     records = []
     for key, (observed, surface, payload) in first.items():
         if not since <= observed < until or results.get(key) not in ("WIN", "LOSS"):
@@ -89,12 +112,14 @@ def tip_records(first, quotes, results, since, until):
         probability = payload.get("probability")
         if type(probability) not in (int, float) or not 0.0 <= probability <= 1.0:
             continue
-        quote = quotes.get(payload.get("forecast_id"))
+        quote = quotes.get(key)
         odds = quote[0] if quote else None
+        own = bool(forecast_quotes) and payload.get("forecast_id") in forecast_quotes
         records.append({
             "sport": str(payload.get("sport") or "?"), "surface": str(surface or "?"),
             "published": observed, "p": float(probability), "odds": odds,
             "trap": None if odds is None else gap(float(probability), odds) >= TRAP_GAP,
+            "quote_via": None if odds is None else "forecast_id" if own else "selection",
             "win": results[key] == "WIN",
         })
     return records
@@ -134,14 +159,16 @@ def load(tips_db, evidence_db):
             for (payload,) in tips.execute("select payload_json from consumer_tips where publication_id=?",
                                            (publication_id,)):
                 publications.append((observed, surface, json.loads(payload)))
-        quotes = first_entry_quotes(evidence.execute(
+        forecast_quotes = first_entry_quotes(evidence.execute(
             "select forecast_id, kind, odds, bookmaker_id, observed_at from forecast_quotes where kind='entry'"))
+        quotes = selection_entry_quotes(forecast_quotes, evidence.execute(
+            "select forecast_id, event_key, market_key, selection from forecast_rows"))
         results = latest_results(evidence.execute(
             "select event_key, market_key, selection, outcome, observed_at from forecast_results"))
     finally:
         tips.close()
         evidence.close()
-    return first_publications(publications), quotes, results
+    return first_publications(publications), quotes, results, forecast_quotes
 
 
 def _rate(rows):
@@ -156,6 +183,8 @@ def report(records, since, until, count_only):
     print(f"Fenster {since.isoformat()} bis {until.isoformat()} ({days:.1f} Tage bisher)")
     print(f"Abgerechnete Tipps {len(records)}: Fallen {len(traps)}, übrige mit Quote {len(rest)}, "
           f"ohne Quote {len(unquoted)}; nötig mindestens {MIN_TRAPS} Fallen")
+    print(f"Quote nur über die Auswahl, nicht über die forecast_id des Tipps: "
+          f"{sum(r.get('quote_via') == 'selection' for r in traps + rest)} von {len(traps) + len(rest)}")
     print("Fallen nach Sport:", dict(Counter(r["sport"] for r in traps).most_common()))
     print("Fallen nach Liste:", dict(Counter(r["surface"] for r in traps).most_common()))
     if count_only:
@@ -183,8 +212,8 @@ def main(argv=None):
     parser.add_argument("--count-only", action="store_true")
     args = parser.parse_args(argv)
     since, until = _utc(args.since), _utc(args.until)
-    first, quotes, results = load(args.tips_db, args.evidence_db)
-    report(tip_records(first, quotes, results, since, until), since, until, args.count_only)
+    first, quotes, results, forecast_quotes = load(args.tips_db, args.evidence_db)
+    report(tip_records(first, quotes, results, since, until, forecast_quotes), since, until, args.count_only)
 
 
 if __name__ == "__main__":
