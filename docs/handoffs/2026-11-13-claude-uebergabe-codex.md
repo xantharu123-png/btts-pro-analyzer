@@ -23,6 +23,10 @@ Risiken (6), Owner und Zusammenarbeit (7) und die Pfade (8). Bei Widersprüchen 
 > **Achtung:** Der Fallenfilter zählt bisher 0 Tipps mit Quote (Abschnitt 3). Vor der Auswertung am 30.11. braucht
 > es einen Owner-Entscheid.
 >
+> **Nachtrag 13.11., 10:01:** Der Owner hat „B“ entschieden. Die Einstiegsquote wird über die Auswahl zugeordnet
+> (Nachtrag in `docs/audits/2026-11-09-fallenfilter-vorab.md`). Neue Zählung: 3 Fallen, 4 übrige mit Quote, 51 ohne.
+> Auf dem Server liegt bis zum nächsten Release noch das alte Skript.
+>
 > **Regeln:** wie am 11.11. Releases nur über den No-Backup-Fast-forward-Helfer, Merge und Release nur mit
 > ausdrücklichem Owner-OK (Release wörtlich „live stellen“), nie hinter `555797b` zurückrollen.
 
@@ -81,6 +85,9 @@ Risiken (6), Owner und Zusammenarbeit (7) und die Pfade (8). Bei Widersprüchen 
 
 ## 3. Achtung: Der Fallenfilter zählt keine Tipps mit Quote
 
+**Erledigt am 13.11.2026:** Der Owner hat „B“ entschieden, die Zuordnung ist berichtigt. Massgeblich ist jetzt der
+Nachtrag in `docs/audits/2026-11-09-fallenfilter-vorab.md`. Der Rest dieses Abschnitts zeigt den Befund davor.
+
 **Befund am 13.11., 08:32** (`scripts/trap_filter_measurement.py --count-only`, 3,3 Tage im Fenster):
 58 abgerechnete Tipps, davon 0 Fallen, 0 übrige mit Quote und 58 ohne Quote. Nötig sind mindestens 150 Fallen.
 
@@ -131,7 +138,8 @@ Bis dahin gilt weiter: nur `--count-only`.
 | 14./15.11. | API-Verbrauch am ersten Liga-Wochenende mit „Folgetag immer“ | `runtime_state/api_budget.db`, Tabelle `api_budget_events`; Grenze api-football 7500 pro Tag. Für den 14.11. listet der Lauf schon 204 Fussballzeilen |
 | laufend | Doublebet v15/v16 beobachten | Anzahl Auswahlen und Trefferquote gegen 50 %; Länderspiele ohne Verletzungsdaten sind ein bewusstes Risiko (`docs/audits/2026-11-12-doublebet-laenderspiele.md`) |
 | bis 30.11. | Fallenfilter: nur Anzahl | `sudo -n -u betboy bash -c 'cd /opt/betboy/app && /opt/betboy/venv/bin/python -I scripts/trap_filter_measurement.py --count-only'` |
-| **vor dem 30.11.** | Owner-Entscheid zur Zuordnung im Fallenfilter | Abschnitt 3 |
+| ~~vor dem 30.11.~~ | Owner-Entscheid zur Zuordnung im Fallenfilter: erledigt am 13.11. („B“) | Abschnitt 3 |
+| ab 16.11. | Fallenfilter nach dem ersten Liga-Wochenende neu zählen, nur Anzahl | Bis zum nächsten Release mit hochgeladener Kopie des Skripts, siehe Nachtrag in `docs/audits/2026-11-09-fallenfilter-vorab.md` |
 | **30.11.** | Fallenfilter, Formstärke und Hybrid, Liste ab 70 % auswerten | Übergabe vom 11.11., Abschnitt 4 |
 | nächster Europapokal-Spieltag | Ligastärke im Betrieb messen | `docs/audits/2026-11-05-ligastaerke-europapokal.md` |
 
@@ -142,7 +150,7 @@ Die Listen der Übergabe vom 11.11. (Abschnitt 5) gelten weiter. Änderungen:
 - **Erledigt:** Punkt 1 (Nachtlauf und Morgen-Zeilen am 12.11. geprüft).
 - **Teilweise entschärft:** Punkt 7 (leere Doublebet-Vorschau). An Länderspieltagen gibt es seit v16 eine Auswahl.
   Für Vereinsspiele hängt die Vorschau weiter an den übrigen Kontextprüfungen.
-- **Neu, Owner:** Entscheid zum Fallenfilter (Abschnitt 3).
+- **Neu, Owner:** Entscheid zum Fallenfilter (Abschnitt 3). Erledigt am 13.11.2026 mit „B“.
 - **Neu, bewusst offen:**
   - Basketball (EuroLeague) bekommt nie eine Quote: Die Zeilen tragen Vereinskürzel, API-Sports volle Namen. Nicht
     behoben, weil das Modell schwach ist (29 Spiele, 51,7 % getroffen bei 67,6 % versprochen).

@@ -154,3 +154,20 @@ Fenster, das Ergebnis, die drei Bedingungen, die Verlängerung bei zu wenig Date
 - Der Rückblick oben (07.10. bis 09.11., 566 Fallen) ist mit der alten Zuordnung gerechnet und bleibt so stehen.
 - Ob bis zum 28.11. 150 Fallen zusammenkommen, ist auch mit der Berichtigung offen.
 - Bis zur Auswertung gilt weiter: nur `--count-only`.
+
+**Zählung nach der Änderung** (13.11., 10:01, `--count-only`, nur Anzahlen):
+
+| Zeitraum | abgerechnet | Fallen | übrige mit Quote | ohne Quote | Quote nur über die Auswahl |
+|---|---:|---:|---:|---:|---:|
+| Fenster ab 10.11. (3,4 Tage) | 58 | 3 | 4 | 51 | 7 von 7 |
+| Gegenprobe 07.10. bis 09.11. 12:00 | 5012 | 643 | 2802 | 1567 | 129 von 3445 |
+
+- Im Fenster sind alle 3 Fallen Fussballtipps der Liste `wettfinder_automatic`, also Tipps vom Vortag.
+- Die Gegenprobe zeigt, dass die neue Zuordnung im alten Zeitraum wenig ändert: 129 von 3445 Tipps mit Quote
+  (3,7 %) haben sie nur über die Auswahl. Die Summen liegen über dem Rückblick vom 09.11. (4668 abgerechnet). Der
+  Grund ist vermutlich, dass seither weitere Tipps dieses Zeitraums abgerechnet sind; einzeln geprüft ist das nicht.
+- Die Zählung lief nachdem Regel und Test festgeschrieben waren (Commit `3567b73`).
+- **Auf dem Server liegt bis zum nächsten Release das Skript mit der alten Zuordnung.** Gezählt wurde nur lesend mit
+  einer hochgeladenen Kopie dieses Stands (sha256 `54e972b16fca8dbf3459c44aabc36829779f76878f6733cbdbb7a3309673b1ec`)
+  und einem kleinen Starter (`output/fallenfilter-20261113/tfm_count_20261113.py`, nicht in Git). Bis das Release
+  da ist, zählt der Befehl im Server-Checkout weiter nach der alten Zuordnung und zeigt 0 Tipps mit Quote.
