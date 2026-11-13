@@ -4,6 +4,11 @@ Dieses Dokument schliesst an `docs/handoffs/2026-11-11-claude-uebergabe-codex.md
 11.11.2026 dazukam. Aus der Übergabe vom 11.11. gelten unverändert weiter: das Release-Verfahren (Abschnitt 3), die
 Risiken (6), Owner und Zusammenarbeit (7) und die Pfade (8). Bei Widersprüchen gilt wie immer zuerst der Code.
 
+**Fortsetzung:** Die vollständige Übergabe für die Übernahme am 16.11.2026 steht in
+`docs/handoffs/2026-11-13-claude-uebergabe-codex-komplett.md`. Dort zuerst lesen; wo dieses Dokument abweicht, gilt
+das neue. Berichtigt ist dort auch: Das Wochenende 14./15.11. liegt in der Länderspielpause und ist kein volles
+Liga-Wochenende.
+
 ## 0. Kurzfassung zum Einfügen
 
 > Lies zuerst `AGENTS.md`, `STATUS.md`, dieses Dokument (`docs/handoffs/2026-11-13-claude-uebergabe-codex.md`) und

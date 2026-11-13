@@ -4,8 +4,10 @@ Dieses Dokument übergibt den Stand vom 09. bis 11.11.2026 vollständig. Es erg�
 `STATUS.md` (eine Seite Stand) und die Protokolle unter `docs/audits/`. Bei Widersprüchen gilt wie immer zuerst der
 Code.
 
-**Fortsetzung:** Der Stand vom 13.11.2026 steht in `docs/handoffs/2026-11-13-claude-uebergabe-codex.md`. Dort
-zuerst lesen; dieses Dokument bleibt für Release-Verfahren, Risiken, Regeln und Pfade gültig.
+**Fortsetzung:** Die vollständige Übergabe für die Übernahme am 16.11.2026 steht in
+`docs/handoffs/2026-11-13-claude-uebergabe-codex-komplett.md`. Dort zuerst lesen; sie enthält auch Release-Verfahren,
+Risiken, Regeln und Pfade auf neuem Stand. Dieses Dokument und das vom 13.11.
+(`docs/handoffs/2026-11-13-claude-uebergabe-codex.md`) bleiben als Verlauf stehen.
 
 ## Nachtrag 12.11.2026, 08:44 CET
 
