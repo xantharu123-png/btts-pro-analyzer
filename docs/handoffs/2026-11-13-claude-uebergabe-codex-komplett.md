@@ -8,7 +8,9 @@ abweichen, gilt dieses Dokument. Bei Widersprüchen gilt wie immer zuerst der Co
 **Nachtrag 13.11.2026, abends:** Der Owner macht vorerst mit Claude weiter („ich mache im Moment mit dir weiter“).
 Die Übernahme durch Codex ist verschoben; dieses Dokument bleibt für den späteren Wechsel gültig. Seither neu: die
 Nachtspiel-Abrechnung (`docs/audits/2026-11-13-nachtspiele-abrechnung.md`). Fussballspiele mit Anstoss vor 04:30 Uhr
-werden schon im Lauf davor als Evidenz gespeichert, damit sie abgerechnet werden. Den Stand nennt `STATUS.md`.
+werden schon im Lauf davor als Evidenz gespeichert, damit sie abgerechnet werden. Live seit 13.11.2026 22:12 CET
+als `7efa8f5` (Release 20261113-1). Damit liegt auch das berichtigte Fallenfilter-Skript auf dem Server; die
+hochgeladene Kopie aus Abschnitt 8 braucht es nicht mehr. Den Stand nennt `STATUS.md`.
 
 Inhalt: 0 Kurzfassung · 1 Montag zuerst · 2 Stand · 3 Was die App zeigt · 4 Verlauf · 5 Arbeitsweise ·
 6 Release-Verfahren · 7 Server-Zugriff · 8 Messungen und Termine · 9 Offene Aufgaben · 10 Risiken und Lehren ·
