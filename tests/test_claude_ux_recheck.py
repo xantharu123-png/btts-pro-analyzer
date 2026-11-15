@@ -158,9 +158,10 @@ def test_remainder_of_unknown_revision_is_neutral_instead_of_inventing_a_primary
     app._render_wettfinder_games(catalog, {c.key: (None, c) for c in (removed, remainder)}, sport_filter='Alle')
     html = '\n'.join(text for text, _, _ in recording.markdown_calls)
     market_html = next(text for text, _, _ in recording.markdown_calls if 'data-key=' in text)
-    assert html.count('class="se-match"') == 1
-    assert 'class="se-card-top se-card-top-market"' in market_html
-    assert 'class="se-match"' not in market_html
+    # Owner 15.11.2026: open RisikoBet-style rows; no jersey header, no invented primary badge.
+    assert html.count('class="se-match"') == 0
+    assert 'class="rb-row wf-rb-row"' in market_html
+    assert 'MODELL-AUSWAHL' not in html.upper()
 
 
 @pytest.mark.parametrize('changes', [

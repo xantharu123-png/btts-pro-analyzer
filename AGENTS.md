@@ -118,6 +118,12 @@ Code, dann `PROJECT_HANDBUCH.md`, dann die Bibel. Historische Logs: `TODO_AKTUEL
   mindestens aber bis 06:00 Uhr Zürcher Zeit am Folgetag (`NHL_NIGHT_UNTIL`, `_nhl_horizon` in
   `team_sport_forecasts.automatic_team_sport_day`). Grund: Der Nachtlauf endet seit 06.11. vor 04:00, und der Lauf
   des Spieltags sieht Spiele des US-Vortags nicht mehr; Westküsten-Spiele um 04:00 hatten sonst nie eine Prognose.
+- **Wettfinder im RisikoBet-Stil seit 15.11.2026** (`docs/audits/2026-11-15-wettfinder-risikobet-stil.md`, Owner
+  „Ganz wie RisikoBet“, „Passt, fertig machen“): Jedes Spiel ist eine offene Karte ohne Aufklappen und ohne
+  Trikot-Kopf; jeder Markt ist eine RisikoBet-Zeile (`render_wettfinder_row_html`, Klassen `rb-row`) mit
+  Sport · Liga · Anstoss, Auswahl, Modell und Grundlage/Contra; Form und Tabellen folgen offen darunter. Das
+  Stylesheet kopiert den RisikoBet-Abschnitt für den Wettfinder (`_with_wettfinder_risk_rows`); Fussball-Ligen kommen
+  aus `league_id` über `league_catalog` (`ev_signal_sources.row_competition`). Doublebet und 15K behalten ihre Karten.
 - **Tennis-Tipps ab 60 % seit 05.11.2026** (`docs/audits/2026-11-05-tennis-tipps-ab-60.md`, Owner „alles machen“,
   „Ja, mergen + live“): Ein Tennis-Siegertipp entsteht erst ab 60 % Modellchance (`TENNIS_WINNER_MIN_PROBABILITY`
   in `ev_signal_sources.tennis_model_signals`). Darunter traf das Modell wie ein Münzwurf: 49,8 % in der Hypothese

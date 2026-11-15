@@ -1044,11 +1044,11 @@ def test_automatic_all_surface_has_one_game_block_and_exact_price_actions(
     run_now = card_calls[0][1]["now"]
     assert run_now.tzinfo is not None
     assert all(call[1]["now"] is run_now for call in card_calls)
-    assert len(recording_st.expanders) == 4
-    # The approved game-block UX opens the first three chronological games.
-    assert [expanded for _label, expanded in recording_st.expanders] == [True, True, True, False]
-    assert len(set(recording_st.expander_keys)) == 4
-    assert html.count('class="wf-analysis-short"') == len(forecasts)
+    # Owner 15.11.2026: every game open as a RisikoBet-style card, no expander.
+    assert recording_st.expanders == []
+    game_rows = [key for key in recording_st.containers if str(key).startswith("wettfinder_game_row_")]
+    assert len(game_rows) == len(set(game_rows)) == 4
+    assert html.count('class="rb-row wf-rb-row"') == len(forecasts)
     assert html.count("Modellgrundlagen unvollständig") == len(forecasts)
     assert "Modellgrundlagen fehlen" not in html  # Raw analysis note stays internal.
     action_order = [
@@ -1056,10 +1056,10 @@ def test_automatic_all_surface_has_one_game_block_and_exact_price_actions(
         for kind, _value in recording_st.event_log
         if kind in {"expander", "price_action"}
     ]
-    assert action_order == ["expander"] * len(forecasts)
+    assert action_order == []
     # These legacy fixtures intentionally lack attributable model evidence.
     assert html.count('class="wf-top-card"') == 0
-    assert html.count('class="wf-row se-card"') == 4
+    assert html.count('class="rb-row wf-rb-row"') == 4
     assert all(html.count(f'data-key="{signal.key}"') == 1 for signal in forecasts)
     assert "Berechnete Auswahl 1" not in html
     assert "Tagestipp 1" not in html
@@ -1128,7 +1128,7 @@ def test_automatic_basis_only_catalog_skips_empty_top_columns(monkeypatch):
     )
     assert "Top-Auswahlen nach Modell" not in html
     assert "wettfinder_v2_section_header" not in recording_st.containers
-    assert html.count('class="wf-row se-card"') == 1
+    assert html.count('class="rb-row wf-rb-row"') == 1
     assert html.count('data-key="basis-only"') == 1
 
 

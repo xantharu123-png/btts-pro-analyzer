@@ -127,7 +127,14 @@ def test_real_streamlit_slider_starts_at_seventy_and_moves_the_page():
     slider, = [item for item in ui.slider if item.key == 'wettfinder_min_chance']
     # Owner 10.11.2026 „Liste ab 70 %“: the page starts with the 70 % list, the viewer can slide lower.
     assert slider.value == 70 and slider.label == 'Mindest-Modellchance (%)'
-    assert [block.label.split(' vs ')[0] for block in ui.expander] == ['Heimteam 2']
+    assert _shown_games(ui) == ['Heimteam 2']
     slider.set_value(25).run(timeout=60)
     assert not ui.exception
-    assert sorted(block.label.split(' vs ')[0] for block in ui.expander) == ['Heimteam 1', 'Heimteam 2']
+    assert sorted(_shown_games(ui)) == ['Heimteam 1', 'Heimteam 2']
+
+
+def _shown_games(ui):
+    # Owner 15.11.2026: games are open RisikoBet-style rows, no expander.
+    assert len(ui.expander) == 0
+    return [block.value.split('<strong>')[1].split(' vs ')[0] for block in ui.markdown
+            if 'class="rb-row wf-rb-row"' in block.value]

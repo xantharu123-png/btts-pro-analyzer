@@ -117,57 +117,46 @@ def test_grouped_market_does_not_repeat_game_heading_but_keeps_exact_price_bindi
     assert c.event_label in markup  # aria-label still identifies the complete bet
 
 
-def test_each_market_action_stays_inside_its_game_once_and_first_three_games_open(monkeypatch):
+def _game_container(context):
+    return next((label for kind, label in reversed(context)
+                 if kind == 'container' and str(label).startswith('wettfinder_game_row_')), None)
+
+
+def _row_calls(recording):
+    return [(text, _game_container(context)) for text, _kwargs, context in recording.markdown_calls
+            if 'class="rb-row wf-rb-row"' in text]
+
+
+def test_each_market_row_stays_inside_its_game_container_without_expanders(monkeypatch):
+    # Owner 15.11.2026: every game open as a RisikoBet-style card, no expander, no jersey header.
     cards = [card(1, 'AWAY_OVER_2_5'), card(1), card(2, 'BTTS_YES'), card(3, 'HOME_OVER_1_5')]
     catalog = WettfinderCatalog((cards[0],), tuple(cards[1:]), ())
     rows = {c.key: (None, c) for c in cards}
     recording = _RecordingStreamlit()
-    actions = []
     monkeypatch.setattr(app, 'st', recording)
-    original_render = app.render_editorial_card_html
-    def record_render(c, **kwargs):
-        actions.append((c.key, recording.current_expander))
-        return original_render(c, **kwargs)
-    monkeypatch.setattr(app, 'render_editorial_card_html', record_render)
     app._render_wettfinder_games(catalog, rows, sport_filter='Alle')
-    assert len(recording.expanders) == 3
-    assert [opened for _label, opened in recording.expanders] == [True, True, True]
-    assert len(actions) == len(cards)
-    assert actions[0][1] == actions[1][1]
-    assert len({label for _key, label in actions}) == 3
-    assert all(label.endswith('2 Auswahlen') for _key, label in actions[:2])
-    assert all(len([ctx for ctx in context if ctx[0] == 'expander']) == 1
-               for _text, _kwargs, context in recording.markdown_calls if any(c[0] == 'expander' for c in context))
+    assert recording.expanders == []
+    calls = _row_calls(recording)
+    assert len(calls) == len(cards)
+    assert all(game is not None for _text, game in calls)
+    assert calls[0][1] == calls[1][1]
+    assert len({game for _text, game in calls}) == 3
+    html = '\n'.join(text for text, _kwargs, _context in recording.markdown_calls)
+    assert all(f'data-key="{c.key}"' in html for c in cards)
+    assert 'class="se-event' not in html and 'class="se-shield' not in html
 
 
-def test_closed_game_preference_survives_widget_cleanup_filter_and_highlight_changes(monkeypatch):
-    first = card()
-    catalog = WettfinderCatalog((first,), (), ())
-    group = group_wettfinder_games(catalog)[0]
-    key = app._wettfinder_game_key(group)
-    recording = _RecordingStreamlit()
-    monkeypatch.setattr(app, 'st', recording)
-    recording.session_state[key] = False  # Actual callback value after closing.
-    app._remember_wettfinder_game_state(key)
-    del recording.session_state[key]  # Streamlit cleanup after filtering away.
-    app._render_wettfinder_game(group, {first.key: (None, first)}, {first.key})
-    assert recording.session_state[key] is False
-    recording.session_state[key] = True
-    app._remember_wettfinder_game_state(key)
-    del recording.session_state[key]
-    app._render_wettfinder_game(group, {first.key: (None, first)}, set())
-    assert recording.session_state[key] is True
-
-
-def test_game_open_preferences_do_not_cross_event_keys(monkeypatch):
-    left = group_wettfinder_games(WettfinderCatalog((card(1),), (), ()))[0]
-    right = group_wettfinder_games(WettfinderCatalog((card(2),), (), ()))[0]
-    recording = _RecordingStreamlit()
-    monkeypatch.setattr(app, 'st', recording)
-    left_key, right_key = app._wettfinder_game_key(left), app._wettfinder_game_key(right)
-    recording.session_state[left_key] = False
-    app._remember_wettfinder_game_state(left_key)
-    assert right_key not in recording.session_state['_wettfinder_game_open']
+def test_game_container_key_follows_the_event_not_the_position(monkeypatch):
+    first, second = card(1), card(2, 'BTTS_YES')
+    keys = []
+    for order in ((first, second), (second, first)):
+        recording = _RecordingStreamlit()
+        monkeypatch.setattr(app, 'st', recording)
+        app._render_wettfinder_games(WettfinderCatalog(order, (), ()), {c.key: (None, c) for c in order},
+                                     sport_filter='Alle')
+        keys.append({text.split('data-key="')[1].split('"')[0]: game for text, game in _row_calls(recording)})
+    assert keys[0] == keys[1]
+    assert keys[0][first.key] != keys[0][second.key]
 
 
 def _render_game_blocks_for_test(count, featured_ids):
@@ -194,88 +183,36 @@ def _render_game_blocks_for_test(count, featured_ids):
         sport_filter=sport, sort_mode=mode)
 
 
+def _shown_games(ui):
+    import re
+    return [int(re.search(r'Heimteam (\d+) vs', block.value).group(1))
+            for block in ui.markdown if 'class="rb-row wf-rb-row"' in block.value]
+
+
 @pytest.mark.parametrize('mode,page,count,expected_games', [
-    pytest.param('Startzeit', 1, 5, [1, 2, 3, 4, 5], id='Startzeit-1-5-expected_games0'),
-    pytest.param('Wahrscheinlichkeit', 1, 5, [1, 2, 3, 4, 5], id='Wahrscheinlichkeit-1-5-expected_games1'),
-    pytest.param('Startzeit', 2, 25, [21, 22, 23, 24, 25], id='Startzeit-2-25-expected_games2'),
-    pytest.param('Wahrscheinlichkeit', 2, 25, [21, 22, 23, 24, 25], id='Wahrscheinlichkeit-2-25-expected_games3'),
+    pytest.param('Startzeit', 1, 5, [1, 2, 3, 4, 5], id='Startzeit-1-5'),
+    pytest.param('Wahrscheinlichkeit', 1, 5, [1, 2, 3, 4, 5], id='Wahrscheinlichkeit-1-5'),
+    pytest.param('Startzeit', 2, 25, [21, 22, 23, 24, 25], id='Startzeit-2-25'),
+    pytest.param('Wahrscheinlichkeit', 2, 25, [21, 22, 23, 24, 25], id='Wahrscheinlichkeit-2-25'),
 ])
-def test_real_renderer_opens_first_three_visible_games_not_featured_membership(
-    mode, page, count, expected_games,
-):
+def test_real_renderer_shows_every_visible_game_open_in_display_order(mode, page, count, expected_games):
     ui = AppTest.from_function(_render_game_blocks_for_test, args=(count, (4,)))
     ui.session_state['game_test_order'] = mode
     if page == 2:
         ui.session_state['wettfinder_games_page_Alle_2'] = 2
     ui.run(timeout=30)
     assert not ui.exception
-    assert len(ui.expander) == 5
-    assert [block.label.split(' vs ')[0] for block in ui.expander] == [
-        f'Heimteam {game}' for game in expected_games]
-    assert [block.proto.expanded for block in ui.expander] == [True, True, True, False, False]
+    assert len(ui.expander) == 0
+    assert _shown_games(ui) == expected_games
 
 
-def test_real_renderer_updates_untouched_opening_defaults_when_order_changes():
-    ui = AppTest.from_function(_render_game_blocks_for_test, args=(5, (4,))).run(timeout=30)
-    assert not ui.exception
-    for mode, games in [('Wahrscheinlichkeit', [1, 2, 3, 4, 5]), ('Startzeit', [1, 2, 3, 4, 5])]:
-        ui.session_state['game_test_order'] = mode
-        ui.run(timeout=30)
-        assert not ui.exception
-        assert [block.label.split(' vs ')[0] for block in ui.expander] == [
-            f'Heimteam {game}' for game in games]
-        assert [block.proto.expanded for block in ui.expander] == [True, True, True, False, False]
-
-
-def _game_block(ui, fixture_id):
-    return next(block for block in ui.expander
-                if block.label.startswith(f'Heimteam {fixture_id} vs '))
-
-
-def _toggle_game_block(ui, fixture_id, opened):
-    # AppTest exposes expander output but has no expander interaction method.
-    # Send the real browser bool protocol so the production callback runs.
-    states = ui._tree.get_widget_states()
-    for block in ui.expander:
-        states.widgets.add(id=block.proto.id,
-            bool_value=opened if block is _game_block(ui, fixture_id) else block.proto.expanded)
-    ui._run(states, timeout=30)
-    assert not ui.exception
-
-
-@pytest.mark.parametrize('count', [5, 25])
-def test_real_renderer_remembers_user_choices_after_order_page_filter_and_highlight_changes(count):
-    ui = AppTest.from_function(_render_game_blocks_for_test, args=(count, (1, 2, 3)))
-    ui.run(timeout=30)
-    assert not ui.exception
-    # Force real callback state changes before checking that chronological
-    # opening defaults cannot erase an explicit closed/open preference.
-    _toggle_game_block(ui, 1, True)
-    _toggle_game_block(ui, 1, False)
-    _toggle_game_block(ui, 5, False)
-    _toggle_game_block(ui, 5, True)
-
-    def assert_choices():
-        assert not ui.exception
-        assert _game_block(ui, 1).proto.expanded is False
-        assert _game_block(ui, 5).proto.expanded is True
-
-    # Changing the default by visible position must not erase a clicked value.
-    ui.session_state['game_test_order'] = 'Wahrscheinlichkeit'
-    ui.run(timeout=30)
-    ui.session_state['game_test_order'] = 'Startzeit'
-    ui.run(timeout=30)
-    assert_choices()
-    # Complete-game pagination removes the widget, not its remembered choice.
-    if count == 25:
-        ui.selectbox(key='wettfinder_games_page_Alle_2').set_value(2).run(timeout=30)
-        ui.selectbox(key='wettfinder_games_page_Alle_2').set_value(1).run(timeout=30)
-        assert_choices()
+def test_real_renderer_follows_sport_filter_and_highlight_changes_without_hiding_games():
+    ui = AppTest.from_function(_render_game_blocks_for_test, args=(5, (1, 2, 3))).run(timeout=30)
+    assert not ui.exception and _shown_games(ui) == [1, 2, 3, 4, 5]
     ui.selectbox(key='game_test_sport').set_value('Tennis').run(timeout=30)
-    assert not ui.exception and len(ui.expander) == 0
+    assert not ui.exception and _shown_games(ui) == []
     ui.selectbox(key='game_test_sport').set_value('Alle').run(timeout=30)
-    assert_choices()
-    # Editorial highlight changes must neither reopen nor close a user's game.
+    assert not ui.exception and _shown_games(ui) == [1, 2, 3, 4, 5]
     ui.checkbox(key='game_test_highlights').check().run(timeout=30)
-    ui.checkbox(key='game_test_highlights').uncheck().run(timeout=30)
-    assert_choices()
+    assert not ui.exception and _shown_games(ui) == [1, 2, 3, 4, 5]
+    assert len(ui.expander) == 0
