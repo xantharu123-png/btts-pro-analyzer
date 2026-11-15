@@ -836,8 +836,9 @@ def listed_next_day_signal(
     """True for a listed next-day selection (Folgetag), shown but never archived as published.
 
     Since 11.11.2026 every listed sport counts (football, basketball, ice hockey,
-    e-sport). A native NHL game within 24 hours of the run (``decided_at``, else
-    ``now``) belongs to the match day (team_sport_forecasts.automatic_team_sport_day).
+    e-sport). A native NHL game within the run's overnight horizon (``decided_at``, else
+    ``now``; 24 h, at least up to 06:00 Zurich the next day) belongs to the match day
+    (team_sport_forecasts.automatic_team_sport_day, NHL_NIGHT_UNTIL).
     """
     scheduled = _parse_iso(signal.scheduled_start)
     if (
@@ -1316,7 +1317,7 @@ def _load_automated_wettfinder_document(
             return False
         if row.get("source") != TEAM_RESEARCH_SOURCE:
             return True
-        # Native NHL within 24 hours of the run belongs to the match day.
+        # Native NHL within the run's overnight horizon belongs to the match day.
         from team_sport_forecasts import automatic_team_sport_day
         snapshot = row.get("team_sport_snapshot")
         return not automatic_team_sport_day(

@@ -19,6 +19,10 @@ from test_sports_prematch import event, history
 NOW = datetime(2026, 10, 16, 1, 35, tzinfo=timezone.utc)  # 03:35 Zurich
 TARGET = date(2026, 10, 16)
 OVERNIGHT = datetime(2026, 10, 17, 1, tzinfo=timezone.utc)
+# 17.10. 06:00 Zurich: the nightly run owns every native NHL game of the coming
+# US night, even when it finishes before 04:00 (14.11.2026: VGK-NSH at 04:00).
+NIGHT_LIMIT = datetime(2026, 10, 17, 4, tzinfo=timezone.utc)
+DAYTIME = datetime(2026, 10, 16, 10, tzinfo=timezone.utc)  # 12:00 Zurich
 
 
 def source_fixture(monkeypatch, starts):
@@ -58,13 +62,16 @@ def daily_batch(monkeypatch, starts, *, now=NOW, target=TARGET, collector=None, 
     return batch, scanner, calls, api_windows
 
 
-def test_native_overnight_daily_source_survives_actual_catalog_ledger_and_reader(monkeypatch, tmp_path):
+@pytest.mark.parametrize('start', [OVERNIGHT,
+    # 04:00 Zurich, 24 h 25 min after the run: the case of VGK-NSH on 14.11.2026.
+    datetime(2026, 10, 17, 2, tzinfo=timezone.utc)])
+def test_native_overnight_daily_source_survives_actual_catalog_ledger_and_reader(monkeypatch, tmp_path, start):
     from riskobet_automation import run_riskobet
     import forecast_evidence
-    batch, _, calls, api_windows = daily_batch(monkeypatch, [OVERNIGHT])
+    batch, _, calls, api_windows = daily_batch(monkeypatch, [start])
     assert len(batch.snapshots) == 1
     forecast = batch.snapshots[0].team_sport_forecast
-    assert forecast.provider == 'NHL' and forecast.starts_at == OVERNIGHT and forecast.p_home is not None
+    assert forecast.provider == 'NHL' and forecast.starts_at == start and forecast.p_home is not None
     projected = team_sport_forecast_rows(batch, now=NOW, target_date=TARGET)
     assert len(projected) == 2
     assert len(_ranked_candidates(projected, now=NOW, target_date=TARGET)) == 2
@@ -81,20 +88,27 @@ def test_native_overnight_daily_source_survives_actual_catalog_ledger_and_reader
     with sqlite3.connect(evidence) as connection:
         assert connection.execute('SELECT count(*) FROM forecast_rows').fetchone() == (2,)
     loaded = automated_wettfinder_forecasts(state, now=NOW)
-    assert len(loaded) == 2 and {r.scheduled_start for r in loaded} == {OVERNIGHT.isoformat()}
+    assert len(loaded) == 2 and {r.scheduled_start for r in loaded} == {start.isoformat()}
     assert document['candidates'] == document['challenge_release_candidates'] == []
     assert len(calls) == 1 and api_windows == [(TARGET, TARGET)]
 
 
-@pytest.mark.parametrize('offset,expected', [(timedelta(hours=24), 1),
-    (timedelta(hours=24, seconds=1), 0), (timedelta(0), 0), (timedelta(seconds=-1), 0)])
-def test_daily_source_filters_real_elapsed_boundary_before_history_and_context(monkeypatch, offset, expected):
+@pytest.mark.parametrize('start,expected', [(NOW+timedelta(hours=24), 1),
+    (NOW+timedelta(hours=24, seconds=1), 1), (NIGHT_LIMIT-timedelta(seconds=1), 1), (NIGHT_LIMIT, 1),
+    (NIGHT_LIMIT+timedelta(seconds=1), 0), (NOW, 0), (NOW-timedelta(seconds=1), 0)])
+def test_daily_source_filters_night_limit_before_history_and_context(monkeypatch, start, expected):
     captured = []
-    batch, _, _, _ = daily_batch(monkeypatch, [NOW+offset], collector=lambda **kw: captured.append(kw))
+    batch, _, _, _ = daily_batch(monkeypatch, [start], collector=lambda **kw: captured.append(kw))
     assert len(batch.snapshots) == expected
     assert len(captured) == expected
     if expected:
         assert len(captured[0]['events']) == 1
+
+
+@pytest.mark.parametrize('offset,expected', [(timedelta(hours=24), 1), (timedelta(hours=24, seconds=1), 0)])
+def test_daytime_source_keeps_the_elapsed_24_hour_horizon(monkeypatch, offset, expected):
+    batch, _, _, _ = daily_batch(monkeypatch, [DAYTIME+offset], now=DAYTIME)
+    assert len(batch.snapshots) == expected
 
 
 def test_manual_calendar_window_and_isolated_default_remain_exact(monkeypatch):
@@ -116,7 +130,10 @@ def test_native_expanded_end_validates_before_any_provider_call(monkeypatch, nhl
 @pytest.mark.parametrize('sport,provider,now,start,target,expected', [
     ('ice_hockey', 'NHL', NOW, OVERNIGHT, TARGET, 2),
     ('ice_hockey', 'NHL', NOW, NOW+timedelta(hours=24), TARGET, 2),
-    ('ice_hockey', 'NHL', NOW, NOW+timedelta(hours=24, seconds=1), TARGET, 0),
+    ('ice_hockey', 'NHL', NOW, NOW+timedelta(hours=24, seconds=1), TARGET, 2),
+    ('ice_hockey', 'NHL', NOW, NIGHT_LIMIT, TARGET, 2),
+    ('ice_hockey', 'NHL', NOW, NIGHT_LIMIT+timedelta(seconds=1), TARGET, 0),
+    ('ice_hockey', 'NHL', DAYTIME, DAYTIME+timedelta(hours=24, seconds=1), TARGET, 0),
     ('ice_hockey', 'NHL', NOW, OVERNIGHT, date(2026, 10, 15), 0),
     ('ice_hockey', 'API-Hockey', NOW, OVERNIGHT, TARGET, 0),
     ('basketball', 'ESPN', NOW, OVERNIGHT, TARGET, 0),
@@ -142,9 +159,24 @@ def test_projection_and_catalog_only_extend_valid_native_nhl(sport, provider, no
     assert team_sport_source_coverage(run, rows, now=now, target_date=target)[sport]['snapshot_count'] == (1 if expected else 0)
 
 
-@pytest.mark.parametrize('now', [datetime(2026, 3, 28, 2, 35, tzinfo=timezone.utc),
-    datetime(2026, 10, 24, 1, 35, tzinfo=timezone.utc)])
-def test_dst_horizon_is_elapsed_24_hours_not_local_day(monkeypatch, now):
+@pytest.mark.parametrize('now,limit', [
+    # 03:35 CET before the spring change: 29.03. 06:00 CEST is 04:00 UTC.
+    (datetime(2026, 3, 28, 2, 35, tzinfo=timezone.utc), datetime(2026, 3, 29, 4, tzinfo=timezone.utc)),
+    # 03:35 CEST before the autumn change: 25.10. 06:00 CET is 05:00 UTC.
+    (datetime(2026, 10, 24, 1, 35, tzinfo=timezone.utc), datetime(2026, 10, 25, 5, tzinfo=timezone.utc)),
+])
+def test_dst_night_limit_is_six_oclock_local_time(monkeypatch, now, limit):
+    target = now.astimezone(ZoneInfo('Europe/Zurich')).date()
+    batch, _, _, windows = daily_batch(monkeypatch,
+        [limit, limit+timedelta(seconds=1)], now=now, target=target)
+    assert len(batch.snapshots) == 1
+    assert batch.snapshots[0].starts_at == limit
+    assert windows == [(target, target)]
+
+
+@pytest.mark.parametrize('now', [datetime(2026, 3, 28, 11, tzinfo=timezone.utc),
+    datetime(2026, 10, 24, 10, tzinfo=timezone.utc)])
+def test_dst_daytime_horizon_is_elapsed_24_hours_not_local_day(monkeypatch, now):
     target = now.astimezone(ZoneInfo('Europe/Zurich')).date()
     batch, _, _, windows = daily_batch(monkeypatch,
         [now+timedelta(hours=24), now+timedelta(hours=24, seconds=1)], now=now, target=target)
@@ -162,7 +194,7 @@ def test_daily_history_and_collector_share_only_post_schedule_eligible_events(mo
     captured = []
     clocks = iter((NOW, NOW+timedelta(seconds=5), NOW+timedelta(seconds=10)))
     batch, _, calls, windows = daily_batch(monkeypatch,
-        [NOW+timedelta(seconds=3), OVERNIGHT, NOW+timedelta(hours=24, seconds=6)],
+        [NOW+timedelta(seconds=3), OVERNIGHT, NIGHT_LIMIT+timedelta(seconds=6)],
         collector=lambda **kw: captured.append(kw), clock=lambda: next(clocks))
     assert len(batch.snapshots) == 1
     assert batch.snapshots[0].starts_at == OVERNIGHT

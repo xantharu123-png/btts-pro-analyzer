@@ -113,6 +113,11 @@ Code, dann `PROJECT_HANDBUCH.md`, dann die Bibel. Historische Logs: `TODO_AKTUEL
   (`NIGHT_GAME_KICKOFF_BEFORE`, `forecast_evidence_night_games`), weil ihr eigener Spieltag-Lauf erst nach dem
   Anstoss speichert und sie sonst nie abgerechnet würden. Sie bleiben Vorschau, nie Tipp, 15K, Doublebet, Shadow
   oder Archiv.
+- **NHL-Nachtgrenze seit 15.11.2026** (`docs/audits/2026-11-15-nhl-spaetspiele.md`, Owner „Ja, reparieren“): Ein
+  natives NHL-Spiel des Folgetags gehört zum laufenden Tag, wenn es höchstens 24 Stunden nach der Laufzeit beginnt,
+  mindestens aber bis 06:00 Uhr Zürcher Zeit am Folgetag (`NHL_NIGHT_UNTIL`, `_nhl_horizon` in
+  `team_sport_forecasts.automatic_team_sport_day`). Grund: Der Nachtlauf endet seit 06.11. vor 04:00, und der Lauf
+  des Spieltags sieht Spiele des US-Vortags nicht mehr; Westküsten-Spiele um 04:00 hatten sonst nie eine Prognose.
 - **Tennis-Tipps ab 60 % seit 05.11.2026** (`docs/audits/2026-11-05-tennis-tipps-ab-60.md`, Owner „alles machen“,
   „Ja, mergen + live“): Ein Tennis-Siegertipp entsteht erst ab 60 % Modellchance (`TENNIS_WINNER_MIN_PROBABILITY`
   in `ev_signal_sources.tennis_model_signals`). Darunter traf das Modell wie ein Münzwurf: 49,8 % in der Hypothese

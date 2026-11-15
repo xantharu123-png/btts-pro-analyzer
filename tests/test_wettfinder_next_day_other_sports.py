@@ -400,17 +400,22 @@ def test_default_hockey_tomorrow_reads_one_schedule_window(monkeypatch):
 
     from test_nhl_overnight_window import NOW as NHL_NOW, OVERNIGHT, TARGET, source_fixture
 
-    late = datetime(2026, 10, 17, 2, 30, tzinfo=timezone.utc)  # 04:30 Zurich tomorrow, after the 24 h horizon
+    # 04:30 Zurich tomorrow lies after the 24 h horizon but before 06:00: since 15.11.2026 it is
+    # tonight's US game of today's research (NHL_NIGHT_UNTIL), never a row for tomorrow.
+    late = datetime(2026, 10, 17, 2, 30, tzinfo=timezone.utc)
+    after_night = datetime(2026, 10, 17, 4, 0, 1, tzinfo=timezone.utc)  # 06:00:01 Zurich tomorrow
     evening = datetime(2026, 10, 17, 18, tzinfo=timezone.utc)
     later = datetime(2026, 10, 18, 18, tzinfo=timezone.utc)
-    _scanner, requests_seen, api_windows = source_fixture(monkeypatch, [OVERNIGHT, late, evening, later])
+    _scanner, requests_seen, api_windows = source_fixture(monkeypatch, [OVERNIGHT, late, after_night, evening, later])
     sources, _due = automation._riskobet_default_sources({}, now=NHL_NOW, target_date=TARGET, research_due=True,
                                                           clock=lambda: NHL_NOW)
+    today = sources["ice_hockey"]()
     requests_seen.clear()
     api_windows.clear()
     batch = sources["next_day"]["ice_hockey"]()
 
-    assert {snapshot.starts_at for snapshot in batch.snapshots} == {late, evening}
+    assert {snapshot.starts_at for snapshot in today.snapshots} == {OVERNIGHT, late}
+    assert {snapshot.starts_at for snapshot in batch.snapshots} == {after_night, evening}
     assert len(requests_seen) == 1 and api_windows == [(TARGET, TARGET + timedelta(days=1))]
 
 

@@ -175,12 +175,31 @@ class TeamSportForecast:
             raise ValueError('forecast is not bound to snapshot')
 
 
-def automatic_team_sport_day(*, starts_at, now, target_date, sport, provider):
-    """Calendar eligibility plus native NHL's current-day elapsed 24h horizon.
+# Native NHL games of the coming US night belong to the current match day up to
+# this Zurich clock on the next day (owner "Ja, reparieren", 15.11.2026). The
+# nightly run finishes at about 03:45 since 06.11.; with only now + 24 h a game at
+# 04:00 (US west coast, 19:00 local) fell outside its window, and the next run no
+# longer sees it because the NHL schedule files it under the previous US date.
+NHL_NIGHT_UNTIL = (6, 0)
 
-    Consumers must supply the canonical sport/provider from validated bound
-    evidence, never display labels or team abbreviations. UTC conversion makes
-    the rolling exception invariant across Zurich's DST clock changes.
+
+def _nhl_horizon(now, target_date):
+    """Elapsed 24 h, but never before NHL_NIGHT_UNTIL on the next Zurich day."""
+    hour, minute = NHL_NIGHT_UNTIL
+    next_day = target_date + timedelta(days=1)
+    night_limit = datetime(next_day.year, next_day.month, next_day.day, hour, minute,
+                           tzinfo=ZoneInfo('Europe/Zurich'))
+    return max(now + timedelta(hours=24), night_limit.astimezone(timezone.utc))
+
+
+def automatic_team_sport_day(*, starts_at, now, target_date, sport, provider):
+    """Calendar eligibility plus native NHL's overnight horizon.
+
+    The NHL horizon is the elapsed 24 h after ``now``, at least up to
+    ``NHL_NIGHT_UNTIL`` Zurich time on the next day. Consumers must supply the
+    canonical sport/provider from validated bound evidence, never display labels
+    or team abbreviations. The 24 h part is computed in UTC and the night limit in
+    Zurich local time, so both stay exact across Zurich's DST clock changes.
     """
     starts_at, now = _clock(starts_at), _clock(now)
     if starts_at <= now:
@@ -189,7 +208,7 @@ def automatic_team_sport_day(*, starts_at, now, target_date, sport, provider):
         return True
     return (sport == 'ice_hockey' and provider == 'NHL'
             and target_date == now.astimezone(ZoneInfo('Europe/Zurich')).date()
-            and starts_at <= now + timedelta(hours=24))
+            and starts_at <= _nhl_horizon(now, target_date))
 
 
 def team_sport_forecast_rows(run, *, now, target_date):
