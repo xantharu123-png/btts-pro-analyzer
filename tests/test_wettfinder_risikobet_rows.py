@@ -39,6 +39,33 @@ def test_caution_is_the_contra_line_and_highlights_get_no_visible_badge():
     assert 'MODELL-AUSWAHL' not in html.upper()
 
 
+LONG_CONTEXT = ('H2H geprüft, kein belastbares Veto · Ausfälle nicht verfügbar · Wetter geprüft · '
+                'Aufstellungen für vollständige Bestätigung noch offen')
+
+
+def test_context_is_a_small_line_never_a_badge_and_can_be_left_out():
+    # Live on 15.11.2026 the long context sentence filled an uppercase pill on every market.
+    c = replace(card(), context_label=LONG_CONTEXT)
+    html = render_wettfinder_row_html(c)
+    assert 'rb-badge' not in html and 'rb-row-status' not in html
+    assert f'<span class="rb-row-missing">Kontext: {LONG_CONTEXT}</span>' in html
+    assert 'Kontext:' not in render_wettfinder_row_html(c, show_context=False)
+    assert 'Kontext:' not in render_wettfinder_row_html(replace(c, context_label='ausstehend'))
+
+
+def test_game_card_shows_the_context_once_on_its_first_row(monkeypatch):
+    from wettfinder_surface import WettfinderCatalog
+    first, second = (replace(card(1, key), context_label=LONG_CONTEXT) for key in ('AWAY_OVER_2_5', 'DC_X2'))
+    other = replace(card(2, 'BTTS_YES'), context_label=LONG_CONTEXT)
+    recording = _RecordingStreamlit()
+    monkeypatch.setattr(app, 'st', recording)
+    app._render_wettfinder_games(WettfinderCatalog((first,), (second, other), ()),
+                                 {c.key: (None, c) for c in (first, second, other)}, sport_filter='Alle')
+    rows = [text for text, _kwargs, _context in recording.markdown_calls if 'class="rb-row wf-rb-row"' in text]
+    assert len(rows) == 3
+    assert [('Kontext:' in text) for text in rows] == [True, False, True]
+
+
 @pytest.mark.parametrize('row,expected', [
     ({'competition': 'NHL', 'league_id': 39}, 'NHL'),
     ({'league_id': 5}, 'UEFA Nations League'),

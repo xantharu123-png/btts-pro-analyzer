@@ -63,3 +63,38 @@ zum Beispiel den vom RisikoBet“. Auswahl „Ganz wie RisikoBet“, nach der lo
 ## Zurücknehmen
 
 Den Merge zurücknehmen. Daten und Protokolle sind nicht betroffen.
+
+## Release 20261115-2
+
+Owner „Ja, live stellen“ am 15.11.2026.
+
+- **Merge:** PR #129 um 21:58 CET, `origin/main` = `7f35c23733935935c88f9cfa3b35a68851a7675d`. Die CI war grün
+  (ruff und schnelle Teilmenge; Lader, Publikation, Daily3 und 15K unter `floor` und `gate`). Der Baum ist gleich
+  dem PR-Stand `545cbfb`.
+- **Dateien:** 16 von `d19e755` bis `7f35c23`. Code: `app.py`, `wettfinder_surface.py`, `ev_signal_sources.py`;
+  sonst Tests und Doku (darunter das Protokoll PR #128). Keine Einheit, kein `.sh`, keine Requirements.
+- **Generator:** `output/release-20261115-2/gen_deploy54.py`, abgeleitet von `gen_deploy53.py` über `make_gen.py`.
+  Neue Asserts: `render_wettfinder_row_html` vorhanden, `row_competition` für Liga 5 und für `competition`, im
+  `app.py` die Stylesheet-Kopie und die neuen Zeilen ohne `_remember_wettfinder_game_state`, `app.py` parsebar.
+- **Offline-Prüfung lokal** gegen einen Worktree von `545cbfb` (gleicher Baum): `OFFLINE_RELEASE_IMPORTS=ok`.
+- **Hochladen:** sha256 auf dem Server gleich (`deploy-20261115-2.sh` `5c0940f8…`, `run_release-20261115-2.sh`
+  `6b682c61…`).
+- **Ausrollen:** Fenster um 22:02:41 (Abstand zum nächsten Shadow-Lauf 559 s). Ergebnis `HEAD=7f35c23…`,
+  `APP_PID=1638757->1642925`, `NO_NEW_BACKUP=yes`, `UNITS_UNCHANGED=yes`, `DEPLOY_EXIT=0`. Log
+  `output/release-20261115-2/deploy-01.log`.
+- **Danach:** Health lokal und öffentlich `ok`, App, Caddy und alle 7 Timer aktiv, keine neue fehlgeschlagene
+  Einheit (die 8 alten vom September bleiben). Die Live-Seite zeigt die offenen Karten, zum Beispiel
+  „Fußball · UEFA Nations League · 16.11. 16:00“, Kazakhstan gegen Slovakia, Über 1.5, Modell 79.8 %, Grundlage und
+  Contra, darunter die Form.
+
+## Nachtrag: Kontext als kleine Zeile
+
+Auf der Live-Seite stand der Kontext als grosses Abzeichen in Grossbuchstaben, und das bei jedem Markt. Live ist
+er ein langer Satz, zum Beispiel „H2H geprüft, kein belastbares Veto · Ausfälle nicht verfügbar · Wetter geprüft ·
+Aufstellungen für vollständige Bestätigung noch offen“.
+
+- Der Kontext ist jetzt eine kleine graue Zeile „Kontext: …“ unter Grundlage und Contra (Klasse `rb-row-missing`,
+  wie „Fehlt:“ bei RisikoBet). Ein Abzeichen gibt es nicht mehr.
+- Er steht nur in der ersten Zeile eines Spiels (`render_wettfinder_row_html(show_context=)`).
+- Tests in `tests/test_wettfinder_risikobet_rows.py`: keine Abzeichen, die Zeile lässt sich weglassen, „ausstehend“
+  wird nicht gezeigt, und bei einem Spiel mit zwei Märkten steht der Kontext nur in der ersten Zeile.
