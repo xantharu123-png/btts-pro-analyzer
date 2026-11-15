@@ -2740,7 +2740,8 @@ def _team_sport_next_day(
 
     Without new research (``sources`` is None) the previous run's rows for the
     same next day are projected again from their own snapshots while still
-    valid. A native NHL game within 24 hours stays a match-day row. A failure
+    valid. A native NHL game within today's overnight horizon (24 h, at least up to
+    06:00 Zurich tomorrow) stays a match-day row. A failure
     drops that sport's next day only, and RisikoBet never sees these snapshots.
     Rows are projected at a clock read after loading, never before a model clock.
     """
@@ -3561,7 +3562,7 @@ def _next_day_team_event_filter(target_date: date, sport: str):
         provider = event.get('provider') or event.get('source')
         native = (sport == 'ice_hockey' and provider == 'NHL' and event.get('source') in (None, 'NHL')
                   and event.get('sport') in (None, 'ice_hockey') and event.get('source_contract') is None)
-        # A native NHL game within 24 hours stays a match-day row of today's research.
+        # A native NHL game within today's overnight horizon stays a match-day row of today's research.
         return not automatic_team_sport_day(starts_at=start, now=source_time, target_date=target_date,
                                             sport=sport, provider='NHL' if native else None)
     return keep
