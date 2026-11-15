@@ -98,3 +98,28 @@ Aufstellungen für vollständige Bestätigung noch offen“.
 - Er steht nur in der ersten Zeile eines Spiels (`render_wettfinder_row_html(show_context=)`).
 - Tests in `tests/test_wettfinder_risikobet_rows.py`: keine Abzeichen, die Zeile lässt sich weglassen, „ausstehend“
   wird nicht gezeigt, und bei einem Spiel mit zwei Märkten steht der Kontext nur in der ersten Zeile.
+
+## Release 20261116-1
+
+Owner „Ja, live stellen“ (15./16.11.2026) für PR #130.
+
+- **Merge:** PR #130 um 00:32 CET, `origin/main` = `2b572e0a9d378b6a8ef4d5faf2813dcb5e01e7ee`. Die CI war grün.
+- **Dateien:** 5 von `7f35c23` bis `2b572e0`: `app.py`, `wettfinder_surface.py`, `STATUS.md`, dieser Bericht und
+  `tests/test_wettfinder_risikobet_rows.py`. Keine Einheit, kein `.sh`, keine Requirements.
+- **Generator:** `output/release-20261116-1/gen_deploy55.py`, abgeleitet von `gen_deploy54.py` über `make_gen.py`.
+  Neue Asserts: `show_context` in `render_wettfinder_row_html`, `show_context=position == 0` in `app.py`.
+- **Offline-Prüfung lokal** gegen einen Worktree von `2b572e0`: `OFFLINE_RELEASE_IMPORTS=ok`.
+- **Hochladen:** sha256 auf dem Server gleich (`deploy-20261116-1.sh` `55493991…`, `run_release-20261116-1.sh`
+  `ba400717…`).
+- **Ausrollen:** Fenster um 00:33:20 (Abstand zum nächsten Shadow-Lauf 520 s). Ergebnis `HEAD=2b572e0…`,
+  `APP_PID=1642925->1644442`, `NO_NEW_BACKUP=yes`, `UNITS_UNCHANGED=yes`, `DEPLOY_EXIT=0`. Log
+  `output/release-20261116-1/deploy-01.log`.
+- **Danach:** Health lokal und öffentlich `ok`, App, Caddy und alle 7 Timer aktiv, keine neue fehlgeschlagene
+  Einheit (die 8 alten vom September bleiben).
+- **Live-Seite nach Mitternacht leer:** Die Seite zeigte „Aktuell ist noch kein automatisches Ergebnis verfügbar.“
+  Der Grund ist der Datumswechsel, nicht das Release. Seit 00:00 ist der Spieltag der 16.11., das Tagesdokument ist
+  aber vom 15.11. (03:44), und der nächste Nachtlauf kommt um 03:35. Mit der Uhr 15.11. 23:00 liefert der Lader auf
+  dem Server 42 Prognosen, alle mit Liga.
+- **Darstellung auf dem Server geprüft** (nur gelesen, Daten mit Uhr 23:00, gerendert wie der Wettfinder): 15 Spiele,
+  27 Zeilen, 0 Abzeichen, 11 Kontextzeilen, also höchstens eine je Spiel. Die erste Kopfzeile lautet
+  „Eishockey · NHL · 16.11. 01:30“.
