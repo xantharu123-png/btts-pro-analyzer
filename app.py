@@ -4692,12 +4692,12 @@ def _render_wettfinder_game(group, row_by_key, featured_keys) -> None:
     display_lead = group.visible_lead if group.lead is not None else group.cards[0]
     with st.container(key=f'wettfinder_game_row_{suffix}'):
         details_card = None
-        for card in group.cards:
+        for position, card in enumerate(group.cards):
             signal, card = row_by_key[card.key]
             with st.container(key=f'wettfinder_v2_game_market_{card.manual_quote_key}'):
                 st.markdown(render_wettfinder_row_html(
                     card, competition=getattr(signal, 'competition', None),
-                    featured=card.key in featured_keys,
+                    featured=card.key in featured_keys, show_context=position == 0,
                 ), unsafe_allow_html=True)
                 if signal is not None:
                     render_tip_bookmark(
