@@ -65,17 +65,18 @@ def test_automatic_default_orders_real_cards_and_games_without_promoting_feature
     ui = _RecordingStreamlit()
     monkeypatch.setattr(app, 'st', ui)
     featured_calls = []
-    real_render = app.render_editorial_card_html
+    real_render = app.render_wettfinder_row_html
     def render_with_membership(card, **kwargs):
         featured_calls.append((card.key, kwargs['featured']))
         return real_render(card, **kwargs)
-    monkeypatch.setattr(app, 'render_editorial_card_html', render_with_membership)
+    monkeypatch.setattr(app, 'render_wettfinder_row_html', render_with_membership)
     app._render_wettfinder_games(catalog, {c.key: (None, c) for c in (low, high, middle)}, sport_filter='Alle')
     html = [value for value, _kwargs, _context in ui.markdown_calls if 'data-key=' in value]
     assert [next(c.key for c in (low, high, middle) if f'data-key="{c.key}"' in value)
             for value in html] == [high.key, low.key, middle.key]
     assert featured_calls == [(high.key, False), (low.key, True), (middle.key, False)]
-    assert all('MODELL-AUSWAHL' not in value for value in html)  # Editorial cards add no quality badge.
+    # Rows add no quality badge for catalog highlights.
+    assert all('MODELL-AUSWAHL' not in value.upper() for value in html)
     assert catalog.featured == (low,) and catalog.additional == (middle, high)
 
 

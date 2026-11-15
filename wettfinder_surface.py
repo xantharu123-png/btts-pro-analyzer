@@ -1065,8 +1065,50 @@ def render_editorial_card_html(card: WettfinderCard, *, grouped=False, featured=
     )
 
 
+def render_wettfinder_row_html(card: WettfinderCard, *, competition: object = None, featured: bool = False) -> str:
+    """One selection as a flat RisikoBet-style row (owner 15.11.2026: Wettfinder „ganz wie RisikoBet“).
+
+    Uses the RisikoBet row classes (``rb-row``) so both pages share one look. Sport, league and kickoff head the
+    row; the pick, the model chance and the short reasons follow. Bookmaker prices stay out under ``floor``.
+    """
+    competition_text = _clean_text(competition, "")
+    meta = " · ".join(part for part in (card.sport, competition_text, card.scheduled_start_label) if part)
+    compact = card.compact_analysis
+    basis = _clean_text(compact.summary if compact is not None else card.analysis_basis, "")
+    caution = _clean_text(card.analysis_caution, "")
+    selection = card.display_selection or card.selection
+    market_markup = f"<span>{escape(card.market)}</span>" if card.market and card.market != selection else ""
+    # Catalog highlights get no visible quality badge (like the editorial cards); only a data attribute.
+    badges = ""
+    if card.context_label and card.context_label != "ausstehend":
+        badges += ('<span class="rb-badge rb-badge-context rb-context-muted">Kontext '
+                   + escape(card.context_label) + "</span>")
+    reasons = ""
+    if basis:
+        reasons += '<span class="rb-row-pro"><b>Grundlage:</b> ' + escape(basis) + "</span>"
+    if caution:
+        reasons += '<span class="rb-row-contra"><b>Contra:</b> ' + escape(caution) + "</span>"
+    return (
+        f'<article class="rb-row wf-rb-row" data-key="{escape(card.key, quote=True)}" '
+        + ('data-featured="true" ' if featured else '')
+        + f'aria-label="Modellprognose für {escape(card.event_label, quote=True)}">'
+        '<div class="rb-row-event">'
+        f'<span class="rb-row-meta">{escape(meta)}</span>'
+        f"<strong>{escape(card.event_label)}</strong>"
+        + (f'<span class="rb-row-status">{badges}</span>' if badges else "")
+        + "</div>"
+        '<div class="rb-row-pick">'
+        f"{market_markup}<strong>{escape(selection)}</strong></div>"
+        '<div class="rb-row-probabilities"><span>Modell <strong>'
+        f"{escape(format_probability(card.model_probability))}</strong></span></div>"
+        f'<div class="rb-row-reasons">{reasons}</div>'
+        "</article>"
+    )
+
+
 __all__ = [
     "render_editorial_card_html",
+    "render_wettfinder_row_html",
     "render_match_header_html",
     "WettfinderCard",
     "WettfinderCatalog",

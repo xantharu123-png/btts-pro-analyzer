@@ -94,11 +94,11 @@ from wettfinder_surface import (
     build_wettfinder_card,
     compose_wettfinder_catalog,
     group_wettfinder_games,
-    wettfinder_game_label,
     render_compact_row_html,
     render_top_card_html,
     render_editorial_card_html,
     render_match_header_html,
+    render_wettfinder_row_html,
     format_probability,
     wettfinder_quote_binding_candidate,
     wettfinder_recommendation_candidate,
@@ -410,9 +410,42 @@ def _segmented(label: str, options: list[str], key: str, default: str) -> str:
     return st.radio(label, options, index=options.index(default), horizontal=True, key=key)
 
 
+# Owner 15.11.2026 „ganz wie RisikoBet“: the Wettfinder game list reuses the RisikoBet row styles. The RisikoBet
+# section of the stylesheet is copied once with the Wettfinder container keys, so both pages keep one look.
+_RISK_ROW_KEYS_FOR_WETTFINDER = (
+    ("st-key-riskobet_page", "st-key-wettfinder_v2_additional"),
+    ("st-key-riskobet_additional_row_", "st-key-wettfinder_game_row_"),
+)
+_WETTFINDER_RISK_ROW_EXTRA = """
+        /* Wettfinder main column is narrower than the RisikoBet page: two row columns, reasons below. */
+        .st-key-wettfinder_v2_additional .rb-row {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .st-key-wettfinder_v2_additional .rb-row-reasons {
+            grid-column: 1 / -1;
+        }
+
+        @media (max-width: 760px) {
+            .st-key-wettfinder_v2_additional .rb-row {
+                grid-template-columns: 1fr;
+            }
+        }
+"""
+
+
+def _with_wettfinder_risk_rows(css: str) -> str:
+    start = css.index("/* --- RisikoBet: flat, price-independent decision surface --- */")
+    end = css.index("/* --- Shared area navigation", start)
+    section = css[start:end]
+    for old, new in _RISK_ROW_KEYS_FOR_WETTFINDER:
+        section = section.replace(old, new)
+    copy = "/* --- Wettfinder rows in the RisikoBet look --- */\n" + section + _WETTFINDER_RISK_ROW_EXTRA
+    return css.replace("</style>", copy + "        </style>", 1)
+
+
 def _apply_app_styles() -> None:
-    st.markdown(
-        """
+    css = """
         <style>
         :root {
             --bb-ink: #202428;
@@ -1909,9 +1942,8 @@ def _apply_app_styles() -> None:
         }
 
         </style>
-        """,
-        unsafe_allow_html=True,
-    )
+        """
+    st.markdown(_with_wettfinder_risk_rows(css), unsafe_allow_html=True)
 
 
     from editorial_theme import editorial_css
@@ -4648,53 +4680,24 @@ def _wettfinder_game_key(group) -> str:
     return 'wettfinder_v2_game_' + identity
 
 
-def _remember_wettfinder_game_state(widget_key: str) -> None:
-    value = st.session_state.get(widget_key)
-    if isinstance(value, bool):
-        remembered = dict(st.session_state.get('_wettfinder_game_open', {}))
-        remembered[widget_key] = value
-        st.session_state['_wettfinder_game_open'] = remembered
+def _render_wettfinder_game(group, row_by_key, featured_keys) -> None:
+    """One game as an open RisikoBet-style card (owner 15.11.2026: Wettfinder „ganz wie RisikoBet“).
 
+    Every shown market of the game is one flat row, the most probable first (owner decision 23.10.2026). The
+    game's form and goal tables follow once, open, like the RisikoBet detail; no expander and no jersey header.
+    """
+    from forecast_compact import render_compact_analysis_html
 
-def _render_wettfinder_game(group, row_by_key, featured_keys, initially_open: bool = False) -> None:
-    key = _wettfinder_game_key(group)
-    remembered = st.session_state.get('_wettfinder_game_open', {})
-    # Streamlit also includes the opening default in the expander identity.
-    # Restore explicit choices before registration even when a sort change
-    # remounts a still-visible game; this dictionary survives widget cleanup.
-    if isinstance(remembered.get(key), bool):
-        st.session_state[key] = remembered[key]
-    with st.expander(
-        wettfinder_game_label(group), expanded=initially_open, key=key,
-        on_change=_remember_wettfinder_game_state, args=(key,),
-    ):
-        # The lead is the game's most probable shown selection (owner decision
-        # 23.10.2026). A removed lead falls back only to a market of the same
-        # model revision; otherwise the game is shown without a primary.
-        display_lead = group.visible_lead if group.lead is not None else group.cards[0]
-        if display_lead is None:
-            from wettfinder_identity import rendered_identity_card
-            first_signal, first_card = row_by_key[group.cards[0].key]
-            header_card = rendered_identity_card(first_card, first_signal) if first_signal else first_card
-            st.markdown(render_match_header_html(header_card), unsafe_allow_html=True)
-        shown_forms = set()
-        for index, card in enumerate(group.cards):
-            if group.lead is not None and (display_lead is None or card.key != display_lead.key) and (
-                index == 0 or (display_lead is not None and group.cards[index - 1].key == display_lead.key)
-            ):
-                st.markdown('### Weitere Märkte')
+    suffix = _wettfinder_game_key(group).removeprefix('wettfinder_v2_game_')
+    display_lead = group.visible_lead if group.lead is not None else group.cards[0]
+    with st.container(key=f'wettfinder_game_row_{suffix}'):
+        details_card = None
+        for card in group.cards:
             signal, card = row_by_key[card.key]
-            forms = card.compact_analysis.forms if card.compact_analysis else ()
-            show_form = forms not in shown_forms
-            shown_forms.add(forms)
             with st.container(key=f'wettfinder_v2_game_market_{card.manual_quote_key}'):
-                primary = display_lead is not None and card.key == display_lead.key
-                if primary:
-                    from wettfinder_identity import rendered_identity_card
-                    card = rendered_identity_card(card, signal)
-                st.markdown(render_editorial_card_html(
-                    card, grouped=True, featured=card.key in featured_keys,
-                    show_form=show_form, include_match=primary,
+                st.markdown(render_wettfinder_row_html(
+                    card, competition=getattr(signal, 'competition', None),
+                    featured=card.key in featured_keys,
                 ), unsafe_allow_html=True)
                 if signal is not None:
                     render_tip_bookmark(
@@ -4702,6 +4705,15 @@ def _render_wettfinder_game(group, row_by_key, featured_keys, initially_open: bo
                         key=f"wettfinder_v2_{card.manual_quote_key}",
                         source="Wettfinder",
                     )
+            if details_card is None and card.compact_analysis is not None and (
+                    display_lead is None or card.key == display_lead.key):
+                details_card = card
+        if details_card is not None:
+            with st.container(key=f'wettfinder_game_details_{suffix}'):
+                st.markdown(render_compact_analysis_html(
+                    details_card.compact_analysis, instance_key=details_card.key,
+                    show_form=True, show_summary=False,
+                ), unsafe_allow_html=True)
 
 
 def _render_wettfinder_games(catalog, row_by_key, *, sport_filter: str, sort_mode=START_TIME) -> None:
@@ -4749,8 +4761,9 @@ def _render_wettfinder_games(catalog, row_by_key, *, sport_filter: str, sort_mod
             first = (page - 1) * page_size
             if pages > 1:
                 st.caption(f'{first + 1}–{min(first + page_size, len(groups))} von {len(groups)} Spielen')
-            for index, group in enumerate(groups[first:first + page_size]):
-                _render_wettfinder_game(group, row_by_key, featured_keys, index < 3)
+            # Owner 15.11.2026: every game open as a RisikoBet-style card, no expanders.
+            for group in groups[first:first + page_size]:
+                _render_wettfinder_game(group, row_by_key, featured_keys)
 
 
 # Owner 10.11.2026 „Liste ab 70 %“: the page starts with the selections the model rates at

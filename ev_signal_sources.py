@@ -83,6 +83,25 @@ FOOTBALL_SIGNAL_MAX_AGE_HOURS = {
 }
 
 
+def row_competition(row: Mapping[str, object]) -> Optional[str]:
+    """Visible league of a stored forecast row (owner 15.11.2026: Wettfinder head like RisikoBet).
+
+    Team sports and e-sport rows carry ``competition``. Football rows carry only ``league_id``; its catalog
+    label is used for display, the same label the app shows elsewhere (``Country: Name``, world cups by name).
+    """
+    text = str(row.get("competition") or "").strip()
+    if text:
+        return text
+    league_id = row.get("league_id")
+    if isinstance(league_id, bool) or not isinstance(league_id, int):
+        return None
+    from league_catalog import LEAGUE_BY_ID
+    league = LEAGUE_BY_ID.get(league_id)
+    if league is None:
+        return None
+    return league.name if league.country == "World" else f"{league.country}: {league.name}"
+
+
 @dataclass(frozen=True)
 class ModelSignal:
     key: str            # stabiler, eindeutiger Schlüssel
@@ -1978,9 +1997,7 @@ def automated_wettfinder_forecasts(
                         str(row.get("selected_competitor") or "").strip()
                         or None
                     ),
-                    competition=(
-                        str(row.get("competition") or "").strip() or None
-                    ),
+                    competition=row_competition(row),
                     reference_quote=quote.to_dict() if quote is not None else None,
                     reference_price_bound=valid_price_bound(row.get("reference_price_bound"), row.get("market_key")),
                     price_checked_at=(price_attempts.get(key) if valid_price_check_time(
@@ -2221,9 +2238,7 @@ def automated_wettfinder_signals(
                         str(row.get("selected_competitor") or "").strip()
                         or None
                     ),
-                    competition=(
-                        str(row.get("competition") or "").strip() or None
-                    ),
+                    competition=row_competition(row),
                     reference_quote=(
                         reference_quote.to_dict() if reference_quote is not None else None
                     ),

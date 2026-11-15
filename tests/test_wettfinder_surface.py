@@ -965,20 +965,21 @@ def test_production_renderer_pages_20_complete_games_without_splitting_markets(m
     catalog = surface.WettfinderCatalog((), tuple(cards), ())
     row_by_key = {card.key: (None, card) for card in cards}
     seen, groups_per_page = [], []
-    original_render = app.render_editorial_card_html
+    original_render = app.render_wettfinder_row_html
     def record_render(card, **kwargs):
         seen.append(card.key)
         return original_render(card, **kwargs)
-    monkeypatch.setattr(app, 'render_editorial_card_html', record_render)
+    monkeypatch.setattr(app, 'render_wettfinder_row_html', record_render)
     for page in (1, 2, 3):
         recording = _RecordingStreamlit(widget_values={'wettfinder_games_page_Alle_3': page})
         monkeypatch.setattr(app, 'st', recording)
         before = len(seen)
         app._render_wettfinder_games(catalog, row_by_key, sport_filter='Alle')
-        groups_per_page.append(len(recording.expanders))
-        assert len(seen) - before == 3 * len(recording.expanders)
+        games = [key for key in recording.containers if str(key).startswith('wettfinder_game_row_')]
+        groups_per_page.append(len(games))
+        assert recording.expanders == []
+        assert len(seen) - before == 3 * len(games)
         assert recording.selectboxes[0][1] == (1, 2, 3)
-        assert all('3 Auswahlen' in label for label, _expanded in recording.expanders)
     assert groups_per_page == [20, 20, 1]
     assert seen == [card.key for card in cards]
     assert len(set(seen)) == 123

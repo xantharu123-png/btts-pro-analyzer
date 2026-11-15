@@ -405,10 +405,11 @@ def test_real_game_renderer_invokes_bookmark_action_and_persists_sport_selection
     monkeypatch.setattr(ui, "evaluate_reference_price", lambda *a, **k: pytest.fail("game action evaluated price"))
     # Importing app starts unrelated runtime services. Execute its unchanged
     # real rendering functions, with UI and storage boundaries supplied here.
-    names = {"_wettfinder_game_key", "_remember_wettfinder_game_state", "_render_wettfinder_game"}
+    names = {"_wettfinder_game_key", "_render_wettfinder_game"}
     tree = ast.parse((Path(__file__).parents[1] / "app.py").read_text(encoding="utf-8"))
     namespace = dict(st=surface, hashlib=hashlib, wettfinder_game_label=cards.wettfinder_game_label,
                      render_editorial_card_html=cards.render_editorial_card_html,
+                     render_wettfinder_row_html=cards.render_wettfinder_row_html,
                      _automated_signal_candidate=cards.wettfinder_recommendation_candidate)
     if hasattr(ui, "render_tip_bookmark"):
         namespace["render_tip_bookmark"] = ui.render_tip_bookmark

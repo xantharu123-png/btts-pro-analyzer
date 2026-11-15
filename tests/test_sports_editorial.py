@@ -295,7 +295,7 @@ def test_identical_game_form_is_shown_once_without_dropping_any_market(monkeypat
     app._render_wettfinder_game(group, {c.key: (s, c) for s,c in zip(signals,cards)}, {c.key for c in cards})
     html = '\n'.join(call[0] for call in recording.markdown_calls)
     assert html.count('class="sports-form"') == 1
-    assert html.count('class="wf-row se-card"') == 2
+    assert html.count('class="rb-row wf-rb-row"') == 2
     assert all(f'data-key="{c.key}"' in html for c in cards)
 
 
