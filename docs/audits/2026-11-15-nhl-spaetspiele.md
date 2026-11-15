@@ -101,3 +101,28 @@ Nachmittag Zürcher Zeit.
 
 In `team_sport_forecasts.automatic_team_sport_day` wieder `starts_at <= now + timedelta(hours=24)` prüfen und
 `NHL_NIGHT_UNTIL` mit `_nhl_horizon` entfernen. Gespeicherte Prognosen bleiben gültig.
+
+## Release 20261115-1
+
+Owner „Ja, live stellen“ am 15.11.2026.
+
+- **Merge:** PR #127 um 14:34 CET, `origin/main` = `d19e75549703b95d31f3d9c5594a8872aaf9f383`. Die CI war grün
+  (ruff und schnelle Teilmenge; Lader, Publikation, Daily3 und 15K unter `floor` und `gate`).
+- **Dateien:** 11, alle von `7efa8f5` bis `d19e755`. Code: `team_sport_forecasts.py`, dazu nur Kommentare in
+  `ev_signal_sources.py` und `wettfinder_automation.py`; sonst Tests und Doku (darunter das Protokoll PR #126).
+  Keine Einheit, kein `.sh`, keine Requirements.
+- **Generator:** `output/release-20261115-1/gen_deploy53.py`, abgeleitet von `gen_deploy52.py` über `make_gen.py`.
+  Neu: `team_sport_forecasts` in der Importliste; Asserts `NHL_NIGHT_UNTIL == (6, 0)`, `_nhl_horizon` vorhanden und
+  in `automatic_team_sport_day` benutzt; Vegas gegen Nashville mit der Laufzeit vom 13.11. gehört zum laufenden Tag,
+  ein Spiel um 06:00:01 nicht.
+- **Offline-Prüfung lokal** gegen einen Worktree von `d19e755`: `OFFLINE_RELEASE_IMPORTS=ok`.
+- **Hochladen:** sha256 auf dem Server gleich (`deploy-20261115-1.sh` `9b71f4e2…`, `run_release-20261115-1.sh`
+  `4f63bcce…`).
+- **Ausrollen:** Fenster um 14:36:10 (Abstand zum nächsten Shadow-Lauf 350 s). Ergebnis `HEAD=d19e755…`,
+  `APP_PID=1625050->1638757`, `NO_NEW_BACKUP=yes`, `UNITS_UNCHANGED=yes`, `DEPLOY_EXIT=0`. Log
+  `output/release-20261115-1/deploy-01.log`.
+- **Danach (14:36):** Health lokal und öffentlich `ok`, App und Caddy aktiv, alle 7 Timer aktiv, keine neue
+  fehlgeschlagene Einheit (die 8 alten vom September bleiben), die Live-Seite lädt mit Inhalt.
+- **Offen:** Der Nachtlauf am 16.11. um 03:35 ist der erste mit der neuen Grenze. Ein NHL-Spiel des 17.11. vor
+  06:00 Uhr gehört dann zum 16.11. Prüfen, ob es Prognose und später ein Ergebnis bekommt, und die API-Hockey-Abrufe
+  je Tag beobachten.
