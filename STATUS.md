@@ -4,7 +4,7 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 „Stand“ ersetzen, nicht anhängen; Historie steht in `TODO_AKTUELL.md` und
 `PC_WECHSEL_UEBERGABE.md`. Regeln und Einstieg: `AGENTS.md`.
 
-## Stand: 16.11.2026 (Kleinstaaten-Sperre live seit 09:15 als `fb38329`; Reparaturkandidaten 1–3 nicht erfüllt, Plan bis März; Länderspiel-Modell gegen Kleinstaaten wird repariert; Wettfinder im RisikoBet-Stil mit Kontextzeile live seit 00:33 als `2b572e0`; NHL-Spätspiele live seit 15.11. 14:36; Owner macht vorerst mit Claude weiter; die vollständige Übergabe an Codex liegt bereit: `docs/handoffs/2026-11-13-claude-uebergabe-codex-komplett.md`)
+## Stand: 16.11.2026 (Gesamtaudit vom 16.11. liegt vor: `AUDIT_BERICHT_2026-11-16_CLAUDE.md`, 142 Befunde, 0 kritisch, 14 hoch, Massnahmenplan mit 15 Punkten, nichts geändert; Kleinstaaten-Sperre live seit 09:15 als `fb38329`; Reparaturkandidaten 1–3 nicht erfüllt, Plan bis März; Länderspiel-Modell gegen Kleinstaaten wird repariert; Wettfinder im RisikoBet-Stil mit Kontextzeile live seit 00:33 als `2b572e0`; NHL-Spätspiele live seit 15.11. 14:36; Owner macht vorerst mit Claude weiter; die vollständige Übergabe an Codex liegt bereit: `docs/handoffs/2026-11-13-claude-uebergabe-codex-komplett.md`)
 
 | Bereich | Status |
 |---|---|
@@ -47,6 +47,7 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 
 | Wer | Was |
 |---|---|
+| Claude/Owner | Gesamtaudit 16.11.2026 (`AUDIT_BERICHT_2026-11-16_CLAUDE.md`): Punkt 1 vor dem Wochenende 21./22.11. (Nachtlauf veröffentlicht heute zuerst; am Fr 20.11. Stufenzeiten lesen), Punkt 2 Telegram-Token (Owner), danach Punkte 3 bis 15 nach Owner-Entscheid. Kernbefund: Das Modell trifft im Mittel wie angesagt, verliert zur Quote aber 7,7 %; die Auswahl nach höchster Modellchance wählt die Überschätzungen (Doublebet, 15K). Rohbefunde lokal unter `C:/Projekt/BetBoy/output/audit-20261116/` |
 | Owner | Wirkung der dreistufigen Preisprüfung beobachten (Hauptauswahlen ohne Quote, Anteil zurückgehaltener Bereiche); offen bleibt, dass die 1,20-Grenze Auswahlen knapp darüber zulässt (25.10.: 14 von 46 Hauptauswahlen mit 80 % oder mehr) |
 | Owner | `TELEGRAM_BOT_TOKEN` und `TELEGRAM_CHAT_ID` in `/etc/betboy/betboy.env` hinterlegen, damit der Fehlschlag-Alarm nicht nur im Journal und in `runtime_state/ops_alerts.jsonl` steht |
 | Owner | Impressum/Datenschutz/AGB ausfüllen, prüfen lassen, URLs setzen |
@@ -77,6 +78,8 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 
 ## Wo nachlesen
 
+`AUDIT_BERICHT_2026-11-16_CLAUDE.md` (Gesamtaudit 16.11.: acht Rollen mit Gegenprüfung, frische Zahlen,
+Massnahmenplan),
 `AUDIT_BERICHT_2026-10-25_CLAUDE.md` (Gesamtaudit 25.10.: Logik, Mathematik, Statistik, Betrieb, UX; Massnahmenplan),
 `AUDIT_BERICHT_2026-10-16_CLAUDE.md` (Befund 16.10.), `docs/audits/2026-10-19-audit-reparaturen.md`
 (Protokoll mit Zahlen), `docs/handoffs/2026-10-20-claude-uebergabe.md` (Code-Übergabe),
