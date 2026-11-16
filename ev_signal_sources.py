@@ -83,6 +83,40 @@ FOOTBALL_SIGNAL_MAX_AGE_HOURS = {
 }
 
 
+# Owner 16.11.2026 „Beides“ (block now, repair the model): in senior national games against a small nation the
+# model gives the favourite far too few goals (pre-registered check, 197 games: „favourite at most 2 goals“ 58.4 %
+# observed vs 78.1 % modelled; docs/audits/2026-11-16-laenderspiele-kleinstaaten-ergebnis.md). Until the repaired
+# model is validated, the consumer surfaces show no under-goal tip there. Forecast evidence keeps every row.
+SMALL_NATIONS = frozenset({
+    "San Marino", "Liechtenstein", "Gibraltar", "Andorra", "Malta", "Moldova", "Faroe Islands", "Luxembourg",
+    "Kazakhstan", "Latvia", "Lithuania", "Estonia", "Armenia", "Azerbaijan", "Cyprus",
+})
+
+
+def small_nation_under_blocked(signal: object) -> bool:
+    """Under-goal market of a senior national game against exactly one small nation (favourite or total goals)."""
+    if getattr(signal, "model_scope", None) != "senior_national_pooled":
+        return False
+    home, away = getattr(signal, "home_team", None), getattr(signal, "away_team", None)
+    if (home in SMALL_NATIONS) == (away in SMALL_NATIONS):
+        return False
+    key = str(getattr(signal, "market_key", None) or "")
+    if key.startswith("TOTAL_UNDER_") or (key.startswith("RESULT_TOTAL_") and "_UNDER_" in key):
+        return True
+    favourite = "AWAY" if home in SMALL_NATIONS else "HOME"
+    return key.startswith(f"{favourite}_UNDER_")
+
+
+def without_small_nation_unders(forecasts: List["ModelSignal"]) -> List["ModelSignal"]:
+    kept = [signal for signal in forecasts if not small_nation_under_blocked(signal)]
+    if len(kept) != len(forecasts):
+        import logging
+        logging.getLogger(__name__).info(
+            "automated wettfinder document: %d under-goal row(s) against a small nation withheld",
+            len(forecasts) - len(kept))
+    return kept
+
+
 def row_competition(row: Mapping[str, object]) -> Optional[str]:
     """Visible league of a stored forecast row (owner 15.11.2026: Wettfinder head like RisikoBet).
 
@@ -2022,7 +2056,7 @@ def automated_wettfinder_forecasts(
             )
         except ValueError:
             continue
-    return forecasts
+    return without_small_nation_unders(forecasts)
 
 
 def _strict_signal_max_age() -> timedelta:

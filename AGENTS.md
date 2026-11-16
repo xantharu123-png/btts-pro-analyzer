@@ -124,6 +124,12 @@ Code, dann `PROJECT_HANDBUCH.md`, dann die Bibel. Historische Logs: `TODO_AKTUEL
   Sport · Liga · Anstoss, Auswahl, Modell und Grundlage/Contra; Form und Tabellen folgen offen darunter. Das
   Stylesheet kopiert den RisikoBet-Abschnitt für den Wettfinder (`_with_wettfinder_risk_rows`); Fussball-Ligen kommen
   aus `league_id` über `league_catalog` (`ev_signal_sources.row_competition`). Doublebet und 15K behalten ihre Karten.
+- **Kleinstaaten-Sperre seit 16.11.2026** (`docs/audits/2026-11-16-kleinstaaten-sperre.md`, Owner „Beides“):
+  In A-Länderspielen gegen genau einen Kleinstaat (`SMALL_NATIONS`) zeigt die App keine Unter-Tor-Tipps
+  (Favorit unter, Gesamt unter, Kombis mit unter; `small_nation_under_blocked` im Lader
+  `automated_wettfinder_forecasts`). Grund: Vorab-Prüfung bestätigt, das Modell gibt dem Favoriten dort zu wenige
+  Tore (`docs/audits/2026-11-16-laenderspiele-kleinstaaten-ergebnis.md`). Evidenz und Abrechnung bleiben. Die
+  Sperre fällt, sobald das reparierte Modell seine eigene Prüfung besteht.
 - **Tennis-Tipps ab 60 % seit 05.11.2026** (`docs/audits/2026-11-05-tennis-tipps-ab-60.md`, Owner „alles machen“,
   „Ja, mergen + live“): Ein Tennis-Siegertipp entsteht erst ab 60 % Modellchance (`TENNIS_WINNER_MIN_PROBABILITY`
   in `ev_signal_sources.tennis_model_signals`). Darunter traf das Modell wie ein Münzwurf: 49,8 % in der Hypothese
