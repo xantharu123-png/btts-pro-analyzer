@@ -113,6 +113,16 @@ Code, dann `PROJECT_HANDBUCH.md`, dann die Bibel. Historische Logs: `TODO_AKTUEL
   (`NIGHT_GAME_KICKOFF_BEFORE`, `forecast_evidence_night_games`), weil ihr eigener Spieltag-Lauf erst nach dem
   Anstoss speichert und sie sonst nie abgerechnet würden. Sie bleiben Vorschau, nie Tipp, 15K, Doublebet, Shadow
   oder Archiv.
+- **Nachtlauf „heute zuerst“ seit 16.11.2026** (`docs/audits/2026-11-16-nachtlauf-heute-zuerst.md`, Gesamtaudit
+  Befund H5, Owner „Ja, reparieren“): Der Tageslauf veröffentlicht heute mit den Tipp-Belegen
+  (`forecast_publication`, `tip_receipts`), bevor er Fussball für morgen sucht. Morgen folgt mit einem zweiten
+  Schreiben (`forecast_publication_next_day`); der Hintergrundschritt `football_appearances` läuft zuletzt und
+  schreibt seinen Bericht (`forecast_publication_final`). Dazwischen steht
+  `sources.football.next_day.status = pending`. Stirbt der Lauf danach, bleibt die Datei von heute stehen.
+  Drei Uhren-Regeln: `generated_at` wird nach dem ersten Schreiben nie verändert; die Fussballzeilen von morgen
+  tragen ihre eigene Preisuhr (`reference_price_evaluated_at`); das Dokument trägt ab dem zweiten Schreiben
+  `decision_at`, damit die Evidenz die Nachtspiele und später ihre Schlussquoten annimmt. Nichts für morgen und
+  keinen Hintergrundschritt wieder vor das erste Schreiben legen.
 - **NHL-Nachtgrenze seit 15.11.2026** (`docs/audits/2026-11-15-nhl-spaetspiele.md`, Owner „Ja, reparieren“): Ein
   natives NHL-Spiel des Folgetags gehört zum laufenden Tag, wenn es höchstens 24 Stunden nach der Laufzeit beginnt,
   mindestens aber bis 06:00 Uhr Zürcher Zeit am Folgetag (`NHL_NIGHT_UNTIL`, `_nhl_horizon` in

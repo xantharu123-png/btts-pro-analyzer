@@ -89,6 +89,9 @@ jobs:
           python -m pytest
           tests/test_ev_signal_sources.py
           tests/test_wettfinder_automation.py
+          tests/test_wettfinder_next_day.py
+          tests/test_wettfinder_next_day_other_sports.py
+          tests/test_wettfinder_stage_diagnostics.py
           tests/test_wettfinder_surface.py
           tests/test_wettfinder_statistical_leads.py
           tests/test_tip_publication.py
