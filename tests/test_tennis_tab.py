@@ -10,7 +10,8 @@ from __future__ import annotations
 import json
 import sqlite3
 import tempfile
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -57,7 +58,9 @@ def _make_db(with_prediction: bool) -> Path:
                 " policy_version, settled) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     datetime.now(timezone.utc).timestamp(),
-                    date.today().isoformat(),
+                    # The tennis tab searches by the Zurich day; a machine-local (CI: UTC) date
+                    # missed it between 00:00 and 01:00/02:00 Zurich (CI 16.11.2026 00:36).
+                    datetime.now(ZoneInfo("Europe/Zurich")).date().isoformat(),
                     "ATP",
                     "Test Open",
                     (datetime.now(timezone.utc) + timedelta(days=1)).isoformat(),
