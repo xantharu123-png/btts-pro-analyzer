@@ -57,6 +57,26 @@ def test_price_only_observation_reuses_frozen_forecast_without_new_model(db, mon
         assert {r[0] for r in conn.execute("SELECT forecast_id FROM forecast_quotes WHERE kind='closing'")} == set(initial['forecast_ids'])
 
 
+def test_price_only_run_skips_a_started_game_instead_of_rejecting_it(db, monkeypatch):
+    # Night run since 16.11.2026: the document decision clock can be later than generated_at,
+    # so a game of today may already have kicked off at that clock.
+    row = candidate()
+    row['reference_quote'] = quote(row).to_dict()
+    evidence.record_forecast_run(document([row]), db, 'model-v1')
+    broken = {**candidate(2), 'probability': 'x'}
+    broken['reference_quote'] = row['reference_quote']
+    after_kickoff = START+timedelta(minutes=5)
+    monkeypatch.setattr(evidence, '_now', lambda: after_kickoff+timedelta(minutes=10))
+    late = {**document([row]), 'decision_at': after_kickoff.isoformat()}
+
+    assert evidence.record_current_closing_quotes(late, db_path=db, model_version='model-v1') == {
+        'status': 'completed', 'recorded': 0, 'rejected': 0}
+    # A row that is really unusable still counts while its game is open.
+    monkeypatch.setattr(evidence, '_now', lambda: START-timedelta(minutes=5))
+    assert evidence.record_current_closing_quotes(document([row, broken]), db_path=db,
+        model_version='model-v1')['rejected'] == 1
+
+
 def test_price_only_missing_evidence_is_not_created(db):
     assert evidence.record_current_closing_quotes({}, db_path=db, model_version='model-v1')['status'] == 'no_existing_forecasts'
     assert not db.exists()

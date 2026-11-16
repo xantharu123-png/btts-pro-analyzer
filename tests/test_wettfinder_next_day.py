@@ -52,10 +52,10 @@ def _refuse_context(*_args):
 
 def _run(tmp_path, scanner, **kwargs):
     artifact = tmp_path / "wettfinder.json"
+    kwargs.setdefault("football_quote_loader", lambda _rows: ({}, []))
     document = automation.run_wettfinder(
         now=NOW, state_path=artifact, config=AppConfig(api_football_key="test"),
         football_scanner=scanner, football_context_refresher=_refuse_context,
-        football_quote_loader=lambda _rows: ({}, []),
         tennis_loader=lambda **_kwargs: [], esports_loader=lambda **_kwargs: [], **kwargs,
     )
     return artifact, document
@@ -550,11 +550,14 @@ def test_failed_next_day_search_still_gets_its_second_publication(tmp_path, monk
 def test_fixed_clock_documents_are_unchanged(tmp_path):
     # With ``now=`` the clock never passes ``generated_at``: no second decision clock and
     # no own price clock, so every stored fixed-clock expectation keeps its exact shape.
-    _artifact, document = _run(tmp_path, _scanner([]), football_next_day=True)
+    # The row of tomorrow is really priced; without a quote the price clock is never written.
+    _artifact, document = _run(tmp_path, _scanner([]), football_next_day=True,
+                               football_quote_loader=_quotes_at([NOW], minutes=0))
 
     assert "decision_at" not in document
     next_rows = [row for row in document["model_candidates"] if row["fixture_id"] == 2]
-    assert next_rows and all("reference_price_evaluated_at" not in row for row in next_rows)
+    assert next_rows and all(row.get("reference_quote") for row in next_rows)
+    assert all("reference_price_evaluated_at" not in row for row in next_rows)
 
 
 def _snapshot_at(scanned_at, fixtures) -> dict:
@@ -574,12 +577,12 @@ def _snapshot_at(scanned_at, fixtures) -> dict:
     return snapshot
 
 
-def _quotes_at(clock, odd="2.05"):
+def _quotes_at(clock, odd="2.05", minutes=1):
     """A quote loader that takes a minute and stamps its offers with the moving clock."""
     from market_consensus import parse_fixture_consensus
 
     def loader(rows):
-        clock[0] += timedelta(minutes=1)
+        clock[0] += timedelta(minutes=minutes)
         fetched = clock[0]
         result = {}
         for fixture_id in sorted({row["fixture_id"] for row in rows}):
@@ -596,31 +599,48 @@ def _quotes_at(clock, odd="2.05"):
     return loader
 
 
-def _moving_clock_run(tmp_path, monkeypatch):
+TODAY_GAMES = ((1, "2030-01-01T15:00:00+00:00"),)
+
+
+def _moving_clock_run(tmp_path, monkeypatch, *, today=TODAY_GAMES, publish_minutes=0, tomorrow_fails=False,
+                      **changes):
     """A run on a moving clock: 8 min for today, 10 min for tomorrow, 1 min per price check."""
     import forecast_evidence
 
     clock = [T0]
     monkeypatch.setattr(forecast_evidence, "_now", lambda: clock[0])
     writes, write_times = _write_log(monkeypatch, clock=clock)
+    if publish_minutes:
+        logged_write = automation.write_state
+
+        def slow_first_write(document, path):
+            result = logged_write(document, path)
+            if len(writes) == 1:
+                clock[0] += timedelta(minutes=publish_minutes)
+            return result
+
+        monkeypatch.setattr(automation, "write_state", slow_first_write)
     scans = []
 
     def scan(day):
         scans.append((day, clock[0]))
         if day == TODAY:
             clock[0] += timedelta(minutes=8)
-            return _snapshot_at(clock[0], [(1, "2030-01-01T15:00:00+00:00")])
+            return _snapshot_at(clock[0], list(today))
         clock[0] += timedelta(minutes=10)
+        if tomorrow_fails:
+            raise RuntimeError("provider down")
         return _snapshot_at(clock[0], [(2, NIGHT_KICKOFF), (3, DAY_KICKOFF)])
 
     artifact = tmp_path / "wettfinder.json"
     evidence = tmp_path / "evidence.db"
+    options = dict(football_quote_loader=_quotes_at(clock), football_next_day=True)
+    options.update(changes)
     document = automation.run_wettfinder(
         clock=lambda: clock[0], state_path=artifact, config=AppConfig(api_football_key="test"),
         football_scanner=scan, football_context_refresher=_refuse_context,
-        football_quote_loader=_quotes_at(clock), tennis_loader=lambda **_kwargs: [],
-        esports_loader=lambda **_kwargs: [], football_next_day=True, evidence_db_path=evidence,
-        evidence_settlement_runner=lambda **_kwargs: {},
+        tennis_loader=lambda **_kwargs: [], esports_loader=lambda **_kwargs: [], evidence_db_path=evidence,
+        evidence_settlement_runner=lambda **_kwargs: {}, **options,
     )
     return clock, writes, write_times, scans, artifact, evidence, document
 
@@ -682,3 +702,261 @@ def test_night_game_keeps_its_closing_quote_in_a_later_quotes_run(tmp_path, monk
 
     assert summary["quotes"] > 0
     assert closing["recorded"] > 0 and closing["rejected"] == 0
+
+
+# --- Audit H5, cross-check 16.11.2026: running clock without rows, error paths, production path ---
+
+
+def _later_quotes_run(clock, artifact, evidence):
+    """A quotes run 45 minutes before the night kickoff on the stored document."""
+    import forecast_evidence
+
+    clock[0] = datetime.fromisoformat(NIGHT_KICKOFF) - timedelta(minutes=45)
+    stored = json.loads(artifact.read_text(encoding="utf-8"))
+    automation._refresh_price_document(
+        stored, quote_sport="football", config=AppConfig(api_football_key="test"),
+        now=clock[0] + timedelta(minutes=1), quote_loader=_quotes_at(clock, odd="1.95"))
+    clock[0] += timedelta(minutes=1)
+    return forecast_evidence.record_current_closing_quotes(
+        stored, db_path=evidence, model_version=automation.CHALLENGE_PREDICTION_VERSION)
+
+
+def test_todays_game_that_started_before_the_second_write_is_no_rejection(tmp_path, monkeypatch):
+    # 03:50 Zurich: after the publication clock, before the decision clock of the second write.
+    early = "2030-01-01T02:50:00+00:00"
+    clock, _writes, _times, _scans, artifact, evidence, document = _moving_clock_run(
+        tmp_path, monkeypatch, today=(*TODAY_GAMES, (4, early)))
+
+    kickoff = datetime.fromisoformat(early)
+    assert datetime.fromisoformat(document["generated_at"]) < kickoff <= datetime.fromisoformat(
+        document["decision_at"])
+    early_rows = [row for row in document["model_candidates"] if row["fixture_id"] == 4]
+    assert early_rows and all(row.get("reference_quote") for row in early_rows)
+    assert _evidence_fixtures(evidence) == {1, 2, 4}
+
+    closing = _later_quotes_run(clock, artifact, evidence)
+
+    # The started game cannot get a closing price; it must not look like a refused row either.
+    assert closing["recorded"] > 0 and closing["rejected"] == 0
+
+
+def test_search_for_tomorrow_is_stamped_after_a_slow_publication(tmp_path, monkeypatch):
+    _clock, _writes, write_times, scans, _artifact, _evidence, document = _moving_clock_run(
+        tmp_path, monkeypatch, publish_minutes=7)
+
+    search_started = scans[1][1]
+    assert scans[1][0] == TOMORROW and search_started == write_times[0] + timedelta(minutes=7)
+    attempted = datetime.fromisoformat(document["football_next_day"]["last_attempt_at"])
+    assert attempted >= search_started
+
+
+@pytest.mark.parametrize("due", [True, False])
+def test_running_clock_without_rows_for_tomorrow_has_no_decision_clock(tmp_path, monkeypatch, due):
+    clock, writes, _times, _scans, artifact, _evidence, document = _moving_clock_run(
+        tmp_path, monkeypatch, tomorrow_fails=True, football_next_day=due)
+
+    assert len(writes) == (2 if due else 1)
+    assert "decision_at" not in document
+    assert {written["generated_at"] for written in writes} == {document["generated_at"]}
+    assert document["sources"]["football"]["next_day"]["status"] == ("failed" if due else "not_needed")
+    assert _load_automated_wettfinder_document(artifact, now=clock[0] + timedelta(minutes=1)) is not None
+
+
+def test_tomorrow_without_a_price_check_still_gets_its_decision_clock(tmp_path, monkeypatch):
+    # Without a quote loader nothing is priced: only the clock read after the search keeps the
+    # decision clock behind tomorrow's model clocks, and with it the night-game evidence.
+    clock, _writes, _times, _scans, artifact, evidence, document = _moving_clock_run(
+        tmp_path, monkeypatch, football_quote_loader=None)
+
+    next_rows = [row for row in document["model_candidates"] if row["fixture_id"] in {2, 3}]
+    assert _fixture_ids(next_rows) == {2, 3}
+    assert _load_automated_wettfinder_document(artifact, now=clock[0] + timedelta(minutes=1)) is not None
+    decision = datetime.fromisoformat(document["decision_at"])
+    assert all(decision >= datetime.fromisoformat(row[field])
+               for row in next_rows for field in ("modeled_at", "input_cutoff_at", "context_checked_at"))
+    night = document["forecast_evidence_night_games"]
+    assert night["status"] == "completed" and night["recorded"] == 1 and night["rejected_count"] == 0
+    assert _evidence_fixtures(evidence) == {1, 2}
+
+
+PUBLICATION_STAGES = ("forecast_publication", "tip_receipts", "football_discovery_next_day",
+                      "forecast_recording_night_games", "forecast_publication_next_day",
+                      "football_appearances", "forecast_publication_final")
+
+
+def _production_run(tmp_path, monkeypatch, *, scanner, clock=None, receipt_error=None, background_error=None,
+                    raises=None, **changes):
+    """The private production path (``STATE_PATH``) with recorded stages, writes and receipts."""
+    import copy
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+
+    import context_sources.football_appearances as appearances
+    import forecast_evidence
+    import tip_publication
+
+    config = AppConfig(api_football_key="private-test-key")
+    path = tmp_path / "prod.json"
+    instant = (lambda: clock[0]) if clock else (lambda: NOW)
+    run = SimpleNamespace(path=path, evidence=tmp_path / "evidence.db", stages=[], writes=[], write_times=[],
+                          receipts=[], document=None)
+    monkeypatch.setattr(automation, "TENNIS_DB", tmp_path / "tennis.db")
+    monkeypatch.setattr(automation, "ESPORTS_DB", tmp_path / "esports.db")
+    monkeypatch.setattr(automation, "load_app_config", lambda: config)
+    monkeypatch.setattr(automation, "capture_football_worker", lambda *_args, **_kwargs: nullcontext())
+    monkeypatch.setattr(automation, "ChallengeDataProvider", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(automation, "STATE_PATH", path)
+    monkeypatch.setattr(forecast_evidence, "_now", instant)
+    real_write, real_stage = automation.write_state, automation._logged_stage
+
+    def logged(name, callback, *args, **kwargs):
+        if name in PUBLICATION_STAGES:
+            run.stages.append(name)
+        return real_stage(name, callback, *args, **kwargs)
+
+    def write(document, target):
+        run.writes.append(copy.deepcopy(document))
+        run.write_times.append(instant())
+        return real_write(document, target)
+
+    def receipt(target):
+        on_disk = json.loads(target.read_text(encoding="utf-8"))
+        run.receipts.append({
+            "fixtures": _fixture_ids(on_disk["model_candidates"]),
+            "reader_accepts": _load_automated_wettfinder_document(target, now=instant()) is not None,
+        })
+        if receipt_error is not None:
+            raise receipt_error
+        return {"status": "completed"}
+
+    def background(_provider, *, now):
+        if clock:
+            clock[0] += timedelta(minutes=5)
+        if background_error is not None:
+            raise background_error
+        return {"status": "completed", "requested_count": 0}
+
+    monkeypatch.setattr(automation, "_logged_stage", logged)
+    monkeypatch.setattr(automation, "write_state", write)
+    monkeypatch.setattr(tip_publication, "record_automatic_publication", receipt)
+    monkeypatch.setattr(appearances, "refresh_football_appearances", background)
+    options = dict(
+        state_path=path, config=config, force_football=True, football_scanner=scanner,
+        football_context_refresher=_refuse_context, football_quote_loader=lambda _rows: ({}, []),
+        tennis_loader=lambda **_kwargs: [], esports_loader=lambda **_kwargs: [],
+        tennis_quote_loader=lambda _rows: ({}, []),
+        tennis_model_refresher=lambda **_kwargs: {"status": "completed", "errors": []},
+        riskobet_enabled=False, evidence_db_path=run.evidence,
+        evidence_settlement_runner=lambda **_kwargs: {"status": "completed", "operational_error_count": 0},
+        esports_settlement_runner=lambda *_args, **_kwargs: {"status": "completed", "checked": 0, "settled": 0},
+    )
+    options.update(changes)
+    options.update({"clock": instant} if clock else {"now": NOW})
+    if raises is None:
+        run.document = automation.run_wettfinder(**options)
+    else:
+        with pytest.raises(raises):
+            automation.run_wettfinder(**options)
+    run.on_disk = json.loads(path.read_text(encoding="utf-8"))
+    return run
+
+
+@pytest.mark.parametrize("why", ["not_asked", "today_failed", "today_partial"])
+def test_production_run_without_next_day_is_public_before_the_background_batch(tmp_path, monkeypatch, why):
+    def scanner(day):
+        assert day == TODAY, "no search for tomorrow expected"
+        if why == "today_failed":
+            raise RuntimeError("provider down")
+        snapshot = _today_snapshot()
+        if why == "today_partial":
+            snapshot["errors"] = ["Stats Fixture 9: ReadTimeout"]
+        return snapshot
+
+    run = _production_run(tmp_path, monkeypatch, scanner=scanner,
+                          **({"football_next_day": False} if why == "not_asked" else {}))
+
+    assert tuple(run.stages) == ("forecast_publication", "tip_receipts", "football_appearances",
+                                 "forecast_publication_final")
+    assert len(run.writes) == 2 and len(run.receipts) == 1
+    assert "football_context_history" not in run.writes[0]
+    assert run.on_disk == json.loads(json.dumps(run.document))
+    assert run.on_disk["football_context_history"] == {"status": "completed", "requested_count": 0}
+    assert run.on_disk["sources"]["football"]["next_day"]["status"] == "not_needed"
+    assert "decision_at" not in run.on_disk
+
+
+def test_production_run_on_a_running_clock_keeps_all_three_files_readable(tmp_path, monkeypatch):
+    clock = [T0]
+
+    def scanner(day):
+        if day == TODAY:
+            clock[0] += timedelta(minutes=8)
+            return _snapshot_at(clock[0], list(TODAY_GAMES))
+        clock[0] += timedelta(minutes=10)
+        return _snapshot_at(clock[0], [(2, NIGHT_KICKOFF), (3, DAY_KICKOFF)])
+
+    run = _production_run(tmp_path, monkeypatch, scanner=scanner, clock=clock,
+                          football_quote_loader=_quotes_at(clock))
+
+    assert tuple(run.stages) == PUBLICATION_STAGES
+    assert len(run.writes) == 3
+    assert run.receipts == [{"fixtures": {1}, "reader_accepts": True}]
+    # Rule 1: one publication clock for all three files, also after the background batch.
+    assert {written["generated_at"] for written in run.writes} == {run.document["generated_at"]}
+    listed_next = []
+    for index, (written, written_at) in enumerate(zip(run.writes, run.write_times)):
+        copy_path = tmp_path / f"write{index}.json"
+        copy_path.write_text(json.dumps(written), encoding="utf-8")
+        reader_now = written_at + timedelta(seconds=1)
+        assert _load_automated_wettfinder_document(copy_path, now=reader_now) is not None
+        forecasts = automated_wettfinder_forecasts(copy_path, now=reader_now)
+        listed_next.append(len([signal for signal in forecasts if listed_next_day_signal(signal, now=reader_now)]))
+    assert [_fixture_ids(written["model_candidates"]) for written in run.writes] == [{1}, {1, 2, 3}, {1, 2, 3}]
+    assert listed_next == [0, 2, 2]
+    assert ["football_context_history" in written for written in run.writes] == [False, False, True]
+    assert "decision_at" not in run.writes[0]
+    assert run.writes[1]["decision_at"] == run.writes[2]["decision_at"]
+    night = run.document["forecast_evidence_night_games"]
+    assert night["recorded"] == 1 and night["rejected_count"] == 0
+    assert _evidence_fixtures(run.evidence) == {1, 2}
+    assert run.document["run_status"] == "completed" and run.document["operational_error_count"] == 0
+    assert run.on_disk == json.loads(json.dumps(run.document))
+
+
+@pytest.mark.parametrize("due", [True, False])
+def test_receipts_error_stays_loud_but_does_not_cost_tomorrow(tmp_path, monkeypatch, due):
+    # The receipts catch their own provider and database errors. Anything else used to end the
+    # run after its last write; it still does, and tomorrow and the background batch still happen.
+    run = _production_run(tmp_path, monkeypatch, scanner=_scanner([]), receipt_error=RuntimeError("receipts"),
+                          raises=RuntimeError, football_next_day=due)
+
+    assert len(run.receipts) == 1
+    assert run.stages[-2:] == ["football_appearances", "forecast_publication_final"]
+    assert run.on_disk["football_context_history"] == {"status": "completed", "requested_count": 0}
+    if due:
+        assert len(run.writes) == 3
+        assert _fixture_ids(run.on_disk["model_candidates"]) == {1, 2}
+        assert run.on_disk["sources"]["football"]["next_day"]["status"] == "listed"
+    else:
+        assert len(run.writes) == 2
+        assert _fixture_ids(run.on_disk["model_candidates"]) == {1}
+
+
+def test_kill_during_the_receipts_ends_the_run_at_once(tmp_path, monkeypatch):
+    # Only an ordinary error is carried to the end; a kill is never held back.
+    run = _production_run(tmp_path, monkeypatch, scanner=_scanner([]),
+                          receipt_error=KeyboardInterrupt("kill"), raises=KeyboardInterrupt)
+
+    assert run.stages == ["forecast_publication", "tip_receipts"] and len(run.writes) == 1
+    assert _fixture_ids(run.on_disk["model_candidates"]) == {1}
+    assert run.on_disk["sources"]["football"]["next_day"] == PENDING
+
+
+def test_failed_background_batch_degrades_only_the_last_file(tmp_path, monkeypatch):
+    run = _production_run(tmp_path, monkeypatch, scanner=_scanner([]), background_error=RuntimeError("batch"))
+
+    assert [written["run_status"] for written in run.writes] == ["completed", "completed", "degraded"]
+    assert [written["operational_error_count"] for written in run.writes] == [0, 0, 1]
+    assert run.on_disk == json.loads(json.dumps(run.document))
+    assert run.on_disk["football_context_history"] == {"status": "failed", "failure_type": "RuntimeError"}
+    assert _fixture_ids(run.on_disk["model_candidates"]) == {1, 2}

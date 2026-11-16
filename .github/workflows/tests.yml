@@ -51,6 +51,7 @@ jobs:
           tests/test_market_benchmark.py
           tests/test_football_dixon_coles.py
           tests/test_football_joint_calibration.py
+          tests/test_forecast_evidence.py
           tests/test_model_loss_statistics.py
           tests/test_price_floor_policy.py
           tests/test_requirements_lock.py

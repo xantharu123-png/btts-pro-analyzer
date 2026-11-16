@@ -5123,11 +5123,20 @@ def run_wettfinder(
         if other_next_ledger:
             document["next_day_search_date"] = next_target.isoformat()
 
+    receipt_failures: list[Exception] = []
+
     def publish_today() -> None:
         stage('forecast_publication', write_state, document, state_path)
         if production_state:
-            from tip_publication import record_automatic_publication
-            stage('tip_receipts', record_automatic_publication, state_path)
+            # The receipts used to be the very last statement of the run. An error they do
+            # not handle themselves must not cost tomorrow, the night-game evidence or the
+            # background batch: it is kept and raised after the last write, so the exit
+            # code and the alarm stay as before.
+            try:
+                from tip_publication import record_automatic_publication
+                stage('tip_receipts', record_automatic_publication, state_path)
+            except Exception as exc:
+                receipt_failures.append(exc)
 
     if football_next_day_due:
         # Audit H5 (16.11.2026): today is public, with its tip receipts, before tomorrow
@@ -5299,6 +5308,8 @@ def run_wettfinder(
             document["run_status"] = "degraded"
             document["operational_error_count"] += 1
         stage('forecast_publication_final', write_state, document, state_path)
+    if receipt_failures:
+        raise receipt_failures[0]
     return document
 
 

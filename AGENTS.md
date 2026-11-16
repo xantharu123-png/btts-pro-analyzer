@@ -121,8 +121,10 @@ Code, dann `PROJECT_HANDBUCH.md`, dann die Bibel. Historische Logs: `TODO_AKTUEL
   `sources.football.next_day.status = pending`. Stirbt der Lauf danach, bleibt die Datei von heute stehen.
   Drei Uhren-Regeln: `generated_at` wird nach dem ersten Schreiben nie verändert; die Fussballzeilen von morgen
   tragen ihre eigene Preisuhr (`reference_price_evaluated_at`); das Dokument trägt ab dem zweiten Schreiben
-  `decision_at`, damit die Evidenz die Nachtspiele und später ihre Schlussquoten annimmt. Nichts für morgen und
-  keinen Hintergrundschritt wieder vor das erste Schreiben legen.
+  `decision_at`, wenn Fussballzeilen für morgen gelistet sind, damit die Evidenz die Nachtspiele und später ihre
+  Schlussquoten annimmt. Quotenläufe überspringen Spiele, die schon laufen, statt sie als abgelehnt zu zählen.
+  Ein Fehler in den Tipp-Belegen wird bis nach dem letzten Schreiben aufgehoben (Exit 1 bleibt), ein Kill nie.
+  Nichts für morgen und keinen Hintergrundschritt wieder vor das erste Schreiben legen.
 - **NHL-Nachtgrenze seit 15.11.2026** (`docs/audits/2026-11-15-nhl-spaetspiele.md`, Owner „Ja, reparieren“): Ein
   natives NHL-Spiel des Folgetags gehört zum laufenden Tag, wenn es höchstens 24 Stunden nach der Laufzeit beginnt,
   mindestens aber bis 06:00 Uhr Zürcher Zeit am Folgetag (`NHL_NIGHT_UNTIL`, `_nhl_horizon` in
