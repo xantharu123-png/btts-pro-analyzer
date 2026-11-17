@@ -739,6 +739,17 @@ def wettfinder_game_label(group: WettfinderFixtureGroup) -> str:
     return re.sub(r'([\\`*_{}\[\]()<>!|~#])', r'\\\1', ' '.join(label.split()))
 
 
+def plain_markdown(text: object) -> str:
+    """One line of data as plain text for Streamlit's Markdown widgets (caption, write).
+
+    Names and results must never become formatting, links, formulas or a numbered list: „1. FC Köln: …“ is a
+    team, not list item one.
+    """
+    value = re.sub(r'([\\`*_{}\[\]()<>!|~#$])', r'\\\1', ' '.join(str(text).split()))
+    value = re.sub(r'^(\d+)\.', r'\1\\.', value)
+    return re.sub(r'^([-+])(?=\s)', r'\\\1', value)
+
+
 _PRICE_NOTES = {
     "PLAYABLE": "Quote im Value-Bereich.",
     "TOO_LOW": "Quote unter Value.",
@@ -1117,6 +1128,7 @@ __all__ = [
     "compose_wettfinder_catalog",
     "group_wettfinder_games",
     "wettfinder_game_label",
+    "plain_markdown",
     "format_decimal_odds",
     "format_probability",
     "format_scheduled_start",

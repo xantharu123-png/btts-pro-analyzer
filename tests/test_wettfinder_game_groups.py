@@ -135,7 +135,10 @@ def test_each_market_row_stays_inside_its_game_container_without_expanders(monke
     recording = _RecordingStreamlit()
     monkeypatch.setattr(app, 'st', recording)
     app._render_wettfinder_games(catalog, rows, sport_filter='Alle')
-    assert recording.expanders == []
+    # The game is never an expander; only the closed RisikoBet drawer „Analyse anzeigen“ may follow its rows.
+    assert all(label == 'Analyse anzeigen' and not expanded for label, expanded in recording.expanders)
+    assert not any(kind == 'expander' for text, _kwargs, context in recording.markdown_calls
+                   if 'class="rb-row wf-rb-row"' in text for kind, _label in context)
     calls = _row_calls(recording)
     assert len(calls) == len(cards)
     assert all(game is not None for _text, game in calls)
@@ -202,7 +205,7 @@ def test_real_renderer_shows_every_visible_game_open_in_display_order(mode, page
         ui.session_state['wettfinder_games_page_Alle_2'] = 2
     ui.run(timeout=30)
     assert not ui.exception
-    assert len(ui.expander) == 0
+    assert {block.label for block in ui.expander} <= {'Analyse anzeigen'}
     assert _shown_games(ui) == expected_games
 
 
@@ -215,4 +218,4 @@ def test_real_renderer_follows_sport_filter_and_highlight_changes_without_hiding
     assert not ui.exception and _shown_games(ui) == [1, 2, 3, 4, 5]
     ui.checkbox(key='game_test_highlights').check().run(timeout=30)
     assert not ui.exception and _shown_games(ui) == [1, 2, 3, 4, 5]
-    assert len(ui.expander) == 0
+    assert {block.label for block in ui.expander} <= {'Analyse anzeigen'}

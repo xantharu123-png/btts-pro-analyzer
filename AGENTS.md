@@ -135,7 +135,11 @@ Code, dann `PROJECT_HANDBUCH.md`, dann die Bibel. Historische Logs: `TODO_AKTUEL
 - **Wettfinder im RisikoBet-Stil seit 15.11.2026** (`docs/audits/2026-11-15-wettfinder-risikobet-stil.md`, Owner
   „Ganz wie RisikoBet“, „Passt, fertig machen“): Jedes Spiel ist eine offene Karte ohne Aufklappen und ohne
   Trikot-Kopf; jeder Markt ist eine RisikoBet-Zeile (`render_wettfinder_row_html`, Klassen `rb-row`) mit
-  Sport · Liga · Anstoss, Auswahl, Modell und Grundlage/Contra; Form und Tabellen folgen offen darunter. Das
+  Sport · Liga · Anstoss, Auswahl, Modell und Grundlage/Contra. Seit 17.11.2026 (Owner „sieht nicht wirklich wie
+  das vom RisikoBet aus“) stehen die Karten wie dort zu zweit nebeneinander (`wettfinder_game_grid`), und die
+  Details folgen in der RisikoBet-Reihenfolge: Tabelle „Multigoal & Sieg-Kombis“
+  (`sports_form.render_goal_history_html`), Form als Textzeile je Team (`form_text_lines`), geschlossene Schublade
+  „Analyse anzeigen“ (`forecast_compact.compact_analysis_lines`). Keine Ergebniskacheln im Wettfinder. Das
   Stylesheet kopiert den RisikoBet-Abschnitt für den Wettfinder (`_with_wettfinder_risk_rows`); Fussball-Ligen kommen
   aus `league_id` über `league_catalog` (`ev_signal_sources.row_competition`). Doublebet und 15K behalten ihre Karten.
 - **Kleinstaaten-Sperre seit 16.11.2026** (`docs/audits/2026-11-16-kleinstaaten-sperre.md`, Owner „Beides“):

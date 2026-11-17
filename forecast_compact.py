@@ -13,7 +13,7 @@ from forecast_analysis import (
     forecast_highlight_reason, format_model_clock, read_football_analysis,
 )
 from tennis.surface_evidence import format_surface_evidence
-from sports_form import TeamForm, football_forms, tennis_forms, team_forms, render_form_html
+from sports_form import TeamForm, football_forms, tennis_forms, team_forms, render_form_html, form_detail_lines
 
 
 @dataclass(frozen=True)
@@ -235,13 +235,41 @@ def _fact_html(fact):
             f'<div class="wf-fact-detail">{body}</div></details>')
 
 
-def render_compact_analysis_html(compact, *, supporting_fact='', instance_key='', show_form=True, show_summary=True):
-    form_labels = {label for form in compact.forms for label in (form.team, 'Form ' + form.team)}
+def _form_fact_labels(compact):
+    labels = {label for form in compact.forms for label in (form.team, 'Form ' + form.team)}
     if compact.forms:
-        form_labels.add('Letzte Spiele')
+        labels.add('Letzte Spiele')
+    return labels
+
+
+def compact_analysis_alerts(compact):
+    """Customer-visible warnings; internal method notes stay out, as in the card."""
+    return tuple(text for text in compact.warnings if text not in _INTERNAL_NOTES)
+
+
+def compact_analysis_lines(compact):
+    """Plain lines for the RisikoBet-style analysis drawer (owner 17.11.2026).
+
+    The same facts the card showed as chips, each with its details, then every known result. Nothing new is
+    derived here; duplicates are dropped and the original order stays.
+    """
+    form_labels = _form_fact_labels(compact)
+    lines = []
+    for fact in compact.facts:
+        if fact.label in form_labels:
+            continue
+        headline = f'{fact.label}: {fact.value}'
+        lines.append(headline)
+        # A detail that only repeats part of its own headline adds nothing in a list of plain lines.
+        lines.extend(detail for detail in fact.details if str(detail).strip() not in headline)
+    lines.extend(form_detail_lines(compact.forms))
+    return tuple(dict.fromkeys(' '.join(str(line).split()) for line in lines if str(line).strip()))
+
+
+def render_compact_analysis_html(compact, *, supporting_fact='', instance_key='', show_form=True, show_summary=True):
+    form_labels = _form_fact_labels(compact)
     facts = ''.join(_fact_html(fact) for fact in compact.facts if fact.label not in form_labels)
-    alerts = [text for text in compact.warnings if text not in _INTERNAL_NOTES]
-    warnings = ' · '.join(escape(text) for text in alerts)
+    warnings = ' · '.join(escape(text) for text in compact_analysis_alerts(compact))
     warning_html = f'<p class="wf-analysis-alert">{warnings}</p>' if warnings else ''
     support = f'<p class="wf-analysis-support">{escape(supporting_fact)}</p>' if supporting_fact and show_summary else ''
     summary = f'<p class="wf-analysis-short">{escape(compact.summary)}</p>' if show_summary else ''

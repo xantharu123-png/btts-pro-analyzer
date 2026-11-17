@@ -99,6 +99,7 @@ from wettfinder_surface import (
     render_editorial_card_html,
     render_match_header_html,
     render_wettfinder_row_html,
+    plain_markdown,
     format_probability,
     wettfinder_quote_binding_candidate,
     wettfinder_recommendation_candidate,
@@ -415,15 +416,52 @@ def _segmented(label: str, options: list[str], key: str, default: str) -> str:
 _RISK_ROW_KEYS_FOR_WETTFINDER = (
     ("st-key-riskobet_page", "st-key-wettfinder_v2_additional"),
     ("st-key-riskobet_additional_row_", "st-key-wettfinder_game_row_"),
+    # Owner 17.11.2026: also the RisikoBet card grid and the spacing of the detail block under the row.
+    ("st-key-riskobet_featured_grid", "st-key-wettfinder_game_grid"),
+    ("st-key-riskobet_actions_", "st-key-wettfinder_game_details_"),
 )
 _WETTFINDER_RISK_ROW_EXTRA = """
-        /* Wettfinder main column is narrower than the RisikoBet page: two row columns, reasons below. */
+        /* Wettfinder cards share the main column with the rail: two row columns, reasons below. */
         .st-key-wettfinder_v2_additional .rb-row {
             grid-template-columns: repeat(2, minmax(0, 1fr));
         }
 
         .st-key-wettfinder_v2_additional .rb-row-reasons {
             grid-column: 1 / -1;
+        }
+
+        /* The page layout sets a wide gap between main column and rail; the card grid keeps the RisikoBet gap. */
+        .st-key-editorial_auto_layout .st-key-wettfinder_game_grid [data-testid="stHorizontalBlock"] {
+            align-items: stretch;
+            gap: 0.9rem !important;
+        }
+
+        /* Like a RisikoBet card: no line above the first row; a line only separates further markets of the game.
+           Streamlit may wrap each container, so both shapes of the first child are named. */
+        [class*="st-key-wettfinder_game_row_"] > :first-child > [class*="st-key-wettfinder_v2_game_market_"],
+        [class*="st-key-wettfinder_game_row_"] > [class*="st-key-wettfinder_v2_game_market_"]:first-child {
+            border-top: 0;
+            padding-top: 0;
+        }
+
+        /* Two cards share the main column: the table heading keeps its switch on the same line where it fits. */
+        .st-key-wettfinder_game_grid .form-heading h4 {
+            font-size: 1.4rem !important;
+        }
+
+        .st-key-wettfinder_game_grid .form-heading h4 [data-testid="stHeaderActionElements"] {
+            display: none;
+        }
+
+        /* „Tipp merken“ is a small pill under its row, not a bar across the card. */
+        .st-key-wettfinder_v2_additional [class*="st-key-bookmark_"] button {
+            border-radius: 999px !important;
+            padding: 0 1rem;
+            width: auto !important;
+        }
+
+        .st-key-wettfinder_v2_additional [class*="st-key-bookmark_"] button p {
+            font-size: 0.8rem;
         }
 
         @media (max-width: 760px) {
@@ -4684,10 +4722,10 @@ def _render_wettfinder_game(group, row_by_key, featured_keys) -> None:
     """One game as an open RisikoBet-style card (owner 15.11.2026: Wettfinder „ganz wie RisikoBet“).
 
     Every shown market of the game is one flat row, the most probable first (owner decision 23.10.2026). The
-    game's form and goal tables follow once, open, like the RisikoBet detail; no expander and no jersey header.
+    game's details follow once in the RisikoBet order (owner 17.11.2026: „sieht nicht wirklich wie das vom
+    RisikoBet aus“): goal table, recent results as plain lines, then the closed drawer „Analyse anzeigen“.
+    The game itself is never an expander and has no jersey header or result tiles.
     """
-    from forecast_compact import render_compact_analysis_html
-
     suffix = _wettfinder_game_key(group).removeprefix('wettfinder_v2_game_')
     display_lead = group.visible_lead if group.lead is not None else group.cards[0]
     with st.container(key=f'wettfinder_game_row_{suffix}'):
@@ -4709,11 +4747,31 @@ def _render_wettfinder_game(group, row_by_key, featured_keys) -> None:
                     display_lead is None or card.key == display_lead.key):
                 details_card = card
         if details_card is not None:
-            with st.container(key=f'wettfinder_game_details_{suffix}'):
-                st.markdown(render_compact_analysis_html(
-                    details_card.compact_analysis, instance_key=details_card.key,
-                    show_form=True, show_summary=False,
-                ), unsafe_allow_html=True)
+            _render_wettfinder_game_details(details_card, suffix)
+
+
+def _render_wettfinder_game_details(card, suffix: str) -> None:
+    """The RisikoBet detail order for one Wettfinder game: goal table, result lines, analysis drawer."""
+    from forecast_compact import compact_analysis_alerts, compact_analysis_lines
+    from sports_form import form_text_lines, render_goal_history_html
+
+    compact = card.compact_analysis
+    with st.container(key=f'wettfinder_game_details_{suffix}'):
+        if compact.football_goal_history:
+            history_html = render_goal_history_html(compact.forms, instance_key=card.key)
+            if history_html:
+                st.markdown(history_html, unsafe_allow_html=True)
+        for line in form_text_lines(compact.forms):
+            st.caption(plain_markdown(line), unsafe_allow_html=False)
+        alerts = compact_analysis_alerts(compact)
+        if alerts:
+            st.caption(plain_markdown(' · '.join(alerts)), unsafe_allow_html=False)
+        lines = compact_analysis_lines(compact)
+        # No empty drawer: a game without facts or known results shows none.
+        if lines:
+            with st.expander('Analyse anzeigen', expanded=False, key=f'wettfinder_game_analysis_{suffix}'):
+                for line in lines:
+                    st.write(plain_markdown(line))
 
 
 def _render_wettfinder_games(catalog, row_by_key, *, sport_filter: str, sort_mode=START_TIME) -> None:
@@ -4751,8 +4809,8 @@ def _render_wettfinder_games(catalog, row_by_key, *, sport_filter: str, sort_mod
     # visible page, while clicked preferences stay attached to fixture keys.
     if groups:
         with st.container(key='wettfinder_v2_additional'):
-            st.markdown('<div class="wf-additional-heading"><h2>Spiele</h2></div>',
-                        unsafe_allow_html=True)
+            # The same heading element as „Risiko-Szenarien“ on the RisikoBet page.
+            st.markdown('## Spiele')
             # Page complete games, never cut a game's markets across pages.
             page_size = 20
             pages = (len(groups) + page_size - 1) // page_size
@@ -4761,9 +4819,15 @@ def _render_wettfinder_games(catalog, row_by_key, *, sport_filter: str, sort_mod
             first = (page - 1) * page_size
             if pages > 1:
                 st.caption(f'{first + 1}–{min(first + page_size, len(groups))} von {len(groups)} Spielen')
-            # Owner 15.11.2026: every game open as a RisikoBet-style card, no expanders.
-            for group in groups[first:first + page_size]:
-                _render_wettfinder_game(group, row_by_key, featured_keys)
+            # Owner 15.11.2026: every game open as a RisikoBet-style card. Owner 17.11.2026: in the RisikoBet
+            # grid, two cards side by side. Row-oriented columns keep DOM and mobile order identical.
+            visible = groups[first:first + page_size]
+            with st.container(key='wettfinder_game_grid'):
+                for row_start in range(0, len(visible), 2):
+                    columns = st.columns(2)
+                    for position, group in enumerate(visible[row_start:row_start + 2]):
+                        with columns[position]:
+                            _render_wettfinder_game(group, row_by_key, featured_keys)
 
 
 # Owner 10.11.2026 „Liste ab 70 %“: the page starts with the selections the model rates at
