@@ -6,6 +6,7 @@ Original model notes remain in the analysis object, not in customer HTML.
 from dataclasses import dataclass
 from datetime import timedelta
 from html import escape
+import re
 
 from challenge_engine import MARKET_BY_KEY
 from forecast_analysis import (
@@ -237,6 +238,9 @@ def _fact_html(fact):
             f'<div class="wf-fact-detail">{body}</div></details>')
 
 
+_RESULT_DATE = re.compile(r'\d{4}-\d{2}-\d{2} · ')
+
+
 def _form_fact_labels(compact):
     labels = {label for form in compact.forms for label in (form.team, 'Form ' + form.team)}
     if compact.forms:
@@ -259,6 +263,13 @@ def compact_analysis_lines(compact):
     # A football market fact lists the games it counted as its details; the drawer lists every game once, below.
     listed = tuple(prefix for prefix in (f'{form.team} · ' for form in compact.forms)
                    if any(line.startswith(prefix) for line in form_detail_lines(compact.forms)))
+
+    def counted_game(detail):
+        # Only a result line („Team · 2026-11-15 · Gegner: 1:0 (…)“). Other details that start with the team,
+        # such as the names of absent players („Team · 3 Ausfälle: …“), stay.
+        text = str(detail)
+        return any(text.startswith(prefix) and _RESULT_DATE.match(text, len(prefix)) for prefix in listed)
+
     lines = []
     for fact in compact.facts:
         # „Letzte Spiele“ with its sentence is already the line under the table (compact_form_lines).
@@ -268,7 +279,7 @@ def compact_analysis_lines(compact):
         lines.append(headline)
         # A detail that only repeats part of its own headline adds nothing in a list of plain lines.
         lines.extend(detail for detail in fact.details
-                     if str(detail).strip() not in headline and not str(detail).startswith(listed))
+                     if str(detail).strip() not in headline and not counted_game(detail))
 
     def clean(line):
         return ' '.join(str(line).split())
@@ -281,8 +292,10 @@ def compact_analysis_lines(compact):
 def compact_form_lines(compact):
     """Recent-result lines under the goal table, in the wording of the RisikoBet card (owner 17.11.2026).
 
-    Team sports and e-sport already carry that customer sentence in their „Letzte Spiele“ facts (the same
-    generator RisikoBet shows); football and tennis lines are built from the validated result rows.
+    Ice hockey and basketball carry that customer sentence in their „Letzte Spiele“ facts (the generator
+    RisikoBet shows too). E-sport facts carry one record per team, not the RisikoBet sentence „Letzte 5
+    Serien: …“, which comes from another source with five series. Football and tennis lines are built from the
+    validated result rows; tennis with bare totals only (no rows) has no line, its record is in the drawer.
     """
     recent = tuple(str(fact.details[0]) for fact in compact.facts
                    if fact.label == 'Letzte Spiele' and fact.details)

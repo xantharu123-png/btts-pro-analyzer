@@ -198,6 +198,10 @@ def test_analysis_drawer_lines_carry_facts_details_and_known_results_once():
         Fact('Wales-Spiele · mindestens 3 Tore insgesamt', '1/2 zuletzt', (
             'Wales · 2026-10-29 · Gegner 1: 1:3 (Heim; Liga)', 'Wales · 2026-10-28 · Gegner 2: 0:1 (Heim; Liga)',
             'Gezählt sind erfasste Spiele.')),
+        # Details that start with the team but are no result lines, such as the names of absent players.
+        Fact('Ausfälle', '1 Heim · 0 Gast', (
+            'Wales · 1 Ausfälle: Spieler A', 'Portugal · 0 fraglich: keine gemeldet',
+            'Kaderstand: 01.01.2030 12:30')),
     ), ('Außenseiter-Szenario', 'Ligavergleich nicht bestätigt'), (), 'Stand', _forms(2), True)
     lines = compact_analysis_lines(compact)
     # „mindestens 3 Tore“ only repeats its own headline and is left out; a repeated detail appears once.
@@ -208,12 +212,29 @@ def test_analysis_drawer_lines_carry_facts_details_and_known_results_once():
     # Every game stands once, in the drawer's own format, not a second time from the market fact.
     assert not any('2026-10-29' in line or '2026-10-28' in line for line in lines)
     assert sum('Gegner 1: 1:3' in line for line in lines) == 1
+    # Only result lines are dropped from a fact: the absent players keep their names in the drawer.
+    assert lines[5:9] == ('Ausfälle: 1 Heim · 0 Gast', 'Wales · 1 Ausfälle: Spieler A',
+                          'Portugal · 0 fraglich: keine gemeldet', 'Kaderstand: 01.01.2030 12:30')
     assert not any(line.startswith('Form Wales') for line in lines)
     assert 'Wales: Letzte Spiele · alle Spielorte' in lines
     assert 'Wales · 29.10.2026 · Gegner 1: 1:3 (Niederlage; Heim; Liga)' in lines
     assert 'Portugal · 28.10.2026 · Gegner 2: 2:1 (Sieg; Heim; Liga)' in lines
     # Internal method notes stay out, as on the card before.
     assert compact_analysis_alerts(compact) == ('Außenseiter-Szenario',)
+
+
+def test_absent_player_names_stay_in_the_drawer_next_to_the_results():
+    # Real football facts with a fresh squad status (the generator of the card), plus forms for both teams.
+    from forecast_compact import compact_analysis_lines
+    from sports_form import FormResult, TeamForm
+    from test_forecast_compact import compact as real_compact
+    forms = tuple(TeamForm(team, 'Letzte Spiele · alle Spielorte', (
+        FormResult('S', '2:0', 'Gegner 1', '2029-12-20T18:00:00+00:00', 'Liga', 'Heim'),))
+        for team in ('Alpha', 'Beta'))
+    lines = compact_analysis_lines(replace(real_compact(), forms=forms))
+    assert 'Alpha · 3 Ausfälle: Heim A, Heim B, Heim C' in lines
+    assert any(line.startswith('Beta · 7 Ausfälle: Gast 0, ') for line in lines)
+    assert 'Alpha · 20.12.2029 · Gegner 1: 2:0 (Sieg; Heim; Liga)' in lines
 
 
 def test_two_equal_results_stay_two_games_in_the_drawer():
@@ -230,9 +251,9 @@ def test_team_sport_lines_use_the_customer_sentence_of_the_risikobet_card():
     from forecast_compact import CompactAnalysis, Fact, compact_analysis_lines, compact_form_lines
     from sports_form import form_text_lines
     sentence = 'Boston Bruins: 4/5 Siege · 6/10 Siege; zuletzt: S 3:2 gegen Team 1, N 1:4 gegen Team 2'
-    series = 'Letzte 5 Serien: Team A 4/5 Siege · Team B 3/5 Siege.'
+    series = 'Team A: 4/5 Siege · 7/10 Siege'  # e-sport: one record per team, as team_customer_facts writes it
     compact = CompactAnalysis('Kurz', (
-        Fact('Letzte Spiele', 'Boston Bruins', (sentence,)), Fact('Letzte Spiele', 'Letzte 5 Serien', (series,)),
+        Fact('Letzte Spiele', 'Boston Bruins', (sentence,)), Fact('Letzte Spiele', 'Team A', (series,)),
         Fact('Gegenargument', 'Gegenseite', ('Die Gegenseite gewann zuletzt öfter.',)),
     ), (), (), 'Stand', (), False)
     # The sentence RisikoBet shows is the line under the table and is not repeated in the drawer.
@@ -387,7 +408,7 @@ def test_stylesheet_gives_the_wettfinder_the_risikobet_grid_and_detail_rules(mon
     # No line above the first row of a card; the heading size only where two cards share the main column.
     assert '[class*="st-key-wettfinder_game_row_"] > [class*="st-key-wettfinder_v2_game_market_"]:first-child' in css
     import re
-    assert re.search(r'@media \(min-width: 761px\) \{\s*\.st-key-wettfinder_game_grid \.form-heading h4 \{', css)
+    assert re.search(r'@media \(min-width: 1081px\) \{\s*\.st-key-wettfinder_game_grid \.form-heading h4 \{', css)
     # The page layout's wide column gap must not push the second card of a row to the next line.
     assert ('.st-key-editorial_auto_layout .st-key-wettfinder_game_grid [data-testid="stHorizontalBlock"]'
             in css)

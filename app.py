@@ -463,9 +463,9 @@ _WETTFINDER_RISK_ROW_EXTRA = """
             display: none;
         }
 
-        /* Two cards share the main column: the table heading keeps its switch on the same line where it fits.
-           Phones keep the theme sizes (1.4rem, 1.2rem on very narrow screens), as on the RisikoBet page. */
-        @media (min-width: 761px) {
+        /* From 1081 px two cards share the main column: there the table heading is a little smaller, so its
+           switch stays on the same line. Below, one card per row and phones keep the sizes of the RisikoBet page. */
+        @media (min-width: 1081px) {
             .st-key-wettfinder_game_grid .form-heading h4 {
                 font-size: 1.4rem !important;
             }

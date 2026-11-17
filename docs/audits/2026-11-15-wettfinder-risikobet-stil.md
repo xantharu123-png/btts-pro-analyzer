@@ -186,6 +186,10 @@ Beide Seiten live nebeneinander angesehen, bei 1280 px Breite und in der Handy-A
   Kontext und Preis aktuell geprüft sind. Am 17.11. zeigte die Live-Seite keine. Der Wettfinder hat diese Karte
   nicht; seine Highlights sind Zeilen wie alle anderen (Entscheid vom 15.11.).
 - RisikoBet zeigt den Kontext als Abzeichen, der Wettfinder als kleine Zeile (Nachtrag vom 15.11.).
+- E-Sport: RisikoBet zeigt einen Satz „Letzte 5 Serien: …“ aus einer eigenen Quelle mit fünf Serien. Der Wettfinder
+  zeigt die Bilanz je Team aus bis zu zehn Serien.
+- Tennis ohne Einzelergebnisse (alte Summenwerte): RisikoBet zeigt Belag und Bilanz als Zeilen, im Wettfinder steht
+  die Bilanz dann nur in der Schublade. Ob solche Daten live noch vorkommen, ist nicht geprüft.
 - Der Wettfinder hat „Tipp merken“, den Regler und die rechte Spalte.
 
 ### Prüfung
@@ -210,7 +214,10 @@ Beide Seiten live nebeneinander angesehen, bei 1280 px Breite und in der Handy-A
 - **CI:** `tests/test_wettfinder_risikobet_rows.py` läuft neu im Job für beide Preisregeln.
 - **Vier unabhängige Prüfer** (Python, CSS, Gleichheit mit RisikoBet, Tests und Regeln): kein Blocker. Ihre
   Befunde sind eingearbeitet: Tennis ohne Gegnerliste, kein doppeltes Ergebnis in der Schublade, die Schublade als
-  ein Element, Wortlaut für Mannschaftssport, die Überschriftgrösse nur ab 761 px, keine kopierte Zwei-Spalten-Regel
-  auf dem Detailblock.
+  ein Element, Wortlaut für Eishockey und Basketball, die Überschriftgrösse nur ab 1081 px, keine kopierte
+  Zwei-Spalten-Regel auf dem Detailblock.
+- **Zweite Runde mit zwei Prüfern** auf den Korrekturen: Die Regel gegen doppelte Ergebnisse strich in der
+  Schublade auch die Namen der ausgefallenen Spieler. Sie streicht jetzt nur echte Ergebniszeilen (Team, Datum,
+  Gegner); ein Test sichert die Namenszeilen.
 - **Lokale Vorschau** mit Testdaten (Fussball mit zwei Märkten, Fussball mit sieben Ergebnissen, Tennis) bei
   375, 960, 1280 und 1920 px, neben der Live-Seite von RisikoBet.
