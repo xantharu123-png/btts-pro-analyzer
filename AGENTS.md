@@ -140,7 +140,8 @@ Code, dann `PROJECT_HANDBUCH.md`, dann die Bibel. Historische Logs: `TODO_AKTUEL
   Details folgen in der RisikoBet-Reihenfolge: Tabelle „Multigoal & Sieg-Kombis“
   (`sports_form.render_goal_history_html`), Form als Textzeile je Team (`forecast_compact.compact_form_lines`),
   geschlossene Schublade
-  „Analyse anzeigen“ (`forecast_compact.compact_analysis_lines`). Keine Ergebniskacheln im Wettfinder. Das
+  „Analyse anzeigen“ (`forecast_compact.compact_analysis_lines`). Keine Ergebniskacheln im Wettfinder. Live seit 17.11.2026 21:17 CET als `b85e2d9`
+  (Release 20261117-2). Das
   Stylesheet kopiert den RisikoBet-Abschnitt für den Wettfinder (`_with_wettfinder_risk_rows`); Fussball-Ligen kommen
   aus `league_id` über `league_catalog` (`ev_signal_sources.row_competition`). Doublebet und 15K behalten ihre Karten.
 - **Kleinstaaten-Sperre seit 16.11.2026** (`docs/audits/2026-11-16-kleinstaaten-sperre.md`, Owner „Beides“):

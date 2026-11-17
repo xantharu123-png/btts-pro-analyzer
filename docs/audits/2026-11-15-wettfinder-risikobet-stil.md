@@ -221,3 +221,40 @@ Beide Seiten live nebeneinander angesehen, bei 1280 px Breite und in der Handy-A
   Gegner); ein Test sichert die Namenszeilen.
 - **Lokale Vorschau** mit Testdaten (Fussball mit zwei Märkten, Fussball mit sieben Ergebnissen, Tennis) bei
   375, 960, 1280 und 1920 px, neben der Live-Seite von RisikoBet.
+
+## Release 20261117-2
+
+Owner „Ja, mergen“ und „Ja, live stellen“ am 17.11.2026 für PR #139.
+
+- **Merge:** PR #139 um 20:03 CET, `origin/main` = `b85e2d9dddbdcd20dcf406ace1d85e4637944b8c`. Die CI war grün
+  (6 bestanden, 0 fehlgeschlagen).
+- **Dateien:** 16 von `d321d74` bis `b85e2d9`. Code: `app.py`, `sports_form.py`, `forecast_compact.py`,
+  `wettfinder_surface.py`. Sonst Tests, `.github/workflows/tests.yml` und Doku (darunter PR #136 und #138). Keine
+  Einheit, kein `.sh`, keine Requirements.
+- **Generator:** `output/release-20261117-2/gen_deploy58.py`, abgeleitet von `gen_deploy57.py` über `make_gen.py`.
+  Zwei neue Module in der Importliste (`sports_form`, `forecast_compact`) und 23 neue Prüfzeilen: die neuen
+  Funktionen, Raster und Überschrift in `app.py`, die Schublade, keine Kacheln im Spielpfad, Tabelle, Formzeilen
+  für Fussball und Tennis, die Namen der Ausfälle in der Schublade.
+- **Vor dem Lauf:**
+  - Der Helfer weicht vom zuletzt ausgeführten nur an den gewollten Stellen ab.
+  - Offline-Prüfung gegen einen Worktree von `b85e2d9`: `OFFLINE_RELEASE_IMPORTS=ok`.
+  - Die neuen Prüfzeilen schlagen auf `d321d74` fehl, bis auf eine Negativprüfung, die schon vorher galt.
+  - Drei unabhängige Prüfer (Helfer, Fehler nach dem Fast-forward, Übergang alter Datenstand zu neuem Code):
+    Freigabe ohne Blocker.
+  - Server um 20:15 gelesen: `d321d74`, sauber, alle Jobs ruhen, Streamlit 1.59.2 wie lokal.
+- **Hochladen:** sha256 auf dem Server gleich (`deploy-20261117-2.sh` `72ecad6f…`, `run_release-20261117-2.sh`
+  `34a3b1e1…`).
+- **Ausrollen:** nach dem Quotenlauf von 21:15, Fenster um 21:17:14 (Abstand zum nächsten Shadow-Lauf 286 s).
+  Ergebnis `HEAD=b85e2d9…`, `APP_PID=1662027->1666099`, `NO_NEW_BACKUP=yes`, `UNITS_UNCHANGED=yes`,
+  `DEPLOY_EXIT=0`. Die veröffentlichten Dokumente sind unverändert. Log `output/release-20261117-2/deploy-01.log`.
+- **Danach auf dem Server:** Health lokal und öffentlich `ok`, App, Caddy und alle 7 Timer aktiv, Arbeitsbaum
+  sauber, keine neue fehlgeschlagene Einheit (die 8 alten vom September bleiben). Das Journal der App zeigt seit
+  dem Neustart keinen Fehler. Der erste Shadow-Lauf danach (21:22) endete mit Exit 0.
+- **Live-Seite angesehen** (der Helfer prüft nur, dass die App läuft):
+  - Wettfinder bei 1280 px: Überschrift „Spiele“, Karte Coritiba gegen Santos mit zwei Märkten, Tabelle mit
+    Umschalter, Formzeilen als Text, Schublade mit 37 Absätzen. Keine Kacheln, keine Fehlerbox.
+  - Mit dem Regler auf 0 (nur in der eigenen Ansicht): 13 Karten in sieben Zweierreihen, Fussball, Eishockey und
+    Basketball, 13 Schubladen. Eishockey und Basketball zeigen den Satz „…; zuletzt: …“.
+  - Bei 375 px stehen die Karten untereinander, ohne Überlauf.
+  - RisikoBet, Doublebet und 15K ohne Fehler; Doublebet behält seine Kacheln.
+  - Tennis und E-Sport standen am Abend nicht in der Liste und sind live noch nicht gesehen.
