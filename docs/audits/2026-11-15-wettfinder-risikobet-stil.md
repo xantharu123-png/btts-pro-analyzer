@@ -123,3 +123,101 @@ Owner „Ja, live stellen“ (15./16.11.2026) für PR #130.
 - **Darstellung auf dem Server geprüft** (nur gelesen, Daten mit Uhr 23:00, gerendert wie der Wettfinder): 15 Spiele,
   27 Zeilen, 0 Abzeichen, 11 Kontextzeilen, also höchstens eine je Spiel. Die erste Kopfzeile lautet
   „Eishockey · NHL · 16.11. 01:30“.
+
+## Nachtrag 17.11.2026: Karte und Raster wie RisikoBet
+
+Owner am 17.11.2026: „bin leider mit der Darstellung noch immer nicht zufrieden, es sieht halt nicht wirklich wie
+das vom RisikoBet aus, wenn du vergleichst, siehst du massive Unterschiede“.
+
+### Vergleich
+
+Beide Seiten live nebeneinander angesehen, bei 1280 px Breite und in der Handy-Ansicht (375 px).
+
+| Stelle | RisikoBet | Wettfinder bis 17.11. |
+|---|---|---|
+| Liste | zwei Karten nebeneinander | eine breite Karte je Zeile |
+| Überschrift der Liste | „Risiko-Szenarien“ in der Titelschrift | „Spiele“ klein |
+| Über der ersten Zeile der Karte | nichts | eine Linie |
+| Unter der Zeile | nichts | „Tipp merken“ über die ganze Kartenbreite |
+| Details | „Multigoal & Sieg-Kombis“ mit Umschalter 5/10, Hinweiszeile, Tabelle „Gesamttore“ | Block „Aktuelle Form“ mit farbigen Ergebniskacheln und Gegnerlisten je Team, darunter die Tabelle mit kleiner Überschrift |
+| Form | je Team eine Textzeile | Kacheln |
+| Weitere Angaben | geschlossene Schublade „Analyse anzeigen“ | drei kleine Aufklapper nebeneinander |
+
+### Jetzt
+
+- **Raster:** Die Spiele stehen wie bei RisikoBet zu zweit nebeneinander (`wettfinder_game_grid`), ab 1081 px Breite.
+  Darunter steht eine Karte je Zeile. Die Reihenfolge im Raster ist die Lesereihenfolge, auch auf dem Handy.
+- **Überschrift:** „Spiele“ ist dasselbe Element wie „Risiko-Szenarien“ (`## Spiele`).
+- **Karte:** keine Linie mehr über der ersten Zeile. Eine Linie trennt nur weitere Märkte desselben Spiels.
+- **Details in der Reihenfolge von RisikoBet** (`app._render_wettfinder_game_details`):
+  1. „Multigoal & Sieg-Kombis“ mit dem Umschalter 5/10, der Hinweiszeile und der Tabelle „Gesamttore“. Das Markup
+     ist dasselbe wie auf der RisikoBet-Seite (`sports_form.render_goal_history_html`).
+  2. Die Form als Textzeile je Team (`forecast_compact.compact_form_lines`), im Wortlaut der RisikoBet-Karte:
+     - Fussball: „Wales: 1S · 0U · 4N (5) / 3S · 3U · 4N (10); Gegner (10): Norway 1:3; …“
+       (`sports_form.form_text_lines`). Bei mehr als 600 Zeichen fällt die Gegnerliste auf fünf Spiele zurück.
+     - Tennis: „Belag: …“ und je Spieler nur die Bilanz, „4/5 Siege · 6/10 Siege“, ohne Gegnerliste.
+     - Eishockey und Basketball: der Satz aus dem Fakt „Letzte Spiele“, wie ihn auch RisikoBet zeigt, zum
+       Beispiel „Alpha: 4/5 Siege · 6/10 Siege; zuletzt: S 3:2 gegen …“.
+     - E-Sport: die Serienbilanz je Team. Dass es Serien in erfasster Reihenfolge sind, steht in der Schublade.
+  3. Sichtbare Warnungen als graue Zeile.
+  4. Die geschlossene Schublade „Analyse anzeigen“ (`forecast_compact.compact_analysis_lines`), ein Absatz je
+     Zeile. Darin stehen Gegenrisiko, Basis, Gegenargument, Ausfälle und Aufstellung mit ihren Details und jedes
+     bekannte Ergebnis genau einmal mit Datum, Gegner, Spielort und Wettbewerb. Die Ergebnisse standen bisher
+     hinter den Kacheln. Zählt ein Markt-Fakt dieselben Spiele als Details auf, entfallen sie dort.
+- **Vorher offen, jetzt in der Schublade:** Gegenrisiko, Basis, Ausfälle und Aufstellung standen bisher mit ihrem
+  Kurzwert offen auf der Karte. Jetzt stehen sie erst nach dem Öffnen da, wie bei RisikoBet. Bei Fussball nennt
+  die Zeile „Contra“ das Gegenrisiko weiter offen.
+- **„Tipp merken“** bleibt unter jeder Zeile, jetzt als kleiner Knopf statt als Balken über die Kartenbreite.
+- **Text aus Daten** geht als reiner Text in die Zeilen (`wettfinder_surface.plain_markdown`). Ein Name wie
+  „1. FC Köln“ wird damit nicht zu einem Listenpunkt.
+
+### Unverändert
+
+- Auswahl, Reihenfolge, Sportfilter, Regler, 20 Spiele je Seite, das Protokoll der gezeigten Auswahlen.
+- Die Zeile selbst (`render_wettfinder_row_html`) mit dem Kontext als kleiner Zeile.
+- Die rechte Spalte (Doublebet, Tennis). Weil sie bleibt, sind die zwei Karten schmaler als bei RisikoBet; die
+  Zeile hat deshalb zwei Spalten, die Begründung steht darunter.
+- Doublebet und 15K behalten ihre Karten mit Kacheln (`render_compact_analysis_html`, `render_form_html`).
+- Die RisikoBet-Seite selbst.
+
+### Bekannte Unterschiede zu RisikoBet
+
+- RisikoBet stellt bis zu drei hervorgehobene Szenarien als grosse Karte dar (`render_riskobet_card_html`), wenn
+  Kontext und Preis aktuell geprüft sind. Am 17.11. zeigte die Live-Seite keine. Der Wettfinder hat diese Karte
+  nicht; seine Highlights sind Zeilen wie alle anderen (Entscheid vom 15.11.).
+- RisikoBet zeigt den Kontext als Abzeichen, der Wettfinder als kleine Zeile (Nachtrag vom 15.11.).
+- E-Sport: RisikoBet zeigt einen Satz „Letzte 5 Serien: …“ aus einer eigenen Quelle mit fünf Serien. Der Wettfinder
+  zeigt die Bilanz je Team aus bis zu zehn Serien.
+- Tennis ohne Einzelergebnisse (alte Summenwerte): RisikoBet zeigt Belag und Bilanz als Zeilen, im Wettfinder steht
+  die Bilanz dann nur in der Schublade. Ob solche Daten live noch vorkommen, ist nicht geprüft.
+- Der Wettfinder hat „Tipp merken“, den Regler und die rechte Spalte.
+
+### Prüfung
+
+- **Neu** in `tests/test_wettfinder_risikobet_rows.py`:
+  - Tabelle im RisikoBet-Aufbau und mit demselben Markup wie `riskobet_ui._football_goal_history_html`; zehn
+    Spiele nur mit zehn Ergebnissen je Seite.
+  - Formzeilen: Fussball mit Gegnern und Rückfall auf fünf, Tennis nur mit Bilanz, Mannschaftssport mit dem Satz
+    aus „Letzte Spiele“.
+  - Schublade: jedes Ergebnis einmal, zwei gleiche Ergebnisse bleiben zwei Spiele, keine leere Schublade.
+  - Im Renderpfad: Reihenfolge Tabelle, Formzeilen, Warnung, Schublade; keine Kacheln; interne Notizen bleiben
+    draussen; „Tipp merken“ je Markt in dessen Container; eine Schublade je Spiel mit eigenem Schlüssel; Tennis.
+  - Raster mit zwei Karten je Zeile, reiner Text, Regeln im Stylesheet.
+- **Angepasst:**
+  - `test_wettfinder_game_groups.py`, `test_wettfinder_surface.py`, `test_workflow_integrity.py`: Das Spiel ist nie
+    ein Aufklapper, erlaubt ist nur die geschlossene Schublade „Analyse anzeigen“.
+  - `test_wettfinder_game_groups.py` (echter Streamlit-Lauf) und `test_wettfinder_min_chance.py`: als Aufklapper
+    kommt nur „Analyse anzeigen“ vor.
+  - `test_workflow_integrity.py` prüft neu auch die Überschrift „## Spiele“, die Spaltengruppen des Rasters und
+    die verbotenen Wörter im Text von Formzeilen, Warnung und Schublade.
+  - `test_tip_bookmarks.py` lädt die neue Funktion in den ausgeführten Namensraum.
+- **CI:** `tests/test_wettfinder_risikobet_rows.py` läuft neu im Job für beide Preisregeln.
+- **Vier unabhängige Prüfer** (Python, CSS, Gleichheit mit RisikoBet, Tests und Regeln): kein Blocker. Ihre
+  Befunde sind eingearbeitet: Tennis ohne Gegnerliste, kein doppeltes Ergebnis in der Schublade, die Schublade als
+  ein Element, Wortlaut für Eishockey und Basketball, die Überschriftgrösse nur ab 1081 px, keine kopierte
+  Zwei-Spalten-Regel auf dem Detailblock.
+- **Zweite Runde mit zwei Prüfern** auf den Korrekturen: Die Regel gegen doppelte Ergebnisse strich in der
+  Schublade auch die Namen der ausgefallenen Spieler. Sie streicht jetzt nur echte Ergebniszeilen (Team, Datum,
+  Gegner); ein Test sichert die Namenszeilen.
+- **Lokale Vorschau** mit Testdaten (Fussball mit zwei Märkten, Fussball mit sieben Ergebnissen, Tennis) bei
+  375, 960, 1280 und 1920 px, neben der Live-Seite von RisikoBet.

@@ -248,6 +248,109 @@ def _window_html(forms, count, *, include_goal_ranges=False):
     return f'<div class="form-window form-window-{count}">{"".join(teams)}{ranges}</div>'
 
 
+GOAL_HISTORY_NOTE = 'Historische Treffer / erfasste Spiele · Sieg des jeweiligen Teams · keine Modellchance'
+_SURFACES = ('Hartplatz', 'Sand', 'Rasen', 'Teppich')
+_OUTCOME_NAMES = {'S': 'Sieg', 'U': 'Remis', 'N': 'Niederlage'}
+
+
+def render_goal_history_html(forms, *, instance_key=''):
+    """The football goal-range table in the RisikoBet detail layout (owner 17.11.2026).
+
+    Same markup as the RisikoBet page: heading with the 5/10 switch, the note, one table per window. Observed
+    counts from already validated results only; ten is offered only when both sides have ten results.
+    """
+    windows = {5: football_goal_history_rows(forms, 5)}
+    if not windows[5]:
+        return ''
+    if all(len(form.results) >= 10 for form in forms):
+        ten_rows = football_goal_history_rows(forms, 10)
+        if ten_rows:
+            windows[10] = ten_rows
+    group = 'goals-' + sha256((instance_key + repr(forms)).encode()).hexdigest()[:16]
+    ten = (f'<input id="{group}-10" type="radio" name="{group}" value="10">'
+           f'<label for="{group}-10">10 Spiele</label>') if 10 in windows else (
+        '<span class="form-ten-unavailable" title="Weniger als zehn Ergebnisse erfasst">10 Spiele</span>')
+    headings = ''.join(f'<th scope="col">{escape(form.team)}</th>' for form in forms)
+    tables = ''
+    for window, rows in sorted(windows.items()):
+        body = ''.join(f'<tr><th scope="row">{escape(label)}</th><td>{left}</td><td>{right}</td></tr>'
+                       for label, left, right in rows)
+        tables += (f'<div class="form-window form-window-{window}"><section class="form-goal-markets">'
+                   f'<table><thead><tr><th scope="col">Gesamttore</th>{headings}</tr></thead>'
+                   f'<tbody>{body}</tbody></table></section></div>')
+    return ('<section class="sports-form" aria-label="Historische Multigoal-Treffer">'
+            '<div class="form-heading"><h4>Multigoal &amp; Sieg-Kombis</h4>'
+            '<div class="form-toggle" role="group" aria-label="Anzahl Spiele">'
+            # No controlled `checked` prop (see render_form_html): five games is the CSS default.
+            f'<input id="{group}-5" type="radio" name="{group}" value="5" aria-label="5 Spiele (Standardansicht)">'
+            f'<label for="{group}-5">5 Spiele</label>{ten}</div></div>'
+            f'<small>{GOAL_HISTORY_NOTE}</small>{tables}</section>')
+
+
+def form_text_lines(forms):
+    """Recent results as plain lines like the RisikoBet detail, never tiles (owner 17.11.2026).
+
+    With draws (football): „Team: 3S · 1U · 1N (5) / 6S · 2U · 2N (10); Gegner (10): A 2:0; B 1:1“; opponents
+    follow only when every listed result names one with its score. Without draws (tennis): only the record,
+    „Spieler: 4/5 Siege · 6/10 Siege“, as on the RisikoBet tennis card; single results belong in the drawer.
+    """
+    lines = []
+    scopes = {form.scope for form in forms if form.results}
+    if len(scopes) == 1 and next(iter(scopes)) in _SURFACES:
+        lines.append('Belag: ' + next(iter(scopes)))
+    for form in forms:
+        results = form.results[:10]
+        if not results:
+            continue
+        with_draws = 'Spielorte' in form.scope or any(r.outcome == 'U' for r in form.results)
+
+        def record(rows):
+            wins = sum(r.outcome == 'S' for r in rows)
+            if not with_draws:
+                return f'{wins}/{len(rows)} Siege'
+            draws = sum(r.outcome == 'U' for r in rows)
+            return f'{wins}S · {draws}U · {len(rows) - wins - draws}N'
+
+        if with_draws:
+            label = (f'{record(results[:5])} (5) / {record(results)} (10)' if len(results) == 10
+                     else record(results[:5]) + (' (5)' if len(results) >= 5 else f' ({len(results)} erfasst)'))
+        else:
+            label = (f'{record(results[:5])} · {record(results)}' if len(results) == 10
+                     else record(results[:5]))
+        text = f'{form.team}: {label}'
+        for count in (10, 5, 1) if with_draws else ():
+            rows = results[:count]
+            if not all(r.opponent and r.score for r in rows):
+                continue
+            expanded = text + f'; Gegner ({len(rows)}): ' + '; '.join(f'{r.opponent} {r.score}' for r in rows)
+            if len(expanded) <= 600:
+                text = expanded
+                break
+        lines.append(text)
+    return tuple(lines)
+
+
+def form_detail_lines(forms):
+    """Every known result as one plain line for the analysis drawer (what a tile showed on click).
+
+    The scope line stands for every side with results, also when only a bare record is known (e-sport series):
+    the tiles named that scope too.
+    """
+    lines = []
+    for form in forms:
+        if not form.results:
+            continue
+        if form.scope:
+            lines.append(f'{form.team}: {form.scope}')
+        for r in (r for r in form.results[:10] if _has_result_details(r)):
+            head = ' · '.join(x for x in (form.team, _date_label(r.date), r.opponent) if x)
+            facts = [_OUTCOME_NAMES[r.outcome], r.venue, r.competition]
+            if r.rank is not None:
+                facts.append(f'Damaliger Weltrang: {r.rank}')
+            lines.append(f'{head}: {r.score or "–"} ({"; ".join(x for x in facts if x)})')
+    return tuple(lines)
+
+
 def render_form_html(forms, *, instance_key='', include_goal_ranges=False):
     if not forms:
         return ''

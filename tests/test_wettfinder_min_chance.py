@@ -134,7 +134,8 @@ def test_real_streamlit_slider_starts_at_seventy_and_moves_the_page():
 
 
 def _shown_games(ui):
-    # Owner 15.11.2026: games are open RisikoBet-style rows, no expander.
-    assert len(ui.expander) == 0
+    # Owner 15.11.2026: games are open RisikoBet-style rows, never an expander. Owner 17.11.2026: the only
+    # drawer is the closed „Analyse anzeigen“ under a game, as on the RisikoBet page.
+    assert {block.label for block in ui.expander} <= {'Analyse anzeigen'}
     return [block.value.split('<strong>')[1].split(' vs ')[0] for block in ui.markdown
             if 'class="rb-row wf-rb-row"' in block.value]

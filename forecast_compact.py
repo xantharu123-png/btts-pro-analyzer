@@ -6,6 +6,7 @@ Original model notes remain in the analysis object, not in customer HTML.
 from dataclasses import dataclass
 from datetime import timedelta
 from html import escape
+import re
 
 from challenge_engine import MARKET_BY_KEY
 from forecast_analysis import (
@@ -13,7 +14,9 @@ from forecast_analysis import (
     forecast_highlight_reason, format_model_clock, read_football_analysis,
 )
 from tennis.surface_evidence import format_surface_evidence
-from sports_form import TeamForm, football_forms, tennis_forms, team_forms, render_form_html
+from sports_form import (
+    TeamForm, football_forms, tennis_forms, team_forms, render_form_html, form_detail_lines, form_text_lines,
+)
 
 
 @dataclass(frozen=True)
@@ -235,13 +238,74 @@ def _fact_html(fact):
             f'<div class="wf-fact-detail">{body}</div></details>')
 
 
-def render_compact_analysis_html(compact, *, supporting_fact='', instance_key='', show_form=True, show_summary=True):
-    form_labels = {label for form in compact.forms for label in (form.team, 'Form ' + form.team)}
+_RESULT_DATE = re.compile(r'\d{4}-\d{2}-\d{2} · ')
+
+
+def _form_fact_labels(compact):
+    labels = {label for form in compact.forms for label in (form.team, 'Form ' + form.team)}
     if compact.forms:
-        form_labels.add('Letzte Spiele')
+        labels.add('Letzte Spiele')
+    return labels
+
+
+def compact_analysis_alerts(compact):
+    """Customer-visible warnings; internal method notes stay out, as in the card."""
+    return tuple(text for text in compact.warnings if text not in _INTERNAL_NOTES)
+
+
+def compact_analysis_lines(compact):
+    """Plain lines for the RisikoBet-style analysis drawer (owner 17.11.2026).
+
+    The same facts the card showed as chips, each with its details, then every known result once. Nothing new
+    is derived here; repeated fact lines are dropped and the original order stays.
+    """
+    form_labels = _form_fact_labels(compact)
+    # A football market fact lists the games it counted as its details; the drawer lists every game once, below.
+    listed = tuple(prefix for prefix in (f'{form.team} · ' for form in compact.forms)
+                   if any(line.startswith(prefix) for line in form_detail_lines(compact.forms)))
+
+    def counted_game(detail):
+        # Only a result line („Team · 2026-11-15 · Gegner: 1:0 (…)“). Other details that start with the team,
+        # such as the names of absent players („Team · 3 Ausfälle: …“), stay.
+        text = str(detail)
+        return any(text.startswith(prefix) and _RESULT_DATE.match(text, len(prefix)) for prefix in listed)
+
+    lines = []
+    for fact in compact.facts:
+        # „Letzte Spiele“ with its sentence is already the line under the table (compact_form_lines).
+        if fact.label in form_labels or fact.label == 'Letzte Spiele' and fact.details:
+            continue
+        headline = f'{fact.label}: {fact.value}'
+        lines.append(headline)
+        # A detail that only repeats part of its own headline adds nothing in a list of plain lines.
+        lines.extend(detail for detail in fact.details
+                     if str(detail).strip() not in headline and not counted_game(detail))
+
+    def clean(line):
+        return ' '.join(str(line).split())
+
+    facts = tuple(dict.fromkeys(clean(line) for line in lines if str(line).strip()))
+    # Result lines are never merged: two equal results are two games.
+    return facts + tuple(clean(line) for line in form_detail_lines(compact.forms))
+
+
+def compact_form_lines(compact):
+    """Recent-result lines under the goal table, in the wording of the RisikoBet card (owner 17.11.2026).
+
+    Ice hockey and basketball carry that customer sentence in their „Letzte Spiele“ facts (the generator
+    RisikoBet shows too). E-sport facts carry one record per team, not the RisikoBet sentence „Letzte 5
+    Serien: …“, which comes from another source with five series. Football and tennis lines are built from the
+    validated result rows; tennis with bare totals only (no rows) has no line, its record is in the drawer.
+    """
+    recent = tuple(str(fact.details[0]) for fact in compact.facts
+                   if fact.label == 'Letzte Spiele' and fact.details)
+    return recent or form_text_lines(compact.forms)
+
+
+def render_compact_analysis_html(compact, *, supporting_fact='', instance_key='', show_form=True, show_summary=True):
+    form_labels = _form_fact_labels(compact)
     facts = ''.join(_fact_html(fact) for fact in compact.facts if fact.label not in form_labels)
-    alerts = [text for text in compact.warnings if text not in _INTERNAL_NOTES]
-    warnings = ' · '.join(escape(text) for text in alerts)
+    warnings = ' · '.join(escape(text) for text in compact_analysis_alerts(compact))
     warning_html = f'<p class="wf-analysis-alert">{warnings}</p>' if warnings else ''
     support = f'<p class="wf-analysis-support">{escape(supporting_fact)}</p>' if supporting_fact and show_summary else ''
     summary = f'<p class="wf-analysis-short">{escape(compact.summary)}</p>' if show_summary else ''

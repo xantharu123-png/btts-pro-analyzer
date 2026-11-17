@@ -1044,8 +1044,9 @@ def test_automatic_all_surface_has_one_game_block_and_exact_price_actions(
     run_now = card_calls[0][1]["now"]
     assert run_now.tzinfo is not None
     assert all(call[1]["now"] is run_now for call in card_calls)
-    # Owner 15.11.2026: every game open as a RisikoBet-style card, no expander.
-    assert recording_st.expanders == []
+    # Owner 15.11.2026: every game open as a RisikoBet-style card, never an expander. Owner 17.11.2026: the
+    # only drawer is the closed „Analyse anzeigen“ under a game, as on the RisikoBet page.
+    assert all(label == "Analyse anzeigen" and not expanded for label, expanded in recording_st.expanders)
     game_rows = [key for key in recording_st.containers if str(key).startswith("wettfinder_game_row_")]
     assert len(game_rows) == len(set(game_rows)) == 4
     assert html.count('class="rb-row wf-rb-row"') == len(forecasts)
@@ -1054,7 +1055,7 @@ def test_automatic_all_surface_has_one_game_block_and_exact_price_actions(
     action_order = [
         kind
         for kind, _value in recording_st.event_log
-        if kind in {"expander", "price_action"}
+        if kind == "price_action" or kind == "expander" and _value != "Analyse anzeigen"
     ]
     assert action_order == []
     # These legacy fixtures intentionally lack attributable model evidence.
@@ -1064,15 +1065,21 @@ def test_automatic_all_surface_has_one_game_block_and_exact_price_actions(
     assert "Berechnete Auswahl 1" not in html
     assert "Tagestipp 1" not in html
     assert "Testmodell" not in html
-    assert "Testmodell" not in " ".join(
-        str(value) for kind, value in recording_st.messages if kind == "write"
-    )
+    # Owner 17.11.2026: result lines and warnings are captions, the analysis drawer is plain Markdown. The
+    # same negative checks as for the card HTML apply to that text (it is no longer part of `html`).
     public_analysis = " ".join(
-        str(value) for kind, value in recording_st.messages if kind == "write"
+        [str(value) for kind, value in recording_st.messages if kind in {"write", "caption"}]
+        + [str(value) for value, kwargs, _context in recording_st.markdown_calls
+           if not kwargs.get("unsafe_allow_html")]
     )
+    assert "Gegenrisiko: " in public_analysis  # The drawer text is really part of this check.
     assert all(
         token not in public_analysis
         for token in (
+            "Testmodell",
+            "Modellgrundlagen fehlen",
+            "Berechnete Auswahl 1",
+            "Tagestipp 1",
             "Modellstreuung",
             "Evidenz",
             "Transfer-Prüfphase",
@@ -1088,7 +1095,7 @@ def test_automatic_all_surface_has_one_game_block_and_exact_price_actions(
     heading_event = next(
         index
         for index, (kind, value) in enumerate(recording_st.event_log)
-        if kind == "markdown" and 'class="wf-additional-heading"' in value
+        if kind == "markdown" and value == "## Spiele"
     )
     sport_control_event = recording_st.event_log.index(
         ("segmented_control", "wettfinder_automatic_sport_v2")
@@ -1120,8 +1127,9 @@ def test_automatic_basis_only_catalog_skips_empty_top_columns(monkeypatch):
         for value, kwargs, _context in recording_st.markdown_calls
         if kwargs.get("unsafe_allow_html")
     )
-    # One content/real Daily3 rail pair, never empty top-selection columns.
-    assert len(recording_st.column_groups) == 1
+    # One content/real Daily3 rail pair, never empty top-selection columns; then one grid row for the one game
+    # (owner 17.11.2026: games in the RisikoBet grid, two cards per row).
+    assert [len(group) for group in recording_st.column_groups] == [2, 2]
     assert not any(
         kind == "subheader" and value == "Top-Auswahlen nach Modell"
         for kind, value in recording_st.messages

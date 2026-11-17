@@ -94,6 +94,8 @@ def test_header_has_game_count_and_escapes_markdown_but_not_identity():
     assert 'Fußball' in label and first.scheduled_start_label in label
 
 
+# The price status „TOO_LOW“ belongs to the old value-gate contract; under `floor` a 1,80 median is playable.
+@pytest.mark.price_policy("gate")
 def test_grouped_market_does_not_repeat_game_heading_but_keeps_exact_price_binding():
     c = card()
     assert c.compact_analysis is not None
@@ -135,7 +137,10 @@ def test_each_market_row_stays_inside_its_game_container_without_expanders(monke
     recording = _RecordingStreamlit()
     monkeypatch.setattr(app, 'st', recording)
     app._render_wettfinder_games(catalog, rows, sport_filter='Alle')
-    assert recording.expanders == []
+    # The game is never an expander; only the closed RisikoBet drawer „Analyse anzeigen“ may follow its rows.
+    assert all(label == 'Analyse anzeigen' and not expanded for label, expanded in recording.expanders)
+    assert not any(kind == 'expander' for text, _kwargs, context in recording.markdown_calls
+                   if 'class="rb-row wf-rb-row"' in text for kind, _label in context)
     calls = _row_calls(recording)
     assert len(calls) == len(cards)
     assert all(game is not None for _text, game in calls)
@@ -202,7 +207,7 @@ def test_real_renderer_shows_every_visible_game_open_in_display_order(mode, page
         ui.session_state['wettfinder_games_page_Alle_2'] = 2
     ui.run(timeout=30)
     assert not ui.exception
-    assert len(ui.expander) == 0
+    assert {block.label for block in ui.expander} <= {'Analyse anzeigen'}
     assert _shown_games(ui) == expected_games
 
 
@@ -215,4 +220,4 @@ def test_real_renderer_follows_sport_filter_and_highlight_changes_without_hiding
     assert not ui.exception and _shown_games(ui) == [1, 2, 3, 4, 5]
     ui.checkbox(key='game_test_highlights').check().run(timeout=30)
     assert not ui.exception and _shown_games(ui) == [1, 2, 3, 4, 5]
-    assert len(ui.expander) == 0
+    assert {block.label for block in ui.expander} <= {'Analyse anzeigen'}

@@ -95,6 +95,7 @@ jobs:
           tests/test_wettfinder_stage_diagnostics.py
           tests/test_wettfinder_surface.py
           tests/test_wettfinder_statistical_leads.py
+          tests/test_wettfinder_risikobet_rows.py
           tests/test_tip_publication.py
           tests/test_tip_display_order.py
           tests/test_publication_odds_floor.py

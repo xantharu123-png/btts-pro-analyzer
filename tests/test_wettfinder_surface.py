@@ -977,7 +977,8 @@ def test_production_renderer_pages_20_complete_games_without_splitting_markets(m
         app._render_wettfinder_games(catalog, row_by_key, sport_filter='Alle')
         games = [key for key in recording.containers if str(key).startswith('wettfinder_game_row_')]
         groups_per_page.append(len(games))
-        assert recording.expanders == []
+        # No game expander; only the closed analysis drawer of a game may appear.
+        assert all(label == 'Analyse anzeigen' and not expanded for label, expanded in recording.expanders)
         assert len(seen) - before == 3 * len(games)
         assert recording.selectboxes[0][1] == (1, 2, 3)
     assert groups_per_page == [20, 20, 1]
