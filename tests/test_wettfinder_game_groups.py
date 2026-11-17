@@ -94,6 +94,8 @@ def test_header_has_game_count_and_escapes_markdown_but_not_identity():
     assert 'Fußball' in label and first.scheduled_start_label in label
 
 
+# The price status „TOO_LOW“ belongs to the old value-gate contract; under `floor` a 1,80 median is playable.
+@pytest.mark.price_policy("gate")
 def test_grouped_market_does_not_repeat_game_heading_but_keeps_exact_price_binding():
     c = card()
     assert c.compact_analysis is not None
