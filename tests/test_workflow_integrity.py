@@ -1065,15 +1065,21 @@ def test_automatic_all_surface_has_one_game_block_and_exact_price_actions(
     assert "Berechnete Auswahl 1" not in html
     assert "Tagestipp 1" not in html
     assert "Testmodell" not in html
-    assert "Testmodell" not in " ".join(
-        str(value) for kind, value in recording_st.messages if kind == "write"
-    )
+    # Owner 17.11.2026: result lines and warnings are captions, the analysis drawer is plain Markdown. The
+    # same negative checks as for the card HTML apply to that text (it is no longer part of `html`).
     public_analysis = " ".join(
-        str(value) for kind, value in recording_st.messages if kind == "write"
+        [str(value) for kind, value in recording_st.messages if kind in {"write", "caption"}]
+        + [str(value) for value, kwargs, _context in recording_st.markdown_calls
+           if not kwargs.get("unsafe_allow_html")]
     )
+    assert "Gegenrisiko: " in public_analysis  # The drawer text is really part of this check.
     assert all(
         token not in public_analysis
         for token in (
+            "Testmodell",
+            "Modellgrundlagen fehlen",
+            "Berechnete Auswahl 1",
+            "Tagestipp 1",
             "Modellstreuung",
             "Evidenz",
             "Transfer-Prüfphase",

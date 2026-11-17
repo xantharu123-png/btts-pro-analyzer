@@ -13,7 +13,9 @@ from forecast_analysis import (
     forecast_highlight_reason, format_model_clock, read_football_analysis,
 )
 from tennis.surface_evidence import format_surface_evidence
-from sports_form import TeamForm, football_forms, tennis_forms, team_forms, render_form_html, form_detail_lines
+from sports_form import (
+    TeamForm, football_forms, tennis_forms, team_forms, render_form_html, form_detail_lines, form_text_lines,
+)
 
 
 @dataclass(frozen=True)
@@ -250,20 +252,40 @@ def compact_analysis_alerts(compact):
 def compact_analysis_lines(compact):
     """Plain lines for the RisikoBet-style analysis drawer (owner 17.11.2026).
 
-    The same facts the card showed as chips, each with its details, then every known result. Nothing new is
-    derived here; duplicates are dropped and the original order stays.
+    The same facts the card showed as chips, each with its details, then every known result once. Nothing new
+    is derived here; repeated fact lines are dropped and the original order stays.
     """
     form_labels = _form_fact_labels(compact)
+    # A football market fact lists the games it counted as its details; the drawer lists every game once, below.
+    listed = tuple(f'{form.team} · ' for form in compact.forms if form_detail_lines((form,)))
     lines = []
     for fact in compact.facts:
-        if fact.label in form_labels:
+        # „Letzte Spiele“ with its sentence is already the line under the table (compact_form_lines).
+        if fact.label in form_labels or fact.label == 'Letzte Spiele' and fact.details:
             continue
         headline = f'{fact.label}: {fact.value}'
         lines.append(headline)
         # A detail that only repeats part of its own headline adds nothing in a list of plain lines.
-        lines.extend(detail for detail in fact.details if str(detail).strip() not in headline)
-    lines.extend(form_detail_lines(compact.forms))
-    return tuple(dict.fromkeys(' '.join(str(line).split()) for line in lines if str(line).strip()))
+        lines.extend(detail for detail in fact.details
+                     if str(detail).strip() not in headline and not str(detail).startswith(listed))
+
+    def clean(line):
+        return ' '.join(str(line).split())
+
+    facts = tuple(dict.fromkeys(clean(line) for line in lines if str(line).strip()))
+    # Result lines are never merged: two equal results are two games.
+    return facts + tuple(clean(line) for line in form_detail_lines(compact.forms))
+
+
+def compact_form_lines(compact):
+    """Recent-result lines under the goal table, in the wording of the RisikoBet card (owner 17.11.2026).
+
+    Team sports and e-sport already carry that customer sentence in their „Letzte Spiele“ facts (the same
+    generator RisikoBet shows); football and tennis lines are built from the validated result rows.
+    """
+    recent = tuple(str(fact.details[0]) for fact in compact.facts
+                   if fact.label == 'Letzte Spiele' and fact.details)
+    return recent or form_text_lines(compact.forms)
 
 
 def render_compact_analysis_html(compact, *, supporting_fact='', instance_key='', show_form=True, show_summary=True):

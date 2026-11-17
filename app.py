@@ -416,9 +416,9 @@ def _segmented(label: str, options: list[str], key: str, default: str) -> str:
 _RISK_ROW_KEYS_FOR_WETTFINDER = (
     ("st-key-riskobet_page", "st-key-wettfinder_v2_additional"),
     ("st-key-riskobet_additional_row_", "st-key-wettfinder_game_row_"),
-    # Owner 17.11.2026: also the RisikoBet card grid and the spacing of the detail block under the row.
+    # Owner 17.11.2026: also the RisikoBet card grid. The detail block gets its few rules by name below; the
+    # RisikoBet action rules include a two-column grid that must never reach table, lines and drawer.
     ("st-key-riskobet_featured_grid", "st-key-wettfinder_game_grid"),
-    ("st-key-riskobet_actions_", "st-key-wettfinder_game_details_"),
 )
 _WETTFINDER_RISK_ROW_EXTRA = """
         /* Wettfinder cards share the main column with the rail: two row columns, reasons below. */
@@ -444,13 +444,31 @@ _WETTFINDER_RISK_ROW_EXTRA = """
             padding-top: 0;
         }
 
-        /* Two cards share the main column: the table heading keeps its switch on the same line where it fits. */
-        .st-key-wettfinder_game_grid .form-heading h4 {
-            font-size: 1.4rem !important;
+        /* The detail block under the rows: spacing and drawer like the RisikoBet detail, always one column. */
+        [class*="st-key-wettfinder_game_details_"] {
+            margin-top: auto;
+            padding-top: 0.75rem;
+        }
+
+        [class*="st-key-wettfinder_game_details_"] [data-testid="stExpander"] {
+            min-width: 0;
+            width: 100%;
+        }
+
+        [class*="st-key-wettfinder_game_details_"] [data-testid="stExpander"] details > summary {
+            min-height: 44px;
         }
 
         .st-key-wettfinder_game_grid .form-heading h4 [data-testid="stHeaderActionElements"] {
             display: none;
+        }
+
+        /* Two cards share the main column: the table heading keeps its switch on the same line where it fits.
+           Phones keep the theme sizes (1.4rem, 1.2rem on very narrow screens), as on the RisikoBet page. */
+        @media (min-width: 761px) {
+            .st-key-wettfinder_game_grid .form-heading h4 {
+                font-size: 1.4rem !important;
+            }
         }
 
         /* „Tipp merken“ is a small pill under its row, not a bar across the card. */
@@ -4752,8 +4770,8 @@ def _render_wettfinder_game(group, row_by_key, featured_keys) -> None:
 
 def _render_wettfinder_game_details(card, suffix: str) -> None:
     """The RisikoBet detail order for one Wettfinder game: goal table, result lines, analysis drawer."""
-    from forecast_compact import compact_analysis_alerts, compact_analysis_lines
-    from sports_form import form_text_lines, render_goal_history_html
+    from forecast_compact import compact_analysis_alerts, compact_analysis_lines, compact_form_lines
+    from sports_form import render_goal_history_html
 
     compact = card.compact_analysis
     with st.container(key=f'wettfinder_game_details_{suffix}'):
@@ -4761,7 +4779,7 @@ def _render_wettfinder_game_details(card, suffix: str) -> None:
             history_html = render_goal_history_html(compact.forms, instance_key=card.key)
             if history_html:
                 st.markdown(history_html, unsafe_allow_html=True)
-        for line in form_text_lines(compact.forms):
+        for line in compact_form_lines(compact):
             st.caption(plain_markdown(line), unsafe_allow_html=False)
         alerts = compact_analysis_alerts(compact)
         if alerts:
@@ -4770,8 +4788,9 @@ def _render_wettfinder_game_details(card, suffix: str) -> None:
         # No empty drawer: a game without facts or known results shows none.
         if lines:
             with st.expander('Analyse anzeigen', expanded=False, key=f'wettfinder_game_analysis_{suffix}'):
-                for line in lines:
-                    st.write(plain_markdown(line))
+                # One element for the whole drawer, one paragraph per line: Streamlit also builds and sends
+                # the content of closed drawers on every rerun.
+                st.markdown('\n\n'.join(plain_markdown(line) for line in lines))
 
 
 def _render_wettfinder_games(catalog, row_by_key, *, sport_filter: str, sort_mode=START_TIME) -> None:

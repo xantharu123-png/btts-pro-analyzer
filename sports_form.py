@@ -290,8 +290,9 @@ def render_goal_history_html(forms, *, instance_key=''):
 def form_text_lines(forms):
     """Recent results as plain lines like the RisikoBet detail, never tiles (owner 17.11.2026).
 
-    With draws: „Team: 3S · 1U · 1N (5) / 6S · 2U · 2N (10); Gegner (10): A 2:0; B 1:1“. Without draws:
-    „Spieler: 4/5 Siege · 6/10 Siege“. Opponents follow only when every listed result names one with its score.
+    With draws (football): „Team: 3S · 1U · 1N (5) / 6S · 2U · 2N (10); Gegner (10): A 2:0; B 1:1“; opponents
+    follow only when every listed result names one with its score. Without draws (tennis): only the record,
+    „Spieler: 4/5 Siege · 6/10 Siege“, as on the RisikoBet tennis card; single results belong in the drawer.
     """
     lines = []
     scopes = {form.scope for form in forms if form.results}
@@ -317,7 +318,7 @@ def form_text_lines(forms):
             label = (f'{record(results[:5])} · {record(results)}' if len(results) == 10
                      else record(results[:5]))
         text = f'{form.team}: {label}'
-        for count in (10, 5, 1):
+        for count in (10, 5, 1) if with_draws else ():
             rows = results[:count]
             if not all(r.opponent and r.score for r in rows):
                 continue

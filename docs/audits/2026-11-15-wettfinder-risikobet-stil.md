@@ -152,14 +152,20 @@ Beide Seiten live nebeneinander angesehen, bei 1280 px Breite und in der Handy-A
 - **Details in der Reihenfolge von RisikoBet** (`app._render_wettfinder_game_details`):
   1. „Multigoal & Sieg-Kombis“ mit dem Umschalter 5/10, der Hinweiszeile und der Tabelle „Gesamttore“. Das Markup
      ist dasselbe wie auf der RisikoBet-Seite (`sports_form.render_goal_history_html`).
-  2. Die Form als Textzeile je Team (`sports_form.form_text_lines`), zum Beispiel
-     „Wales: 1S · 0U · 4N (5) / 3S · 3U · 4N (10); Gegner (10): Norway 1:3; …“. Sportarten ohne Remis zeigen
-     „4/5 Siege · 6/10 Siege“, Tennis davor „Belag: …“. Bei mehr als 600 Zeichen fällt die Gegnerliste auf fünf
-     Spiele zurück, wie bei RisikoBet.
+  2. Die Form als Textzeile je Team (`forecast_compact.compact_form_lines`), im Wortlaut der RisikoBet-Karte:
+     - Fussball: „Wales: 1S · 0U · 4N (5) / 3S · 3U · 4N (10); Gegner (10): Norway 1:3; …“
+       (`sports_form.form_text_lines`). Bei mehr als 600 Zeichen fällt die Gegnerliste auf fünf Spiele zurück.
+     - Tennis: „Belag: …“ und je Spieler nur die Bilanz, „4/5 Siege · 6/10 Siege“, ohne Gegnerliste.
+     - Eishockey, Basketball und E-Sport: der Satz, den auch RisikoBet zeigt (er steht schon im Fakt
+       „Letzte Spiele“, zum Beispiel „…; zuletzt: S 3:2 gegen …“ oder „Letzte 5 Serien: …“).
   3. Sichtbare Warnungen als graue Zeile.
-  4. Die geschlossene Schublade „Analyse anzeigen“ (`forecast_compact.compact_analysis_lines`). Darin stehen die
-     Angaben der bisherigen Aufklapper (Gegenrisiko, Basis, Gegenargument, Ausfälle, Aufstellung) und jedes
-     bekannte Ergebnis mit Datum, Gegner, Spielort und Wettbewerb. Das stand bisher hinter den Kacheln.
+  4. Die geschlossene Schublade „Analyse anzeigen“ (`forecast_compact.compact_analysis_lines`), ein Absatz je
+     Zeile. Darin stehen Gegenrisiko, Basis, Gegenargument, Ausfälle und Aufstellung mit ihren Details und jedes
+     bekannte Ergebnis genau einmal mit Datum, Gegner, Spielort und Wettbewerb. Die Ergebnisse standen bisher
+     hinter den Kacheln. Zählt ein Markt-Fakt dieselben Spiele als Details auf, entfallen sie dort.
+- **Vorher offen, jetzt in der Schublade:** Gegenrisiko, Basis, Ausfälle und Aufstellung standen bisher mit ihrem
+  Kurzwert offen auf der Karte. Jetzt stehen sie erst nach dem Öffnen da, wie bei RisikoBet. Bei Fussball nennt
+  die Zeile „Contra“ das Gegenrisiko weiter offen.
 - **„Tipp merken“** bleibt unter jeder Zeile, jetzt als kleiner Knopf statt als Balken über die Kartenbreite.
 - **Text aus Daten** geht als reiner Text in die Zeilen (`wettfinder_surface.plain_markdown`). Ein Name wie
   „1. FC Köln“ wird damit nicht zu einem Listenpunkt.
@@ -173,15 +179,37 @@ Beide Seiten live nebeneinander angesehen, bei 1280 px Breite und in der Handy-A
 - Doublebet und 15K behalten ihre Karten mit Kacheln (`render_compact_analysis_html`, `render_form_html`).
 - Die RisikoBet-Seite selbst.
 
+### Bekannte Unterschiede zu RisikoBet
+
+- RisikoBet stellt bis zu drei hervorgehobene Szenarien als grosse Karte dar (`render_riskobet_card_html`), wenn
+  Kontext und Preis aktuell geprüft sind. Am 17.11. zeigte die Live-Seite keine. Der Wettfinder hat diese Karte
+  nicht; seine Highlights sind Zeilen wie alle anderen (Entscheid vom 15.11.).
+- RisikoBet zeigt den Kontext als Abzeichen, der Wettfinder als kleine Zeile (Nachtrag vom 15.11.).
+- Der Wettfinder hat „Tipp merken“, den Regler und die rechte Spalte.
+
 ### Prüfung
 
-- **Neu** in `tests/test_wettfinder_risikobet_rows.py`: Tabelle im RisikoBet-Aufbau und mit demselben Markup wie
-  `riskobet_ui._football_goal_history_html`, zehn Spiele nur mit zehn Ergebnissen je Seite, Formzeilen mit und
-  ohne Remis, Rückfall auf fünf Gegner, Zeilen der Schublade ohne Doppel, reiner Text, Reihenfolge der Details
-  ohne Kacheln, keine leere Schublade, Raster mit zwei Karten je Zeile, Regeln im Stylesheet.
-- **Angepasst** sind Tests, die „kein Aufklapper“ festschrieben. Sie prüfen jetzt: Das Spiel ist nie ein
-  Aufklapper, erlaubt ist nur die geschlossene Schublade „Analyse anzeigen“ (`test_wettfinder_game_groups.py`,
-  `test_workflow_integrity.py`, `test_wettfinder_surface.py`, `test_wettfinder_min_chance.py`,
-  `test_tip_bookmarks.py`).
+- **Neu** in `tests/test_wettfinder_risikobet_rows.py`:
+  - Tabelle im RisikoBet-Aufbau und mit demselben Markup wie `riskobet_ui._football_goal_history_html`; zehn
+    Spiele nur mit zehn Ergebnissen je Seite.
+  - Formzeilen: Fussball mit Gegnern und Rückfall auf fünf, Tennis nur mit Bilanz, Mannschaftssport mit dem Satz
+    aus „Letzte Spiele“.
+  - Schublade: jedes Ergebnis einmal, zwei gleiche Ergebnisse bleiben zwei Spiele, keine leere Schublade.
+  - Im Renderpfad: Reihenfolge Tabelle, Formzeilen, Warnung, Schublade; keine Kacheln; interne Notizen bleiben
+    draussen; „Tipp merken“ je Markt in dessen Container; eine Schublade je Spiel mit eigenem Schlüssel; Tennis.
+  - Raster mit zwei Karten je Zeile, reiner Text, Regeln im Stylesheet.
+- **Angepasst:**
+  - `test_wettfinder_game_groups.py`, `test_wettfinder_surface.py`, `test_workflow_integrity.py`: Das Spiel ist nie
+    ein Aufklapper, erlaubt ist nur die geschlossene Schublade „Analyse anzeigen“.
+  - `test_wettfinder_game_groups.py` (echter Streamlit-Lauf) und `test_wettfinder_min_chance.py`: als Aufklapper
+    kommt nur „Analyse anzeigen“ vor.
+  - `test_workflow_integrity.py` prüft neu auch die Überschrift „## Spiele“, die Spaltengruppen des Rasters und
+    die verbotenen Wörter im Text von Formzeilen, Warnung und Schublade.
+  - `test_tip_bookmarks.py` lädt die neue Funktion in den ausgeführten Namensraum.
+- **CI:** `tests/test_wettfinder_risikobet_rows.py` läuft neu im Job für beide Preisregeln.
+- **Vier unabhängige Prüfer** (Python, CSS, Gleichheit mit RisikoBet, Tests und Regeln): kein Blocker. Ihre
+  Befunde sind eingearbeitet: Tennis ohne Gegnerliste, kein doppeltes Ergebnis in der Schublade, die Schublade als
+  ein Element, Wortlaut für Mannschaftssport, die Überschriftgrösse nur ab 761 px, keine kopierte Zwei-Spalten-Regel
+  auf dem Detailblock.
 - **Lokale Vorschau** mit Testdaten (Fussball mit zwei Märkten, Fussball mit sieben Ergebnissen, Tennis) bei
-  1280 px und 375 px, neben der Live-Seite von RisikoBet.
+  375, 960, 1280 und 1920 px, neben der Live-Seite von RisikoBet.

@@ -138,7 +138,8 @@ Code, dann `PROJECT_HANDBUCH.md`, dann die Bibel. Historische Logs: `TODO_AKTUEL
   Sport · Liga · Anstoss, Auswahl, Modell und Grundlage/Contra. Seit 17.11.2026 (Owner „sieht nicht wirklich wie
   das vom RisikoBet aus“) stehen die Karten wie dort zu zweit nebeneinander (`wettfinder_game_grid`), und die
   Details folgen in der RisikoBet-Reihenfolge: Tabelle „Multigoal & Sieg-Kombis“
-  (`sports_form.render_goal_history_html`), Form als Textzeile je Team (`form_text_lines`), geschlossene Schublade
+  (`sports_form.render_goal_history_html`), Form als Textzeile je Team (`forecast_compact.compact_form_lines`),
+  geschlossene Schublade
   „Analyse anzeigen“ (`forecast_compact.compact_analysis_lines`). Keine Ergebniskacheln im Wettfinder. Das
   Stylesheet kopiert den RisikoBet-Abschnitt für den Wettfinder (`_with_wettfinder_risk_rows`); Fussball-Ligen kommen
   aus `league_id` über `league_catalog` (`ev_signal_sources.row_competition`). Doublebet und 15K behalten ihre Karten.

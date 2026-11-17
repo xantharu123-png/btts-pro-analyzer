@@ -166,8 +166,14 @@ def test_recent_results_are_plain_lines_like_the_risikobet_detail():
     wins = (True, True, False, True, True, False, True, False, False, True)
     tennis = tuple(TeamForm(name, 'Hartplatz', tuple(FormResult('S' if won else 'N') for won in wins))
                    for name in ('Ben Shelton', 'Alexander Zverev'))
-    assert form_text_lines(tennis) == ('Belag: Hartplatz', 'Ben Shelton: 4/5 Siege · 6/10 Siege',
-                                       'Alexander Zverev: 4/5 Siege · 6/10 Siege')
+    expected = ('Belag: Hartplatz', 'Ben Shelton: 4/5 Siege · 6/10 Siege', 'Alexander Zverev: 4/5 Siege · 6/10 Siege')
+    assert form_text_lines(tennis) == expected
+    # Real tennis rows name opponent and sets. The RisikoBet tennis card shows the record only, so does this
+    # line; the single results are in the drawer.
+    with_opponents = tuple(TeamForm(name, 'Hartplatz', tuple(
+        FormResult('S' if won else 'N', '2:0' if won else '1:2', f'Gegner {index}', rank=20 + index)
+        for index, won in enumerate(wins))) for name in ('Ben Shelton', 'Alexander Zverev'))
+    assert form_text_lines(with_opponents) == expected
     assert form_text_lines((TeamForm('Team A', 'Serien · erfasste Reihenfolge',
                                      tuple(FormResult('S') for _ in range(4))),)) == ('Team A: 4/4 Siege',)
     assert form_text_lines(()) == ()
@@ -188,18 +194,53 @@ def test_analysis_drawer_lines_carry_facts_details_and_known_results_once():
         Fact('Gegenrisiko', 'mindestens 3 Tore: 20,8 %', ('mindestens 3 Tore', 'Modellschätzung.')),
         Fact('Form Wales', '1S · 0U · 1N'),
         Fact('Basis', '12 / 12 A-Länderspiele', ('Modellschätzung.',)),
+        # A football market fact lists the games it counted (other date format, „Gast“ instead of „Auswärts“).
+        Fact('Wales-Spiele · mindestens 3 Tore insgesamt', '1/2 zuletzt', (
+            'Wales · 2026-10-29 · Gegner 1: 1:3 (Heim; Liga)', 'Wales · 2026-10-28 · Gegner 2: 0:1 (Heim; Liga)',
+            'Gezählt sind erfasste Spiele.')),
     ), ('Außenseiter-Szenario', 'Ligavergleich nicht bestätigt'), (), 'Stand', _forms(2), True)
     lines = compact_analysis_lines(compact)
     # „mindestens 3 Tore“ only repeats its own headline and is left out; a repeated detail appears once.
-    assert lines[:3] == ('Gegenrisiko: mindestens 3 Tore: 20,8 %', 'Modellschätzung.',
-                         'Basis: 12 / 12 A-Länderspiele')
+    assert lines[:5] == ('Gegenrisiko: mindestens 3 Tore: 20,8 %', 'Modellschätzung.',
+                         'Basis: 12 / 12 A-Länderspiele',
+                         'Wales-Spiele · mindestens 3 Tore insgesamt: 1/2 zuletzt', 'Gezählt sind erfasste Spiele.')
     assert len(lines) == len(set(lines))
+    # Every game stands once, in the drawer's own format, not a second time from the market fact.
+    assert not any('2026-10-29' in line or '2026-10-28' in line for line in lines)
+    assert sum('Gegner 1: 1:3' in line for line in lines) == 1
     assert not any(line.startswith('Form Wales') for line in lines)
     assert 'Wales: Letzte Spiele · alle Spielorte' in lines
     assert 'Wales · 29.10.2026 · Gegner 1: 1:3 (Niederlage; Heim; Liga)' in lines
     assert 'Portugal · 28.10.2026 · Gegner 2: 2:1 (Sieg; Heim; Liga)' in lines
     # Internal method notes stay out, as on the card before.
     assert compact_analysis_alerts(compact) == ('Außenseiter-Szenario',)
+
+
+def test_two_equal_results_stay_two_games_in_the_drawer():
+    from forecast_compact import CompactAnalysis, compact_analysis_lines
+    from sports_form import FormResult, TeamForm
+    twice = TeamForm('Jannik Sinner', 'Hartplatz', tuple(
+        FormResult('S', '2:0', 'Taylor Fritz', '2026-11-10', 'Turnierdatum') for _ in range(2)))
+    lines = compact_analysis_lines(CompactAnalysis('Kurz', (), (), (), 'Stand', (twice,), False))
+    assert lines == ('Jannik Sinner: Hartplatz',) + (
+        'Jannik Sinner · 10.11.2026 · Taylor Fritz: 2:0 (Sieg; Turnierdatum)',) * 2
+
+
+def test_team_sport_lines_use_the_customer_sentence_of_the_risikobet_card():
+    from forecast_compact import CompactAnalysis, Fact, compact_analysis_lines, compact_form_lines
+    from sports_form import form_text_lines
+    sentence = 'Boston Bruins: 4/5 Siege · 6/10 Siege; zuletzt: S 3:2 gegen Team 1, N 1:4 gegen Team 2'
+    series = 'Letzte 5 Serien: Team A 4/5 Siege · Team B 3/5 Siege.'
+    compact = CompactAnalysis('Kurz', (
+        Fact('Letzte Spiele', 'Boston Bruins', (sentence,)), Fact('Letzte Spiele', 'Letzte 5 Serien', (series,)),
+        Fact('Gegenargument', 'Gegenseite', ('Die Gegenseite gewann zuletzt öfter.',)),
+    ), (), (), 'Stand', (), False)
+    # The sentence RisikoBet shows is the line under the table and is not repeated in the drawer.
+    assert compact_form_lines(compact) == (sentence, series)
+    assert compact_analysis_lines(compact) == ('Gegenargument: Gegenseite', 'Die Gegenseite gewann zuletzt öfter.')
+    # Football and tennis have no such sentence: their lines come from the validated result rows.
+    football = CompactAnalysis('Kurz', (), (), (), 'Stand', _forms(), True)
+    assert compact_form_lines(football) == form_text_lines(_forms())
 
 
 def test_plain_markdown_keeps_names_and_results_literal():
@@ -220,7 +261,8 @@ def _render_one_game(monkeypatch, c):
 
 def test_game_card_details_follow_the_risikobet_order_without_result_tiles(monkeypatch):
     c = card()
-    c = replace(c, compact_analysis=replace(c.compact_analysis, forms=_forms(), football_goal_history=True))
+    c = replace(c, compact_analysis=replace(c.compact_analysis, forms=_forms(), football_goal_history=True,
+                                            warnings=('Außenseiter-Szenario', 'Ligavergleich nicht bestätigt')))
     recording = _render_one_game(monkeypatch, c)
     assert ('markdown', '## Spiele') in recording.event_log
     html = '\n'.join(text for text, _kwargs, _context in recording.markdown_calls)
@@ -235,12 +277,68 @@ def test_game_card_details_follow_the_risikobet_order_without_result_tiles(monke
     # One closed drawer per game, like „Analyse anzeigen“ on the RisikoBet page; the game itself stays open.
     assert recording.expanders == [('Analyse anzeigen', False)]
     assert recording.expander_keys[0].startswith('wettfinder_game_analysis_')
-    writes = [value for kind, value in recording.messages if kind == 'write']
-    assert any(value.startswith('Gegenrisiko: ') for value in writes)
-    assert any(value.startswith(r'Wales · 29.10.2026 · Gegner 1: 1:3 \(Niederlage') for value in writes)
+    # The drawer is one element with one paragraph per line (Streamlit builds closed drawers on every rerun).
+    drawer, = [text for text, _kwargs, context in recording.markdown_calls
+               if any(kind == 'expander' for kind, _label in context)]
+    paragraphs = drawer.split('\n\n')
+    assert paragraphs[0].startswith('Gegenrisiko: ')
+    assert any(line.startswith(r'Wales · 29.10.2026 · Gegner 1: 1:3 \(Niederlage') for line in paragraphs)
+    assert not [value for kind, value in recording.messages if kind == 'write']
+    # The RisikoBet detail order: table, result lines, visible warning, drawer. Internal notes stay out.
+    shown = [(kind, str(value)) for kind, value in recording.messages]
+
+    def position(kind, text):
+        return next(index for index, (k, v) in enumerate(shown) if k == kind and text in v)
+
+    assert (position('markdown', 'Multigoal') < position('caption', 'Wales:') < position('caption', 'Portugal:')
+            < position('caption', 'Außenseiter-Szenario') < position('markdown', 'Gegenrisiko: '))
+    assert not any('Ligavergleich' in value for _kind, value in shown)
     order = [kind if kind == 'expander' else 'table' for kind, value in recording.event_log
              if kind == 'expander' or kind == 'markdown' and 'Multigoal' in value]
     assert order == ['table', 'expander']
+
+
+def test_bookmark_stays_with_each_market_and_every_game_has_one_drawer(monkeypatch):
+    from types import SimpleNamespace
+    from wettfinder_surface import WettfinderCatalog
+    first, second, other = card(1, 'AWAY_OVER_2_5'), card(1), card(2, 'BTTS_YES')
+    recording = _RecordingStreamlit()
+    monkeypatch.setattr(app, 'st', recording)
+    calls = []
+    monkeypatch.setattr(app, '_automated_signal_candidate', lambda signal: signal)
+    monkeypatch.setattr(app, 'render_tip_bookmark', lambda candidate, *, key, source: calls.append(
+        (key, source, tuple(recording.context_stack))))
+    signal = SimpleNamespace(competition=None)
+    app._render_wettfinder_games(WettfinderCatalog((first,), (second, other), ()),
+                                 {c.key: (signal, c) for c in (first, second, other)}, sport_filter='Alle')
+    # „Tipp merken“ once per market, inside that market's own container, never in the drawer.
+    assert len(calls) == 3 and len({key for key, _source, _context in calls}) == 3
+    for _key, source, context in calls:
+        assert source == 'Wettfinder'
+        assert context[-1][0] == 'container' and str(context[-1][1]).startswith('wettfinder_v2_game_market_')
+        assert not any(kind == 'expander' for kind, _label in context)
+    # Two games, two closed drawers with their own keys; the game with two markets still has one.
+    assert recording.expanders == [('Analyse anzeigen', False)] * 2
+    assert len(set(recording.expander_keys)) == 2
+
+
+def test_tennis_card_shows_surface_and_records_only_and_single_results_in_the_drawer(monkeypatch):
+    from test_sports_editorial import NOW as EDITORIAL_NOW, editorial_tennis
+    from wettfinder_surface import build_wettfinder_card
+    c = build_wettfinder_card(editorial_tennis(), now=EDITORIAL_NOW)
+    assert len(c.compact_analysis.forms) == 2
+    recording = _render_one_game(monkeypatch, c)
+    html = '\n'.join(text for text, _kwargs, _context in recording.markdown_calls)
+    assert 'Multigoal' not in html and 'class="form-result' not in html
+    captions = [value for kind, value in recording.messages if kind == 'caption']
+    assert captions[0] == 'Belag: Sand'
+    records = [value for value in captions[1:] if 'Siege' in value]
+    # Like the RisikoBet tennis card: the record per player, no opponent list in the line.
+    assert len(records) == 2 and all('Gegner' not in value and '/10 Siege' in value for value in records)
+    assert recording.expanders == [('Analyse anzeigen', False)]
+    drawer, = [text for text, _kwargs, context in recording.markdown_calls
+               if any(kind == 'expander' for kind, _label in context)]
+    assert 'Tennisspieler 1' in drawer and 'Damaliger Weltrang: 20' in drawer
 
 
 def test_game_without_facts_or_results_gets_no_empty_drawer(monkeypatch):
@@ -272,10 +370,17 @@ def test_stylesheet_gives_the_wettfinder_the_risikobet_grid_and_detail_rules(mon
     app._apply_app_styles()
     css = next(text for text, _kwargs, _context in recording.markdown_calls if '<style>' in text)
     # RisikoBet keeps its grid; the Wettfinder gets the same rules under its own keys.
-    for risk, finder in (('.st-key-riskobet_featured_grid [data-testid="stColumn"]',
-                          '.st-key-wettfinder_game_grid [data-testid="stColumn"]'),
-                         ('[class*="st-key-riskobet_actions_"]', '[class*="st-key-wettfinder_game_details_"]')):
-        assert risk in css and finder in css
+    assert '.st-key-riskobet_featured_grid [data-testid="stColumn"]' in css
+    assert '.st-key-wettfinder_game_grid [data-testid="stColumn"]' in css
+    # The detail block has its own few rules; the RisikoBet action grid (two columns) is never copied onto
+    # table, lines and drawer.
+    assert '[class*="st-key-riskobet_actions_"] > [data-testid="stVerticalBlock"]' in css
+    assert '[class*="st-key-wettfinder_game_details_"] {' in css
+    assert '[class*="st-key-wettfinder_game_details_"] > [data-testid="stVerticalBlock"]' not in css
+    # No line above the first row of a card; the heading size only where two cards share the main column.
+    assert '[class*="st-key-wettfinder_game_row_"] > [class*="st-key-wettfinder_v2_game_market_"]:first-child' in css
+    import re
+    assert re.search(r'@media \(min-width: 761px\) \{\s*\.st-key-wettfinder_game_grid \.form-heading h4 \{', css)
     # The page layout's wide column gap must not push the second card of a row to the next line.
     assert ('.st-key-editorial_auto_layout .st-key-wettfinder_game_grid [data-testid="stHorizontalBlock"]'
             in css)
