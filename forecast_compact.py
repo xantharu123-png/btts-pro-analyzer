@@ -257,7 +257,8 @@ def compact_analysis_lines(compact):
     """
     form_labels = _form_fact_labels(compact)
     # A football market fact lists the games it counted as its details; the drawer lists every game once, below.
-    listed = tuple(f'{form.team} · ' for form in compact.forms if form_detail_lines((form,)))
+    listed = tuple(prefix for prefix in (f'{form.team} · ' for form in compact.forms)
+                   if any(line.startswith(prefix) for line in form_detail_lines(compact.forms)))
     lines = []
     for fact in compact.facts:
         # „Letzte Spiele“ with its sentence is already the line under the table (compact_form_lines).

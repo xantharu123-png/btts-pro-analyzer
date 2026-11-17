@@ -331,15 +331,18 @@ def form_text_lines(forms):
 
 
 def form_detail_lines(forms):
-    """Every known result as one plain line for the analysis drawer (what a tile showed on click)."""
+    """Every known result as one plain line for the analysis drawer (what a tile showed on click).
+
+    The scope line stands for every side with results, also when only a bare record is known (e-sport series):
+    the tiles named that scope too.
+    """
     lines = []
     for form in forms:
-        known = [r for r in form.results[:10] if _has_result_details(r)]
-        if not known:
+        if not form.results:
             continue
         if form.scope:
             lines.append(f'{form.team}: {form.scope}')
-        for r in known:
+        for r in (r for r in form.results[:10] if _has_result_details(r)):
             head = ' · '.join(x for x in (form.team, _date_label(r.date), r.opponent) if x)
             facts = [_OUTCOME_NAMES[r.outcome], r.venue, r.competition]
             if r.rank is not None:

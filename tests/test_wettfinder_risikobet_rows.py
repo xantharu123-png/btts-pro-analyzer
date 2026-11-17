@@ -241,6 +241,13 @@ def test_team_sport_lines_use_the_customer_sentence_of_the_risikobet_card():
     # Football and tennis have no such sentence: their lines come from the validated result rows.
     football = CompactAnalysis('Kurz', (), (), (), 'Stand', _forms(), True)
     assert compact_form_lines(football) == form_text_lines(_forms())
+    # E-sport knows only a bare series record. The drawer still names that scope, as the tiles did.
+    from sports_form import FormResult, TeamForm
+    series_form = TeamForm('Team A', 'Serien · erfasste Reihenfolge', tuple(FormResult('S') for _ in range(4)))
+    esport = CompactAnalysis('Kurz', (Fact('Letzte Spiele', 'Team A', ('Team A: 4/4 Siege',)),), (), (), 'Stand',
+                             (series_form,), False)
+    assert compact_form_lines(esport) == ('Team A: 4/4 Siege',)
+    assert compact_analysis_lines(esport) == ('Team A: Serien · erfasste Reihenfolge',)
 
 
 def test_plain_markdown_keeps_names_and_results_literal():

@@ -156,8 +156,9 @@ Beide Seiten live nebeneinander angesehen, bei 1280 px Breite und in der Handy-A
      - Fussball: „Wales: 1S · 0U · 4N (5) / 3S · 3U · 4N (10); Gegner (10): Norway 1:3; …“
        (`sports_form.form_text_lines`). Bei mehr als 600 Zeichen fällt die Gegnerliste auf fünf Spiele zurück.
      - Tennis: „Belag: …“ und je Spieler nur die Bilanz, „4/5 Siege · 6/10 Siege“, ohne Gegnerliste.
-     - Eishockey, Basketball und E-Sport: der Satz, den auch RisikoBet zeigt (er steht schon im Fakt
-       „Letzte Spiele“, zum Beispiel „…; zuletzt: S 3:2 gegen …“ oder „Letzte 5 Serien: …“).
+     - Eishockey und Basketball: der Satz aus dem Fakt „Letzte Spiele“, wie ihn auch RisikoBet zeigt, zum
+       Beispiel „Alpha: 4/5 Siege · 6/10 Siege; zuletzt: S 3:2 gegen …“.
+     - E-Sport: die Serienbilanz je Team. Dass es Serien in erfasster Reihenfolge sind, steht in der Schublade.
   3. Sichtbare Warnungen als graue Zeile.
   4. Die geschlossene Schublade „Analyse anzeigen“ (`forecast_compact.compact_analysis_lines`), ein Absatz je
      Zeile. Darin stehen Gegenrisiko, Basis, Gegenargument, Ausfälle und Aufstellung mit ihren Details und jedes
