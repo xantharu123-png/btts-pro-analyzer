@@ -126,6 +126,7 @@ Code, dann `PROJECT_HANDBUCH.md`, dann die Bibel. Historische Logs: `TODO_AKTUEL
   Ein Fehler in den Tipp-Belegen wird bis nach dem letzten Schreiben aufgehoben (Exit 1 bleibt, im Journal
   `tip_receipts` mit `failed_held` und `failed_raised`), ein Kill nie.
   Nichts für morgen und keinen Hintergrundschritt wieder vor das erste Schreiben legen.
+  Live seit 17.11.2026 13:44 CET als `d321d74` (Release 20261117-1); erster Nachtlauf damit am 18.11.2026.
 - **NHL-Nachtgrenze seit 15.11.2026** (`docs/audits/2026-11-15-nhl-spaetspiele.md`, Owner „Ja, reparieren“): Ein
   natives NHL-Spiel des Folgetags gehört zum laufenden Tag, wenn es höchstens 24 Stunden nach der Laufzeit beginnt,
   mindestens aber bis 06:00 Uhr Zürcher Zeit am Folgetag (`NHL_NIGHT_UNTIL`, `_nhl_horizon` in
