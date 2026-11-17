@@ -190,5 +190,32 @@ Fehler, fünf Testfälle zu den Grenzen des Schutzes und des Überspringens, Kor
    01:30, 02:00 oder 02:30 bekommt aus diesen Läufen keine Schlussquote; `recorded` 0 ist dann kein
    Fehler, das war schon vorher so. Spiele, die schon laufen, werden übersprungen und nicht gezählt.
 
-Release am besten bis Donnerstag, 19.11. abends: Dann ist die Nacht auf Freitag die Probe vor dem
-ersten vollen Liga-Wochenende.
+## Release (17.11.2026)
+
+Owner „Ja, mergen“ und „Ja, live stellen“: PR #137 gemergt, Release 20261117-1 als No-Backup-Fast-forward
+von `fb38329` auf `d321d74` um 13:44 CET. Beleg: `output/release-20261117-1/` (Helfer, Protokoll des Laufs).
+
+Vor dem Lauf:
+
+- Der Helfer unterscheidet sich vom zuletzt ausgeführten (Release 20261116-2) nur an den gewollten
+  Stellen: Kommentar, Ausgangsstand, Dateiliste (27 Dateien), zwei Module in der Importliste, 15 Prüfzeilen
+  zur neuen Reihenfolge. Keine Unit, keine Abhängigkeit, keine Migration.
+- Die Prüfzeilen laufen offline gegen den Zielstand durch. Auf dem alten Stand schlagen alle bis auf eine
+  fehl (die Zählung des ersten Schreibens stimmte schon vorher); sie belegen also den neuen Code.
+- Drei unabhängige Prüfer (Helfer, Schritte nach dem Fast-forward, Übergang alter Stand zu neuem Code):
+  kein Blocker, kein grösserer Befund. Die Leser des Dokuments sind zwischen altem und neuem Stand
+  unverändert; ein Dokument des alten Laufs wird vom neuen Code gelesen wie bisher.
+
+Nach dem Lauf: Server auf `d321d74`, Arbeitsbaum sauber, App neu gestartet, Health lokal und öffentlich
+ok, alle sieben Timer aktiv, die veröffentlichten Dokumente unverändert (Prüfsummen vor und nach dem Lauf
+gleich), die Live-Seite zeigt die Tipps von heute.
+
+Wirksam: für die Quotenläufe ab 17.11. 15:15 (laufende Spiele werden übersprungen), für den Nachtlauf ab
+Mittwoch, 18.11. 03:35. Bis dahin steht das Dokument des alten Nachtlaufs.
+
+Vergleichswert alte Reihenfolge, Nacht auf den 17.11. (ruhiger Dienstag, Exit 0): Start 03:35:31,
+`football_discovery` 74 s, `football_discovery_next_day` 71 s (bis 03:37:59), `football_appearances`
+358 s (03:43:17 bis 03:49:15), erstes und einziges Schreiben 03:49:15, Tipp-Belege 03:49:16, Ende 03:49:17.
+
+Für einen späteren Helfer: Die Prüfzeile zum Live-Dokument (höchstens fünf 15K-Zeilen) prüft Daten, nicht
+Code, und steht nach dem Fast-forward. Sie gehört davor.
