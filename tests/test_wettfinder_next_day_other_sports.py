@@ -452,3 +452,43 @@ def test_default_basketball_tomorrow_includes_tonights_north_american_games(monk
 
     assert windows == [("All", target, target + timedelta(days=1))]
     assert {snapshot.starts_at for snapshot in batch.snapshots} == {starts["tonight"], starts["tomorrow"]}
+
+
+def test_other_sports_tomorrow_is_in_the_first_write_and_stays_behind_football(tmp_path, monkeypatch):
+    # Audit H5 (16.11.2026): today is published before football's next day is searched.
+    # Tomorrow's other sports are already loaded then, so the first file lists them; football's
+    # next day is inserted in front of them, which keeps the stored order of before.
+    import copy
+
+    writes = []
+    real_write = automation.write_state
+
+    def recording_write(document, path):
+        writes.append(copy.deepcopy(document))
+        return real_write(document, path)
+
+    monkeypatch.setattr(automation, "write_state", recording_write)
+
+    artifact, document = _run(tmp_path, football_next_day=True)
+
+    first, second = writes
+    assert second == document
+    assert "esports-2" in _keys(first["model_candidates"])
+    assert first["next_day_search_date"] == "2030-01-02" and "football_next_day" not in first
+    assert 2 not in {row.get("fixture_id") for row in first["model_candidates"]}
+    assert first["sources"]["football"]["next_day"]["status"] == "pending"
+    assert first["sources"]["esports"]["next_day"]["status"] == "listed"
+    assert _rewrite(artifact.with_name("first.json"), first) is not None
+    forecasts = automated_wettfinder_forecasts(artifact.with_name("first.json"), now=NOW)
+    assert {signal.key for signal in forecasts if listed_next_day_signal(signal, now=NOW)} == {"esports-2"}
+
+    order = [row["key"] for row in document["model_candidates"]]
+    football_tomorrow = [row["key"] for row in document["model_candidates"] if row.get("fixture_id") == 2]
+    assert football_tomorrow and max(map(order.index, football_tomorrow)) < order.index("esports-2")
+    today_rows = [key for key in order if key not in football_tomorrow and key != "esports-2"]
+    assert order == [*today_rows, *football_tomorrow, "esports-2"]
+    # Without football's rows the second file lists exactly what the first one listed.
+    assert [row for row in document["model_candidates"] if row.get("fixture_id") != 2] == first["model_candidates"]
+    forecasts = automated_wettfinder_forecasts(artifact, now=NOW)
+    assert {signal.key for signal in forecasts if listed_next_day_signal(signal, now=NOW)} == {
+        *football_tomorrow, "esports-2"}

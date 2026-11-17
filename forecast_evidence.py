@@ -426,6 +426,16 @@ def record_current_closing_quotes(document: Mapping, *, db_path: str | Path, mod
         if not isinstance(row, Mapping) or row.get("reference_quote") is None:
             continue
         try:
+            started = _utc(row.get("scheduled_start") or row.get("starts_at")) <= recorded_at
+        except (TypeError, ValueError):
+            started = False
+        if started:
+            # A game that has kicked off can no longer get a closing price (the capture
+            # below needs recorded_at < start). It is no rejection either: with a document
+            # decision clock later than generated_at (night run, 16.11.2026) this covers
+            # today's games that started between the two clocks.
+            continue
+        try:
             normalized.append((_normalize_row(row, decision, model, policy), row["reference_quote"]))
         except (TypeError, ValueError):
             rejected += 1

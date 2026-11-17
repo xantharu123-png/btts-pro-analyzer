@@ -72,11 +72,18 @@ def test_unavailable_diagnostic_stream_does_not_mask_work_exception(monkeypatch)
     assert caught.value is failure
 
 
-def test_production_stages_preserve_document_order_and_private_callbacks(tmp_path, monkeypatch, capsys):
-    """Exercise the real production-path gate without shared data or providers."""
+@pytest.mark.parametrize('death', [None, SystemExit])
+def test_production_stages_preserve_document_order_and_private_callbacks(tmp_path, monkeypatch, capsys, death):
+    """Exercise the real production-path gate without shared data or providers.
+
+    Audit H5 (16.11.2026): today is published with its tip receipts before tomorrow is
+    searched; the background batch runs last. ``death`` stands in for the 60-minute kill
+    during the search for tomorrow: today's file and receipts must already exist.
+    """
     from contextlib import nullcontext
     from copy import deepcopy
-    from datetime import datetime, timezone
+    from dataclasses import replace
+    from datetime import datetime, timedelta, timezone
 
     from config_loader import AppConfig
     from test_wettfinder_automation import _football_snapshot
@@ -103,8 +110,17 @@ def test_production_stages_preserve_document_order_and_private_callbacks(tmp_pat
 
     def scanner(day):
         calls.append('football_discovery')
-        assert day == now.date()
         snapshot = _football_snapshot(now)
+        if day != now.date():
+            assert day == now.date() + timedelta(days=1)
+            if death is not None:
+                raise death('private-provider-token')
+            kickoff = '2030-01-02T15:00:00+00:00'
+            original = snapshot['shortlist'][0]
+            candidate = replace(original, candidate_id='fixture-2-btts', fixture_id=2, kickoff=kickoff)
+            candidate.context = dict(original.context)
+            snapshot.update(shortlist=[candidate], context_fixture_statuses={'2': 'verified'},
+                            fixture_kickoffs=[kickoff])
         snapshot['discovery_candidates'] = list(snapshot['shortlist'])
         return snapshot
 
@@ -202,17 +218,33 @@ def test_production_stages_preserve_document_order_and_private_callbacks(tmp_pat
                             else lambda _name, callback, *args, **kwargs: callback(*args, **kwargs))
         calls.clear()
         context_done = False
-        document = worker.run_wettfinder(
-            now=now, state_path=path, config=config, force_football=True,
-            football_scanner=scanner, football_context_refresher=context_refresh,
-            football_quote_loader=lambda _rows: ({}, []), tennis_quote_loader=lambda _rows: ({}, []),
-            tennis_loader=lambda **_kwargs: [], esports_loader=lambda **_kwargs: [],
-            tennis_model_refresher=tennis_refresh, riskobet_enabled=True,
-            riskobet_runner=risk_models, riskobet_settlement_runner=risk_results,
-            riskobet_db_path=private_risk, riskobet_latest_path=private_risk_latest,
-            evidence_db_path=private_evidence, evidence_settlement_runner=forecast_results,
-            esports_settlement_runner=esports_results,
-        )
+
+        def run():
+            return worker.run_wettfinder(
+                now=now, state_path=path, config=config, force_football=True,
+                football_scanner=scanner, football_context_refresher=context_refresh,
+                football_quote_loader=lambda _rows: ({}, []), tennis_quote_loader=lambda _rows: ({}, []),
+                tennis_loader=lambda **_kwargs: [], esports_loader=lambda **_kwargs: [],
+                tennis_model_refresher=tennis_refresh, riskobet_enabled=True,
+                riskobet_runner=risk_models, riskobet_settlement_runner=risk_results,
+                riskobet_db_path=private_risk, riskobet_latest_path=private_risk_latest,
+                evidence_db_path=private_evidence, evidence_settlement_runner=forecast_results,
+                esports_settlement_runner=esports_results,
+            )
+
+        if death is not None:
+            with pytest.raises(death):
+                run()
+            today_file = json.loads(path.read_text(encoding='utf-8'))
+            assert today_file['sources']['football']['next_day'] == {
+                'search_date': '2030-01-02', 'status': 'pending', 'today_games': 1}
+            assert {row['fixture_id'] for row in today_file['model_candidates']} == {1}
+            assert today_file['run_status'] == 'completed'
+            assert 'football_context_history' not in today_file
+            callbacks.append(tuple(calls))
+            captures.append(capsys.readouterr())
+            continue
+        document = run()
         assert json.loads(path.read_text(encoding='utf-8')) == json.loads(json.dumps(document))
         assert document['operational_error_count'] == 0
         assert 'wettfinder_stage' not in json.dumps(document)
@@ -220,16 +252,32 @@ def test_production_stages_preserve_document_order_and_private_callbacks(tmp_pat
         callbacks.append(tuple(calls))
         captures.append(capsys.readouterr())
 
-    assert documents[0] == documents[1]
-    expected = ('football_discovery', 'football_context', 'tennis_refresh', 'riskobet_sources',
-                'riskobet_results', 'riskobet_models', 'esports_results', 'forecast_recording',
-                'forecast_results', 'football_appearances', 'forecast_publication', 'tip_receipts')
-    assert callbacks == [expected, expected]
+    today = ('football_discovery', 'football_context', 'tennis_refresh', 'riskobet_sources',
+             'riskobet_results', 'riskobet_models', 'esports_results', 'forecast_recording',
+             'forecast_results', 'forecast_publication', 'tip_receipts')
     assert captures[0].out == captures[1].out == captures[1].err == ''
     records = [json.loads(line) for line in captures[0].err.splitlines()]
-    assert [(row['stage'], row['phase']) for row in records] == [
-        (stage, phase) for stage in expected for phase in ('started', 'completed')]
-    assert all(row['elapsed_seconds'] >= 0 for row in records if row['phase'] == 'completed')
+    logged = [(row['stage'], row['phase']) for row in records]
+    assert all(row['elapsed_seconds'] >= 0 for row in records if row['phase'] != 'started')
+    if death is not None:
+        # Today and its receipts are done; nothing after the dying search ran.
+        expected = (*today, 'football_discovery')
+        assert callbacks == [expected, expected]
+        assert logged == [
+            *((stage, phase) for stage in today for phase in ('started', 'completed')),
+            ('football_discovery_next_day', 'started'), ('football_discovery_next_day', 'failed')]
+        assert 'private-provider-token' not in captures[0].err
+        return
+    assert documents[0] == documents[1]
+    assert {row['fixture_id'] for row in documents[0]['model_candidates']} == {1, 2}
+    assert documents[0]['sources']['football']['next_day']['status'] == 'listed'
+    # Three writes: today, tomorrow, the background report. Receipts once, right after today.
+    expected = (*today, 'football_discovery', 'forecast_publication', 'football_appearances',
+                'forecast_publication')
+    assert callbacks == [expected, expected]
+    assert logged == [(stage, phase) for stage in (
+        *today, 'football_discovery_next_day', 'forecast_publication_next_day', 'football_appearances',
+        'forecast_publication_final') for phase in ('started', 'completed')]
     assert config.api_football_key not in captures[0].err
     assert not any(path.exists() for path in (
         private_tennis, private_esports, private_evidence, private_risk, private_risk_latest))
