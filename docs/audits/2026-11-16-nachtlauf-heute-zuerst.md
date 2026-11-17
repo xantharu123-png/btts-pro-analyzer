@@ -80,14 +80,16 @@ Erwartungen bleiben gleich.
 - Tipp-Belege laufen einmal je Lauf, direkt nach dem ersten Schreiben. Ein Fehler, den sie nicht selbst
   abfangen, endete bisher nach dem letzten Schreiben mit Exit 1. Das bleibt so: Der Fehler wird
   aufgehoben, morgen, Nachtspiel-Evidenz und Hintergrundschritt laufen noch, danach Exit 1 und Alarm.
-  Ein Abbruch (Kill) wird nie aufgehoben.
+  Ein Abbruch (Kill) wird nie aufgehoben. Im Journal nennen zwei Zeilen der Stufe `tip_receipts` den
+  Schritt und den Fehlertyp (Phasen `failed_held` und `failed_raised`). Die zweite steht direkt vor der
+  Fehlermeldung, weil der Alarm nur die letzten Journalzeilen zitiert.
 - Ein Lauf ohne Folgetag schreibt wie bisher einmal (in Produktion zweimal, wegen des Hintergrundberichts).
 - Sperre gegen den Quotenlauf, Exit-Code aus dem letzten Dokument, systemd-Einheiten: unverändert.
 
 ## Tests
 
-Neu in `tests/test_wettfinder_next_day.py` (23), `tests/test_wettfinder_next_day_other_sports.py` (1),
-`tests/test_forecast_evidence.py` (1), umgestellt in `tests/test_wettfinder_stage_diagnostics.py` (der
+Neu in `tests/test_wettfinder_next_day.py` (27), `tests/test_wettfinder_next_day_other_sports.py` (1),
+`tests/test_forecast_evidence.py` (2), umgestellt in `tests/test_wettfinder_stage_diagnostics.py` (der
 Reihenfolge-Test war seit dem Folgetag rot):
 
 - Abbruch in der Suche für morgen, in der Preisprüfung für morgen und ein Programmierfehler: Die Datei
@@ -100,16 +102,20 @@ Reihenfolge-Test war seit dem Folgetag rot):
   Suche heute unvollständig) ist mit Belegen öffentlich, bevor der Hintergrundschritt läuft. Ein Lauf
   mit laufender Uhr schreibt drei Dateien mit derselben Uhr `generated_at`; der Leser nimmt jede an und
   listet für morgen 0, 2 und 2 Zeilen.
-- Fehlerpfade: Ein Fehler in den Tipp-Belegen kostet morgen nicht und bleibt laut. Ein Kill in den
-  Belegen beendet den Lauf sofort. Ein Fehler im Hintergrundschritt stuft nur die letzte Datei herab.
+- Fehlerpfade: Ein Fehler in den Tipp-Belegen kostet morgen nicht und bleibt laut: Genau dieser Fehler
+  kommt am Schluss an, auch nach einem Fehler im Hintergrundschritt und auch, wenn schon der Import
+  scheitert. Ein Kill in den Belegen beendet den Lauf sofort. Ein Fehler im Hintergrundschritt stuft nur
+  die letzte Datei herab. Scheitert das erste Schreiben, wird für morgen nichts mehr gesucht.
 - Uhren ohne Zeilen für morgen: kein `decision_at`, dieselbe Uhr `generated_at`. Morgen ohne
   Preisprüfung: `decision_at` liegt trotzdem hinter den Modelluhren, das Nachtspiel ist Evidenz. Nach
   einer langsamen Veröffentlichung trägt die Suche für morgen die Uhr nach dem Schreiben.
-- Ein Spiel von heute im Fenster zwischen den beiden Uhren: im späteren Quotenlauf `rejected` 0.
+- Ein Spiel von heute im Fenster zwischen den beiden Uhren: im späteren Quotenlauf `rejected` 0. Ein
+  unlesbarer Anstoss zählt weiter als `rejected`; massgebend ist die Uhr des Quotenlaufs, nicht die des
+  Dokuments.
 - Gegenproben: 54 gezielt eingebaute Fehler im Schlussteil des Laufs (Reihenfolge, Schreiben, Belege,
-  Uhren, Fehlerpfade) lassen unter beiden Preisregeln je mindestens einen Test fehlschlagen. Vor der
-  Gegenprüfung überlebten 11 davon. Der Test in `tests/test_forecast_evidence.py` schlägt mit dem alten
-  Stand von `forecast_evidence.py` fehl.
+  Uhren, Fehlerpfade) lassen unter beiden Preisregeln je mindestens einen Test fehlschlagen. Mit den
+  Tests vor der Gegenprüfung überlebten 16 davon. Nach der zweiten Prüfrunde kamen 18 weitere dazu
+  (Schutz der Tipp-Belege, Überspringen in `forecast_evidence.py`); auch sie werden alle gefangen.
 
 Die drei Dateien zum Nachtlauf laufen neu auch in der CI unter beiden Preisregeln,
 `tests/test_forecast_evidence.py` in der schnellen Teilmenge (`.github/workflows/tests.yml`).
@@ -130,8 +136,18 @@ Behoben:
   Grenzen von `decision_at` und Preisuhr, beide Neulesungen der Uhr.
 
 Nicht behoben, weil selten oder schon vorher so: siehe die Punkte zum Wiederholungslauf und zum ersten
-Schreiben im nächsten Abschnitt. Rein rechnerisch gilt die Obergrenze der gespeicherten Zeilen nicht mehr
-für Fussball morgen und die anderen Sportarten morgen zusammen; das bräuchte über 109'000 Fussballzeilen.
+Schreiben im nächsten Abschnitt. Rein rechnerisch gilt die Obergrenze der gespeicherten Zeilen (112'800)
+nicht mehr für Fussball morgen und die anderen Sportarten morgen zusammen. Überschritten würde sie erst
+mit über 108'000 Fussballzeilen für heute und morgen zusammen; ab dieser Zahl verwirft der Leser das
+Dokument ohnehin, wie schon auf dem Hauptstand.
+
+Zweite Runde (17.11.2026) auf dem Korrektur-Commit, drei Prüfer mit Nachprüfern: wieder kein Befund am
+Verhalten. Eine Zufallsprobe mit 34'688 Läufen gegen den alten und den neuen Stand von
+`record_current_closing_quotes` ergab dieselbe Datenbank und denselben Bericht bis auf `rejected`. In
+434 Läufen brach nur der alte Stand ab: Dokumente mit unmöglichen Werten (Jahr 1 mit Zeitzone, Zahl mit
+400 Stellen) bei einem Spiel, das schon läuft. Nachgezogen: die zwei Journalzeilen zum aufgehobenen
+Fehler, fünf Testfälle zu den Grenzen des Schutzes und des Überspringens, Korrekturen an dieser Doku
+(Prüfpunkt 6, Zahl der überlebenden Fehler, Zeilengrenze).
 
 ## Was damit nicht gelöst ist
 
@@ -167,8 +183,12 @@ für Fussball morgen und die anderen Sportarten morgen zusammen; das bräuchte �
    fehlen `decision_at` und der Nachtspiel-Block zu Recht.
 4. Die App zeigt die Fussballspiele von morgen.
 5. `MemoryPeak` der Einheit.
-6. `closing_evidence` der Quotenläufe um 00:15 und 03:15: Nachtspiele gespeichert (`recorded` über 0),
-   `rejected` 0. Spiele, die schon laufen, werden übersprungen und nicht gezählt.
+6. `closing_evidence` der Quotenläufe, erst **nach** dem ersten neuen Nachtlauf (tagsüber ab 06:15; für
+   die Nachtspiele die Läufe 00:15 und 03:15 der Nacht danach, die Läufe davor lesen noch das alte
+   Dokument): `rejected` 0. `recorded` ist nur über 0, wenn ein Spiel mit Referenzquote in der Stunde
+   nach dem Quotenlauf beginnt (Anstoss etwa 00:16 bis 01:15 oder 03:16 bis 04:15). Ein Nachtspiel um
+   01:30, 02:00 oder 02:30 bekommt aus diesen Läufen keine Schlussquote; `recorded` 0 ist dann kein
+   Fehler, das war schon vorher so. Spiele, die schon laufen, werden übersprungen und nicht gezählt.
 
 Release am besten bis Donnerstag, 19.11. abends: Dann ist die Nacht auf Freitag die Probe vor dem
 ersten vollen Liga-Wochenende.

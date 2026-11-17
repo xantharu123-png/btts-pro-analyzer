@@ -785,7 +785,7 @@ PUBLICATION_STAGES = ("forecast_publication", "tip_receipts", "football_discover
 
 
 def _production_run(tmp_path, monkeypatch, *, scanner, clock=None, receipt_error=None, background_error=None,
-                    raises=None, **changes):
+                    receipts_missing=False, first_write_error=None, raises=None, **changes):
     """The private production path (``STATE_PATH``) with recorded stages, writes and receipts."""
     import copy
     from contextlib import nullcontext
@@ -799,7 +799,7 @@ def _production_run(tmp_path, monkeypatch, *, scanner, clock=None, receipt_error
     path = tmp_path / "prod.json"
     instant = (lambda: clock[0]) if clock else (lambda: NOW)
     run = SimpleNamespace(path=path, evidence=tmp_path / "evidence.db", stages=[], writes=[], write_times=[],
-                          receipts=[], document=None)
+                          receipts=[], document=None, error=None)
     monkeypatch.setattr(automation, "TENNIS_DB", tmp_path / "tennis.db")
     monkeypatch.setattr(automation, "ESPORTS_DB", tmp_path / "esports.db")
     monkeypatch.setattr(automation, "load_app_config", lambda: config)
@@ -817,6 +817,8 @@ def _production_run(tmp_path, monkeypatch, *, scanner, clock=None, receipt_error
     def write(document, target):
         run.writes.append(copy.deepcopy(document))
         run.write_times.append(instant())
+        if first_write_error is not None and len(run.writes) == 1:
+            raise first_write_error
         return real_write(document, target)
 
     def receipt(target):
@@ -838,7 +840,10 @@ def _production_run(tmp_path, monkeypatch, *, scanner, clock=None, receipt_error
 
     monkeypatch.setattr(automation, "_logged_stage", logged)
     monkeypatch.setattr(automation, "write_state", write)
-    monkeypatch.setattr(tip_publication, "record_automatic_publication", receipt)
+    if receipts_missing:
+        monkeypatch.delattr(tip_publication, "record_automatic_publication")
+    else:
+        monkeypatch.setattr(tip_publication, "record_automatic_publication", receipt)
     monkeypatch.setattr(appearances, "refresh_football_appearances", background)
     options = dict(
         state_path=path, config=config, force_football=True, football_scanner=scanner,
@@ -855,10 +860,22 @@ def _production_run(tmp_path, monkeypatch, *, scanner, clock=None, receipt_error
     if raises is None:
         run.document = automation.run_wettfinder(**options)
     else:
-        with pytest.raises(raises):
+        with pytest.raises(raises) as caught:
             automation.run_wettfinder(**options)
-    run.on_disk = json.loads(path.read_text(encoding="utf-8"))
+        run.error = caught.value
+    run.on_disk = json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
     return run
+
+
+class ReceiptsBroke(Exception):
+    """An error the receipts do not catch themselves (they catch OS, database and value errors)."""
+
+
+def _receipt_notes(captured):
+    """The journal lines that name a held receipts error: (phase, error type)."""
+    rows = [json.loads(line) for line in captured.err.splitlines() if line.startswith("{")]
+    return [(row["phase"], row.get("error_type")) for row in rows
+            if row.get("stage") == "tip_receipts" and row["phase"].startswith("failed_")], rows
 
 
 @pytest.mark.parametrize("why", ["not_asked", "today_failed", "today_partial"])
@@ -924,12 +941,19 @@ def test_production_run_on_a_running_clock_keeps_all_three_files_readable(tmp_pa
 
 
 @pytest.mark.parametrize("due", [True, False])
-def test_receipts_error_stays_loud_but_does_not_cost_tomorrow(tmp_path, monkeypatch, due):
+def test_receipts_error_stays_loud_but_does_not_cost_tomorrow(tmp_path, monkeypatch, capsys, due):
     # The receipts catch their own provider and database errors. Anything else used to end the
     # run after its last write; it still does, and tomorrow and the background batch still happen.
-    run = _production_run(tmp_path, monkeypatch, scanner=_scanner([]), receipt_error=RuntimeError("receipts"),
-                          raises=RuntimeError, football_next_day=due)
+    error = ReceiptsBroke("private text")
+    run = _production_run(tmp_path, monkeypatch, scanner=_scanner([]), receipt_error=error,
+                          raises=ReceiptsBroke, football_next_day=due)
 
+    assert run.error is error
+    # The journal names the step when the error is held and again right before it is raised:
+    # the alarm quotes only the last lines. Type only, never the message.
+    notes, rows = _receipt_notes(capsys.readouterr())
+    assert notes == [("failed_held", "ReceiptsBroke"), ("failed_raised", "ReceiptsBroke")]
+    assert rows[-1]["phase"] == "failed_raised" and "private text" not in json.dumps(rows)
     assert len(run.receipts) == 1
     assert run.stages[-2:] == ["football_appearances", "forecast_publication_final"]
     assert run.on_disk["football_context_history"] == {"status": "completed", "requested_count": 0}
@@ -942,14 +966,47 @@ def test_receipts_error_stays_loud_but_does_not_cost_tomorrow(tmp_path, monkeypa
         assert _fixture_ids(run.on_disk["model_candidates"]) == {1}
 
 
-def test_kill_during_the_receipts_ends_the_run_at_once(tmp_path, monkeypatch):
+def test_missing_receipts_function_is_held_like_any_other_error(tmp_path, monkeypatch, capsys):
+    # The lazy import itself fails (a broken deploy): no stage line exists, the note still does.
+    run = _production_run(tmp_path, monkeypatch, scanner=_scanner([]), receipts_missing=True,
+                          raises=ImportError)
+
+    assert len(run.writes) == 3 and "tip_receipts" not in run.stages
+    assert run.on_disk["sources"]["football"]["next_day"]["status"] == "listed"
+    notes, _rows = _receipt_notes(capsys.readouterr())
+    assert notes == [("failed_held", "ImportError"), ("failed_raised", "ImportError")]
+
+
+def test_receipts_error_is_raised_also_after_a_failed_background_batch(tmp_path, monkeypatch):
+    error = ReceiptsBroke("receipts")
+    run = _production_run(tmp_path, monkeypatch, scanner=_scanner([]), receipt_error=error,
+                          background_error=RuntimeError("batch"), raises=ReceiptsBroke)
+
+    assert run.error is error and len(run.writes) == 3
+    assert run.on_disk["run_status"] == "degraded" and run.on_disk["operational_error_count"] == 1
+
+
+@pytest.mark.parametrize("kill", [KeyboardInterrupt, SystemExit])
+def test_kill_during_the_receipts_ends_the_run_at_once(tmp_path, monkeypatch, kill):
     # Only an ordinary error is carried to the end; a kill is never held back.
-    run = _production_run(tmp_path, monkeypatch, scanner=_scanner([]),
-                          receipt_error=KeyboardInterrupt("kill"), raises=KeyboardInterrupt)
+    run = _production_run(tmp_path, monkeypatch, scanner=_scanner([]), receipt_error=kill("kill"), raises=kill)
 
     assert run.stages == ["forecast_publication", "tip_receipts"] and len(run.writes) == 1
     assert _fixture_ids(run.on_disk["model_candidates"]) == {1}
     assert run.on_disk["sources"]["football"]["next_day"] == PENDING
+
+
+def test_failed_first_write_ends_the_run_before_tomorrow(tmp_path, monkeypatch):
+    # Only the receipts are guarded. A file that cannot be written stays an immediate failure:
+    # nothing is searched for tomorrow on top of a day that is not public.
+    scans = []
+    error = OSError("disk")
+    run = _production_run(tmp_path, monkeypatch, scanner=_scanner(scans), first_write_error=error,
+                          raises=OSError)
+
+    assert run.error is error
+    assert scans == [TODAY] and run.stages == ["forecast_publication"]
+    assert run.receipts == [] and run.on_disk is None
 
 
 def test_failed_background_batch_degrades_only_the_last_file(tmp_path, monkeypatch):

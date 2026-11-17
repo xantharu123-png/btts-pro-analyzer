@@ -179,6 +179,19 @@ def _logged_stage(stage, callback, *args, **kwargs):
     return result
 
 
+def _log_held_receipts_failure(exc, phase):
+    """Name the tip-receipts step in the journal when its error is held or raised late.
+
+    The error is raised only after the last write, far below its own stage line; the
+    alarm quotes just the last journal lines. Type only, never the message.
+    """
+    try:
+        print(json.dumps({'diagnostic': 'wettfinder_stage', 'stage': 'tip_receipts', 'phase': phase,
+                          'error_type': type(exc).__name__}), file=sys.stderr, flush=True)
+    except Exception:
+        pass
+
+
 @dataclass(frozen=True)
 class FootballDueDecision:
     due: bool
@@ -5137,6 +5150,7 @@ def run_wettfinder(
                 stage('tip_receipts', record_automatic_publication, state_path)
             except Exception as exc:
                 receipt_failures.append(exc)
+                _log_held_receipts_failure(exc, 'failed_held')
 
     if football_next_day_due:
         # Audit H5 (16.11.2026): today is public, with its tip receipts, before tomorrow
@@ -5309,6 +5323,7 @@ def run_wettfinder(
             document["operational_error_count"] += 1
         stage('forecast_publication_final', write_state, document, state_path)
     if receipt_failures:
+        _log_held_receipts_failure(receipt_failures[0], 'failed_raised')
         raise receipt_failures[0]
     return document
 

@@ -77,6 +77,30 @@ def test_price_only_run_skips_a_started_game_instead_of_rejecting_it(db, monkeyp
         model_version='model-v1')['rejected'] == 1
 
 
+def test_price_only_skip_looks_at_the_kickoff_and_the_run_clock_only(db, monkeypatch):
+    row = candidate()
+    row['reference_quote'] = quote(row).to_dict()
+    evidence.record_forecast_run(document([row]), db, 'model-v1')
+
+    def report(rows, at, **extra):
+        monkeypatch.setattr(evidence, '_now', lambda: at)
+        return evidence.record_current_closing_quotes({**document(rows), **extra}, db_path=db,
+                                                      model_version='model-v1')
+
+    # A kickoff that cannot be read is no started game: it still counts, at any hour.
+    unreadable = [{**row, 'fixture_id': 10+index, 'scheduled_start': start}
+                  for index, start in enumerate(('x', START.replace(tzinfo=None).isoformat(), None))]
+    assert report(unreadable, START+timedelta(days=2)) == {'status': 'completed', 'recorded': 0, 'rejected': 3}
+    # The limit is the kickoff itself, also when only ``starts_at`` carries it.
+    other_key = {key: value for key, value in row.items() if key != 'scheduled_start'}
+    other_key['starts_at'] = START.isoformat()
+    assert report([row, other_key], START, decision_at=START.isoformat())['rejected'] == 0
+    # The clock is the run, not the document: a broken row of a running game no longer counts.
+    broken = {**row, 'probability': 'x'}
+    assert report([broken], START+timedelta(minutes=5))['rejected'] == 0
+    assert report([broken], START-timedelta(minutes=5))['rejected'] == 1
+
+
 def test_price_only_missing_evidence_is_not_created(db):
     assert evidence.record_current_closing_quotes({}, db_path=db, model_version='model-v1')['status'] == 'no_existing_forecasts'
     assert not db.exists()
