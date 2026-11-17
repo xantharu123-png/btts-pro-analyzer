@@ -51,6 +51,7 @@ jobs:
           tests/test_market_benchmark.py
           tests/test_football_dixon_coles.py
           tests/test_football_joint_calibration.py
+          tests/test_forecast_evidence.py
           tests/test_model_loss_statistics.py
           tests/test_price_floor_policy.py
           tests/test_requirements_lock.py
@@ -89,6 +90,9 @@ jobs:
           python -m pytest
           tests/test_ev_signal_sources.py
           tests/test_wettfinder_automation.py
+          tests/test_wettfinder_next_day.py
+          tests/test_wettfinder_next_day_other_sports.py
+          tests/test_wettfinder_stage_diagnostics.py
           tests/test_wettfinder_surface.py
           tests/test_wettfinder_statistical_leads.py
           tests/test_tip_publication.py
