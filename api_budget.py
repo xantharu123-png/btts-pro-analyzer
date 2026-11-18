@@ -233,6 +233,35 @@ class APIBudgetGovernor:
         day = current.astimezone(timezone.utc).date()
         return (day.replace(day=1) if self.quota_period == "month" else day).isoformat()
 
+    def recent_request_count(
+        self,
+        *,
+        api_key: str,
+        provider: str,
+        seconds: float,
+        now: Optional[datetime] = None,
+    ) -> int:
+        """Requests of one provider and account started within the last ``seconds`` (owner 18.11.2026).
+
+        Read only, across every process that shares the ledger. A blocked reservation was never sent and does
+        not count. Callers use it to stay below a provider's limit per minute, which the daily quota cannot see.
+        """
+        account = _account_hash(api_key)
+        current = (now or _utc_now()).astimezone(timezone.utc)
+        since = current - timedelta(seconds=seconds)
+        try:
+            with closing(self._connect()) as connection:
+                row = connection.execute(
+                    "SELECT COUNT(*) FROM api_budget_events WHERE provider = ? AND account_hash = ? "
+                    "AND started_at >= ? AND started_at <= ? AND decision != 'BLOCKED'",
+                    (provider, account, since.isoformat(), current.isoformat()),
+                ).fetchone()
+        except sqlite3.Error as exc:
+            raise APIBudgetUnavailable(
+                f"Shared API budget ledger is unavailable: {type(exc).__name__}"
+            ) from exc
+        return int(row[0]) if row else 0
+
     def reserve(
         self,
         *,

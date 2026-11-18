@@ -2553,6 +2553,20 @@ def _finish_football_joint_capture(snapshot, capture, publication):
     )
 
 
+def _worker_football_provider(api_key, weather_key):
+    """The football provider of a background run: it waits once after a provider rate limit and asks again.
+
+    Owner 18.11.2026 („Ja, reparieren“): on that night HTTP 429 answers of about 20 s cost the search for
+    tomorrow 34 of 66 leagues (``challenge_15k.RATE_LIMIT_RETRY_DELAY_SECONDS``). App pages keep the plain
+    provider and never wait. A test double without the switch is returned as it is.
+    """
+    provider = ChallengeDataProvider(api_key, weather_key)
+    enable = getattr(provider, "enable_rate_limit_retry", None)
+    if callable(enable):
+        enable()
+    return provider
+
+
 def _default_football_scan(
     search_date: date,
     config: AppConfig,
@@ -2562,7 +2576,7 @@ def _default_football_scan(
 ) -> dict[str, Any]:
     if not config.api_football_key:
         raise RuntimeError("API_FOOTBALL_KEY is not configured")
-    provider = ChallengeDataProvider(
+    provider = _worker_football_provider(
         config.api_football_key,
         config.weather_key,
     )
@@ -2599,7 +2613,7 @@ def _default_football_context_refresh(
 ) -> dict[str, Any]:
     if not config.api_football_key:
         raise RuntimeError("API_FOOTBALL_KEY is not configured")
-    provider = ChallengeDataProvider(
+    provider = _worker_football_provider(
         config.api_football_key,
         config.weather_key,
     )
@@ -5312,7 +5326,7 @@ def run_wettfinder(
         try:
             app_config = config or load_app_config()
             if app_config.api_football_key:
-                appearance_provider = ChallengeDataProvider(app_config.api_football_key, app_config.weather_key)
+                appearance_provider = _worker_football_provider(app_config.api_football_key, app_config.weather_key)
                 document["football_context_history"] = stage('football_appearances', refresh_football_appearances,
                     appearance_provider, now=current if fixed_now else None)
             else:
@@ -5822,7 +5836,7 @@ def _settle_forecast_evidence(evidence_path, *, config=None, now=None, runner=No
     provider = None
     if production:
         app_config = config or load_app_config()
-        provider = ChallengeDataProvider(app_config.api_football_key or "", app_config.weather_key)
+        provider = _worker_football_provider(app_config.api_football_key or "", app_config.weather_key)
     with (capture_football_worker(provider) if provider is not None else nullcontext()) as result_capture:
         summary = settle(db_path=evidence_path, football_provider=provider, now=now,
                          tennis_db_path=TENNIS_DB, esports_db_path=ESPORTS_DB)

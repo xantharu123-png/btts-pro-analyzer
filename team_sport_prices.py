@@ -31,6 +31,11 @@ from runtime_paths import atomic_write_text, prepare_trusted_runtime_database_pa
 CACHE_PATH = Path(__file__).resolve().parent / 'runtime_state' / 'team_sport_quotes.json'
 REFRESH_AFTER = timedelta(hours=3)
 MAX_EVENTS_PER_SPORT = 8
+# Owner 18.11.2026 („Ja, reparieren“): the free API-Sports plans allow ten requests a minute per sport. In 12 of
+# 19 minutes since 08.11.2026 in which the refresh reached ten API-Hockey requests, the provider rejected the next
+# API-Football requests (HTTP 429); after nine or fewer never (0 of 15). On 18.11.2026 that cost the night run's
+# search for tomorrow 34 of 66 leagues. Nine keeps one request of distance to the limit.
+SIDE_REQUESTS_PER_MINUTE = 9
 MAX_CACHE_BYTES = 2_000_000
 SPORTS = {'basketball': 'basketball', 'eishockey': 'ice_hockey', 'ice_hockey': 'ice_hockey'}
 HOSTS = {'basketball': 'https://v1.basketball.api-sports.io', 'ice_hockey': 'https://v1.hockey.api-sports.io'}
@@ -148,6 +153,26 @@ def load_cached_quote(row, *, now=None, path=CACHE_PATH, document=None):
     if start is None or start <= current or not quote_matches_candidate(quote, row):
         return None
     return observed_consensus(quote, candidate=row, now=current)
+
+
+class _MinuteDeferred(Exception):
+    """This event's API-Sports requests do not fit into the running minute; it stays due."""
+
+
+def _minute_allowance(sport, api_key, governor):
+    """Requests this sport's API may still take in the running minute, from the shared request ledger.
+
+    The ledger sees every process and also the scanner of the same run. A governor without that ledger (a test
+    double) or a ledger that cannot be read gives no bound here; the request itself then fails as before.
+    """
+    recent = getattr(governor, 'recent_request_count', None)
+    if not callable(recent):
+        return SIDE_REQUESTS_PER_MINUTE
+    try:
+        used = recent(api_key=api_key, provider=f'api-sports-{sport}', seconds=60)
+    except APIBudgetError:
+        return SIDE_REQUESTS_PER_MINUTE
+    return SIDE_REQUESTS_PER_MINUTE - used
 
 
 def _json_get(sport, endpoint, params, api_key, *, governor, get=requests.get):
@@ -346,11 +371,22 @@ def refresh_team_sport_prices(rows, *, api_key, now=None, path=CACHE_PATH, gover
                 critical_floor=5, recommendation_reserve=10, background_reserve=15)
             games_cache, nhl_cache, used = {}, {}, {}
             attempts = {}
+            # Events the minute limit left out before go first within their class (18.11.2026): the timer and
+            # REFRESH_AFTER are both three hours, so the earlier games are often due again and would take the
+            # minute in every run while the same late game waits. The stored order is the waiting order:
+            # who waits longest goes first.
+            waiting = doc.get('minute_deferred')
+            order = {}
+            for key in (waiting if isinstance(waiting, list) else ()):
+                if isinstance(key, str):
+                    order.setdefault(key, len(order))
+            left_out = []
             # Model rows (Wettfinder, Doublebet) first, then price-only snapshot rows, each by
             # start (11.11.2026): eight European games without a model took the per-sport budget
             # while the NHL model rows of the same day waited for a later run.
             def priority(item):
-                return (not any(r.get('source') == 'team_sport_research' for r in item[1]), item[0][3])
+                return (not any(r.get('source') == 'team_sport_research' for r in item[1]),
+                        order.get('|'.join(item[0]), len(order)), item[0][3])
             for group_id, group in sorted(grouped.items(), key=priority):
                 if monotonic() >= deadline:
                     break
@@ -387,10 +423,17 @@ def refresh_team_sport_prices(rows, *, api_key, now=None, path=CACHE_PATH, gover
                         for r in group:
                             doc['quotes'].pop(_key(r), None)
                         raise ValueError('native_identity_unbound')
+                    # The minute check stands directly before the API-Sports requests: the exits above need
+                    # none and still drop a quote that lost its identity. A game list is only fetched when
+                    # this game's odds request fits into the minute as well.
                     if (sport, date) not in games_cache:
+                        if _minute_allowance(sport, api_key, governor) < 2:
+                            raise _MinuteDeferred()
                         games_cache[sport, date] = _json_get(sport, 'games', {'date': date}, api_key, governor=governor, get=get)
                     game = match_game(group[0], games_cache[sport, date], names)
                     if game is not None:
+                        if _minute_allowance(sport, api_key, governor) < 1:
+                            raise _MinuteDeferred()
                         matched += 1
                         entries = _json_get(sport, 'odds', {'game': game['id']}, api_key, governor=governor, get=get)
                         for r in group:
@@ -405,12 +448,26 @@ def refresh_team_sport_prices(rows, *, api_key, now=None, path=CACHE_PATH, gover
                         for r in group:
                             doc['quotes'].pop(_key(r), None)
                     checked += 1
+                except _MinuteDeferred:
+                    # Not an attempt: no stamp, no slot of the per-sport cap. The game keeps its cached quote
+                    # and goes first within its class in the next run.
+                    used[sport] -= 1
+                    left_out.append(attempt_key)
+                    if f'{sport}:minute_limit' not in buckets['budget_deferred']:
+                        buckets['budget_deferred'].append(f'{sport}:minute_limit')
+                    continue
                 except Exception as exc:
                     bucket, label = classify_refresh_error(sport, exc)
                     buckets[bucket].append(label)
                 attempts[attempt_key] = current.isoformat()
+            # Still waiting, oldest first: left out before and again or not reached this time, then the
+            # games left out in this run for the first time.
+            due_keys = {'|'.join(group_id) for group_id in grouped}
+            kept = [key for key in order if key in due_keys and key not in attempts]
+            left_out = kept + [key for key in left_out if key not in order]
             doc.update(attempts=attempts, updated_at=current.isoformat(), errors=errors,
-                       identity_gaps=buckets['identity_gaps'], budget_deferred=buckets['budget_deferred'])
+                       identity_gaps=buckets['identity_gaps'], budget_deferred=buckets['budget_deferred'],
+                       minute_deferred=left_out)
             text = json.dumps(doc, ensure_ascii=False, separators=(',', ':'))
             if len(text.encode('utf-8')) > MAX_CACHE_BYTES:
                 raise ValueError('bounded_quote_cache_exceeded')
