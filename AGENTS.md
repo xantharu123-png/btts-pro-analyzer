@@ -127,6 +127,22 @@ Code, dann `PROJECT_HANDBUCH.md`, dann die Bibel. Historische Logs: `TODO_AKTUEL
   `tip_receipts` mit `failed_held` und `failed_raised`), ein Kill nie.
   Nichts für morgen und keinen Hintergrundschritt wieder vor das erste Schreiben legen.
   Live seit 17.11.2026 13:44 CET als `d321d74` (Release 20261117-1); erster Nachtlauf damit am 18.11.2026.
+- **Ratenlimit der Nebensportarten seit 18.11.2026** (`docs/audits/2026-11-18-ratenlimit-suche-morgen.md`, Owner
+  „Ja, reparieren“): Der Gratis-Tarif für Eishockey und Basketball erlaubt zehn Abrufe je Minute. Nach dem zehnten
+  Eishockey-Abruf einer Minute lehnte der Anbieter in 12 von 19 Fällen die nächsten Fussball-Abrufe mit HTTP 429
+  ab, nach neun oder weniger nie; am 18.11.2026 verlor die Suche für morgen so 34 von 66 Ligen. Drei Regeln:
+  Die Preisauffrischung bleibt je Sportart bei höchstens neun Abrufen in 60 Sekunden
+  (`team_sport_prices.SIDE_REQUESTS_PER_MINUTE`, `_minute_allowance`, gezählt im gemeinsamen Abrufprotokoll mit
+  `APIBudgetGovernor.recent_request_count`); ein ausgelassenes Spiel bekommt keinen Versuchsstempel, steht als
+  Datenstatus `budget_deferred` („<Sportart>:minute_limit“) und kommt im nächsten Lauf innerhalb seiner Klasse
+  zuerst dran (`minute_deferred` im Quoten-Cache, wer am längsten wartet zuerst; Modellzeilen bleiben vorn). Die Prüfung steht direkt vor den
+  Abrufen, damit eine volle Minute keine Identitätslücke verdeckt. Ein Fussball-Provider eines Hintergrundlaufs
+  wartet nach einem 429 einmal 30 Sekunden und fragt erneut (`wettfinder_automation._worker_football_provider`,
+  `ChallengeDataProvider.enable_rate_limit_retry`, höchstens eine Wartezeit je Instanz; dazu der Standard-Provider
+  der RisikoBet-Ergebnisse in `riskobet_settlement_automation._default_loader`); App-Seiten, manuelle
+  Suchen und Preispfade warten nie. Nach einem 429 auf den Sammelabruf „Fixture-Details“ folgen keine Einzelabrufe.
+  Neuer Code mit Eishockey- oder Basketball-Abrufen geht über `team_sport_prices._json_get`, damit er im
+  Protokoll mitzählt; die Grenze von neun nicht ohne Beleg aus dem Abrufprotokoll anheben.
 - **NHL-Nachtgrenze seit 15.11.2026** (`docs/audits/2026-11-15-nhl-spaetspiele.md`, Owner „Ja, reparieren“): Ein
   natives NHL-Spiel des Folgetags gehört zum laufenden Tag, wenn es höchstens 24 Stunden nach der Laufzeit beginnt,
   mindestens aber bis 06:00 Uhr Zürcher Zeit am Folgetag (`NHL_NIGHT_UNTIL`, `_nhl_horizon` in

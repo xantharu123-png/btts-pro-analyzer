@@ -219,3 +219,23 @@ Vergleichswert alte Reihenfolge, Nacht auf den 17.11. (ruhiger Dienstag, Exit 0)
 
 Für einen späteren Helfer: Die Prüfzeile zum Live-Dokument (höchstens fünf 15K-Zeilen) prüft Daten, nicht
 Code, und steht nach dem Fast-forward. Sie gehört davor.
+
+## Erste Nacht (18.11.2026, nur gelesen)
+
+Der Lauf vom Mittwoch, 18.11.2026 03:35 lief wie entworfen und endete mit Exit 0. Punkte der Liste oben:
+
+1. Stufenfolge im Journal wie entworfen: `forecast_publication`, `tip_receipts`,
+   `football_discovery_next_day`, `forecast_publication_next_day`, `football_appearances`,
+   `forecast_publication_final`.
+2. Start 03:35:31, erstes Schreiben 03:41:30 (alte Reihenfolge in der Nacht davor: 03:49:15), Tipp-Belege
+   03:41:31, Suche für morgen 03:41:31 bis 03:42:18, `football_appearances` 362 s, Ende 03:48:20.
+3. **Abweichung:** `sources.football.next_day.status` ist `scanned_partial` mit 34 Betriebsfehlern und 0
+   Spielen für den 19.11. `decision_at` fehlt deshalb zu Recht. Ursache ist nicht die neue Reihenfolge,
+   sondern ein Ratenlimit des Anbieters: 34 von 66 Liga-Abrufen kamen mit HTTP 429 zurück. Befund, Ursache
+   und Reparatur stehen in `docs/audits/2026-11-18-ratenlimit-suche-morgen.md`.
+4. Die App zeigt für morgen deshalb kein Fussballspiel aus dieser Suche.
+5. `MemoryPeak` ist an der Einheit nicht gesetzt.
+6. Evidenz des Laufs: 26 gespeichert, 0 abgelehnt. `closing_evidence` der Quotenläufe 03:15 und 06:15:
+   `rejected` 0.
+
+Offen bleibt: am Freitag, 20.11. die Stufenzeiten lesen. Dieser Lauf sucht den vollen Samstag als morgen.

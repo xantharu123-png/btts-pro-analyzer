@@ -103,6 +103,7 @@ jobs:
           tests/test_highlight_price_checks.py
           tests/test_quality_cached_prices.py
           tests/test_price_refresh_schedule.py
+          tests/test_api_rate_limit.py
           tests/test_hockey_publication_clock.py
           tests/test_football_original_publication.py
           tests/test_football_opponent_publication.py

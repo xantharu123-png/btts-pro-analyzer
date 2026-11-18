@@ -1138,6 +1138,13 @@ def _default_loader(
                 resolved.api_football_key,
                 resolved.weather_key,
             )
+            # Owner 18.11.2026 („Ja, reparieren“): this default is only built by the night run's result
+            # stage, a background path. Like the other worker providers it waits once after a provider
+            # rate limit and asks again (challenge_15k.RATE_LIMIT_RETRY_DELAY_SECONDS); without the wait
+            # these results would stay open until the next night.
+            enable = getattr(provider, "enable_rate_limit_retry", None)
+            if callable(enable):
+                enable()
         return football_result_loader(provider)
     if sport == "tennis":
         return tennis_result_loader(tennis_db_path)

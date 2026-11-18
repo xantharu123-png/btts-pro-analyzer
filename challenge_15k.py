@@ -848,6 +848,13 @@ def _family_adjusted_validations(
     return apply_cross_league_fdr(validations)
 
 
+# Owner 18.11.2026 („Ja, reparieren“): after a provider rate limit (HTTP 429) a background worker waits once and
+# asks again. On 18.11.2026 the block lasted about 20 s (02:41:28 to 02:41:47 UTC) and the night run's search for
+# tomorrow lost 34 of 66 leagues to it; 30 s leaves a margin. One wait per provider instance: a lasting limit
+# (for example an empty daily quota) must not add half a minute to every request.
+RATE_LIMIT_RETRY_DELAY_SECONDS = 30.0
+
+
 class ChallengeDataProvider:
     """Small provider wrapper with structured errors and per-scan caching."""
 
@@ -871,6 +878,15 @@ class ChallengeDataProvider:
         # Default providers (including 15K display/price paths) remain unchanged.
         self._context_capture = None
         self.last_request_budget_deferred = False
+        # True when the last request ended in a provider rate limit (HTTP 429).
+        self.last_request_rate_limited = False
+        # Off by default: app pages, manual scans and price paths never wait. Workers switch it on.
+        self._retry_rate_limited = False
+        self._rate_limit_wait_spent = False
+
+    def enable_rate_limit_retry(self) -> None:
+        """Background workers only: wait once after a rate limit and ask again (see the constant above)."""
+        self._retry_rate_limited = True
 
     def _rate_limit(self) -> None:
         elapsed = time.monotonic() - self._last_request
@@ -887,25 +903,36 @@ class ChallengeDataProvider:
         priority: APIBudgetPriority | str = APIBudgetPriority.RECOMMENDATION,
     ) -> Optional[list[dict[str, Any]]]:
         self.last_request_budget_deferred = False
-        self._rate_limit()
-        try:
-            response = api_football_get(
-                f"{self.base_url}/{path}",
-                headers=self.headers,
-                params=params,
-                timeout=20,
-                priority=priority,
-                label=label,
-                **({"allow_redirects": False} if self._context_capture is not None else {}),
-            )
-            response.raise_for_status()
-            payload = response.json()
-        except (APIBudgetError, requests.RequestException, ValueError) as exc:
-            # Only this exception proves reservation failed before requests.get.
-            # A response/completion failure must keep the normal retry backoff.
-            self.last_request_budget_deferred = isinstance(exc, APIBudgetExceeded)
-            self.errors.append(f"{label}: {exc}")
-            return None
+        self.last_request_rate_limited = False
+        while True:
+            self._rate_limit()
+            rate_limited = False
+            try:
+                response = api_football_get(
+                    f"{self.base_url}/{path}",
+                    headers=self.headers,
+                    params=params,
+                    timeout=20,
+                    priority=priority,
+                    label=label,
+                    **({"allow_redirects": False} if self._context_capture is not None else {}),
+                )
+                rate_limited = getattr(response, "status_code", None) == 429
+                if rate_limited and self._retry_rate_limited and not self._rate_limit_wait_spent:
+                    # The rejected answer is already booked in the ledger; the second request books its own.
+                    self._rate_limit_wait_spent = True
+                    time.sleep(RATE_LIMIT_RETRY_DELAY_SECONDS)
+                    continue
+                response.raise_for_status()
+                payload = response.json()
+            except (APIBudgetError, requests.RequestException, ValueError) as exc:
+                # Only this exception proves reservation failed before requests.get.
+                # A response/completion failure must keep the normal retry backoff.
+                self.last_request_budget_deferred = isinstance(exc, APIBudgetExceeded)
+                self.last_request_rate_limited = rate_limited
+                self.errors.append(f"{label}: {exc}")
+                return None
+            break
         if self._context_capture is not None:
             self._context_capture.record(path, params, payload,
                 observed_at=self._context_received_at(), status=response.status_code)
@@ -1443,6 +1470,12 @@ class ChallengeDataProvider:
                 {"ids": "-".join(str(fixture_id) for fixture_id in chunk)},
                 "Fixture-Details",
             )
+            if data is None and self.last_request_rate_limited:
+                # Single requests into a rate limit are rejected too and only spend budget: in all twelve
+                # blocks from 11.11. to 18.11.2026 none of the 63 single requests was answered. The fixtures
+                # come back as None, exactly as after rejected single requests: a settlement leaves its games
+                # open for the next run, the context refresh treats them as any missing detail.
+                continue
             if data is None:
                 for fixture_id in chunk:
                     fallback = self._football_get(
