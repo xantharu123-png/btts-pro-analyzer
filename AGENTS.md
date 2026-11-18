@@ -143,6 +143,7 @@ Code, dann `PROJECT_HANDBUCH.md`, dann die Bibel. Historische Logs: `TODO_AKTUEL
   Suchen und Preispfade warten nie. Nach einem 429 auf den Sammelabruf „Fixture-Details“ folgen keine Einzelabrufe.
   Neuer Code mit Eishockey- oder Basketball-Abrufen geht über `team_sport_prices._json_get`, damit er im
   Protokoll mitzählt; die Grenze von neun nicht ohne Beleg aus dem Abrufprotokoll anheben.
+  Live seit 18.11.2026 13:06 CET als `87f2434` (Release 20261118-1); erster Nachtlauf damit am 19.11.2026.
 - **NHL-Nachtgrenze seit 15.11.2026** (`docs/audits/2026-11-15-nhl-spaetspiele.md`, Owner „Ja, reparieren“): Ein
   natives NHL-Spiel des Folgetags gehört zum laufenden Tag, wenn es höchstens 24 Stunden nach der Laufzeit beginnt,
   mindestens aber bis 06:00 Uhr Zürcher Zeit am Folgetag (`NHL_NIGHT_UNTIL`, `_nhl_horizon` in
