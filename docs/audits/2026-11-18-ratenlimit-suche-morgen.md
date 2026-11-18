@@ -101,9 +101,13 @@ Der Zusammenhang über alle Tage seit dem 08.11.2026 (34 Folgen von Teamsport-Ab
 - Liegen Eishockey-Abrufe des Scanners weniger als eine Minute zurück, bepreist der Lauf entsprechend weniger
   Eishockey-Spiele (in der Zusammenfassung „ice_hockey:minute_limit“). Im Nachtlauf laufen beide Scanner-Aufrufe
   vor der Preisauffrischung; wie oft sie in dieselbe Minute fallen, zeigen erst die Stufenzeiten nach dem Release.
-- Ein Lauf kann je Provider-Instanz einmal 30 Sekunden warten. Die Zeitgrenzen der Einheiten (Quotenlauf 12 Minuten,
-  Nachtlauf 60 Minuten) sind davon weit entfernt. Die Stufe `riskobet_results` liegt vor dem ersten Schreiben; eine
-  Wartezeit dort verschiebt „heute“ um höchstens 30 Sekunden.
+- Ein Lauf kann je Provider-Instanz einmal 30 Sekunden warten, und nur nach einem echten 429, wo vorher die Daten
+  fehlten. Vor dem ersten Schreiben baut der Nachtlauf bis zu sechs solche Instanzen (Fussball-Suche, bis zu drei
+  Kontext-Durchgänge, `riskobet_results`, `forecast_results`): Im schlechtesten Fall verschiebt das „heute“ um rund
+  drei Minuten. Im ganzen Lauf sind es bis zu acht Instanzen, also vier Minuten (berichtigt am 18.11.2026 nach der
+  Gegenprüfung des Releases; vorher stand hier „höchstens 30 Sekunden“, das galt nur für `riskobet_results`
+  allein). Die Zeitgrenzen der Einheiten (Quotenlauf 12 Minuten, Nachtlauf 60 Minuten) sind davon weit entfernt;
+  der Nachtlauf vom 18.11. dauerte von 03:35:31 bis 03:48:20.
 
 ## Unverändert
 
@@ -165,7 +169,9 @@ Der Zusammenhang über alle Tage seit dem 08.11.2026 (34 Folgen von Teamsport-Ab
 
 ## Offen
 
-- Nach dem Release die nächste Nacht lesen: `sources.football.next_day.status` ohne `partial_operational_errors`,
+- Den Quotenlauf vom 18.11. 15:15 lesen (der erste mit dem neuen Code): Exit 0, `minute_deferred` steht im
+  Quoten-Cache.
+- Die nächste Nacht lesen (Do 19.11. 03:35): `sources.football.next_day.status` ohne `partial_operational_errors`,
   kein 429 im Abrufprotokoll nach der Preisauffrischung. Wie viele Spiele warten, zeigt die Länge von
   `minute_deferred` in `team_sport_quotes.json` (und `checked` je Lauf); der Eintrag „minute_limit“ steht je
   Sportart und Lauf nur einmal.
@@ -174,3 +180,48 @@ Der Zusammenhang über alle Tage seit dem 08.11.2026 (34 Folgen von Teamsport-Ab
   ab, der Shadow-Lauf nicht. Nicht Teil dieser Reparatur.
 - Owner-Entscheid: Ein bezahlter Tarif für Eishockey und Basketball würde die Grenze von zehn Abrufen je Minute
   heben. Nötig ist er für die Reparatur nicht.
+
+## Release 20261118-1
+
+Owner „Ja, mergen“ und „Ja, live stellen“ am 18.11.2026 für PR #141.
+
+- **Merge:** PR #141 um 12:23 CET, `origin/main` = `87f24343f3d3c3d926f5df0b4ad60cddc22d6191`. Die CI war grün
+  (6 bestanden, 0 fehlgeschlagen; die vier manuellen Vollsuite-Jobs laufen bei einem PR nicht).
+- **Dateien:** 12 von `b85e2d9` bis `87f2434`. Code: `api_budget.py`, `team_sport_prices.py`, `challenge_15k.py`,
+  `wettfinder_automation.py`, `riskobet_settlement_automation.py`. Sonst `tests/test_api_rate_limit.py`,
+  `.github/workflows/tests.yml` und Doku (darunter PR #140). Keine Einheit, kein `.sh`, keine Requirements, keine
+  Migration.
+- **Generator:** `output/release-20261118-1/gen_deploy59.py`, abgeleitet von `gen_deploy58.py` über `make_gen.py`.
+  Ein neues Modul in der Importliste (`riskobet_settlement_automation`; `wettfinder_automation` lud es schon
+  vorher mit) und 26 neue Prüfzeilen: die Zählung im Abrufprotokoll, die Grenze von neun mit einem
+  Protokoll-Double (7 belegt ergibt 2 frei, 9 belegt ergibt 0, ohne Protokoll 9), die zwei Prüfstellen und die
+  Warteliste in der Auffrischung, die Wartezeit von 30 Sekunden, der Schalter (aus beim Standard-Provider, an beim
+  Provider der Hintergrundläufe), die fünf Stellen des Helfers, der Standard-Provider der RisikoBet-Ergebnisse,
+  keine Einzelabrufe nach einem 429.
+- **Vor dem Lauf:**
+  - Der Helfer weicht vom zuletzt ausgeführten nur an den gewollten Stellen ab.
+  - Offline-Prüfung gegen einen Worktree von `87f2434`: `OFFLINE_RELEASE_IMPORTS=ok`, der Worktree blieb sauber.
+  - Alle zwölf neuen Bedingungen schlagen auf `b85e2d9` fehl (`assert_discrimination.py`).
+  - Drei unabhängige Prüfer (Helfer, Prüfzeilen auf dem Linux-Server, erste Läufe auf altem Datenstand): Freigabe,
+    kein Befund über „niedrig“. Aus der Prüfung stammt die Berichtigung zur Wartezeit vor dem ersten Schreiben
+    (Abschnitt „Folgen im Betrieb“).
+  - Die neue Abfrage lief vorab nur lesend auf dem echten Abrufprotokoll: Sie benutzt den vorhandenen Index
+    (`idx_api_budget_events_day`), 30 116 Zeilen, die Zeitstempel haben das Format der Abfrage, je Nebensportart
+    ein Konto. Der Quoten-Cache hatte noch kein `minute_deferred`; der Leser prüft nur `schema`, `quotes` und
+    `attempts`, also lesen alter und neuer Code beide Fassungen.
+  - Server um 12:38 und 13:06 gelesen: `b85e2d9`, sauber, alle Jobs ruhen, nächster Quotenlauf 15:15.
+- **Hochladen:** sha256 auf dem Server gleich (`deploy-20261118-1.sh` `138f268d…`, `run_release-20261118-1.sh`
+  `d9802e54…`), keine CR-Zeichen.
+- **Ausrollen:** Fenster um 13:06:42 (Abstand zum nächsten Shadow-Lauf 318 s). Ergebnis `HEAD=87f2434…`,
+  `APP_PID=1666099->1675324`, `NO_NEW_BACKUP=yes`, `UNITS_UNCHANGED=yes`, `DEPLOY_EXIT=0`. Die veröffentlichten
+  Dokumente sind unverändert. Git meldete auf dem Server zweimal „Auto packing the repository in background“, das
+  ist die übliche Aufräumroutine von Git und kein Schritt des Helfers. Log `output/release-20261118-1/deploy-01.log`.
+- **Danach auf dem Server:** Health lokal und öffentlich `ok`, App, Caddy und alle 7 Timer aktiv, Arbeitsbaum
+  sauber, keine neue fehlgeschlagene Einheit (die 8 alten vom September bleiben). Das Journal der App zeigt seit
+  dem Neustart keinen Fehler. Der erste Shadow-Lauf danach (13:12) endete mit Exit 0.
+- **Live-Seite angesehen** (der Helfer prüft nur, dass die App läuft): Der Wettfinder lädt und zeigt die Spiele
+  (erste Karte Coritiba gegen Santos). An der Oberfläche ändert dieses Release nichts.
+- **Wirksam:** für die Quotenläufe ab 18.11. 15:15, für den Nachtlauf ab Do 19.11. 03:35. Die App-Seiten haben den
+  neuen Code seit dem Neustart; sie warten weiter nie.
+- **Noch nicht belegt:** dass die Sperre im Betrieb ausbleibt. Das zeigen erst der Quotenlauf von 15:15 und die
+  nächste Nacht (siehe „Offen“).
