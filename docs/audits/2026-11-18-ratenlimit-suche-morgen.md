@@ -169,12 +169,13 @@ Der Zusammenhang über alle Tage seit dem 08.11.2026 (34 Folgen von Teamsport-Ab
 
 ## Offen
 
-- Den Quotenlauf vom 18.11. 15:15 lesen (der erste mit dem neuen Code): Exit 0, `minute_deferred` steht im
-  Quoten-Cache.
-- Die nächste Nacht lesen (Do 19.11. 03:35): `sources.football.next_day.status` ohne `partial_operational_errors`,
-  kein 429 im Abrufprotokoll nach der Preisauffrischung. Wie viele Spiele warten, zeigt die Länge von
-  `minute_deferred` in `team_sport_quotes.json` (und `checked` je Lauf); der Eintrag „minute_limit“ steht je
-  Sportart und Lauf nur einmal.
+- Erledigt am 19.11.2026: Der Quotenlauf vom 18.11. 15:15 und die Nacht vom 19.11. sind gelesen (Abschnitt „Erste
+  Nacht mit der Reparatur“ am Ende).
+- Die Nacht auf Fr 20.11. und das Wochenende 21./22.11. lesen: `sources.football.next_day.status` ohne
+  `partial_operational_errors`, kein 429 im Abrufprotokoll nach der Preisauffrischung, dazu die Laufzeit mit einem
+  vollen Liga-Tag als „morgen“. Wie viele Spiele warten, zeigt die Länge von `minute_deferred` in
+  `team_sport_quotes.json` (und `checked` je Lauf); der Eintrag „minute_limit“ steht je Sportart und Lauf nur
+  einmal. Lesehelfer und Befehle stehen in `docs/handoffs/2026-11-19-claude-uebergabe-codex.md`, Abschnitt 1.
 - Die manuelle Eishockey-Suche in der App schickt einen Abruf je Tag ohne Pause: 9 bei sieben Tagen, 16 bei 14
   Tagen. Mit 14 Tagen kann sie die Sperre weiter auslösen. Hintergrundläufe fangen das mit ihrer einen Wartezeit
   ab, der Shadow-Lauf nicht. Nicht Teil dieser Reparatur.
@@ -225,3 +226,43 @@ Owner „Ja, mergen“ und „Ja, live stellen“ am 18.11.2026 für PR #141.
   neuen Code seit dem Neustart; sie warten weiter nie.
 - **Noch nicht belegt:** dass die Sperre im Betrieb ausbleibt. Das zeigen erst der Quotenlauf von 15:15 und die
   nächste Nacht (siehe „Offen“).
+
+## Erste Nacht mit der Reparatur (19.11.2026, nur gelesen)
+
+Gelesen am 19.11.2026 zwischen 07:40 und 09:10 CET aus dem Journal, dem Tagesdokument, dem Quoten-Cache und dem
+Abrufprotokoll. Nichts geändert. Die Lesehelfer liegen lokal in `C:\Projekt\BetBoy\output\uebergabe-20261119\`
+(`stufen.sh`, `nacht_lesen.py`), ihre Ausgaben daneben.
+
+| | Nacht 18.11. (vorher) | Nacht 19.11. |
+|---|---|---|
+| HTTP 429 auf Fussball-Abrufe | 40 | 0 |
+| Suche für morgen | `scanned_partial`, 0 Spiele, 34 Betriebsfehler | `listed`, 66 Ligen, 62 Spiele gefunden, 54 modelliert, 41 gelistet, 0 Betriebsfehler |
+| Erstes Schreiben „heute“ | 03:41:30 | 03:40:57 |
+| Dauer der Suche für morgen | 47 s | 696 s |
+| Lauf | 03:35:31 bis 03:48:20 | 03:35:01 bis 03:59:34, Exit 0 |
+
+- **Kein 429 seit dem Release:** 960 Zeilen im Abrufprotokoll vom 18.11. 13:06 bis zur Lesung am 19.11. um 07:45
+  (897 Fussball, 49 Eishockey, 8 Basketball, 3 The Odds API, diese je im Tages- und im Monatsbudget gebucht), keine
+  mit HTTP 429. Davor je Tag: 11.11. 12, 12.11. 14, 13.11. 25, 14.11. 12, 15.11. 6, 18.11. 40.
+- **Minutengrenze eingehalten:** Eishockey kam in keinem 60-Sekunden-Fenster über 9 Abrufe. Nach jeder der sechs
+  Preisauffrischungen ging der nächste Fussball-Abruf durch (1,1 bis 2,8 Sekunden später). Zwei Auffrischungen
+  (18.11. 15:15, 19.11. 06:15) und die der Nacht lagen genau bei 9.
+- **Läufe:** 6 Quotenläufe, der Nachtlauf und 112 Shadow-Läufe mit Exit 0, kein Alarm, kein Fehler im Journal der
+  App.
+- **Die Suche für morgen dauert länger, weil sie jetzt vollständig ist.** Am 18.11. brach sie nach 47 Sekunden mit
+  34 fehlenden Ligen ab; am 19.11. lief sie 696 Sekunden über alle 66 Ligen. Der Lauf brauchte 24,5 von 60 Minuten.
+  Zum Vergleich die Fussball-Suche eines vollen Samstags und Sonntags vor „Folgetag immer“: 894 s (07.11.) und
+  1143 s (08.11.). Die Laufzeit mit einem vollen Liga-Tag als „morgen“ ist noch nicht gemessen (erstmals am 20.11.).
+- **Wartezeit nach einem 429:** nicht beobachtet, weil kein 429 auftrat.
+- **Preisauffrischung der Nacht:** 7 statt 8 Eishockey-Spiele geprüft, Datenstatus `ice_hockey:minute_limit`. In
+  der Minute davor stand schon ein Eishockey-Abruf im Protokoll; mit der Spielliste und sieben Quoten waren es neun.
+- **Warteliste länger als ein Spiel:** Nach dem Lauf von 06:15 standen 7 Eishockey-Spiele in `minute_deferred`,
+  alle ohne Quote (3 europäische am Abend des 19.11., 4 NHL in der Nacht auf den 20.11.); der Lauf selbst meldete
+  keinen `minute_limit`. Erklärung aus dem Code, nicht einzeln nachgemessen: Ist die Minute voll, kommen alle
+  weiteren fälligen Spiele der Sportart auf die Liste, nicht nur eines. Der nächste Lauf nimmt sie zuerst, aber
+  höchstens 8 Spiele je Sportart; der Rest bleibt stehen. Am 19.11. lagen 22 Eishockey-Spiele im Fenster. Der
+  Engpass ist damit die alte Obergrenze von acht je Lauf, die Reparatur kostete in der Nacht einen Platz. Der Satz
+  „Reihum fehlt je Lauf ein Spiel“ im Abschnitt „Folgen im Betrieb“ gilt nur, solange höchstens zehn Abrufe fällig
+  sind.
+- **Vorbestehend, nicht untersucht:** 3 bis 4 fehlgeschlagene Eishockey-Abrufe `games` je Tag (`ValueError` bei
+  HTTP 200), mindestens seit 12.11. Sie zählen in der Minute mit.
