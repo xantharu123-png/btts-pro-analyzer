@@ -37,3 +37,23 @@ Erst nach dem nächsten normalen Lauf mit dem neuen Code im internen Spieltagber
 `first_main_card` und `all_distinct_markets` getrennt lesen. Auf ein
 abgerechnetes Ergebnis warten; kein zusätzlicher Abruf und kein Backfill.
 Die historische Abnahme von PR #144 steht im [Spieltagbericht](2026-11-20-haupttipps-und-datenabdeckung.md).
+
+## Release am 20. November 2026
+
+Owner-Freigabe: „live stellen“. Start 19:44:58 CET, abgeschlossen 19:45 CET. Fast-forward ohne Backup
+von `87f2434` auf `363ed54a74f33464a5a453aaf018ca927f63c324` (PR #144 und #145). Der VPS-Commit
+entsprach GitHub `main` und dem lokal geprüften Dateibaum.
+
+| Prüfung | Direkt nach dem Release |
+|---|---|
+| Release-Helfer | Exit 0. Offline-Importprüfung (52 Module) und synthetischer Haupttipp-Test bestanden, lokal und auf dem VPS. |
+| Betrieb | App-Prozess von `1675324` auf `1700767` gewechselt; App und Caddy aktiv, interner und öffentlicher Healthcheck `ok`. |
+| Timer | Alle sieben fachlichen Timer aktiv. Keine systemd-Einheit geändert. |
+| Erster regulärer Shadow-Lauf | 20.11.2026, 19:52:11–19:54:08 CET: regulär beendet, Exit 0, systemd `success`. Journal: null technische Fehler, ein Datenhinweis (`partial`). Kein manueller Start. |
+| Kundenansicht | Im separaten Headless-Browser: HTTP 200, Titel BetBoy, gerenderte Wettfinder-Liste „1–20 von 45 Spielen“, Analysedetail aufgeklappt; keine Konsolen- oder Seitenfehler im Test. |
+| Veröffentlichte Daten | SHA-256 vor/nach dem Deploy identisch: Wettfinder `6414a5…8cdf`, RisikoBet `f938b7…acc1`. Kein Backup, kein zusätzlicher Sportscan. |
+
+Die anschliessende, rein lesende Produktionszählung seit 19:45:10 CET ergab **14 Erstbelege für die
+gerenderte Wettfinder-Ansicht** und **0 für die automatische Standardseite**. Die beiden Flächen sind
+getrennt. Das sind keine 14 Kundenwetten oder Gewinne. Der erste Standardseiten-Beleg aus einem regulären
+Wettfinder-/Quotenlauf und die spätere Abrechnung stehen noch aus.

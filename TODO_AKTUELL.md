@@ -1,5 +1,10 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 20.11.2026, 19:45 CET – #144 und #145 live
+
+- GitHub und VPS beim Release auf `363ed54`; [Betriebsnachweis](docs/audits/2026-11-20-haupttipp-beleg.md#release-am-20-november-2026). Kein Backup, kein zusätzlicher Sportscan.
+- Produktionsprobe: 14 Erstbelege der gerenderten Ansicht, noch 0 der automatischen Standardseite. Bei den regulären Veröffentlichungen den ersten Standardseitenbeleg und nach Spielende das Ergebnis prüfen. Historische Haupttipps werden nicht nachgetragen.
+
 ## 20.11.2026 – Erste sichtbare Hauptauswahl je Spiel
 
 - Folgebranch nach PR #144: [Vertrag, Grenzen und Betriebsabnahme](docs/audits/2026-11-20-haupttipp-beleg.md).
