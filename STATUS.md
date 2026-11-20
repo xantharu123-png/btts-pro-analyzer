@@ -4,7 +4,16 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 „Stand“ ersetzen, nicht anhängen; Historie steht in `TODO_AKTUELL.md` und
 `PC_WECHSEL_UEBERGABE.md`. Regeln und Einstieg: `AGENTS.md`.
 
-## Stand: 19.11.2026 (vollständige Übergabe an Codex vom 19.11. liegt bereit: `docs/handoffs/2026-11-19-claude-uebergabe-codex.md`; Ratenlimit-Reparatur für die Suche für morgen live seit 18.11. 13:06 als `87f2434`, erste Nacht damit am 19.11. bestanden: kein HTTP 429, Suche für morgen mit allen 66 Ligen; offen die Nacht auf Fr 20.11. mit dem vollen Samstag als morgen; erste Nacht „heute zuerst“ am 18.11. geprüft: Reihenfolge wie entworfen, erstes Schreiben 03:41:30 statt 03:49:15, aber die Suche für morgen verlor 34 von 66 Ligen an ein Ratenlimit; Wettfinder-Karte und Raster wie RisikoBet live seit 17.11. 21:17 als `b85e2d9`; Nachtlauf „heute zuerst“ live seit 17.11. 13:44 als `d321d74`; Gesamtaudit vom 16.11. liegt vor: `AUDIT_BERICHT_2026-11-16_CLAUDE.md`, 142 Befunde, 0 kritisch, 14 hoch, Massnahmenplan mit 15 Punkten, Punkt 1 im Kern umgesetzt; Kleinstaaten-Sperre live seit 16.11. 09:15 als `fb38329`; Reparaturkandidaten 1–3 nicht erfüllt, Plan bis März; Länderspiel-Modell gegen Kleinstaaten wird repariert; Wettfinder im RisikoBet-Stil mit Kontextzeile live seit 16.11. 00:33 als `2b572e0`; NHL-Spätspiele live seit 15.11. 14:36; Owner-Auftrag 19.11.: detaillierte Übergabe an Codex, ein Übernahmetermin ist nicht genannt)
+## Stand: 20.11.2026
+
+Arbeitsbranch `codex/qualitaet-spieltagsbilanz-20261120` (Basis `2c8e3b9`), **nicht live**.
+Der [Qualitätsbericht zum 19./20.11.](docs/audits/2026-11-20-haupttipps-und-datenabdeckung.md)
+trennt verfügbare Märkte, belegte Hauptkarten und einen rückblickenden Vergleich. Hockey
+erhält feste Diagnosegründe, keine zusätzlichen Versuche. Für den Club-Heimvorteil ist
+ein Offline-Vergleich mit [eigenem Prüfvertrag](docs/audits/2026-11-20-club-heimvorteil-pruefvertrag.md)
+vorbereitet, kein neues aktives Modell. Produktion unverändert `87f2434`.
+Nächster Betriebsnachweis: reguläres Wochenende 21./22.11.; für Merge und Release
+gelten weiter die getrennten Freigaben aus der [Übergabe vom 19.11.](docs/handoffs/2026-11-19-claude-uebergabe-codex.md).
 
 | Bereich | Status |
 |---|---|

@@ -1,5 +1,16 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 20.11.2026 – Wettfinder-Bilanz, Hockey und Club-Heimvorteil
+
+- [Ergebnisse, Testgrenzen und Reproduktion](docs/audits/2026-11-20-haupttipps-und-datenabdeckung.md).
+  Arbeitsbranch, nicht auf dem VPS. Historische Hauptkarten ohne Rollenbeleg nicht als Gewinner/Verlierer zählen.
+- Nach Freigabe im regulären Lauf prüfen: Saisonhistorien CH/FI/SE/DE (verwertbare Daten bzw. konkrete Ursache),
+  Spielentdeckung und Restlaufzeit am 21./22. November, max. 9 Abrufe je Minute/Sport und Tagesbudget Hockey 100.
+- [Club-Heimvorteil](docs/audits/2026-11-20-club-heimvorteil-pruefvertrag.md): ein Kandidat, kein Live-Effekt.
+  Vor Start prüfen, ob regulär archivierte Daten tatsächlichen Heimspielort, Ergebnis- und Publikationszeit belegen.
+  Ohne diesen Nachweis keine Testpaare. Termine für Fallenfilter, bestehende Form-/Hybridmodelle,
+  Nationalteams und Doublebet bleiben unverändert.
+
 ## 11.11.2026 10:00 – Übergabe an Codex: Stand 09.–11.11. (Releases 20261110-1 bis 20261111-2)
 
 - **Ausführlich:** `docs/handoffs/2026-11-11-claude-uebergabe-codex.md`. Dort stehen Release-Verfahren, Termine,
