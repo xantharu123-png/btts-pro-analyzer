@@ -175,6 +175,24 @@ def _minute_allowance(sport, api_key, governor):
     return SIDE_REQUESTS_PER_MINUTE - used
 
 
+class _ProviderBodyError(ValueError):
+    """Only fixed local codes may be persisted, never provider text or request URLs."""
+
+
+_BODY_CODES = frozenset({
+    'api_invalid_json', 'api_invalid_envelope', 'api_plan_error', 'api_reported_error',
+    'api_invalid_response_list', 'api_invalid_paging', 'api_incomplete_page',
+})
+
+
+def safe_provider_error(exc):
+    if type(exc) is _ProviderBodyError and len(exc.args) == 1:
+        code = exc.args[0]
+        if type(code) is str and code in _BODY_CODES:
+            return code
+    return type(exc).__name__
+
+
 def _json_get(sport, endpoint, params, api_key, *, governor, get=requests.get):
     reservation = governor.reserve(api_key=api_key, provider=f'api-sports-{sport}',
         endpoint=endpoint, priority=APIBudgetPriority.BACKGROUND)
@@ -185,15 +203,25 @@ def _json_get(sport, endpoint, params, api_key, *, governor, get=requests.get):
             headers={'x-apisports-key': api_key}, timeout=10, allow_redirects=False)
         if response.status_code != 200:
             raise ValueError(f'HTTP_{response.status_code}')
-        payload = response.json()
-        if not isinstance(payload, dict) or payload.get('errors') or not isinstance(payload.get('response'), list):
-            raise ValueError('provider_payload')
+        try:
+            payload = response.json()
+        except ValueError:
+            raise _ProviderBodyError('api_invalid_json') from None
+        if not isinstance(payload, dict):
+            raise _ProviderBodyError('api_invalid_envelope')
+        if errors := payload.get('errors'):
+            code = 'api_plan_error' if isinstance(errors, dict) and 'plan' in errors else 'api_reported_error'
+            raise _ProviderBodyError(code)
+        if not isinstance(payload.get('response'), list):
+            raise _ProviderBodyError('api_invalid_response_list')
         paging = payload.get('paging') or {}
+        if not isinstance(paging, dict):
+            raise _ProviderBodyError('api_invalid_paging')
         if paging.get('total', 1) != 1:
-            raise ValueError('incomplete_provider_page')
+            raise _ProviderBodyError('api_incomplete_page')
         return payload['response']
     except Exception as exc:
-        error = type(exc).__name__  # Never include credential-bearing request URLs.
+        error = safe_provider_error(exc)
         raise
     finally:
         governor.complete(reservation, response_headers=getattr(response, 'headers', None),
@@ -331,7 +359,7 @@ def classify_refresh_error(sport, exc):
         return 'budget_deferred', f'{sport}:{type(exc).__name__}'
     if isinstance(exc, ValueError) and str(exc) in IDENTITY_GAP_REASONS:
         return 'identity_gaps', f'{sport}:{exc}'
-    return 'errors', f'{sport}:{type(exc).__name__}'
+    return 'errors', f'{sport}:{safe_provider_error(exc)}'
 
 
 def refresh_team_sport_prices(rows, *, api_key, now=None, path=CACHE_PATH, governor=None, get=requests.get):

@@ -17,7 +17,7 @@ import requests
 
 from api_budget import APIBudgetGovernor, DEFAULT_DB_PATH
 from scanners.completed_history import CompletedHistoryStore, history_window, utc_time
-from team_sport_prices import _json_get
+from team_sport_prices import _json_get, safe_provider_error
 
 PROVIDER = "API-Hockey"
 SCHEMA = "api-hockey-native-periods-v1"
@@ -462,7 +462,7 @@ class APIHockeyScanner:
                 output.extend(parse_upcoming_games(rows, leagues, observed_at=observed, start=start, end=end))
             return [row for row in _unique(output) if _clock(row["start_time"]) > _clock(self.clock())]
         except Exception as exc:
-            self.errors["schedule"] = type(exc).__name__
+            self.errors["schedule"] = safe_provider_error(exc)
             return []
 
     def get_completed_games(self, start, end, *, as_of=None, events=None):
@@ -505,7 +505,7 @@ class APIHockeyScanner:
                         withdrawn_ids = {row["event_id"] for row in withdrawn}
                         store.record(PROVIDER, key, [row for row in finals if row["event_id"] not in withdrawn_ids] + withdrawn)
                     except Exception as exc:
-                        error = type(exc).__name__
+                        error = safe_provider_error(exc)
                         store.record(PROVIDER, key, withdrawn, error=error)
                         errors.append(error)
                         complete = False
@@ -522,7 +522,7 @@ class APIHockeyScanner:
                 pending = sum((row.get("league_id"), row.get("season")) in allowed - blocked
                               and _clock(row["result_observed_at"]) >= _clock(as_of) for row in current_rows)
         except Exception as exc:
-            errors.append(type(exc).__name__)
+            errors.append(safe_provider_error(exc))
             rows, complete = [], False
         if errors:
             self.errors["history"] = ";".join(errors)
