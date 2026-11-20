@@ -29,6 +29,7 @@ from daily3_comparison import Comparison, football_form_comparison
 from forecast_analysis import build_forecast_analysis, forecast_highlight_reason, format_model_clock
 from forecast_compact import CompactAnalysis, build_compact_analysis, render_compact_analysis_html
 from forecast_selection import select_consumer_forecasts, select_event_leads, validated_selection_rank
+from tip_display_order import START_TIME, ordered_event_rows
 from forecast_price_checks import has_current_price_check
 from quote_publication import publication_quote
 from betting_math import MINIMUM_RECOMMENDED_DECIMAL_ODDS
@@ -729,6 +730,48 @@ def group_wettfinder_games(catalog: WettfinderCatalog) -> tuple[WettfinderFixtur
     return tuple(replace(group, lead=leads.get(group.fixture_identity),
                          visible_lead=visible_leads.get(group.fixture_identity))
                  for group in groups)
+
+
+WETTFINDER_MIN_CHANCE_DEFAULT = 70
+WETTFINDER_GAMES_PER_PAGE = 20
+
+
+def ordered_wettfinder_games(catalog, sort_mode=START_TIME):
+    """Canonical game/market display order, shared with default publication receipts."""
+    original_groups = group_wettfinder_games(catalog)
+    # Keep each game's lead (its most probable shown selection). Chronological
+    # game order does not change which market is the primary tip.
+    ordered_cards = ordered_event_rows(
+        ((group.fixture_identity, card) for group in original_groups for card in group.cards),
+        mode=sort_mode, event_key=lambda item: item[0],
+        starts_at=lambda item: item[1].scheduled_start, probability=lambda item: item[1].model_probability)
+    # One shared pass ranks both games and markets, including invalid values
+    # and clocks, without trusting an unchecked max or only the first card.
+    cards_by_group = {}
+    for identity, card in ordered_cards:
+        cards_by_group.setdefault(identity, []).append(card)
+    original_by_identity = {group.fixture_identity: group for group in original_groups}
+    groups = []
+    for identity, cards in cards_by_group.items():
+        original = original_by_identity[identity]
+        if original.visible_lead is not None:
+            cards = ([card for card in cards if card.key == original.visible_lead.key]
+                     + [card for card in cards if card.key != original.visible_lead.key])
+        groups.append(replace(original, cards=tuple(cards)))
+    # The first pass already used every card's known event clock. A lead with
+    # no clock must not send that whole game behind later games on this pass.
+    if sort_mode != START_TIME:
+        groups = ordered_event_rows(
+            groups, mode=sort_mode, event_key=lambda group: group.fixture_identity,
+            starts_at=lambda group: (group.visible_lead or group.cards[0]).scheduled_start,
+            probability=lambda group: (group.visible_lead or group.cards[0]).model_probability,
+        )
+    return tuple(groups)
+
+
+def page_event_lead_keys(groups):
+    """Do not promote the first incidental row when no comparable lead survives."""
+    return tuple(group.visible_lead.key for group in groups if group.visible_lead is not None)
 
 
 def wettfinder_game_label(group: WettfinderFixtureGroup) -> str:

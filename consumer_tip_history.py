@@ -28,6 +28,15 @@ from selection_coherence import consumer_event_identity
 
 
 SCHEMA_VERSION = 1
+EVENT_LEAD_SURFACES = {"wettfinder_default_inventory": "wettfinder_default_event_leads",
+                       "wettfinder_automatic": "wettfinder_automatic_event_leads"}
+LEAD_MANIFEST_VERSION = 2  # JSON only; SQLite tables and immutable v1 receipts are unchanged.
+MAX_VISIBLE_LEADS = 20
+# One immutable first witness per sport/native event on each surface. The
+# sparse expression index has no entries for legacy or base inventories.
+_LEAD_INDEX = """CREATE UNIQUE INDEX IF NOT EXISTS consumer_tip_first_lead
+ON consumer_tip_publications(surface, json_extract(payload_json,'$.first_lead_event'))
+WHERE json_extract(payload_json,'$.first_lead_event') IS NOT NULL"""
 MAX_PUBLICATION_ROWS = 1000
 MAX_TIP_BYTES = 8192
 _TABLES = {"consumer_tip_publications", "consumer_tips"}
@@ -284,7 +293,7 @@ def _initialize(conn):
     _validate_schema(conn)
 
 
-def _validate_publication(conn, record):
+def _validate_publication(conn, record, inventory_cache=None):
     publication_id, surface, run, policy, observed, raw = record
     manifest = json.loads(raw)
     if (not isinstance(manifest, dict) or raw != _json(manifest)
@@ -298,7 +307,8 @@ def _validate_publication(conn, record):
     clock = _utc(observed)
     stored = conn.execute("SELECT position,tip_id,payload_json FROM consumer_tips "
                           "WHERE publication_id=? ORDER BY position", (publication_id,)).fetchall()
-    if len(stored) != manifest.get("recorded_count") or len(stored) > MAX_PUBLICATION_ROWS:
+    companion = surface in EVENT_LEAD_SURFACES.values()
+    if len(stored) != (0 if companion else manifest.get("recorded_count")) or len(stored) > MAX_PUBLICATION_ROWS:
         raise ValueError("invalid_publication_count")
     tips = []
     for expected, (position, tip_id, payload_json) in enumerate(stored):
@@ -309,13 +319,71 @@ def _validate_publication(conn, record):
                 or len(payload_json.encode("utf-8")) > MAX_TIP_BYTES):
             raise ValueError("invalid_tip_hash")
         tips.append({**tip, "tip_id": tip_id, "position": position})
-    if manifest.get("tip_ids") != [item[1] for item in stored]:
+    if manifest.get("tip_ids") != [item[1] for item in stored] or (companion and manifest.get("recorded_count") != 0):
         raise ValueError("invalid_publication_manifest")
+    version = manifest.get("schema_version")
+    if type(version) is not int or version not in {SCHEMA_VERSION, LEAD_MANIFEST_VERSION}:
+        raise ValueError("invalid_publication_version")
+    if companion:
+        source = next(base for base, child in EVENT_LEAD_SURFACES.items() if child == surface)
+        parent_id = manifest.get("inventory_id")
+        if version != LEAD_MANIFEST_VERSION:
+            raise ValueError("invalid_event_lead_manifest")
+        if parent_id is None:
+            items = manifest.get("inline_tips")
+            if (surface != EVENT_LEAD_SURFACES["wettfinder_default_inventory"]
+                    or not isinstance(items, list) or len(items) > MAX_VISIBLE_LEADS):
+                raise ValueError("invalid_event_lead_inventory")
+            tips = [dict(t, tip_id=_hash(t), position=i) for i,t in enumerate(items)
+                    if isinstance(t, dict) and len(_json(t).encode("utf-8")) <= MAX_TIP_BYTES]
+        else:
+            if not isinstance(parent_id, str) or "inline_tips" in manifest:
+                raise ValueError("invalid_event_lead_inventory")
+            parent = (inventory_cache or {}).get(parent_id)
+            if parent is None:
+                record = conn.execute("SELECT * FROM consumer_tip_publications WHERE publication_id=? AND surface=?",
+                                      (parent_id, source)).fetchone()
+                if not record:
+                    raise ValueError("invalid_event_lead_inventory")
+                parent = _validate_publication(conn, record)
+                if inventory_cache is not None:
+                    inventory_cache[parent_id] = parent
+            if (parent["schema_version"] != version or parent["source_run_id"] != run or parent["policy_version"] != policy
+                    or parent["complete"] != manifest["complete"] or _utc(parent["first_observed_at"]) > clock):
+                raise ValueError("invalid_event_lead_manifest")
+            wanted = set(manifest["lead_tip_ids"])
+            tips = [dict(t, position=i) for i,t in enumerate(t for t in parent["tips"] if t["tip_id"] in wanted)]
+        events = {(t["sport"], t["event_key"]) for t in tips}
+        if (len(tips) != 1 or len(events) != 1 or list(next(iter(events))) != manifest.get("first_lead_event")
+                or any(_utc(t["starts_at"]) <= clock for t in tips)
+                or [t["tip_id"] for t in tips] != manifest["lead_tip_ids"]
+                or [[t["event_key"], t["starts_at"]] for t in tips] != manifest.get("lead_events")):
+            raise ValueError("invalid_event_lead_manifest")
+        # Reader projection; the physical v1-compatible manifest contains no tip rows.
+        manifest = dict(manifest, tip_ids=manifest["lead_tip_ids"], recorded_count=len(tips))
+    elif "inventory_id" in manifest or (version == LEAD_MANIFEST_VERSION and surface not in EVENT_LEAD_SURFACES):
+        raise ValueError("invalid_event_lead_manifest")
     return {**manifest, "publication_id": publication_id, "tips": tips}
 
 
+def _store_inventory(conn, stable, tips, observed):
+    publication_id = _hash(stable)
+    existing = conn.execute("SELECT * FROM consumer_tip_publications WHERE publication_id=?",
+                            (publication_id,)).fetchone()
+    if existing is not None:
+        old = _validate_publication(conn, existing)
+        return "unchanged", publication_id, old["first_observed_at"]
+    manifest = {**stable, "first_observed_at": observed.isoformat()}
+    conn.execute("INSERT INTO consumer_tip_publications VALUES(?,?,?,?,?,?)",
+                 (publication_id, stable["surface"], stable["source_run_id"], stable["policy_version"],
+                  manifest["first_observed_at"], _json(manifest)))
+    conn.executemany("INSERT INTO consumer_tips VALUES(?,?,?,?)",
+                     [(publication_id, idx, key, _json(tip)) for idx, (key, tip) in enumerate(tips)])
+    return "recorded", publication_id, manifest["first_observed_at"]
+
+
 def record_tip_publication(db_path, *, surface, rows, as_of,
-                           source_run_id=None, policy_version=None):
+                           source_run_id=None, policy_version=None, event_lead_candidates=None, leads_only=False):
     """Atomically append a bounded final UI inventory; fail closed on conflicts.
 
     Invalid rows are reported, never silently claimed as displayed evidence.
@@ -328,6 +396,10 @@ def record_tip_publication(db_path, *, surface, rows, as_of,
         if decision > observed:
             raise ValueError("future_publication_clock")
         surface = _text(surface, limit=128)
+        if (surface in EVENT_LEAD_SURFACES.values()
+                or (event_lead_candidates is not None and surface not in EVENT_LEAD_SURFACES)
+                or (leads_only and (surface != "wettfinder_default_inventory" or event_lead_candidates is None))):
+            raise ValueError("invalid_event_lead_surface")
         source_run_id = _text(source_run_id, optional=True)
         policy_version = _text(policy_version, optional=True)
         # Do not silently truncate a generator or an oversized displayed list.
@@ -361,32 +433,68 @@ def record_tip_publication(db_path, *, surface, rows, as_of,
             "complete": not rejected, "rejected": dict(sorted(rejected.items())),
             "tip_ids": [tip_id for tip_id, _ in tips],
         }
-        publication_id = _hash(stable)
-        manifest = {**stable, "first_observed_at": observed.isoformat()}
+        leads = None
+        if event_lead_candidates is not None:
+            keys = list(islice(event_lead_candidates, MAX_VISIBLE_LEADS+1))
+            if (len(keys) > MAX_VISIBLE_LEADS or any(not isinstance(key, str) for key in keys)
+                    or len(set(keys)) != len(keys)):
+                raise ValueError("invalid_event_lead_candidates")
+            wanted = set(keys)
+            leads = [(tid, t) for tid, t in tips if t["candidate_id"] in wanted]
+            supplied = Counter()
+            for raw in rows:
+                try:
+                    r = _mapping(raw)
+                    cid = r.get("candidate_id") or r.get("key") or r.get("signal_key")
+                    if isinstance(cid, str):
+                        supplied[cid] += 1
+                except ValueError:
+                    pass  # Already counted among rejected rows.
+            if (any(supplied[k] != 1 for k in wanted)
+                    or len({(t["sport"], t["event_key"]) for _, t in leads}) != len(leads)
+                    or (leads_only and (len(rows) != len(keys) or len(rows) > MAX_VISIBLE_LEADS))):
+                raise ValueError("invalid_event_lead_candidates")
+            stable["schema_version"] = LEAD_MANIFEST_VERSION
         path = Path(db_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(path, timeout=0.5)
         conn.execute("PRAGMA foreign_keys=ON")
         conn.execute("BEGIN IMMEDIATE")
         _initialize(conn)
-        existing = conn.execute("SELECT * FROM consumer_tip_publications WHERE publication_id=?",
-                                (publication_id,)).fetchone()
-        if existing is not None:
-            validated = _validate_publication(conn, existing)
-            conn.rollback()
-            return {"status": "unchanged", "publication_id": publication_id,
-                    "recorded_tips": len(tips), "skipped_tips": len(rows)-len(tips),
-                    "first_observed_at": validated["first_observed_at"], "errors": dict(rejected)}
-        conn.execute("INSERT INTO consumer_tip_publications VALUES(?,?,?,?,?,?)",
-                     (publication_id, surface, source_run_id, policy_version,
-                      manifest["first_observed_at"], _json(manifest)))
-        conn.executemany("INSERT INTO consumer_tips VALUES(?,?,?,?)",
-                         [(publication_id, position, tip_id, _json(tip))
-                          for position, (tip_id, tip) in enumerate(tips)])
+        status, publication_id, first_clock = ("unchanged", None, observed.isoformat()) if leads_only else (
+            _store_inventory(conn, stable, tips, observed))
+        new_leads = 0
+        if leads and not rejected:
+            if _utc(first_clock) > observed:
+                raise ValueError("inventory_after_event_lead_clock")
+            conn.execute(_LEAD_INDEX)
+            base_id = publication_id
+            for tid, t in leads:
+                ev = [t["sport"], t["event_key"]]
+                child_surface = EVENT_LEAD_SURFACES[surface]
+                old = conn.execute("SELECT publication_id,first_observed_at FROM consumer_tip_publications "
+                    "WHERE surface=? AND json_extract(payload_json,'$.first_lead_event') IS NOT NULL "
+                    "AND json_extract(payload_json,'$.first_lead_event')=?", (child_surface, _json(ev))).fetchone()
+                if old:
+                    if _utc(old[1]) > observed:
+                        raise ValueError("event_lead_capture_clock_conflict")
+                    continue
+                child = dict(stable, surface=child_surface, inventory_id=base_id,
+                             tip_ids=[], lead_tip_ids=[tid], supplied_count=1, recorded_count=0,
+                             first_lead_event=ev, lead_events=[[t["event_key"], t["starts_at"]]])
+                if leads_only:
+                    child["inline_tips"] = [t]
+                _store_inventory(conn, child, (), observed)
+                new_leads += 1
+                status = "recorded"
         conn.commit()
-        return {"status": "recorded", "publication_id": publication_id,
+        if leads_only:
+            return {"status": status, "recorded_tips": new_leads, "skipped_tips": len(rows)-len(tips),
+                    "new_event_leads": new_leads, "errors": dict(rejected)}
+        return {"status": status, "publication_id": publication_id,
                 "recorded_tips": len(tips), "skipped_tips": len(rows)-len(tips),
-                "first_observed_at": manifest["first_observed_at"], "errors": dict(rejected)}
+                "first_observed_at": first_clock, "errors": dict(rejected),
+                **({"new_event_leads": new_leads} if leads is not None else {})}
     except (ValueError, TypeError, OverflowError, sqlite3.Error, OSError) as exc:
         if conn is not None:
             conn.rollback()
@@ -412,19 +520,39 @@ def read_tip_publications(db_path, *, since=None, until=None, surface=None, limi
     if not path.is_file():
         return []
     clauses, args = [], []
+    if surface is None:
+        # Companion receipts are first-card evidence, not more public inventories.
+        clauses.append("surface NOT IN (?,?)")
+        args.extend(EVENT_LEAD_SURFACES.values())
     for name, value, operator in (("first_observed_at", since, ">="),
                                   ("first_observed_at", until, "<"),
                                   ("surface", surface, "=")):
         if value is not None:
             clauses.append(f"{name}{operator}?")
             args.append(_text(value) if name == "surface" else _utc(value).isoformat())
-    if event_window_start is not None or event_window_end is not None:
+    has_window = event_window_start is not None or event_window_end is not None
+    if has_window:
         lower, upper = _utc(event_window_start), _utc(event_window_end)
         if upper <= lower:
             raise ValueError("invalid_event_window")
         related = sorted({_text(key, limit=512) for key in related_event_keys})
         if len(related) > 800:
             raise ValueError("too_many_related_event_keys")
+    if has_window and surface in EVENT_LEAD_SURFACES.values():
+        # Search only the bounded [event ID, original kickoff] references, not
+        # forecast data. Include earlier observations if a later kickoff moved.
+        args.extend((surface, lower.isoformat(), upper.isoformat()))
+        moved = (" OR json_extract(e.value,'$[0]') IN ("+",".join("?" for _ in related)+")") if related else ""
+        args.extend(related)
+        before = " AND known.first_observed_at<?" if until is not None else ""
+        if until is not None:
+            args.append(_utc(until).isoformat())
+        clauses.append("EXISTS (SELECT 1 FROM json_each(consumer_tip_publications.payload_json,'$.lead_events') seen "
+            "WHERE json_extract(seen.value,'$[0]') IN (SELECT json_extract(e.value,'$[0]') "
+            "FROM consumer_tip_publications known,json_each(known.payload_json,'$.lead_events') e "
+            "WHERE known.surface=? AND ((json_extract(e.value,'$[1]')>=? AND json_extract(e.value,'$[1]')<?)"
+            +moved+")"+before+"))")
+    elif has_window:
         # Select ALL publication revisions for eligible events, not just the
         # first revision whose rescheduled kickoff entered the requested days.
         # Unrelated old publications do not consume the bounded reader limit.
@@ -455,4 +583,5 @@ def read_tip_publications(db_path, *, since=None, until=None, surface=None, limi
                                " ORDER BY first_observed_at,publication_id LIMIT ?", (*args, limit+1)).fetchall()
         if len(records) > limit:
             raise ValueError("publication_reader_limit_exceeded")
-        return [_validate_publication(conn, record) for record in records]
+        cache = {}
+        return [_validate_publication(conn, record, cache) for record in records]

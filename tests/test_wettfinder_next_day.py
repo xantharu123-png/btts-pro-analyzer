@@ -806,6 +806,12 @@ def _production_run(tmp_path, monkeypatch, *, scanner, clock=None, receipt_error
     monkeypatch.setattr(automation, "capture_football_worker", lambda *_args, **_kwargs: nullcontext())
     monkeypatch.setattr(automation, "ChallengeDataProvider", lambda *_args, **_kwargs: object())
     monkeypatch.setattr(automation, "STATE_PATH", path)
+    run.lead_writes = []
+    def capture_visible_leads(target, **kwargs):
+        stored = json.loads(target.read_text(encoding="utf-8"))
+        run.lead_writes.append(_fixture_ids(stored["model_candidates"]))
+        return {"status": "recorded"}
+    monkeypatch.setattr(tip_publication, "record_default_lead_publication", capture_visible_leads)
     monkeypatch.setattr(forecast_evidence, "_now", instant)
     real_write, real_stage = automation.write_state, automation._logged_stage
 
@@ -917,6 +923,7 @@ def test_production_run_on_a_running_clock_keeps_all_three_files_readable(tmp_pa
 
     assert tuple(run.stages) == PUBLICATION_STAGES
     assert len(run.writes) == 3
+    assert run.lead_writes == [{1, 2, 3}]  # after repagination, not after the metadata-only third write
     assert run.receipts == [{"fixtures": {1}, "reader_accepts": True}]
     # Rule 1: one publication clock for all three files, also after the background batch.
     assert {written["generated_at"] for written in run.writes} == {run.document["generated_at"]}

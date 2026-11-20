@@ -13,7 +13,7 @@ import sqlite3
 from types import SimpleNamespace
 
 from betting_math import MINIMUM_RECOMMENDED_DECIMAL_ODDS
-from consumer_tip_history import read_tip_publications
+from consumer_tip_history import EVENT_LEAD_SURFACES, LEAD_MANIFEST_VERSION, read_tip_publications
 from forecast_selection import select_event_leads
 from market_consensus import (
     ESPORTS_PRICE_SOURCE, ODDS_API_REFERENCE_SOURCE, REFERENCE_SOURCE,
@@ -66,7 +66,7 @@ def _first_card(tips):
     return None
 
 
-def _matchday(publications, first, selections, gap_index, in_window):
+def _matchday(publications, first, selections, gap_index, in_window, *, confirmed=None, lead_surface=False):
     scored = {(row["publication_id"], row["tip_id"]): row for row in selections}
 
     def row_for(pub, tip, reason=None, *, unknown_card=False):
@@ -122,16 +122,20 @@ def _matchday(publications, first, selections, gap_index, in_window):
         # Legacy inventories were captured AFTER the price floor. The original
         # revision/role anchor could have been removed. Replaying visible rows
         # cannot certify an actual lead, even when only one candidate remains.
-        marked = [tip for tip in tips if tip.get("featured_role") == "primary"]
-        main.append(card_row(marked[0] if len(marked) == 1 else None,
-                             "ambiguous_event_lead_roles" if marked else "no_archived_event_lead_role"))
+        marked = tips if lead_surface else [tip for tip in tips if tip.get("featured_role") == "primary"]
+        if (confirmed is not None and all(p["schema_version"] == LEAD_MANIFEST_VERSION for p, _ in inventories)
+                and (not reason or event in confirmed)):
+            main.append(confirmed.get(event) or card_row(None, "no_recorded_visible_event_lead"))
+        else:
+            main.append(card_row(marked[0] if len(marked) == 1 else None,
+                                 "ambiguous_event_lead_roles" if marked else "no_archived_event_lead_role"))
         reconstruction.append(card_row(_first_card(tips) if reason is None else None,
                                        "no_comparable_first_card_revision"))
         # Descriptive comparison on the first observation of each distinct
         # market; never describe this retrospective maximum as the first card.
         retro.append(max(rows, key=lambda row: row["probability"]))
         first_row, hindsight = main[-1], retro[-1]
-        if first_row["tip_id"] != hindsight["tip_id"]:
+        if (first_row["market_key"], first_row["selection"]) != (hindsight["market_key"], hindsight["selection"]):
             why = (first_row["reason"] if first_row["tip_id"] is None else
                    "equal_probability_tie" if first_row["probability"] == hindsight["probability"] else
                    "different_market_in_later_inventory")
@@ -141,6 +145,10 @@ def _matchday(publications, first, selections, gap_index, in_window):
                                     retrospective_publication_id=hindsight["publication_id"],
                                     retrospective_tip_id=hindsight["tip_id"], retrospective_market=hindsight["market_key"],
                                     retrospective_status=hindsight["status"]))
+    if confirmed:
+        # Regular quote publications may offer a new lead without writing a new
+        # legacy inventory. Include those real captures in the main-card view only.
+        main.extend(confirmed[event] for event in sorted(confirmed.keys()-by_event.keys()))
     return dict(first_main_card=_matchday_view(main), all_distinct_markets=_matchday_view(markets),
                 first_inventory_reconstruction=_matchday_view(reconstruction),
                 first_card_evidence=dict(identified=sum(row["tip_id"] is not None for row in main),
@@ -150,8 +158,9 @@ def _matchday(publications, first, selections, gap_index, in_window):
                 first_vs_retrospective_differences=differences,
                 tickets={product: dict(ticket_count=None, reason="no_original_ticket_input")
                          for product in ("doublebet", "riskobet", "15k")},
-                limitations=["First main card requires one explicitly archived primary role per game in the first receipt. "
-                             "Existing Wettfinder writers record global highlights and catalogue rows only, not the event lead.",
+                limitations=["First main card requires an explicit event lead, not a global highlight. "
+                             "Legacy first inventories without that role are never backfilled. New receipts use the "
+                             "first observed eligible lead on the offered default page or the rendered automatic page.",
                              "First inventory reconstruction uses only retained post-floor rows. It is not a historical main-card receipt.",
                              "Descriptive only: small samples and correlated markets cannot establish model error or profit.",
                              "The archive covers inventory, not original tickets, completed wagers or all customer visits."])
@@ -344,6 +353,12 @@ def build_consumer_tip_performance_report(
     report["linkage_gap_count"] = sum(reasons.values())
     report["linkage_gap_reasons"] = dict(reasons)
     report["linkage_gaps"] = gaps
-    if surface in WETTFINDER_SURFACES:
-        report["matchday"] = _matchday(publications, first, selections, gap_index, in_window)
+    if surface in EVENT_LEAD_SURFACES.values():
+        report["first_visible_cards"] = _matchday(publications, first, selections, gap_index, in_window,
+                                                 lead_surface=True)["first_main_card"]["rows"]
+    elif surface in WETTFINDER_SURFACES:
+        lead_report = build_consumer_tip_performance_report(history_db, forecast_db,
+            surface=EVENT_LEAD_SURFACES[surface], **args)
+        confirmed = {(r["sport"], r["event_key"]): r for r in lead_report["first_visible_cards"]}
+        report["matchday"] = _matchday(publications, first, selections, gap_index, in_window, confirmed=confirmed)
     return report

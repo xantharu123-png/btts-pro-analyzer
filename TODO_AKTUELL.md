@@ -1,5 +1,12 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 20.11.2026 – Erste sichtbare Hauptauswahl je Spiel
+
+- Folgebranch nach PR #144: [Vertrag, Grenzen und Betriebsabnahme](docs/audits/2026-11-20-haupttipp-beleg.md).
+  Katalog und sichtbaren Hauptmarkt nicht gleichsetzen; für frühere Tage nichts nachtragen.
+- Nicht deployed. Nach genehmigtem Release ohne Sonderlauf zuerst die nächste reguläre Veröffentlichung
+  und nach Spielabschluss die exakte Ergebnisbindung prüfen. Provider-Budget, Modell und Sortierung unverändert.
+
 ## 20.11.2026 – Wettfinder-Bilanz, Hockey und Club-Heimvorteil
 
 - [Ergebnisse, Testgrenzen und Reproduktion](docs/audits/2026-11-20-haupttipps-und-datenabdeckung.md).
