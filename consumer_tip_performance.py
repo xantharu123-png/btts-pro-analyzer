@@ -8,7 +8,6 @@ from collections import Counter, defaultdict
 from contextlib import closing
 from datetime import datetime, timezone
 import math
-import json
 from pathlib import Path
 import sqlite3
 from types import SimpleNamespace
@@ -21,7 +20,7 @@ from market_consensus import (
     TEAM_PRICE_SOURCES, WETTFINDER_FETCH_MAX_AGE, WETTFINDER_QUOTE_MAX_AGE,
     exact_market_target,
 )
-from selection_performance import _result, _summary, _utc, build_selection_performance_report
+from selection_performance import _summary, _utc, _verified_actual_start, build_selection_performance_report
 from tip_publication import bind_forecast_ids
 
 
@@ -105,7 +104,7 @@ def _matchday(publications, first, selections, gap_index, in_window):
                 earliest[event] = [(pub, tips)]
             elif earliest[event][0][0]["first_observed_at"] == pub["first_observed_at"]:
                 earliest[event].append((pub, tips))
-    main, retro, differences = [], [], []
+    main, reconstruction, retro, differences = [], [], [], []
     for event, rows in sorted(by_event.items()):
         inventories = earliest[event]
         pub, tips = inventories[0]
@@ -114,12 +113,20 @@ def _matchday(publications, first, selections, gap_index, in_window):
         elif not pub["complete"]:
             reason = "incomplete_first_publication"
         else:
-            lead = _first_card(tips)
-            reason = None if lead is not None else "no_comparable_first_card_revision"
-        if not reason and in_window(lead):
-            main.append(row_for(pub, lead))
-        else:
-            main.append(row_for(pub, tips[0], reason or "first_card_outside_day", unknown_card=True))
+            reason = None
+        def card_row(lead, missing):
+            if reason is None and lead is not None and in_window(lead):
+                return row_for(pub, lead)
+            return row_for(pub, tips[0], reason or (missing if lead is None else "first_card_outside_day"),
+                           unknown_card=True)
+        # Legacy inventories were captured AFTER the price floor. The original
+        # revision/role anchor could have been removed. Replaying visible rows
+        # cannot certify an actual lead, even when only one candidate remains.
+        marked = [tip for tip in tips if tip.get("featured_role") == "primary"]
+        main.append(card_row(marked[0] if len(marked) == 1 else None,
+                             "ambiguous_event_lead_roles" if marked else "no_archived_event_lead_role"))
+        reconstruction.append(card_row(_first_card(tips) if reason is None else None,
+                                       "no_comparable_first_card_revision"))
         # Descriptive comparison on the first observation of each distinct
         # market; never describe this retrospective maximum as the first card.
         retro.append(max(rows, key=lambda row: row["probability"]))
@@ -135,11 +142,18 @@ def _matchday(publications, first, selections, gap_index, in_window):
                                     retrospective_tip_id=hindsight["tip_id"], retrospective_market=hindsight["market_key"],
                                     retrospective_status=hindsight["status"]))
     return dict(first_main_card=_matchday_view(main), all_distinct_markets=_matchday_view(markets),
+                first_inventory_reconstruction=_matchday_view(reconstruction),
+                first_card_evidence=dict(identified=sum(row["tip_id"] is not None for row in main),
+                                         missing=sum(row["tip_id"] is None for row in main),
+                                         missing_reasons=dict(Counter(row["reason"] for row in main if row["tip_id"] is None))),
                 retrospective_catalogue_max=_matchday_view(retro),
                 first_vs_retrospective_differences=differences,
                 tickets={product: dict(ticket_count=None, reason="no_original_ticket_input")
                          for product in ("doublebet", "riskobet", "15k")},
-                limitations=["Descriptive only: small samples and correlated markets cannot establish model error or profit.",
+                limitations=["First main card requires one explicitly archived primary role per game in the first receipt. "
+                             "Existing Wettfinder writers record global highlights and catalogue rows only, not the event lead.",
+                             "First inventory reconstruction uses only retained post-floor rows. It is not a historical main-card receipt.",
+                             "Descriptive only: small samples and correlated markets cannot establish model error or profit.",
                              "The archive covers inventory, not original tickets, completed wagers or all customer visits."])
 
 
@@ -157,24 +171,9 @@ def _rescheduled_event_starts(forecast_db, cutoff):
         raise ValueError("rescheduled result discovery exceeds bounded row limit")
     starts = defaultdict(set)
     for row in rows:
-        try:
-            # Only the owning football adapter can attest an actual kickoff.
-            # A result on a sibling market may affect the whole day's membership,
-            # so verify its hash, native identity and time before using its clock.
-            event_key = row["event_key"]
-            sport, fixture_id = event_key.split(":", 1)
-            if sport != "football" or not fixture_id.isdecimal():
-                continue
-            actual_clock = json.loads(row["payload_json"])["provenance"]["actual_starts_at"]
-            info = _result(dict(row), {"native_event": (sport, "api-football", fixture_id),
-                                       "starts_at": actual_clock}, cutoff)
-            actual = info["effective_start"]
-            if actual <= _utc(row["observed_at"]):
-                starts[event_key].add(actual)
-        except (ValueError, TypeError, KeyError):
-            # Discovery never infers an outcome. Evidence integrity is checked
-            # again by the exact-bound result report before any scoring.
-            continue
+        actual = _verified_actual_start(dict(row), cutoff)
+        if actual is not None:
+            starts[row["event_key"]].add(actual)
     return starts
 
 

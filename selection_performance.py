@@ -169,6 +169,23 @@ def _result(row: dict, forecast: dict, cutoff: datetime) -> dict:
     return value
 
 
+def _verified_actual_start(row: dict, cutoff: datetime):
+    """Only a native, hash-checked football terminal may move sibling markets."""
+    try:
+        sport, fixture = row["event_key"].split(":", 1)
+        if sport != "football" or not fixture.isdecimal():
+            return None
+        proof = json.loads(row["payload_json"])["provenance"]
+        actual = proof.get("actual_starts_at")
+        if actual is None:
+            return None
+        bound = {"native_event": (sport, "api-football", fixture), "starts_at": actual}
+        start = _result(row, bound, cutoff)["effective_start"]
+        return start if start <= _utc(row["observed_at"]) else None
+    except (ValueError, TypeError, KeyError, AttributeError):
+        return None
+
+
 def _causal(forecast: dict, start: datetime) -> str | None:
     if _utc(forecast["decision_at"]) >= start or _utc(forecast["recorded_at"]) >= start:
         return "post_actual_start"
@@ -390,11 +407,15 @@ def build_selection_performance_report(
             conn.set_progress_handler(None, 0)
     report["decision_revisions_read"] = len(raw)
     result_index, quote_index, observations = defaultdict(list), defaultdict(list), defaultdict(list)
+    event_starts = defaultdict(set)
     invalid_quote_forecasts = set()
     for row in results:
         try:
             if _utc(row["observed_at"]) <= cutoff:
                 result_index[(row["event_key"], row["market_key"], row["selection"])].append(row)
+                actual = _verified_actual_start(row, cutoff)
+                if actual is not None:
+                    event_starts[row["event_key"]].add(actual)
         except (ValueError, TypeError):
             error("result", row["result_id"], "invalid result observation clock")
     for row in quotes:
@@ -427,10 +448,18 @@ def build_selection_performance_report(
         if identity_conflict:
             error("forecast", revisions[0]["forecast_id"], "native event has conflicting frozen event keys or participant roles")
         terminal = []
-        result_invalid = identity_conflict
+        anchor = revisions[0]
+        sport, provider, provider_id = anchor["native_event"]
+        clocks = (event_starts[anchor["event_key"]] if sport == "football" and provider == "api-football"
+                  and anchor["event_key"] == f"football:{provider_id}" else set())
+        event_start = next(iter(clocks)) if len(clocks) == 1 else None
+        if len(clocks) > 1:
+            error("result", anchor["event_key"], "conflicting actual kickoffs across event markets")
+        result_anchor = dict(anchor, starts_at=event_start.isoformat()) if event_start else anchor
+        result_invalid = identity_conflict or len(clocks) > 1
         for row in result_index[(revisions[0]["event_key"], revisions[0]["market_key"], revisions[0]["selection"])]:
             try:
-                terminal.append(_result(row, revisions[0], cutoff))
+                terminal.append(_result(row, result_anchor, cutoff))
             except (ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
                 result_invalid = True
                 error("result", row["result_id"], str(exc))
@@ -439,7 +468,7 @@ def build_selection_performance_report(
         if len(outcomes) > 1 or len(starts) > 1:
             result_invalid = True
             error("result", revisions[0]["event_key"], "conflicting terminal outcomes or actual kickoffs")
-        start = next(iter(starts)) if len(starts) == 1 and not result_invalid else _utc(revisions[0]["starts_at"])
+        start = event_start or (next(iter(starts)) if len(starts) == 1 and not result_invalid else _utc(anchor["starts_at"]))
         if not lower <= start < upper:
             continue
         causal = []
