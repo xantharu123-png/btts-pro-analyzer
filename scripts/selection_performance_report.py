@@ -15,8 +15,10 @@ from selection_performance import build_selection_performance_report
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", required=True, type=Path)
-    parser.add_argument("--from-day", required=True)
-    parser.add_argument("--through-day", required=True)
+    parser.add_argument("--from-day")
+    parser.add_argument("--through-day")
+    parser.add_argument("--matchday", metavar="YYYY-MM-DD",
+                        help="One completed Zurich day, using one archived Wettfinder surface; requires --history-db")
     parser.add_argument("--timezone", default="Europe/Zurich")
     parser.add_argument("--unit-stake", type=float, default=1.0, help="Hypothetical equal stake, not actual account transactions")
     parser.add_argument("--as-of", help="Timezone-aware reporting cutoff")
@@ -24,6 +26,16 @@ def main(argv=None) -> int:
     parser.add_argument("--surface", help="Optional publication surface; requires --history-db")
     args = parser.parse_args(argv)
     try:
+        if args.matchday:
+            from consumer_tip_performance import WETTFINDER_SURFACES
+            if args.from_day or args.through_day or args.timezone != "Europe/Zurich" or not args.history_db:
+                parser.error("--matchday requires --history-db and one Zurich day (no date range)")
+            args.from_day = args.through_day = args.matchday
+            args.surface = args.surface or WETTFINDER_SURFACES[0]
+            if args.surface not in WETTFINDER_SURFACES:
+                parser.error("--matchday requires one Wettfinder surface: " + ", ".join(WETTFINDER_SURFACES))
+        elif not args.from_day or not args.through_day:
+            parser.error("provide --from-day and --through-day, or --matchday with --history-db")
         if args.surface and not args.history_db:
             parser.error('--surface requires --history-db')
         options = dict(from_day=args.from_day, through_day=args.through_day,
@@ -31,6 +43,11 @@ def main(argv=None) -> int:
         if args.history_db:
             from consumer_tip_performance import build_consumer_tip_performance_report
             report = build_consumer_tip_performance_report(args.history_db, args.db, surface=args.surface, **options)
+            if args.matchday:
+                keys = ("from_day", "through_day", "timezone", "as_of", "surface_filter", "matchday",
+                        "database_present", "history_database_present", "publication_count", "incomplete_publications",
+                        "unique_archived_selections", "linkage_gap_reasons", "integrity_error_count", "integrity_errors")
+                report = {"schema_version": "wettfinder-matchday-v1", **{key: report[key] for key in keys}}
         else:
             report = build_selection_performance_report(args.db, **options)
     except (ValueError, OSError) as exc:

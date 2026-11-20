@@ -250,6 +250,36 @@ def test_existing_governor_reserves_before_any_request_and_sanitizes_errors(tmp_
     assert adapter.errors == {"schedule": "APIBudgetExceeded"}
 
 
+@pytest.mark.parametrize(("body", "reason"), [
+    (ValueError("sensitive raw body"), "api_invalid_json"),
+    (["sensitive raw body"], "api_invalid_envelope"),
+    ({"errors": {"plan": "sensitive raw body"}}, "api_plan_error"),
+    ({"errors": {"sensitive key": "sensitive raw body"}}, "api_reported_error"),
+    ({"response": "sensitive raw body"}, "api_invalid_response_list"),
+    ({"response": [], "paging": {"total": 2}}, "api_incomplete_page"),
+    ({"response": [], "paging": "sensitive raw body"}, "api_invalid_paging"),
+])
+def test_history_and_budget_keep_safe_specific_failure_no_retry(tmp_path, body, reason):
+    governor, valid = Governor(), Transport()
+
+    def transport(url, **kwargs):
+        if url.endswith("/leagues"):
+            return valid(url, **kwargs)
+        def decode():
+            if isinstance(body, Exception):
+                raise body
+            return body
+        return SimpleNamespace(status_code=200, headers={}, json=decode)
+
+    adapter = scanner(tmp_path, transport=transport, governor=governor,
+                      candidates=(LeagueCandidate("National League", "Switzerland"),))
+    assert adapter.get_completed_games(DAY - timedelta(days=30), DAY) == []
+    assert governor.completions[-1][1]["error"] == reason
+    assert adapter.history_store.request_error(PROVIDER, "league:8001:season:2026") == reason
+    assert adapter.history_coverage["errors"] == (reason,)
+    assert len(governor.reservations) == 2
+
+
 def test_shared_date_and_catalogue_cache_preserves_observation_and_uses_two_calls(tmp_path):
     clock = [NOW]
     transport = Transport(catalog=[catalogue(), catalogue(identity=8002, name="Swiss League")],
@@ -428,7 +458,7 @@ def test_native_page_paging_errors_cannot_accept_truncated_results(tmp_path):
         return SimpleNamespace(status_code=200, headers={}, json=lambda: dict(errors=[], response=[catalogue()], paging=dict(total=2)))
     adapter = scanner(tmp_path, transport=truncated)
     assert adapter.get_upcoming_games(DAY, DAY) == []
-    assert adapter.errors["schedule"] == "ValueError"
+    assert adapter.errors["schedule"] == "api_incomplete_page"
     assert len(calls) == 1
 
 
