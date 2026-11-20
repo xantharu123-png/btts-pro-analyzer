@@ -454,6 +454,7 @@ def build_selection_performance_report(
         outcome = next(iter(outcomes)) if len(outcomes) == 1 and not result_invalid else "UNRESOLVED"
         if terminal and min(_utc(r["observed_at"]) for r in terminal) <= _utc(chosen["decision_at"]):
             outcome = "UNRESOLVED"
+            result_invalid = True
             error("result", chosen["forecast_id"], "terminal result was already observed at decision")
         entries = []
         quote_invalid = chosen["forecast_id"] in invalid_quote_forecasts
@@ -478,6 +479,7 @@ def build_selection_performance_report(
             "day": start.astimezone(zone).date().isoformat(), "effective_start": start.isoformat(),
             "decision_at": chosen["decision_at"], "probability": chosen["probability"], "outcome": outcome,
             "causal": reason is None, "clock_exclusion": reason, "revision_count": len(revisions),
+            "invalid_result_evidence": result_invalid,
             "role_binding_status": "complete" if _role_binding(chosen) is not None else "missing",
             "quote_status": status, "entry_odds": quote["odds"] if quote else None,
             "entry_quote_id": quote["quote_id"] if quote else None,

@@ -11,16 +11,136 @@ import math
 import json
 from pathlib import Path
 import sqlite3
+from types import SimpleNamespace
 
 from betting_math import MINIMUM_RECOMMENDED_DECIMAL_ODDS
 from consumer_tip_history import read_tip_publications
+from forecast_selection import select_event_leads
 from market_consensus import (
     ESPORTS_PRICE_SOURCE, ODDS_API_REFERENCE_SOURCE, REFERENCE_SOURCE,
     TEAM_PRICE_SOURCES, WETTFINDER_FETCH_MAX_AGE, WETTFINDER_QUOTE_MAX_AGE,
     exact_market_target,
 )
-from selection_performance import _summary, _utc, build_selection_performance_report
+from selection_performance import _result, _summary, _utc, build_selection_performance_report
 from tip_publication import bind_forecast_ids
+
+
+WETTFINDER_SURFACES = ("wettfinder_default_inventory", "wettfinder_automatic")
+
+
+def _matchday_view(rows):
+    """Score only causal, exactly bound WIN/LOSS rows; preserve every gap."""
+    def counts(items):
+        states = Counter(row["status"] for row in items)
+        decided = states["WIN"] + states["LOSS"]
+        p = (math.fsum(r["probability"] for r in items if r["status"] in {"WIN", "LOSS"}) / decided
+             if decided else None)
+        hit = states["WIN"] / decided if decided else None
+        return dict(games=len({(r["sport"], r["event_key"]) for r in items}), selections=len(items),
+                    wins=states["WIN"], losses=states["LOSS"], open=states["UNRESOLVED"],
+                    voids=states["VOID"], unmatched=states["UNMATCHED"], decided=decided,
+                    mean_announced_probability=p, hit_rate=hit,
+                    announced_minus_actual_pp=100*(p-hit) if decided else None,
+                    fresh_quotes=sum(r["quote_status"] == "fresh" for r in items))
+    sports = defaultdict(list)
+    for row in rows:
+        sports[row["sport"]].append(row)
+    return dict(summary=counts(rows), by_sport={s: counts(group) for s, group in sorted(sports.items())}, rows=rows)
+
+
+def _first_card(tips):
+    """The inventory records global highlights, not an event-specific lead flag.
+
+    Only replay the displayed card rule when the archived rows establish one
+    comparable revision. Publication order (highlights first) is not evidence
+    of the unseen producer's revision anchor.
+    """
+    from selection_coherence import _role_binding
+    revisions = {(_role_binding(tip), *(tip.get(key) for key in
+                  ("starts_at", "modeled_at", "input_cutoff_at", "model_version", "policy_version"))) for tip in tips}
+    if len(revisions) != 1:
+        return None
+    cards = [SimpleNamespace(**tip, key=tip["candidate_id"], scheduled_start=tip["starts_at"]) for tip in tips]
+    leads = select_event_leads(cards, require_comparable=True)
+    if len(leads) == 1:
+        return next(t for t in tips if t["tip_id"] == leads[0].tip_id)
+    return None
+
+
+def _matchday(publications, first, selections, gap_index, in_window):
+    scored = {(row["publication_id"], row["tip_id"]): row for row in selections}
+
+    def row_for(pub, tip, reason=None, *, unknown_card=False):
+        key = pub["publication_id"], tip["tip_id"]
+        row = scored.get(key)
+        reason = reason or gap_index.get(key) or (row["clock_exclusion"] if row else "not_exactly_bound")
+        if not reason and row["invalid_result_evidence"]:
+            reason = "invalid_result_evidence"
+        return dict(sport=tip["sport"], event_key=tip["event_key"], surface=pub["surface"],
+                    publication_id=key[0], first_observed_at=pub["first_observed_at"],
+                    tip_id=None if unknown_card else key[1], forecast_id=None if unknown_card or not row else row["forecast_id"],
+                    market_key=None if unknown_card else tip["market_key"], selection=None if unknown_card else tip["selection"],
+                    probability=None if unknown_card else tip["probability"],
+                    model_version=None if unknown_card else tip["model_version"],
+                    policy_version=None if unknown_card else tip["policy_version"],
+                    modeled_at=None if unknown_card else tip["modeled_at"],
+                    input_cutoff_at=None if unknown_card else tip["input_cutoff_at"],
+                    status="UNMATCHED" if reason else row["outcome"], reason=reason,
+                    quote_status=None if unknown_card or not row else row["quote_status"])
+
+    markets = [row_for(pub, tip) for pub, tip in first.values() if in_window(tip)]
+    by_event = defaultdict(list)
+    for row in markets:
+        by_event[(row["sport"], row["event_key"])].append(row)
+    # Select the first inventory before inspecting linkage, outcomes or prices.
+    earliest = {}
+    for pub in publications:
+        game_tips = defaultdict(list)
+        for tip in pub["tips"]:
+            event = tip["sport"], tip["event_key"]
+            if event in by_event:
+                game_tips[event].append(tip)
+        for event, tips in game_tips.items():
+            if event not in earliest:
+                earliest[event] = [(pub, tips)]
+            elif earliest[event][0][0]["first_observed_at"] == pub["first_observed_at"]:
+                earliest[event].append((pub, tips))
+    main, retro, differences = [], [], []
+    for event, rows in sorted(by_event.items()):
+        inventories = earliest[event]
+        pub, tips = inventories[0]
+        if len(inventories) != 1:
+            reason = "ambiguous_first_publication_clock"
+        elif not pub["complete"]:
+            reason = "incomplete_first_publication"
+        else:
+            lead = _first_card(tips)
+            reason = None if lead is not None else "no_comparable_first_card_revision"
+        if not reason and in_window(lead):
+            main.append(row_for(pub, lead))
+        else:
+            main.append(row_for(pub, tips[0], reason or "first_card_outside_day", unknown_card=True))
+        # Descriptive comparison on the first observation of each distinct
+        # market; never describe this retrospective maximum as the first card.
+        retro.append(max(rows, key=lambda row: row["probability"]))
+        first_row, hindsight = main[-1], retro[-1]
+        if first_row["tip_id"] != hindsight["tip_id"]:
+            why = (first_row["reason"] if first_row["tip_id"] is None else
+                   "equal_probability_tie" if first_row["probability"] == hindsight["probability"] else
+                   "different_market_in_later_inventory")
+            differences.append(dict(sport=event[0], event_key=event[1], reason=why,
+                                    first_publication_id=first_row["publication_id"], first_tip_id=first_row["tip_id"],
+                                    first_market=first_row["market_key"], first_status=first_row["status"],
+                                    retrospective_publication_id=hindsight["publication_id"],
+                                    retrospective_tip_id=hindsight["tip_id"], retrospective_market=hindsight["market_key"],
+                                    retrospective_status=hindsight["status"]))
+    return dict(first_main_card=_matchday_view(main), all_distinct_markets=_matchday_view(markets),
+                retrospective_catalogue_max=_matchday_view(retro),
+                first_vs_retrospective_differences=differences,
+                tickets={product: dict(ticket_count=None, reason="no_original_ticket_input")
+                         for product in ("doublebet", "riskobet", "15k")},
+                limitations=["Descriptive only: small samples and correlated markets cannot establish model error or profit.",
+                             "The archive covers inventory, not original tickets, completed wagers or all customer visits."])
 
 
 def _rescheduled_event_starts(forecast_db, cutoff):
@@ -30,15 +150,26 @@ def _rescheduled_event_starts(forecast_db, cutoff):
     with closing(sqlite3.connect(path.resolve().as_uri()+"?mode=ro", uri=True, timeout=0.5)) as conn:
         conn.execute("PRAGMA query_only=ON")
         conn.execute("BEGIN")
-        rows = conn.execute("SELECT event_key,observed_at,payload_json FROM forecast_results "
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("SELECT * FROM forecast_results "
             "WHERE CASE WHEN json_valid(payload_json) THEN json_extract(payload_json,'$.provenance.actual_starts_at') END IS NOT NULL LIMIT 100001").fetchall()
     if len(rows) > 100_000:
         raise ValueError("rescheduled result discovery exceeds bounded row limit")
     starts = defaultdict(set)
-    for event_key, observed, raw in rows:
+    for row in rows:
         try:
-            actual = _utc(json.loads(raw)["provenance"]["actual_starts_at"])
-            if _utc(observed) <= cutoff:
+            # Only the owning football adapter can attest an actual kickoff.
+            # A result on a sibling market may affect the whole day's membership,
+            # so verify its hash, native identity and time before using its clock.
+            event_key = row["event_key"]
+            sport, fixture_id = event_key.split(":", 1)
+            if sport != "football" or not fixture_id.isdecimal():
+                continue
+            actual_clock = json.loads(row["payload_json"])["provenance"]["actual_starts_at"]
+            info = _result(dict(row), {"native_event": (sport, "api-football", fixture_id),
+                                       "starts_at": actual_clock}, cutoff)
+            actual = info["effective_start"]
+            if actual <= _utc(row["observed_at"]):
                 starts[event_key].add(actual)
         except (ValueError, TypeError, KeyError):
             # Discovery never infers an outcome. Evidence integrity is checked
@@ -138,21 +269,27 @@ def build_consumer_tip_performance_report(
     # A relevant inventory can also contain matches on unrelated days. Count
     # only requested event days, retaining the first real publication revision
     # and a unique recorded actual-kickoff override when one exists.
-    report["unique_archived_selections"] = sum(
-        lower <= actual_starts.get(tip["event_key"], _utc(tip["starts_at"])) < upper
-        for _, tip in first.values())
+    def in_window(tip):
+        clocks = observed_starts.get(tip["event_key"]) or (_utc(tip["starts_at"]),)
+        return any(lower <= clock < upper for clock in clocks)
+
+    report["unique_archived_selections"] = sum(in_window(tip) for _, tip in first.values())
     report["archive_revisions_collapsed"] = total-len(first)
-    joined, gaps, reasons = {}, [], Counter()
+    joined, gaps, reasons, gap_index = {}, [], Counter(), {}
     def gap(publication, tip, reason):
         # An unlinked future/past selection is not a gap in the requested day.
-        if not lower <= _utc(tip["starts_at"]) < upper:
+        if not in_window(tip):
             return
         reasons[reason] += 1
+        gap_index[publication["publication_id"], tip["tip_id"]] = reason
         if len(gaps) < 200:
             gaps.append(dict(tip_id=tip["tip_id"], event_key=tip["event_key"],
                              surface=publication["surface"], first_observed_at=publication["first_observed_at"], reason=reason))
     for publication, tip in first.values():
         capture = _utc(publication["first_observed_at"])
+        if len(observed_starts.get(tip["event_key"], ())) > 1:
+            gap(publication, tip, "conflicting_actual_start")
+            continue
         if not all(tip.get(name) for name in ("model_version", "policy_version", "modeled_at", "input_cutoff_at")):
             gap(publication, tip, "missing_exact_model_identity")
             continue
@@ -178,7 +315,10 @@ def build_consumer_tip_performance_report(
             gap(publication, tip, "forecast_outside_actual_window_or_invalid_evidence")
     for selected in evidence["selections"]:
         publication, tip = joined[selected["forecast_id"]]
-        capture, effective = _utc(publication["first_observed_at"]), _utc(selected["effective_start"])
+        capture = _utc(publication["first_observed_at"])
+        effective = actual_starts.get(tip["event_key"], _utc(selected["effective_start"]))
+        if not lower <= effective < upper:
+            continue
         # A fixture may have been moved earlier after the original publication.
         if capture >= effective:
             gap(publication, tip, "publication_after_actual_start")
@@ -205,4 +345,6 @@ def build_consumer_tip_performance_report(
     report["linkage_gap_count"] = sum(reasons.values())
     report["linkage_gap_reasons"] = dict(reasons)
     report["linkage_gaps"] = gaps
+    if surface in WETTFINDER_SURFACES:
+        report["matchday"] = _matchday(publications, first, selections, gap_index, in_window)
     return report

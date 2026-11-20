@@ -260,3 +260,141 @@ def test_archived_counter_uses_actual_day_and_preserves_first_capture(paths, mon
     data = report(paths)
     assert data["unique_archived_selections"] == data["summary"]["selections"] == 1
     assert data["selections"][0]["first_observed_at"] == old.isoformat()
+
+
+SURFACE = "wettfinder_default_inventory"
+
+
+def card(fixture=1, market="BTTS_YES", p=.72):
+    return dict(row(fixture), candidate_id=f"{fixture}:{market}", market_key=market,
+                probability=p, home_team="Home", away_team="Away",
+                selection="Ja" if market == "BTTS_YES" else "Over")
+
+
+def matchday(paths):
+    data = report(paths, surface=SURFACE)
+    assert "matchday" in data, "named Wettfinder inventory needs a separate first-card cohort"
+    return data["matchday"]
+
+
+def test_matchday_keeps_first_card_despite_later_better_market(paths, monkeypatch):
+    first, side, late = card(), card(market="TOTAL_OVER_25", p=.64), card(market="TOTAL_OVER_15", p=.88)
+    other = card(2)
+    for item in (first, side, late, other):
+        freeze(paths[1], item)
+    history.record_tip_publication(paths[0], surface=SURFACE, rows=[side, first, other], as_of=NOW)
+    later = NOW+timedelta(minutes=15)
+    monkeypatch.setattr(history, "_now", lambda: later)
+    history.record_tip_publication(paths[0], surface=SURFACE, rows=[late, first, side], as_of=later)
+    settle(paths[1], monkeypatch, outcome="LOSS")
+    data = matchday(paths)
+    main = data["first_main_card"]
+    assert [(r["event_key"], r["market_key"]) for r in main["rows"]] == [
+        ("football:1", "BTTS_YES"), ("football:2", "BTTS_YES")]
+    assert [r["market_key"] for r in data["retrospective_catalogue_max"]["rows"]] == ["TOTAL_OVER_15", "BTTS_YES"]
+    change, = data["first_vs_retrospective_differences"]
+    assert (change["event_key"], change["reason"], change["first_market"], change["retrospective_market"]) == (
+        "football:1", "different_market_in_later_inventory", "BTTS_YES", "TOTAL_OVER_15")
+    assert data["all_distinct_markets"]["summary"]["selections"] == 4
+    sport = main["by_sport"]["football"]
+    assert (sport["games"], sport["selections"], sport["losses"], sport["open"], sport["decided"]) == (2, 2, 1, 1, 1)
+    assert (sport["mean_announced_probability"], sport["hit_rate"], sport["announced_minus_actual_pp"]) == (.72, 0, 72)
+    assert sport["fresh_quotes"] == 0 and sport["wins"] == sport["voids"] == sport["unmatched"] == 0
+    assert all(v["ticket_count"] is None for v in data["tickets"].values())
+
+
+def test_unlinked_first_winner_not_replaced_by_lower_or_later_linked_market(paths, monkeypatch):
+    missing, lower, late = card(p=.83), card(market="TOTAL_OVER_25", p=.65), card(market="TOTAL_OVER_15", p=.91)
+    for item in (lower, late):
+        freeze(paths[1], item)
+    history.record_tip_publication(paths[0], surface=SURFACE, rows=[missing, lower], as_of=NOW)
+    later = NOW+timedelta(minutes=15)
+    monkeypatch.setattr(history, "_now", lambda: later)
+    publish(paths[0], late, surface=SURFACE, clock=later)
+    summary = matchday(paths)["first_main_card"]
+    assert summary["summary"]["unmatched"] == 1 and summary["summary"]["decided"] == 0
+    assert summary["rows"][0]["market_key"] == "BTTS_YES"
+    assert summary["rows"][0]["reason"] == "missing_exact_forecast_binding"
+
+
+def test_incomplete_first_publication_is_gap_even_after_complete_republication(paths, monkeypatch):
+    item = card()
+    freeze(paths[1], item)
+    history.record_tip_publication(paths[0], surface=SURFACE, rows=[item, {}], as_of=NOW)
+    later = NOW+timedelta(minutes=20)
+    monkeypatch.setattr(history, "_now", lambda: later)
+    publish(paths[0], item, surface=SURFACE, clock=later)
+    main = matchday(paths)["first_main_card"]
+    assert main["summary"]["unmatched"] == 1
+    assert main["rows"][0]["reason"] == "incomplete_first_publication"
+
+
+def test_moved_event_unlinked_gap_belongs_to_actual_day(paths, monkeypatch):
+    old = NOW-timedelta(days=2)
+    item = dict(card(), scheduled_start=(old+timedelta(hours=2)).isoformat(),
+                modeled_at=old.isoformat(), input_cutoff_at=old.isoformat())
+    monkeypatch.setattr(history, "_now", lambda: old)
+    publish(paths[0], item, surface=SURFACE, clock=old)
+    freeze(paths[1], card())
+    settle(paths[1], monkeypatch, actual_start=START)
+    data = report(paths, surface=SURFACE)
+    assert data["linkage_gap_reasons"] == {"missing_exact_forecast_binding": 1}
+    assert data["matchday"]["first_main_card"]["summary"]["unmatched"] == 1
+
+
+def test_matchday_cli_requires_original_history_and_never_mixes_surfaces(paths, capsys):
+    import json
+    from scripts.selection_performance_report import main
+    publish(paths[0], card(), surface="daily3_default_plan")
+    options = ["--db", str(paths[1]), "--matchday", "2030-01-01", "--as-of", AS_OF.isoformat()]
+    with pytest.raises(SystemExit):
+        main(options)
+    assert main([*options, "--history-db", str(paths[0])]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert "hypothetical_net_units" not in json.dumps(data)
+    assert data["surface_filter"] == SURFACE
+    assert data["matchday"]["first_main_card"]["summary"]["games"] == 0
+    assert data["matchday"]["tickets"]["doublebet"]["ticket_count"] is None
+
+
+def test_actual_start_from_another_market_prevents_post_start_scoring(paths, monkeypatch):
+    lead, side = card(p=.75), card(market="TOTAL_OVER_25", p=.80)
+    for item in (lead, side):
+        freeze(paths[1], item)
+    later = NOW+timedelta(hours=2)
+    monkeypatch.setattr(history, "_now", lambda: later)
+    history.record_tip_publication(paths[0], surface=SURFACE, rows=[lead, side], as_of=later)
+    settle(paths[1], monkeypatch, actual_start=NOW+timedelta(hours=1))
+    proof = dict(provider="api-football", provider_event_id="1", source_record_id="terminal:side",
+                 payload_sha256="b"*64, settlement_rule="football-fulltime-v1")
+    evidence.append_result("football:1", "TOTAL_OVER_25", "Over", "WIN",
+                           observed_at=START+timedelta(hours=2), provenance=proof, db_path=paths[1])
+    views = matchday(paths)
+    assert views["first_main_card"]["summary"]["wins"] == 0
+    assert views["first_main_card"]["rows"][0]["reason"] == "publication_after_actual_start"
+
+
+def test_conflicting_result_is_not_counted_as_an_open_game(paths, monkeypatch):
+    item = card()
+    freeze(paths[1], item)
+    publish(paths[0], item, surface=SURFACE)
+    settle(paths[1], monkeypatch, actual_start=START)
+    settle(paths[1], monkeypatch, actual_start=START+timedelta(minutes=20))
+    data = matchday(paths)["first_main_card"]
+    assert data["summary"]["open"] == 0 and data["summary"]["unmatched"] == 1
+
+
+def test_mixed_revision_and_tied_capture_do_not_manufacture_a_card(paths):
+    initial = card()
+    revised = dict(card(market="TOTAL_OVER_25", p=.80), model_version="another-revision")
+    second = card(2)
+    competing = card(2, market="TOTAL_OVER_25", p=.90)
+    for item in (initial, second, competing):
+        freeze(paths[1], item)
+    history.record_tip_publication(paths[0], surface=SURFACE, rows=[initial, revised, second], as_of=NOW)
+    publish(paths[0], competing, surface=SURFACE)
+    first = matchday(paths)["first_main_card"]
+    assert first["summary"]["unmatched"] == 2
+    assert [r["reason"] for r in first["rows"]] == [
+        "no_comparable_first_card_revision", "ambiguous_first_publication_clock"]
+    assert all(r["market_key"] is None for r in first["rows"])
