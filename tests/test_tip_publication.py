@@ -155,6 +155,52 @@ def test_worker_does_not_record_unknown_source_as_empty_publication(paths, monke
     assert not receipts.exists()
 
 
+def test_worker_receipts_bind_only_comparable_leads_on_default_visible_page(paths, monkeypatch):
+    from dataclasses import replace
+    from types import SimpleNamespace
+    import ev_signal_sources
+    from test_daily3_selection import football
+    from test_publication_odds_floor import priced
+    def game(i, p=.75, start=None):
+        return priced(football(i, probability=p, now=NOW,
+                     start_hours=start or 1 + i / 100), (1.8,)*3, now=NOW)
+    # The first 20 shown games include one with no comparable revision (22):
+    # it renders a row but has no certified event lead. Game 20 is on page 2.
+    games = [game(i) for i in range(1, 21)]
+    games += [game(21, .62), replace(game(22, start=.5), model_version=None)]
+    snapshot = SimpleNamespace(status=SimpleNamespace(generated_at=NOW), forecasts=games)
+    monkeypatch.setattr(ev_signal_sources, 'automated_wettfinder_snapshot', lambda *a, **k: snapshot)
+    result = publication.record_automatic_publication('existing', as_of=NOW,
+             db_path=paths[1], forecast_db_path=paths[0])
+    assert result['status'] == 'completed'
+    receipt, = history.read_tip_publications(paths[1], surface='wettfinder_default_inventory')
+    assert {t['fixture_id'] for t in receipt['tips']} == set(range(1, 23))
+    leads = history.read_tip_publications(paths[1], surface='wettfinder_default_event_leads')
+    assert len(leads) == 19
+    assert {t['fixture_id'] for p in leads for t in p['tips']} == set(range(1, 20))
+    assert {tid for p in leads for tid in p['tip_ids']} <= set(receipt['tip_ids'])
+    other, = history.read_tip_publications(paths[1], surface='daily3_default_plan')
+    assert other['schema_version'] == 1
+
+
+def test_quote_publication_writes_only_first_card_proof_no_legacy_cohort_rows(paths, monkeypatch):
+    from types import SimpleNamespace
+    import ev_signal_sources
+    from test_daily3_selection import football
+    from test_publication_odds_floor import priced
+    signal = priced(football(now=NOW), (1.8,)*3, now=NOW)
+    snapshot = SimpleNamespace(status=SimpleNamespace(generated_at=NOW), forecasts=[signal])
+    monkeypatch.setattr(ev_signal_sources, 'automated_wettfinder_snapshot', lambda *a, **k: snapshot)
+    saved = publication.record_default_lead_publication('existing', as_of=NOW,
+                db_path=paths[1], forecast_db_path=paths[0])
+    assert saved['status'] in {'completed', 'recorded'}
+    assert history.read_tip_publications(paths[1]) == []
+    with sqlite3.connect(paths[1]) as conn:
+        assert conn.execute('SELECT count(*) FROM consumer_tips').fetchone() == (0,)
+    leads, = history.read_tip_publications(paths[1], surface='wettfinder_default_event_leads')
+    assert leads['tips'][0]['candidate_id'] == signal.candidate_id
+
+
 def test_cli_missing_publication_history_never_falls_back_to_candidate_pool(paths, capsys):
     from scripts.selection_performance_report import main
     from test_selection_performance import AS_OF

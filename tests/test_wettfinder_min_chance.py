@@ -94,6 +94,37 @@ def test_empty_view_tells_the_viewer_to_move_the_slider(monkeypatch):
     assert any('Keine Auswahl ab 60 % Modellchance' in str(value) for value in infos)
 
 
+def test_actual_ui_page_receipt_uses_filter_page_and_never_archives_tomorrow(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    import consumer_tip_history as history
+    import tip_publication
+    from test_workflow_integrity import _RecordingStreamlit, _automatic_status
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return NOW
+    signals = [priced(football(i, probability=.65, start_hours=1+i/100), (1.8,)*3)
+               for i in range(1, 22)]
+    signals.append(priced(football(22, probability=.90, start_hours=27), (1.8,)*3))
+    monkeypatch.setattr(app, 'automated_wettfinder_snapshot', lambda **kw:
+                        SimpleNamespace(status=_automatic_status(NOW), forecasts=signals))
+    monkeypatch.setattr(app, 'datetime', Clock)
+    monkeypatch.setattr(history, '_now', lambda: NOW)
+    monkeypatch.setattr(tip_publication, 'DEFAULT_HISTORY_DB', tmp_path/'tips.db')
+    monkeypatch.setattr(tip_publication, 'DEFAULT_FORECAST_DB', tmp_path/'missing.db')
+    monkeypatch.setattr(app, '_daily3_rail_allowed', lambda: False)
+    monkeypatch.setattr(app, '_render_editorial_rail', lambda *a, **k: None)
+    ui = _RecordingStreamlit(widget_values={'wettfinder_min_chance': 60, 'wettfinder_games_page_Alle_2': 2})
+    monkeypatch.setattr(app, 'st', ui)
+    app._render_automated_daily_selection()
+    rows = history.read_tip_publications(tmp_path/'tips.db', surface='wettfinder_automatic_event_leads')
+    assert len(rows) == 1
+    assert [t['fixture_id'] for t in rows[0]['tips']] == [21]
+    inventory, = history.read_tip_publications(tmp_path/'tips.db', surface='wettfinder_automatic')
+    # Existing unfiltered inventory (including next-day previews) remains unchanged.
+    assert {t['fixture_id'] for t in inventory['tips']} == set(range(1, 23))
+
+
 def _render_page_for_test():
     """Run the real page renderer with Streamlit's own slider widget."""
     from datetime import datetime as real_datetime

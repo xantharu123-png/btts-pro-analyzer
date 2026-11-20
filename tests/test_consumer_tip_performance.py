@@ -445,3 +445,114 @@ def test_sibling_actual_start_moves_exact_lead_into_new_zurich_day(paths, monkey
     data = matchday(paths)["first_main_card"]
     assert data["summary"]["losses"] == 1 and data["summary"]["unmatched"] == 0
     assert data["rows"][0]["market_key"] == "TOTAL_OVER_25"
+
+
+def test_versioned_event_lead_receipt_retains_tip_identity_global_role_and_first_clock(paths, monkeypatch):
+    lead = dict(card(), featured_role="catalogue")
+    other = dict(card(market="TOTAL_OVER_25", p=.82), featured_role="featured")
+    freeze(paths[1], lead)
+    legacy = history.record_tip_publication(paths[0], surface="other", rows=[other, lead], as_of=NOW)
+    saved = history.record_tip_publication(paths[0], surface=SURFACE, rows=[other, lead], as_of=NOW,
+                                          event_lead_candidates=[lead["candidate_id"]])
+    later = NOW + timedelta(minutes=5)
+    monkeypatch.setattr(history, "_now", lambda: later)
+    repeat = history.record_tip_publication(paths[0], surface=SURFACE, rows=[other, lead], as_of=later,
+                                           event_lead_candidates=[lead["candidate_id"]])
+    assert legacy["status"] == saved["status"] == "recorded" and repeat["status"] == "unchanged"
+    archived, = history.read_tip_publications(paths[0], surface=SURFACE)
+    old, = history.read_tip_publications(paths[0], surface="other")
+    leads, = history.read_tip_publications(paths[0], surface="wettfinder_default_event_leads")
+    assert archived["tip_ids"] == old["tip_ids"] and leads["tip_ids"] == [old["tip_ids"][1]]
+    assert leads["inventory_id"] == archived["publication_id"]
+    assert [t["featured_role"] for t in archived["tips"]] == ["featured", "catalogue"]
+    settle(paths[1], monkeypatch)
+    scored, = matchday(paths)["first_main_card"]["rows"]
+    assert (scored["market_key"], scored["status"], scored["first_observed_at"]) == ("BTTS_YES", "WIN", NOW.isoformat())
+
+
+@pytest.mark.parametrize("keys", [["absent"], ["1:BTTS_YES", "1:TOTAL_OVER_25"], ["1:BTTS_YES", "1:BTTS_YES"]])
+def test_rejects_invalid_primary_reference_without_touching_history(paths, keys):
+    result = history.record_tip_publication(paths[0], surface=SURFACE,
+             rows=[card(), card(market="TOTAL_OVER_25")], as_of=NOW, event_lead_candidates=keys)
+    assert result["status"] == "rejected" and not paths[0].exists()
+
+
+def test_later_first_visible_page_binds_its_own_revision_and_clock_not_the_inventory(paths, monkeypatch):
+    first, second = card(1), card(2)
+    edited = dict(second, probability=.79)
+    freeze(paths[1], first)
+    freeze(paths[1], second)
+    history.record_tip_publication(paths[0], surface=SURFACE, rows=[first, second], as_of=NOW,
+                                   event_lead_candidates=[first["candidate_id"]])
+    later = NOW + timedelta(minutes=10)
+    monkeypatch.setattr(history, "_now", lambda: later)
+    monkeypatch.setattr(evidence, "_now", lambda: later)
+    evidence.record_forecast_run(dict(generated_at=later.isoformat(), selection_policy_version="p1",
+                                  model_candidates=[edited]), paths[1], "m1")
+    history.record_tip_publication(paths[0], surface=SURFACE, rows=[first, edited], as_of=later,
+                                   event_lead_candidates=[edited["candidate_id"]])
+    score = matchday(paths)["first_main_card"]["rows"]
+    assert [(r["event_key"], r["first_observed_at"], r["probability"]) for r in score] == [
+        ("football:1", NOW.isoformat(), .72), ("football:2", later.isoformat(), .79)]
+    assert all(r["forecast_id"] and r["status"] == "UNRESOLVED" for r in score)
+
+
+def test_kickoff_during_capture_keeps_other_inventory_rows_and_marks_receipt_partial(paths, monkeypatch):
+    expired = dict(card(), scheduled_start=(NOW+timedelta(seconds=10)).isoformat())
+    monkeypatch.setattr(history, "_now", lambda: NOW+timedelta(seconds=11))
+    saved = history.record_tip_publication(paths[0], surface=SURFACE, rows=[expired, card(2)], as_of=NOW,
+                                           event_lead_candidates=[expired["candidate_id"]])
+    assert saved["status"] == "recorded" and saved["skipped_tips"] == 1
+    base, = history.read_tip_publications(paths[0], surface=SURFACE)
+    assert not base["complete"] and len(base["tips"]) == 1
+
+
+def test_repeated_pages_and_publication_runs_add_only_never_witnessed_event_leads(paths, monkeypatch):
+    games = [card(i) for i in (1, 2, 3)]
+    for n, page in enumerate(([0, 1], [1, 2], [0, 1], [])):
+        clock = NOW + timedelta(minutes=n)
+        monkeypatch.setattr(history, "_now", lambda: clock)
+        history.record_tip_publication(paths[0], surface=SURFACE, rows=games, as_of=clock,
+            event_lead_candidates=[games[i]["candidate_id"] for i in page], source_run_id=str(n))
+    proofs = history.read_tip_publications(paths[0], surface="wettfinder_default_event_leads")
+    events = [(t["event_key"], p["first_observed_at"]) for p in proofs for t in p["tips"]]
+    assert sorted(events) == [("football:1", NOW.isoformat()), ("football:2", NOW.isoformat()),
+                              ("football:3", (NOW+timedelta(minutes=1)).isoformat())]
+    assert len(proofs) == 3
+
+
+def test_foreign_capture_clock_cannot_write_child_before_committed_parent(paths, monkeypatch):
+    later = NOW+timedelta(minutes=3)
+    monkeypatch.setattr(history, "_now", lambda: later)
+    history.record_tip_publication(paths[0], surface=SURFACE, rows=[card()], as_of=NOW, event_lead_candidates=[])
+    monkeypatch.setattr(history, "_now", lambda: NOW)
+    saved = history.record_tip_publication(paths[0], surface=SURFACE, rows=[card()], as_of=NOW,
+                                           event_lead_candidates=["1:BTTS_YES"])
+    assert saved["status"] == "rejected"
+    assert history.read_tip_publications(paths[0], surface="wettfinder_default_event_leads") == []
+
+
+def test_same_market_and_side_at_later_first_visibility_is_not_a_different_pick(paths, monkeypatch):
+    item = card()
+    history.record_tip_publication(paths[0], surface=SURFACE, rows=[item], as_of=NOW, event_lead_candidates=[])
+    later = NOW+timedelta(minutes=5)
+    monkeypatch.setattr(history, "_now", lambda: later)
+    history.record_tip_publication(paths[0], surface=SURFACE, rows=[dict(item, probability=.74)], as_of=later,
+                                   event_lead_candidates=[item["candidate_id"]])
+    day = matchday(paths)
+    assert day["first_main_card"]["rows"][0]["probability"] == .74
+    assert day["first_vs_retrospective_differences"] == []
+
+
+def test_incomplete_new_inventory_does_not_reserve_a_valid_siblings_first_witness(paths, monkeypatch):
+    item = card()
+    freeze(paths[1], item)
+    saved = history.record_tip_publication(paths[0], surface=SURFACE, rows=[item, {}], as_of=NOW,
+                                           event_lead_candidates=[item["candidate_id"]])
+    assert saved["skipped_tips"] == 1
+    later = NOW + timedelta(minutes=2)
+    monkeypatch.setattr(history, "_now", lambda: later)
+    history.record_tip_publication(paths[0], surface=SURFACE, rows=[item], as_of=later,
+                                   event_lead_candidates=[item["candidate_id"]])
+    scored, = matchday(paths)["first_main_card"]["rows"]
+    assert (scored["first_observed_at"], scored["status"]) == (later.isoformat(), "UNRESOLVED")

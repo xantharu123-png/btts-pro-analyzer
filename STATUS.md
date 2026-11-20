@@ -6,14 +6,13 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 
 ## Stand: 20.11.2026
 
-Arbeitsbranch `codex/qualitaet-spieltagsbilanz-20261120` (Basis `2c8e3b9`), **nicht live**.
-Der [Qualitätsbericht zum 19./20.11.](docs/audits/2026-11-20-haupttipps-und-datenabdeckung.md)
-trennt verfügbare Märkte, belegte Hauptkarten und einen rückblickenden Vergleich. Hockey
-erhält feste Diagnosegründe, keine zusätzlichen Versuche. Für den Club-Heimvorteil ist
-ein Offline-Vergleich mit [eigenem Prüfvertrag](docs/audits/2026-11-20-club-heimvorteil-pruefvertrag.md)
-vorbereitet, kein neues aktives Modell. Produktion unverändert `87f2434`.
-Nächster Betriebsnachweis: reguläres Wochenende 21./22.11.; für Merge und Release
-gelten weiter die getrennten Freigaben aus der [Übergabe vom 19.11.](docs/handoffs/2026-11-19-claude-uebergabe-codex.md).
+PR #144 (`f30ceaa`, Basis `2c8e3b9`) trennt im [Spieltagbericht](docs/audits/2026-11-20-haupttipps-und-datenabdeckung.md)
+Katalog, Rekonstruktion und belegte Hauptkarten. Enthält Hockey-Diagnosegründe und einen
+[Offline-Prüfvertrag zum Heimvorteil](docs/audits/2026-11-20-club-heimvorteil-pruefvertrag.md), keine Modelländerung.
+Der Folgebranch `codex/wettfinder-haupttipp-beleg-20261120` hält erstmals [die tatsächlich
+angebotene Hauptauswahl](docs/audits/2026-11-20-haupttipp-beleg.md) je Spiel fest. Keine rückwirkende Schätzung.
+**Beide Pakete nicht live.** Zuletzt geprüfter VPS: `87f2434`; kein Backup und kein neuer Sportscan.
+Offen: Merge- und Release-Freigabe sowie Nachweis aus dem nächsten regulären Lauf; Wochenendprüfung 21./22.11.
 
 | Bereich | Status |
 |---|---|

@@ -93,7 +93,7 @@ from wettfinder_surface import (
     WettfinderReleaseOverlay,
     build_wettfinder_card,
     compose_wettfinder_catalog,
-    group_wettfinder_games,
+    ordered_wettfinder_games, page_event_lead_keys, WETTFINDER_GAMES_PER_PAGE, WETTFINDER_MIN_CHANCE_DEFAULT,
     render_compact_row_html,
     render_top_card_html,
     render_editorial_card_html,
@@ -4793,36 +4793,9 @@ def _render_wettfinder_game_details(card, suffix: str) -> None:
                 st.markdown('\n\n'.join(plain_markdown(line) for line in lines))
 
 
-def _render_wettfinder_games(catalog, row_by_key, *, sport_filter: str, sort_mode=START_TIME) -> None:
+def _render_wettfinder_games(catalog, row_by_key, *, sport_filter: str, sort_mode=START_TIME):
     featured_keys = {card.key for card in catalog.featured}
-    original_groups = group_wettfinder_games(catalog)
-    # Keep each game's lead (its most probable shown selection). Chronological
-    # game order does not change which market is the primary tip.
-    ordered_cards = ordered_event_rows(
-        ((group.fixture_identity, card) for group in original_groups for card in group.cards),
-        mode=sort_mode, event_key=lambda item: item[0],
-        starts_at=lambda item: item[1].scheduled_start, probability=lambda item: item[1].model_probability)
-    # One shared pass ranks both games and markets, including invalid values
-    # and clocks, without trusting an unchecked max or only the first card.
-    cards_by_group = {}
-    for identity, card in ordered_cards:
-        cards_by_group.setdefault(identity, []).append(card)
-    original_by_identity = {group.fixture_identity: group for group in original_groups}
-    groups = []
-    for identity, cards in cards_by_group.items():
-        original = original_by_identity[identity]
-        if original.visible_lead is not None:
-            cards = ([card for card in cards if card.key == original.visible_lead.key]
-                     + [card for card in cards if card.key != original.visible_lead.key])
-        groups.append(replace(original, cards=tuple(cards)))
-    # The first pass already used every card's known event clock. A lead with
-    # no clock must not send that whole game behind later games on this pass.
-    if sort_mode != START_TIME:
-        groups = ordered_event_rows(
-            groups, mode=sort_mode, event_key=lambda group: group.fixture_identity,
-            starts_at=lambda group: (group.visible_lead or group.cards[0]).scheduled_start,
-            probability=lambda group: (group.visible_lead or group.cards[0]).model_probability,
-        )
+    groups = ordered_wettfinder_games(catalog, sort_mode)
     # Highlight membership is independent of chronological game order.
     # Highlights stay attached to cards; opening defaults follow the
     # visible page, while clicked preferences stay attached to fixture keys.
@@ -4831,7 +4804,7 @@ def _render_wettfinder_games(catalog, row_by_key, *, sport_filter: str, sort_mod
             # The same heading element as „Risiko-Szenarien“ on the RisikoBet page.
             st.markdown('## Spiele')
             # Page complete games, never cut a game's markets across pages.
-            page_size = 20
+            page_size = WETTFINDER_GAMES_PER_PAGE
             pages = (len(groups) + page_size - 1) // page_size
             page = st.selectbox('Spiele – Seite', list(range(1, pages + 1)),
                                 key=f'wettfinder_games_page_{sport_filter}_{pages}') if pages > 1 else 1
@@ -4847,11 +4820,12 @@ def _render_wettfinder_games(catalog, row_by_key, *, sport_filter: str, sort_mod
                     for position, group in enumerate(visible[row_start:row_start + 2]):
                         with columns[position]:
                             _render_wettfinder_game(group, row_by_key, featured_keys)
+            return page_event_lead_keys(visible)
+    return ()
 
 
 # Owner 10.11.2026 „Liste ab 70 %“: the page starts with the selections the model rates at
 # 70 % or more (07.10.–09.11.: 72,3 % hit, 1353 tips; docs/audits/2026-11-10-liste-ab-70.md).
-WETTFINDER_MIN_CHANCE_DEFAULT = 70
 
 
 def _wettfinder_min_chance_control() -> int:
@@ -4913,6 +4887,7 @@ def _render_automated_daily_selection() -> None:
             full_catalog = compose_wettfinder_catalog(cards, sport_filter=sport_filter)
             catalog = (full_catalog if min_chance == 0 else
                        compose_wettfinder_catalog(cards, sport_filter=sport_filter, min_probability=min_chance / 100))
+            shown_leads = ()
             if not catalog.featured and not catalog.additional:
                 message = ('Aktuell ist noch kein automatisches Ergebnis verfügbar.' if status is None else
                     f'Keine Auswahl ab {min_chance} % Modellchance. Regler nach links schieben, um mehr zu sehen.'
@@ -4921,7 +4896,7 @@ def _render_automated_daily_selection() -> None:
                     f'Für {sport_filter} gibt es aktuell keine passende Auswahl.')
                 st.info(message)
             else:
-                _render_wettfinder_games(catalog, {card.key: (signal, card) for signal, card in rows},
+                shown_leads = _render_wettfinder_games(catalog, {card.key: (signal, card) for signal, card in rows},
                                         sport_filter=sport_filter, sort_mode=sort_mode)
             if status is not None:
                 from tip_publication import record_signal_catalog
@@ -4930,6 +4905,8 @@ def _render_automated_daily_selection() -> None:
                 record_signal_catalog("wettfinder_automatic",
                     (selected_signals[key] for key in selected_order),
                     as_of=evaluation_now,
+                    event_lead_keys=(key for key in (shown_leads or ()) if not listed_next_day_signal(
+                        selected_signals[key], now=evaluation_now, decided_at=status.generated_at)),
                     featured_keys=(card.key for card in full_catalog.featured),
                     source_run_id=status.generated_at.isoformat())
             tennis_catalog = compose_wettfinder_catalog(cards, sport_filter='Tennis', min_probability=min_chance / 100)

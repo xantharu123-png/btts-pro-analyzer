@@ -5313,6 +5313,10 @@ def run_wettfinder(
         document["sources"]["football"]["next_day"] = next_day_summary
     if football_next_day_due:
         stage('forecast_publication_next_day', write_state, document, state_path)
+        if production_state:
+            # Tomorrow can move today's cards across a page boundary. The final
+            # appearance report below only changes diagnostics, not the list.
+            _record_visible_default_leads(state_path, now=current if fixed_now else None)
     else:
         publish_today()
     # A league FT list carries results, not the player-minute detail needed
@@ -5866,6 +5870,20 @@ def _quotes_run_settlement(evidence_path, *, config, now, runner, production):
     return compact
 
 
+def _record_visible_default_leads(path, *, now=None):
+    """Record the newly offered page after a durable write; never interrupt settlement."""
+    try:
+        from tip_publication import record_default_lead_publication
+        receipt = record_default_lead_publication(path, as_of=now)
+        if receipt.get('status') in {'recorded', 'unchanged'} and not receipt.get('skipped_tips'):
+            return {'status': receipt['status']}
+    except Exception as exc:
+        logging.getLogger(__name__).warning('Default lead receipt unavailable: %s', type(exc).__name__)
+        return {'status': 'unavailable'}
+    logging.getLogger(__name__).warning('Default lead receipt incomplete after publication')
+    return {'status': 'unavailable'}
+
+
 def refresh_prices_only(*, state_path=STATE_PATH, config=None, now=None, quote_loader=None,
                         quote_sport="football", evidence_db_path=None, evidence_settlement_runner=None):
     """Refresh bounded prices without models, under the daily publication lock."""
@@ -5898,6 +5916,8 @@ def refresh_prices_only(*, state_path=STATE_PATH, config=None, now=None, quote_l
                 summary['operational_errors'] = int(summary.get('operational_errors', summary.get('errors', 0))) + 1
         write_state(document, path)
         # Still under the publication lock, so the nightly run cannot overlap.
+        if canonical:
+            summary['lead_receipt'] = _record_visible_default_leads(path, now=now)
         if canonical or evidence_settlement_runner is not None:
             summary['evidence_settlement'] = _quotes_run_settlement(
                 evidence_db_path or ROOT / 'runtime_state' / 'forecast_evidence.db', config=config,

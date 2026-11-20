@@ -31,6 +31,37 @@ def _football():
     return row, _quote(signal)
 
 
+@pytest.mark.parametrize("crashed", [False, True])
+def test_canonical_price_write_records_offered_leads_even_without_browser(tmp_path, monkeypatch, crashed):
+    from contextlib import nullcontext
+    import tip_publication
+    row, quote = _football()
+    path, original = _state(tmp_path, [row])
+    monkeypatch.setattr(automation, 'STATE_PATH', path)
+    monkeypatch.setattr(automation, '_quote_publication_lock', lambda path: nullcontext())
+    monkeypatch.setattr(automation, '_require_price_worker_idle', lambda: None)
+    monkeypatch.setattr('forecast_evidence.record_current_closing_quotes', lambda *a, **k: {'status': 'completed'})
+    events = []
+    def capture(target, **kwargs):
+        disk = json.loads(target.read_text(encoding='utf-8'))
+        assert disk['model_candidates'][0]['reference_quote'] is not None
+        assert disk['generated_at'] == original['generated_at']
+        events.append('lead')
+        if crashed:
+            raise RuntimeError('never render provider details')
+        return {'status': 'unchanged'}
+    def settle(*args, **kwargs):
+        events.append('settlement')
+        return {'status': 'completed'}
+    monkeypatch.setattr(tip_publication, 'record_default_lead_publication', capture)
+    monkeypatch.setattr(automation, '_quotes_run_settlement', settle)
+    summary = automation.refresh_prices_only(state_path=path, now=NOW,
+        quote_loader=lambda *args, **kwargs: ({quote.candidate_id: quote}, []))
+    assert events == ['lead', 'settlement']
+    assert summary['lead_receipt']['status'] == ('unavailable' if crashed else 'unchanged')
+    assert 'never render' not in str(summary)
+
+
 @pytest.mark.parametrize('failed', [False, True])
 def test_price_refresh_hands_received_quotes_to_evidence_without_model_run(tmp_path, monkeypatch, failed):
     row, quote = _football()

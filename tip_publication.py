@@ -178,13 +178,14 @@ def bind_forecast_ids(rows, *, as_of, db_path=DEFAULT_FORECAST_DB):
 
 
 def record_selected_tips(surface, rows, *, as_of, source_run_id=None, policy_version=None,
-                         db_path=None, forecast_db_path=None):
+                         db_path=None, forecast_db_path=None, event_lead_candidates=None, leads_only=False):
     """Best-effort receipt, with failures logged internally, never user prose."""
     from consumer_tip_history import record_tip_publication
     try:
         selected = bind_forecast_ids(rows, as_of=as_of, db_path=forecast_db_path or DEFAULT_FORECAST_DB)
         result = record_tip_publication(db_path or DEFAULT_HISTORY_DB, surface=surface,
-            rows=selected, as_of=as_of, source_run_id=source_run_id, policy_version=policy_version)
+            rows=selected, as_of=as_of, source_run_id=source_run_id, policy_version=policy_version,
+            event_lead_candidates=event_lead_candidates, leads_only=leads_only)
     except (OSError, sqlite3.Error, TypeError, ValueError, KeyError):
         result = {'status': 'unavailable', 'recorded_tips': 0, 'skipped_tips': 0}
     if result.get("status") not in {"recorded", "unchanged"} or result.get("skipped_tips"):
@@ -194,12 +195,20 @@ def record_selected_tips(surface, rows, *, as_of, source_run_id=None, policy_ver
 
 
 def record_signal_catalog(surface, signals, *, as_of, featured_keys=(), source_run_id=None,
-                          policy_version=None, db_path=None, forecast_db_path=None):
+                          policy_version=None, db_path=None, forecast_db_path=None, event_lead_keys=None, leads_only=False):
     featured = set(featured_keys)
     rows = [compact_signal_row(signal, featured_role="featured" if _get(signal, "key") in featured else "catalogue")
             for signal in signals]
+    candidates = None
+    if event_lead_keys is not None:
+        by_key = {row.get("key"): row.get("candidate_id") or row.get("key") for row in rows}
+        keys = tuple(event_lead_keys)
+        if len(by_key) != len(rows) or any(key not in by_key for key in keys):
+            return {"status": "rejected", "errors": {"ambiguous_event_lead_key": 1}}
+        candidates = [by_key[key] for key in keys]
     return record_selected_tips(surface, rows, as_of=as_of, source_run_id=source_run_id,
-        policy_version=policy_version, db_path=db_path, forecast_db_path=forecast_db_path)
+        policy_version=policy_version, db_path=db_path, forecast_db_path=forecast_db_path,
+        event_lead_candidates=candidates, leads_only=leads_only)
 
 
 def record_riskobet_catalog(catalog, candidates, snapshots, *, as_of, source_run_id=None,
@@ -230,8 +239,18 @@ def record_automatic_publication(state_path, *, as_of=None, db_path=None, foreca
     No customer visit or account-specific ready-to-bet plan is implied. This
     reads the already written model artifact and never calls a data provider.
     """
+    return _record_automatic_publication(state_path, as_of, db_path, forecast_db_path, leads_only=False)
+
+
+def record_default_lead_publication(state_path, *, as_of=None, db_path=None, forecast_db_path=None):
+    """A subsequent regular write: only offered default leads, never the legacy inventory or Doublebet."""
+    return _record_automatic_publication(state_path, as_of, db_path, forecast_db_path, leads_only=True)
+
+
+def _record_automatic_publication(state_path, as_of, db_path, forecast_db_path, *, leads_only):
     from ev_signal_sources import automated_wettfinder_snapshot, listed_next_day_signal
-    from wettfinder_surface import build_wettfinder_card, compose_wettfinder_catalog
+    from wettfinder_surface import (build_wettfinder_card, compose_wettfinder_catalog, ordered_wettfinder_games,
+                                    page_event_lead_keys, WETTFINDER_GAMES_PER_PAGE, WETTFINDER_MIN_CHANCE_DEFAULT)
     from daily3_selection import daily3_choices, POLICY_VERSION
     try:
         instant = _clock(as_of or datetime.now(timezone.utc))
@@ -243,12 +262,20 @@ def record_automatic_publication(state_path, *, as_of=None, db_path=None, foreca
             signal, now=instant, decided_at=snapshot.status.generated_at)]
         signals = {signal.key: signal for signal in forecasts}
         cards = [build_wettfinder_card(signal, quote=signal.reference_quote, now=instant)
-                 for signal in forecasts]
-        catalog = compose_wettfinder_catalog(cards, sport_filter='Alle')
+                 for signal in snapshot.forecasts]
+        catalog = compose_wettfinder_catalog((card for card in cards if card.key in signals), sport_filter='Alle')
+        view = compose_wettfinder_catalog(cards, sport_filter='Alle', min_probability=WETTFINDER_MIN_CHANCE_DEFAULT/100)
+        default_leads = page_event_lead_keys(ordered_wettfinder_games(view)[:WETTFINDER_GAMES_PER_PAGE])
         source = snapshot.status.generated_at.isoformat()
+        if leads_only:
+            keys = [key for key in default_leads if key in signals]
+            return record_signal_catalog('wettfinder_default_inventory', (signals[key] for key in keys),
+                as_of=instant, featured_keys=(card.key for card in catalog.featured), event_lead_keys=keys,
+                source_run_id=source, db_path=db_path, forecast_db_path=forecast_db_path, leads_only=True)
         automatic = record_signal_catalog('wettfinder_default_inventory',
             (signals[card.key] for card in (*catalog.featured, *catalog.additional)),
             as_of=instant, featured_keys=(card.key for card in catalog.featured),
+            event_lead_keys=(key for key in default_leads if key in signals),
             source_run_id=source, db_path=db_path, forecast_db_path=forecast_db_path)
         daily = record_signal_catalog('daily3_default_plan',
             (choice.signal for choice in daily3_choices(snapshot.forecasts, now=instant)),
