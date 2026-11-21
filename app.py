@@ -4977,6 +4977,9 @@ def _render_editorial_rail(choices, tennis_cards, *, daily3_allowed, target_labe
         def _open_tennis():
             st.session_state['wettfinder_automatic_sport_v2'] = 'Tennis'
         st.button('Tennis-Auswahlen', key='editorial_tennis_open', on_click=_open_tennis, use_container_width=True)
+    if daily3_allowed:
+        from daily_accumulator_surface import render_daily_accumulators
+        render_daily_accumulators(st, as_of=as_of)
 
 
 def _render_selected_finder(

@@ -97,6 +97,11 @@ jobs:
           tests/test_wettfinder_statistical_leads.py
           tests/test_wettfinder_risikobet_rows.py
           tests/test_tip_publication.py
+          tests/test_daily_accumulators.py
+          tests/test_daily_accumulator_surface.py
+          tests/test_daily_accumulator_receipts.py
+          tests/test_daily_accumulator_quality.py
+          tests/test_daily_accumulator_workflow.py
           tests/test_tip_display_order.py
           tests/test_publication_odds_floor.py
           tests/test_quote_publication_admission.py

@@ -261,6 +261,11 @@ def _record_automatic_publication(state_path, as_of, db_path, forecast_db_path, 
         forecasts = [signal for signal in snapshot.forecasts if not listed_next_day_signal(
             signal, now=instant, decided_at=snapshot.status.generated_at)]
         signals = {signal.key: signal for signal in forecasts}
+        # Reuse this already-loaded worker snapshot; a page view must never author a slip.
+        from daily_accumulator_publication import record_worker_combos
+        record_worker_combos(forecasts, as_of=instant,
+            directory=Path(db_path).parent if db_path is not None else Path(state_path).parent,
+            evidence_path=forecast_db_path)
         cards = [build_wettfinder_card(signal, quote=signal.reference_quote, now=instant)
                  for signal in snapshot.forecasts]
         catalog = compose_wettfinder_catalog((card for card in cards if card.key in signals), sport_filter='Alle')

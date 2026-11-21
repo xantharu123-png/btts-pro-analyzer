@@ -15,6 +15,18 @@ Das sind günstige Obergrenzen **für diesen Archivpfad und jeweils diese Modell
 
 ## Technischer Befund
 
+**Gegenprüfung Freitag, 20.11. (Zürcher Anstoßtag):** Die frühere Aussage „keine drei Spiele“ beschreibt nicht das Buchmacherangebot. Beim selben Archivschnitt (Entry, aktuelles Fußballmodell, Quote ≥1,20, Anbieterzeit ≤ Abrufzeit < Anstoß, **ohne** die 45/35-Minuten-Grenzen) sind diese Buchmachernamen direkt in den Preisbelegen gespeichert:
+
+| Anbieter | Verschiedene Spiele |
+|---|---:|
+| Bet365 | 40 |
+| 1xBet, Marathonbet, Betano, Pinnacle | je 38 |
+| Betfair | 37 |
+| BetVictor | 36 |
+| SBO, William Hill, Dafabet | je 26 |
+
+Ein Spiel zählt je Buch einmal, nicht einmal je Markt. Das ist keine Stichprobe geschlossener Scheine und kein Beleg für zeitgleich platzierbare Kombis. Der interne sportliche Vergleich bleibt unabhängig vom Alter eines Preisstands; der bepreiste Vergleich sucht separat nach gemeinsamen zeitgerechten Einzelangeboten.
+
 - `market_consensus.MarketConsensus.points` und `quote_matches_candidate` erlauben eine exakte Bindung je Einzelangebot. Der angezeigte beste oder mittlere Preis einer Auswahl ersetzt keine gemeinsame Buchmacher-ID für alle Auswahlen. Nachträglich aktualisierte oder nur beobachtete Daten nicht auf den ursprünglichen Zeitpunkt zurückdatieren.
 - Hockey-, Basketball- und E-Sport-Quoten dieses Pfads tragen Abrufbeobachtungen statt bestätigter Preisuhren. Solche Daten können den Vertrag für eine aktuelle Buchmacherquote nicht unverändert erfüllen.
 - `challenge_engine.ticket_dependency_factor` und `ticket_stress_probability` betreffen die 15K-Challenge mit bis zu drei Spielen. Heuristischer Abschlag und mathematische Untergrenze sind keine auf vergleichbaren gesamten 3er-/4er-/5er-/6er-Scheinen nachgewiesene Gewinnwahrscheinlichkeit.
