@@ -161,3 +161,17 @@ def test_frozen_home_pick_cannot_be_reused_with_reversed_team_roles():
     flipped = dict(legs[0], participants=legs[0]['participants'][::-1], probability=.99)
     assert not any(leg['event_key'] == flipped['event_key'] for t in
                    select_combo_set([flipped,*legs[1:]], frozen=[frozen]) for leg in t['legs'])
+
+
+def test_tennis_without_player_ids_rejects_same_player_spelled_two_ways():
+    from daily_accumulators import select_combo_set
+    from test_daily3_selection import tennis
+    def match(i, a, b):
+        base = tennis()
+        context = dict(base.context_evidence, players={'a':{'player':a},'b':{'player':b}})
+        return replace(base, key='tennis'+str(i), fixture_source='espn', provider_event_id=str(i),
+                       model_version='tennis-v1', competitor_a=a, competitor_b=b, competitor_a_id=None,
+                       competitor_b_id=None, selected_competitor=a, selection='Sieg '+a, event_label=a+' vs '+b,
+                       context_evidence=context)
+    legs = pool(match(1,'Roger Federer','Andy Murray'),match(2,'Federer R.','Rafael Nadal'),model(3))
+    assert len(legs) == 3 and not select_combo_set(legs)

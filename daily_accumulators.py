@@ -121,7 +121,16 @@ def _eligible_leg(s, now, analysis):
         return None
     name_keys = [f"{sport}:name:{_name(n)}" for n in names]
     participants = ([f"{sport}:id:{s.fixture_source or sport}:{i}" for i in ids]
-                    if all(ids) else name_keys)
+                    if all(ids) else name_keys.copy())
+    if sport == 'tennis':
+        # Only exclusion tokens, never a positive join for a quote, model or
+        # outcome. Two homonymous players may conservatively lose a slot.
+        from tennis.data_loader import normalize_player_name
+        from market_consensus import _tennis_identity_name
+        for name in names:
+            for kind, token in (('roster', normalize_player_name(name)), ('words', _tennis_identity_name(name))):
+                if token:
+                    name_keys.append(f"tennis:{kind}:{token}")
     quote = _exact_quote(s)
     if quote_below_publication_floor(quote, candidate=s, now=now):
         return None
