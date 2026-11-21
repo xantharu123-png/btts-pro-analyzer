@@ -6,8 +6,8 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 
 ## Stand: 21.11.2026
 
-Produktionscode `363ed54` ([Referenz-Tag](https://github.com/xantharu123-png/btts-pro-analyzer/tree/betboy-referenz-2026-11-21)); PR #144 und #145 sind live. Der separate [Referenzbericht](https://github.com/xantharu123-png/btts-pro-analyzer/blob/4b43265897e816651d5221ca5c24c61be76ce033/docs/audits/2026-11-21-wettfinder-referenz.md) enthält die 14 Freitagsbelege und die Regeln für faire Vergleiche.
-Branch `codex/tageskombis-20261121`: [Produktregel](docs/superpowers/specs/2026-11-21-tageskombis.md), [Buchmacher und Datenlage](docs/audits/2026-11-21-tageskombis-datenlage.md). Der reguläre Publikationsweg kann 3er, 4er, 5er und 6er je Tag vor dem ersten zugehörigen Anstoß festschreiben. Sportlicher Vergleich und exakt bepreiste Referenz laufen getrennt. Die rechte Pro-Leiste neben Doublebet und Tennis zeigt Zahlen nur für zeitlich unabhängig geprüfte Modellgrößen. Kein Einsatz, keine zusätzlichen Anbieterabrufe. Noch kein empirisch freigegebener Chancenbalken.
+Festgehaltene Referenz: `363ed54` ([Referenz-Tag](https://github.com/xantharu123-png/btts-pro-analyzer/tree/betboy-referenz-2026-11-21)); PR #144 und #145 sind enthalten. Der separate [Referenzbericht](https://github.com/xantharu123-png/btts-pro-analyzer/blob/4b43265897e816651d5221ca5c24c61be76ce033/docs/audits/2026-11-21-wettfinder-referenz.md) enthält die 14 Freitagsbelege und die Regeln für faire Vergleiche.
+PR #147 ist seit 12:16 CET als `6a8ab15` live. Die nachfolgende Korrektur macht die ursprünglich gewünschte Tagesauswahl direkt unter „Deine Wetten“ sichtbar: bis zu je ein 3er, 4er, 5er und Jackpot-6er samt Vorab-Modellschätzung. Keine versteckte Anlaufphase, kein Einsatz, keine zusätzlichen Anbieterabrufe. Ein begonnener Schein bleibt am Spieltag sichtbar, nicht als neuer Vorschlag. [Aktuelle Produktregel](docs/superpowers/specs/2026-11-21-tageskombis.md).
 
 | Bereich | Status |
 |---|---|

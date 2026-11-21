@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 
 DEFAULT_POLICY = "daily-accumulators-v1"
 DEFAULT_ARM = "reference"
+PUBLIC_ARM = "daily-picks"
 _ZURICH = ZoneInfo("Europe/Zurich")
 _SIZES = (3, 4, 5, 6)
 _LEG_FIELDS = ("forecast_id", "event_key", "sport", "market_key", "selection", "evidence_selection",
@@ -59,6 +60,11 @@ def load_day(path, *, day, policy=DEFAULT_POLICY, arm=DEFAULT_ARM):
         return _load(conn, _day(day), policy, arm)
 
 
+def load_daily_picks(path, *, day, policy=DEFAULT_POLICY):
+    """Only genuine prospective customer picks, including on the rollout day."""
+    return load_day(path, day=day, policy=policy, arm=PUBLIC_ARM)
+
+
 def _bound_leg(leg):
     return {key: leg[key] for key in _LEG_FIELDS if key in leg}
 
@@ -94,10 +100,11 @@ def _receipt(slip, sources, *, day, policy, arm, decision, captured):
         return None
     book = slip.get("bookmaker_id")
     status = slip.get("price_status")
-    if (book is None and (status != "unconfirmed" or arm != "model-observation")
+    if (book is None and (status != "unconfirmed" or arm not in ("model-observation", PUBLIC_ARM))
             or book is not None and (status != "confirmed" or not isinstance(book,str) or not book.strip())):
         return None
     kept = []
+    price_expired = False
     for leg in legs:
         source = sources.get(leg["forecast_id"])
         if source is None or _bound_leg(leg) != _bound_leg(source):
@@ -115,13 +122,19 @@ def _receipt(slip, sources, *, day, policy, arm, decision, captured):
                 return None
             observed, fetched = _clock(point["observed_at"]), _clock(point["fetched_at"])
             odds = point["odds"]
-            if (not _number(odds) or odds < 1.20 or not observed <= fetched <= decision
-                    or captured - observed > timedelta(minutes=45)
-                    or captured - fetched > timedelta(minutes=35)):
+            if not _number(odds) or odds < 1.20 or not observed <= fetched <= decision:
                 return None
+            if captured - observed > timedelta(minutes=45) or captured - fetched > timedelta(minutes=35):
+                if arm != PUBLIC_ARM:
+                    return None
+                price_expired = True
             item["offers"][book] = {"odds": odds, "observed_at": observed.isoformat(),
                                     "fetched_at": fetched.isoformat()}
         kept.append(item)
+    if price_expired:
+        book, status = None, "unconfirmed"
+        for item in kept:
+            item["offers"] = {}
     baseline = math.prod(leg["probability"] for leg in kept)
     supplied = slip["reference_probability"]
     if not _number(supplied) or not math.isclose(baseline, supplied, rel_tol=1e-12):
