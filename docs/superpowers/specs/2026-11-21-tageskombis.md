@@ -1,5 +1,13 @@
 # Tageskombis in „Deine Wetten“
 
+**Korrektur des Owners, 21.11.2026:** Gefordert sind sichtbare Modellscheine, keine Beobachtungsphase.
+Je Tag und Größe höchstens ein unveränderlicher Schein mit sportlich passenden, verschiedenen Spielen.
+Der Balken ist eine Vorab-Modellschätzung für *alle richtig*: Produkt der Einzelchancen unter der ausdrücklich
+angezeigten Annahme unabhängiger Spielausgänge. Ein fehlender gemeinsamer Buchmacherpreis ist kein Anzeigeverbot.
+Die öffentliche Preis-Untergrenze bleibt bestehen. Der gemeinsame Preisbeleg und die Prüfung an späteren
+Ergebnissen sind davon getrennt. Begonnene Scheine bleiben als solche erkennbar, nicht als neue Empfehlung.
+Die gegenteiligen Bedingungen für die Kundenansicht im ursprünglichen Entwurf unten sind aufgehoben.
+
 **Produktauftrag, 21.11.2026:** Rechts im automatischen Wettfinder bleiben Doublebet und die Tennisbox stehen. Dazu kommen höchstens ein 3er, ein 4er, ein 5er und der „Jackpot 6er“ pro Zürcher Spieltag. Kein Einsatz, keine Buchung, keine Änderung am vorhandenen Modell, an den bestehenden Produktregeln oder an der [Produktionsreferenz](https://github.com/xantharu123-png/btts-pro-analyzer/tree/betboy-referenz-2026-11-21). Vorgeschlagene technische Abnahme unten; das ist noch kein Releasebericht.
 
 ## Auswahl und Preis

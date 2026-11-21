@@ -75,7 +75,7 @@ def _offers(quote, now):
     return offers
 
 
-def eligible_combo_legs(signals, *, as_of, target_day):
+def eligible_combo_legs(signals, *, as_of, target_day, public=False):
     """Already published coherent models for today's not-yet-started games.
 
     A stale/missing offer may still yield an internal research leg; never a
@@ -102,7 +102,7 @@ def eligible_combo_legs(signals, *, as_of, target_day):
     legs = []
     for s in select_consumer_forecasts(inputs, now=now):
         try:
-            leg = _eligible_leg(s, now, analyses[id(s)])
+            leg = _eligible_leg(s, now, analyses[id(s)], public=public)
         except (TypeError, ValueError, AttributeError, KeyError, ArithmeticError):
             continue
         if leg is not None:
@@ -110,7 +110,7 @@ def eligible_combo_legs(signals, *, as_of, target_day):
     return sorted(legs, key=_rank)
 
 
-def _eligible_leg(s, now, analysis):
+def _eligible_leg(s, now, analysis, *, public):
     if forecast_highlight_reason(s, now=now, analysis=analysis):
         return None
     row = compact_signal_row(s, featured_role="catalogue")
@@ -139,7 +139,7 @@ def _eligible_leg(s, now, analysis):
     price_status = wettfinder_reference_price_status(quote, None, candidate=s, now=now)
     # A below-floor price or derived range is excluded. Without any price the
     # model-only arm can still be measured; no eligibility for the priced arm.
-    if price_status.code == "BELOW_FLOOR" and price_status.market_basis != FLOOR_BASIS_MODEL:
+    if price_status.code == "BELOW_FLOOR" and (public or price_status.market_basis != FLOOR_BASIS_MODEL):
         return None
     return dict(event_key=native, aliases=event_guard(s)['aliases'], sport=sport,
                 participants=participants, participant_names=name_keys, market_key=s.market_key,

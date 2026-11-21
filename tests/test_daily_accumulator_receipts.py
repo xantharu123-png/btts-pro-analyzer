@@ -42,7 +42,31 @@ def slip(legs, *, book="a"):
 def test_missing_read_does_not_create_any_path(ledger, tmp_path):
     db = tmp_path / "not-created" / "receipts.sqlite"
     assert ledger.load_day(db, day=DAY) == []
+    assert ledger.load_daily_picks(db, day=DAY) == []
     assert not db.parent.exists()
+
+
+def test_old_observations_neither_appear_as_public_nor_block_fresh_customer_picks(ledger, tmp_path):
+    from daily_accumulators import select_combo_set
+    db = tmp_path / "slips"
+    pool = [leg(i, offers={}) for i in range(12)]
+    legacy, = ledger.capture_day(db, day=DAY, as_of=BASE, arm="model-observation",
+        pool=pool[:3], select=select_combo_set)
+    assert ledger.load_daily_picks(db, day=DAY) == []
+    published = ledger.capture_day(db, day=DAY, as_of=BASE, arm="daily-picks",
+        pool=pool[3:], select=select_combo_set)
+    assert [s["size"] for s in published][:2] == [3, 4]
+    assert published[0]["price_status"] == "unconfirmed"
+    assert {l["forecast_id"] for l in published[0]["legs"]}.isdisjoint(
+        l["forecast_id"] for l in legacy["legs"])
+    assert ledger.load_day(db, day=DAY, arm="model-observation") == [legacy]
+    assert all(s["arm"] == "daily-picks"
+               for s in ledger.load_day(db, day=DAY, arm="daily-picks"))
+    assert published == ledger.load_daily_picks(db, day=DAY)
+    from itertools import combinations
+    events = [{l["event_key"] for l in s["legs"]} for s in published]
+    assert all(len(x & y) <= 1 for x,y in combinations(events, 2))
+    assert all(sum(e in group for group in events) <= 2 for e in set.union(*events))
 
 
 def test_original_persists_and_future_sizes_see_it(ledger, tmp_path):
@@ -157,6 +181,20 @@ def test_book_and_clocks_must_still_qualify_at_publication(ledger, tmp_path, odd
     receipts = ledger.capture_day(tmp_path/"slips", day=DAY, as_of=BASE, pool=pool,
                                   select=lambda legs, *, frozen: [slip(legs)])
     assert len(receipts) == int(accepted)
+
+
+def test_expiring_optional_common_price_does_not_block_the_model_pick(ledger, tmp_path, monkeypatch):
+    from datetime import timedelta
+    pool = [leg(n) for n in range(3)]
+    for item in pool:
+        item["offers"]["a"]["observed_at"] = f"{DAY}T08:15:00+00:00"
+    def decide(legs, *, frozen):
+        monkeypatch.setattr(ledger, "_now", lambda: datetime.fromisoformat(BASE) + timedelta(seconds=1))
+        return [slip(legs)]
+    result, = ledger.capture_day(tmp_path/"slips", day=DAY, as_of=BASE, pool=pool,
+                                 select=decide, arm="daily-picks")
+    assert (result["price_status"], result["bookmaker_id"]) == ("unconfirmed", None)
+    assert all(not l["offers"] for l in result["legs"])
 
 
 def test_selector_cannot_modify_already_bound_pool_to_manufacture_a_price(ledger,tmp_path):

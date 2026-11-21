@@ -38,56 +38,71 @@ def quote_status(slip, as_of):
         return False
 
 
-def customer_cards(slips, artifact, *, as_of, chance):
+def customer_cards(slips, artifact=None, *, as_of, chance=None):
     now = _time(as_of)
     day = now.astimezone(ZURICH).date()
     cards = []
     for slip in slips:
         try:
-            size, legs = slip["size"], slip["legs"]
-            if (size not in (3, 4, 5, 6) or len(legs) != size or len({leg["event_key"] for leg in legs}) != size
-                    or slip["day"] != day.isoformat() or slip["arm"] != "candidate"
-                    or _time(slip["captured_at"]) > now or
-                    any(not now < _time(leg["starts_at"]) or _time(leg["starts_at"]).astimezone(ZURICH).date() != day
-                        for leg in legs)):
+            size, legs, arm = slip["size"], slip["legs"], slip["arm"]
+            captured = _time(slip["captured_at"])
+            starts = [_time(leg["starts_at"]) for leg in legs]
+            if (type(size) is not int or size not in (3, 4, 5, 6) or len(legs) != size
+                    or len({leg["event_key"] for leg in legs if leg["event_key"]}) != size
+                    or slip["day"] != day.isoformat() or captured.astimezone(ZURICH).date() != day
+                    or captured > now or any(start <= captured or start.astimezone(ZURICH).date() != day for start in starts)):
                 continue
-            p = chance(slip, artifact, as_of=now)
-            if p is None or isinstance(p, bool) or not math.isfinite(p) or not 0 < p < 1:
+            started = min(starts) <= now
+            estimated = arm == "daily-picks"
+            if estimated:
+                probabilities = [leg["probability"] for leg in legs]
+                if any(type(x) not in (float,int) or not 0 < x < 1 for x in probabilities):
+                    continue
+                p = math.prod(probabilities)
+                if not math.isclose(p, slip["reference_probability"], rel_tol=1e-12):
+                    continue
+            elif arm == "candidate" and not started and chance is not None:
+                p = chance(slip, artifact, as_of=now)
+            else:
+                continue
+            if type(p) not in (float,int) or not 0 < p < 1:
                 continue
             cards.append(dict(size=size, chance=p, legs=sorted(legs, key=lambda leg: _time(leg["starts_at"])),
-                              price_observed=quote_status(slip, now)))
+                              price_observed=not started and quote_status(slip, now), started=started, estimated=estimated))
         except (KeyError, ValueError, TypeError, OverflowError):
             continue
     return sorted(cards, key=lambda card: card["size"])
 
 
 def render_daily_accumulators(st, *, as_of=None, directory=None):
-    from daily_accumulator_publication import DB_NAME, read_artifact
-    from daily_accumulator_quality import chance_for_slip
-    from daily_accumulator_receipts import load_day
+    from daily_accumulator_publication import DB_NAME
+    from daily_accumulator_receipts import load_daily_picks
     from runtime_paths import RUNTIME_STATE_DIR
     now = _time(as_of or datetime.now(timezone.utc))
     root = Path(directory or RUNTIME_STATE_DIR)
     cards = []
     try:
-        artifact = read_artifact(root / "daily_accumulator_quality.json")
-        if artifact:
-            slips = load_day(root / DB_NAME, day=now.astimezone(ZURICH).date(), arm="candidate")
-            cards = customer_cards(slips, artifact, as_of=now, chance=chance_for_slip)
+        slips = load_daily_picks(root / DB_NAME, day=now.astimezone(ZURICH).date())
+        cards = customer_cards(slips, as_of=now)
     except (OSError, sqlite3.Error, ValueError, TypeError, KeyError):
         logging.getLogger(__name__).warning("Daily accumulator rail unavailable")
     with st.container(key="editorial_accumulator_rail"):
         st.subheader("Kombis des Tages")
         if not cards:
-            st.caption("Heute noch kein geprüfter Kombischein.")
+            st.caption("Heute noch keine passende Tageskombi.")
         for card in cards:
             st.markdown("**Jackpot 6er**" if card["size"] == 6 else f"**{card['size']}er-Kombi**")
-            label = f"Alle {card['size']} richtig: {card['chance']:.1%}".replace(".", ",")
+            if card["started"]:
+                st.caption("Bereits begonnen · kein neuer Wettschein")
+            label = f"Alle {card['size']} richtig · Modellschätzung vor Beginn: {card['chance']:.1%}".replace(".", ",")
             st.progress(card["chance"], text=label)
             for leg in card["legs"]:
                 start = _time(leg["starts_at"]).astimezone(ZURICH).strftime("%H:%M")
                 st.text(f"{start}  {leg['event_label']}\n{leg['selection']}")
                 if leg.get("reason"):
                     st.caption(leg["reason"])
-            st.caption("Einzelquoten beim selben Buchmacher beobachtet." if card["price_observed"]
-                       else "Gemeinsamer Preis nicht aktuell bestätigt.")
+            if not card["started"]:
+                st.caption("Einzelquoten beim selben Buchmacher beobachtet." if card["price_observed"]
+                           else "Gemeinsame Buchmacherquote offen.")
+        if cards:
+            st.caption("Die Schätzung multipliziert die Einzelchancen und nimmt unabhängige Spielausgänge an.")

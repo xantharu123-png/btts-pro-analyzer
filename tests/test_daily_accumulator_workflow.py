@@ -39,16 +39,27 @@ def test_candidate_freezes_the_original_hit_probability_and_fit(monkeypatch, tmp
     assert slip["candidate_probability"] != slip["reference_probability"]
 
 
-def test_worker_freezes_common_book_and_does_not_author_a_receipt_on_page_view(tmp_path, monkeypatch):
+def test_worker_publishes_playing_day_picks_without_a_common_book_or_fit(tmp_path, monkeypatch):
     import daily_accumulator_receipts as receipts
     import forecast_evidence as evidence
-    from daily_accumulator_surface import render_daily_accumulators
+    from dataclasses import replace
     from test_daily_accumulators import NOW, model
     from tip_publication import compact_signal_row
-    from unittest.mock import MagicMock
+    monkeypatch.setenv("BETBOY_PRICE_POLICY", "floor")
     monkeypatch.setattr(evidence, "_now", lambda: NOW)
     monkeypatch.setattr(receipts, "_now", lambda: NOW)
-    signals = [model(i, odds=1.4) for i in range(1, 7)]
+    signals = [model(i, odds=1.4) for i in range(1, 6)]
+    # Both unpriced but only the first passes the existing public model guard.
+    signals.extend(replace(model(i, p=p), reference_quote=None) for i,p in [(6,.62), (7,.81)])
+    # No shared book even for the three highest-ranked tips. Odds identify real
+    # bookmaker offers, not a fictitious common booking venue.
+    from copy import deepcopy
+    for index, s in enumerate(signals[:5]):
+        quote = deepcopy(s.reference_quote)
+        for point in quote["points"]:
+            point["bookmaker_id"] += f"-{index}"
+        quote.pop("executable_quote", None)
+        signals[index] = replace(s, reference_quote=quote)
     rows = [dict(compact_signal_row(s), event_identity=f"football:{s.fixture_id}",
                  home_id=s.home_team_id, away_id=s.away_team_id, source="football_challenge") for s in signals]
     db = tmp_path / "forecast_evidence.db"
@@ -56,16 +67,13 @@ def test_worker_freezes_common_book_and_does_not_author_a_receipt_on_page_view(t
                                                model_candidates=rows), db, "test-model-v1")
     assert stored["recorded"] == len(signals)
     report = record_worker_combos(signals, as_of=NOW, directory=tmp_path)
-    assert report["linked_legs"] == len(signals)
-    assert report["sizes"] == {"reference": [3,4], "model-observation": [3,4]}
+    assert report["linked_legs"] == 6
+    assert report["sizes"] == {"daily-picks": [3,4]}
     slips_path = tmp_path / "daily_accumulators.db"
-    saved = receipts.load_day(slips_path, day=NOW.date())
+    saved = receipts.load_daily_picks(slips_path, day=NOW.date())
     assert [s["size"] for s in saved] == [3, 4]
-    assert all(s["price_status"] == "confirmed" for s in saved)
+    assert all(s["price_status"] == "unconfirmed" and s["bookmaker_id"] is None for s in saved)
+    assert not receipts.load_day(slips_path, day=NOW.date(), arm="model-observation")
+    assert not receipts.load_day(slips_path, day=NOW.date(), arm="reference")
+    assert 7 not in {leg["fixture_id"] for s in saved for leg in s["legs"]}
     assert {leg["forecast_id"] for s in saved for leg in s["legs"]} <= set(stored["forecast_ids"])
-    before = slips_path.read_bytes()
-    widget = MagicMock()
-    render_daily_accumulators(widget, as_of=NOW, directory=tmp_path)
-    widget.progress.assert_not_called()
-    widget.caption.assert_called_with("Heute noch kein geprüfter Kombischein.")
-    assert before == slips_path.read_bytes()

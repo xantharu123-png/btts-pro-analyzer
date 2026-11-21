@@ -24,6 +24,34 @@ def test_uncalibrated_reference_is_never_a_customer_percentage():
     assert customer_cards([example()], {}, as_of=NOW, chance=lambda *a, **k: None) == []
 
 
+def test_real_daily_selection_visible_without_review_file_or_common_price():
+    slip = dict(example(), arm='daily-picks', price_status='unconfirmed', bookmaker_id=None)
+    for leg in slip['legs']:
+        leg['offers'] = {}
+    card, = customer_cards([slip], None, as_of=NOW, chance=lambda *a, **k: None)
+    assert card['chance'] == pytest.approx(.343)
+    assert card['estimated'] and not card['started'] and not card['price_observed']
+
+
+def test_research_original_never_turns_into_a_customer_recommendation():
+    assert not customer_cards([dict(example(), arm='model-observation')], as_of=NOW)
+
+
+def test_already_started_kept_as_original_not_a_new_suggestion_or_live_chance():
+    slip = dict(example(), arm='daily-picks')
+    card, = customer_cards([slip], None, as_of=NOW + timedelta(hours=1), chance=None)
+    assert card['started'] and card['chance'] == pytest.approx(.343) and not card['price_observed']
+    assert customer_cards([dict(slip, captured_at=(NOW+timedelta(hours=1)).isoformat())],
+                          None, as_of=NOW + timedelta(hours=2), chance=None) == []
+
+
+@pytest.mark.parametrize('probability', [True, float('nan'), 1.2, 0, '0.7'])
+def test_model_estimate_never_substitutes_a_price_or_a_bad_leg(probability):
+    slip = dict(example(), arm='daily-picks')
+    slip['legs'][0]['probability'] = probability
+    assert customer_cards([slip], None, as_of=NOW, chance=None) == []
+
+
 def test_whole_slip_probability_and_event_order_not_price_or_average():
     card, = customer_cards([example()], {'valid': True}, as_of=NOW, chance=lambda *a, **k: .31)
     assert card['chance'] == .31
