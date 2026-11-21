@@ -18,6 +18,19 @@ class Screen(_RecordingStreamlit):
         self.messages.append(("rows", rows))
 
 
+def _assert_no_audit_ui(surface):
+    text = str(surface.ui.messages).lower()
+    for fragment in (
+        "bilanz", "trefferquote", "abgerechneten live-analysen", "aktueller modellstand",
+        "erste anzeige zählt", "nicht neu gezählt", "nicht gespeichert", "nicht geladen",
+    ):
+        assert fragment not in text
+    for kind, value in surface.ui.messages:
+        if kind == "rows":
+            assert all("Spiel" in row for row in value)  # Live overview, not the audit table.
+    assert not surface.reads
+
+
 def _analysis(game):
     return dict(fixture_id=game, home_team=f"Heim{game}", away_team=f"Gast{game}",
                 home_team_id=game+100, away_team_id=game+200, home_score=1, away_score=0,
@@ -45,27 +58,31 @@ def _red(game, probs=(.21, .62, .17)):
 @pytest.fixture
 def surface(monkeypatch):
     # Replace only the database I/O, both app renderers and their candidates stay real.
-    writes, old_writes = [], []
+    writes, old_writes, reads, details_at_write = [], [], [], []
+    ui = Screen()
     counts = {market: dict(won=0, lost=0, open=0, void=0) for market in
               ("next_goal", "team_scores", "btts", "red_next")}
     def record(**row):
         writes.append(row)
+        details_at_write.append(list(ui.messages))
         counts[row["market"]]["open"] += 1
         return True
-    ledger = SimpleNamespace(record_displayed_live_tip=record, live_tip_stats=lambda: counts)
+    def stats():
+        reads.append(True)
+        return counts
+    ledger = SimpleNamespace(record_displayed_live_tip=record, live_tip_stats=stats)
     monkeypatch.setitem(sys.modules, "live_tip_ledger", ledger)
     import redcard_signal_log
     shadow_writer = redcard_signal_log.log_signal
     monkeypatch.setattr(redcard_signal_log, "log_signal", lambda row: old_writes.append(row))
-    ui = Screen()
     monkeypatch.setattr(app, "st", ui)
     monkeypatch.setattr(bet_finder_ui, "st", ui)
     monkeypatch.setattr(app, "_job_key", lambda name: f"offline:{name}")
     monkeypatch.setattr(app.scan_jobs, "get_job", lambda key: {"state": "idle"})
     monkeypatch.setattr(app, "_freemode_enabled", lambda: False)
     monkeypatch.setattr(app, "load_app_config", lambda _st: SimpleNamespace(api_football_key=""))
-    return SimpleNamespace(ui=ui, ledger=ledger, writes=writes, old=old_writes, counts=counts,
-                           shadow_writer=shadow_writer)
+    return SimpleNamespace(ui=ui, ledger=ledger, writes=writes, old=old_writes, reads=reads,
+                           details_at_write=details_at_write, shadow_writer=shadow_writer)
 
 
 def _show(surface, label, *, age=0, items=None, selected=1):
@@ -102,6 +119,12 @@ def test_only_selected_actual_card_binds_native_snapshot_and_visible_model(surfa
                            probability=prob, snapshot_at=stamp, model_version=(
                                RED_CARD_MODEL_VERSION if key=="red_next" else "source-poisson-rev"))
     assert "keine passende Live-Quote" not in text and "Deine Mindestquote" not in text
+    already_rendered, = surface.details_at_write
+    assert visible in str(already_rendered) and "Modell:" in str(already_rendered)
+    if key != "red_next":
+        overview, = [rows for kind, rows in surface.ui.messages if kind == "rows"]
+        assert len(overview) == 4
+    _assert_no_audit_ui(surface)
 
 
 @pytest.mark.parametrize("probs,side", [((.65, .18, .17), "home"), ((.15, .20, .65), "none")])
@@ -114,7 +137,8 @@ def test_red_side_can_be_opponent_or_no_goal(surface,probs,side):
 def test_old_snapshot_stays_recognizable_as_history_without_a_new_receipt(surface,label):
     _show(surface, label, age=121)
     assert surface.writes == surface.old == []
-    assert "veraltet" in str(surface.ui.messages).lower() and "nicht neu" in str(surface.ui.messages).lower()
+    assert "Datenstand:" in str(surface.ui.messages)
+    _assert_no_audit_ui(surface)
 
 
 def test_no_receipt_without_visible_probability_or_source_version(surface):
@@ -124,32 +148,35 @@ def test_no_receipt_without_visible_probability_or_source_version(surface):
     rows[1].pop("model_version")
     _show(surface, "Nach Platzverweis", items=rows[1:], selected=0)
     assert surface.writes == surface.old == []
+    _assert_no_audit_ui(surface)
 
 
-def test_empty_page_shows_zero_settled_not_zero_success_and_reads_only(surface):
+def test_empty_page_does_not_read_or_write_the_internal_audit(surface):
     _show(surface, "Noch ein Tor", items=[])
-    text = str(surface.ui.messages).lower()
-    assert "noch keine abgerechneten" in text and "0 %" not in text and "0,0 %" not in text
+    assert "Kein Live-Spiel" in str(surface.ui.messages)
     assert surface.writes == surface.old == []
+    _assert_no_audit_ui(surface)
 
 
-def test_page_distinguishes_db_failure_from_empty(surface):
+@pytest.mark.parametrize("error_type", [sqlite3.OperationalError, OSError, ValueError])
+def test_ledger_failure_does_not_change_customer_ui(surface, error_type, caplog):
     def unavailable(*args, **kwargs):
-        raise sqlite3.OperationalError("disk unavailable")
-    surface.ledger.live_tip_stats = surface.ledger.record_displayed_live_tip = unavailable
+        raise error_type("internal audit error detail")
+    surface.ledger.record_displayed_live_tip = unavailable
     _show(surface, "Team trifft noch")
-    warnings = " ".join(str(msg) for kind, msg in surface.ui.messages if kind in {"warning", "error"})
-    assert "nicht gespeichert" in warnings and "nicht geladen" in warnings
-    assert "noch keine abgerechneten" not in str(surface.ui.messages).lower()
+    assert "Gast2 trifft noch" in str(surface.ui.messages) and "Modell:" in str(surface.ui.messages)
+    assert not any(kind in {"warning", "error"} for kind, _ in surface.ui.messages)
+    _assert_no_audit_ui(surface)
+    assert "internal audit error detail" not in caplog.text
+    if error_type is not ValueError:
+        assert any(entry.name == "live_tip_surface" and error_type.__name__ in entry.getMessage()
+                   for entry in caplog.records)
 
 
-def test_stats_denominator_only_counts_wins_and_losses_in_each_market(surface):
-    surface.counts["team_scores"].update(won=1, lost=3, open=6, void=2)
-    _show(surface, "Noch ein Tor", items=[])
-    rows = next(value for kind,value in surface.ui.messages if kind=="rows")
-    team = next(row for row in rows if "Team trifft noch" in row.values())
-    assert [team[k] for k in ("Gewonnen", "Verloren", "Offen", "Ungültig", "Trefferquote")] == [1,3,6,2,"25,0 %"]
-    assert len(rows) == 4
+def test_unavailable_analyzer_does_not_read_the_internal_audit(surface):
+    app.render_live(None)
+    assert ("error", "Analyzer nicht bereit.") in surface.ui.messages
+    _assert_no_audit_ui(surface)
 
 
 def test_live_scan_carries_native_stoppage_clock_and_a_pinned_source_version():
@@ -158,14 +185,14 @@ def test_live_scan_carries_native_stoppage_clock_and_a_pinned_source_version():
     assert row.get("phase_data", {}).get("extra") == 3 and row.get("model_version")
 
 
-def test_repeat_display_of_new_scan_keeps_first_visible_baseline_and_explains_it(surface, monkeypatch, tmp_path):
+def test_repeat_display_of_new_scan_keeps_first_visible_baseline_internally(surface, monkeypatch, tmp_path):
     # Use the real store here, so a button rerun, rescan or second viewer cannot inflate the count.
     monkeypatch.delitem(sys.modules, "live_tip_ledger")
     import live_tip_ledger as ledger
     db = tmp_path / "live.db"
-    write, stats = ledger.record_displayed_live_tip, ledger.live_tip_stats
+    write = ledger.record_displayed_live_tip
     monkeypatch.setattr(ledger, "record_displayed_live_tip", lambda **fields: write(**fields, db_path=db))
-    monkeypatch.setattr(ledger, "live_tip_stats", lambda: stats(db_path=db))
+    monkeypatch.setattr(ledger, "live_tip_stats", surface.ledger.live_tip_stats)
     row = _analysis(8)
     _show(surface, "Team trifft noch", items=[row], selected=0)
     row.update(minute=61, score="2-0", home_score=2, phase_data={"status": "2H", "extra": None})
@@ -174,7 +201,8 @@ def test_repeat_display_of_new_scan_keeps_first_visible_baseline_and_explains_it
     with sqlite3.connect(db) as conn:
         assert conn.execute("SELECT fixture_id,side,minute,extra,home_goals FROM live_tips").fetchall() == [
             (8, "away", 45, 3, 1)]
-    assert "erste Anzeige zählt" in str(surface.ui.messages)
+    assert "Gast8 trifft noch" in str(surface.ui.messages)
+    _assert_no_audit_ui(surface)
 
 
 @pytest.mark.parametrize("elapsed,extra,phase,card_minute,card_extra,count", [
@@ -201,9 +229,9 @@ def test_fresh_scan_preserves_separate_shadow_cohort_public_requires_actual_disp
     monkeypatch.delitem(sys.modules, "live_tip_ledger")
     import live_tip_ledger as ledger
     public, shadow = tmp_path / "public.db", tmp_path / "shadow.db"
-    write, stats = ledger.record_displayed_live_tip, ledger.live_tip_stats
+    write = ledger.record_displayed_live_tip
     monkeypatch.setattr(ledger, "record_displayed_live_tip", lambda **fields: write(**fields, db_path=public))
-    monkeypatch.setattr(ledger, "live_tip_stats", lambda: stats(db_path=public))
+    monkeypatch.setattr(ledger, "live_tip_stats", surface.ledger.live_tip_stats)
     monkeypatch.setattr("redcard_signal_log.log_signal", lambda row: surface.shadow_writer(row, db_path=shadow))
     games = [_red(i)["card"] for i in range(1, 6)]
     for game in games:
