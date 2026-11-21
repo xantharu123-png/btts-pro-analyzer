@@ -1,9 +1,9 @@
 """Prospective whole-slip calibration; reads original evidence, never sports APIs.
 
-v1: same original slip, two forecasts. Baseline = product of individual p.
+v2: same original slip, two forecasts. Baseline = product of individual p.
 Candidate = a single training-fitted log-odds offset per exact sport/model mix
 and repeated-market structure. Price is not a feature. Test dates and offsets
-are frozen BEFORE the first test day; the reference selector is unchanged.
+are frozen BEFORE the first test day. Releases bind the actual selection arm.
 """
 from __future__ import annotations
 
@@ -19,9 +19,11 @@ from zoneinfo import ZoneInfo
 
 ZONE = ZoneInfo("Europe/Zurich")
 UTC = timezone.utc
-MODEL = "combo-scope-logit-offset-v1"
+MODEL = "combo-scope-logit-offset-v2"
 POLICY = "daily-accumulators-v1"
 ARM = "reference"
+CANDIDATE_ARM = "candidate"
+_FINAL = {"WIN", "LOSS", "VOID"}  # all legs correct; a void is not a full-ticket win
 
 
 def _clock(value):
@@ -54,7 +56,7 @@ def _shape(slip):
     day = _day(slip["day"])
     decision, capture = _clock(slip["decision_at"]), _clock(slip["captured_at"])
     if (type(size) is not int or not 3 <= size <= 6 or len(legs) != size
-            or slip["arm"] != ARM or slip["policy"] != POLICY or decision > capture
+            or slip["arm"] not in (ARM, CANDIDATE_ARM) or slip["policy"] != POLICY or decision > capture
             or capture.astimezone(ZONE).date() != day):
         raise ValueError("not a frozen daily reference slip")
     for name in ("event_key", "forecast_id"):
@@ -110,10 +112,10 @@ def grade(slip, by_id):
                 statuses.add(row["outcome"])
         if not statuses <= {"WIN", "LOSS", "VOID", "UNRESOLVED"}:
             return "UNMATCHED"
-        if "VOID" in statuses:
-            return "VOID"
         if "UNRESOLVED" in statuses:
             return "OPEN"
+        if "VOID" in statuses:
+            return "VOID"
         return "LOSS" if "LOSS" in statuses else "WIN"
     except (KeyError, ValueError, TypeError, OverflowError):
         return "UNMATCHED"
@@ -141,6 +143,29 @@ def settled_receipts(slips, forecast_db, *, known_at):
             report = build_selection_performance_report(path, from_day=day, through_day=day,
                                                         forecast_ids=ids, as_of=cutoff)
             rows = {r["forecast_id"]: r for r in report["selections"]}
+            # The canonical report groups by actual kickoff. A fixture moved to
+            # another day is absent from the original day's report. Use the
+            # recorded clock only to locate its day; the report must verify the
+            # terminal proof again before grade() treats a >12h move as VOID.
+            for leg in slip["legs"]:
+                fid = leg["forecast_id"]
+                if fid in rows:
+                    continue
+                dates = db.execute("""SELECT DISTINCT CASE WHEN json_valid(payload_json)
+                    THEN json_extract(payload_json,'$.provenance.actual_starts_at') END FROM forecast_results
+                    WHERE event_key=? AND market_key=? AND selection=? AND observed_at<=? LIMIT 2""",
+                    (leg["event_key"], leg["market_key"], leg.get("evidence_selection",leg["selection"]),
+                     cutoff.isoformat())).fetchall()
+                if len(dates) != 1 or not isinstance(dates[0][0], str):
+                    continue
+                try:
+                    other = _clock(dates[0][0]).astimezone(ZONE).date()
+                except (TypeError, ValueError, OverflowError):
+                    continue
+                if other != day and other < cutoff.astimezone(ZONE).date():
+                    moved = build_selection_performance_report(path, from_day=other, through_day=other,
+                                                               forecast_ids=[fid], as_of=cutoff)
+                    rows.update((r["forecast_id"], r) for r in moved["selections"])
             marks = ", ".join("?" for _ in ids)
             for fid, raw in db.execute(f"SELECT forecast_id, payload_json FROM forecast_rows WHERE forecast_id IN ({marks})", ids):
                 if fid in rows:
@@ -170,11 +195,11 @@ def _offset(pys):
     return (lo+hi)/2
 
 
-def _group(records, start=None, stop=None):
+def _group(records, start=None, stop=None, *, arm=ARM):
     groups, seen = defaultdict(list), set()
     for slip, outcome in records:
         day, scope, p = _shape(slip)
-        if ((start and day < start) or (stop and day > stop)
+        if (slip.get("arm") != arm or (start and day < start) or (stop and day > stop)
                 or (day, slip["size"]) in seen or outcome not in {"WIN", "LOSS", "VOID", "OPEN", "UNMATCHED"}):
             raise ValueError("unexpected, duplicate or out-of-period original")
         seen.add((day, slip["size"]))
@@ -188,10 +213,11 @@ def fit(records, *, issued_at, test_from, test_through):
         raise ValueError("freeze model before a predefined holdout of 140–366 days")
     groups = {}
     for scope, rows in _group(records, stop=clock.astimezone(ZONE).date()-timedelta(days=1)).items():
-        pairs = [(p, int(s == "WIN")) for _, p, s in rows if s in {"WIN", "LOSS"}]
+        pairs = [(p, int(s == "WIN")) for _, p, s in rows if s in _FINAL]
         offset = _offset(pairs)
         if offset is not None:
             groups[scope] = dict(offset=offset, training_days=len(pairs),
+                                 training_void=sum(s == "VOID" for _, _, s in rows),
                                  low=min(p for p, _ in pairs), high=max(p for p, _ in pairs))
     return _sealed(dict(kind="fit", model=MODEL, policy=POLICY, arm=ARM, issued_at=clock.isoformat(),
                         test_from=str(first), test_through=str(last), groups=groups))
@@ -220,19 +246,85 @@ def _intervals(rows, offset, family):
     return [[float(lo), float(hi)] for lo, hi in zip(low, high)]
 
 
-def review(model, records, *, issued_at):
+def _valid_fit(model):
+    first, last = _day(model["test_from"]), _day(model["test_through"])
+    return (model.get("kind") == "fit" and model.get("model") == MODEL and model.get("arm") == ARM
+            and model.get("policy") == POLICY and model.get("digest") == _digest(model)
+            and _clock(model["issued_at"]) < _midnight(first) and 139 <= (last-first).days <= 365)
+
+
+def _stored_score_matches(slip, predicted):
+    value = slip.get("candidate_probability")
+    # Exact: both numbers are computed from the same archived inputs in the same using-model version.
+    return type(value) in (int, float) and math.isfinite(value) and value == predicted
+
+
+def candidate_scorer(fit_artifact, *, as_of, review=None):
+    """Internal selector only: score the frozen fit on a prospective, exactly supported slip.
+
+    After the locked test, resume only with a valid review of this *candidate-selection*
+    arm. Score the original full fitted support, not just groups that passed (which
+    would change the selector under test). Public release is checked separately.
+    """
+    def no_score(_slip):
+        return None
+    try:
+        now = _clock(as_of)
+        if not _valid_fit(fit_artifact):
+            return no_score
+        digest = fit_artifact["digest"]
+        earliest = _clock(fit_artifact["issued_at"])
+        today = now.astimezone(ZONE).date()
+        if not _day(fit_artifact["test_from"]) <= today <= _day(fit_artifact["test_through"]):
+            if (today <= _day(fit_artifact["test_through"]) or not isinstance(review, dict)
+                    or review.get("digest") != _digest(review) or review.get("kind") != "review"
+                    or review.get("arm") != CANDIDATE_ARM or review.get("policy") != POLICY
+                    or review.get("model") != MODEL or review.get("fit_digest") != digest
+                    or not _clock(review["issued_at"]) <= now < _clock(review["expires_at"])):
+                return no_score
+            earliest = _clock(review["issued_at"])
+        groups = {key: (g["low"], g["high"], g["offset"]) for key,g in fit_artifact["groups"].items()}
+    except (ValueError, KeyError, TypeError, AttributeError, OverflowError):
+        return no_score
+
+    def score(slip):
+        try:
+            day, scope, p = _shape(slip)
+            if (day != today or slip["arm"] != CANDIDATE_ARM or slip.get("fit_digest") != digest
+                    or not earliest <= _clock(slip["decision_at"]) <= _clock(slip["captured_at"]) <= now
+                    or any(_clock(leg["starts_at"]) <= now for leg in slip["legs"])):
+                return None
+            low, high, offset = groups[scope]
+            if low <= p <= high and math.isfinite(offset):
+                return _prob(p, offset)
+        except (ValueError, KeyError, TypeError, AttributeError, OverflowError):
+            pass
+        return None
+    return score
+
+
+def score_for_candidate(slip, fit_artifact, *, as_of, review=None):
+    return candidate_scorer(fit_artifact, as_of=as_of, review=review)(slip)
+
+
+def review(model, records, *, issued_at, arm=ARM):
     clock = _clock(issued_at)
     first, last = _day(model["test_from"]), _day(model["test_through"])
-    if (model.get("kind") != "fit" or model.get("model") != MODEL or model.get("arm") != ARM
-            or model.get("policy") != POLICY or model.get("digest") != _digest(model)
-            or _clock(model["issued_at"]) >= _midnight(first) or clock < _midnight(last+timedelta(days=8))):
+    if arm not in (ARM,CANDIDATE_ARM) or not _valid_fit(model) or clock < _midnight(last+timedelta(days=8)):
         raise ValueError("unregistered model, premature review or incorrect policy")
-    groups = _group(records, first, last)
+    def originals():
+        for slip, outcome in records:
+            if arm == CANDIDATE_ARM:
+                score = score_for_candidate(slip, model, as_of=slip["captured_at"])
+                if score is None or not _stored_score_matches(slip, score):
+                    raise ValueError("candidate receipt does not match the frozen fit/score")
+            yield slip, outcome
+    groups = _group(originals(), first, last, arm=arm)
     results = {}
     family = max(4, len(model["groups"]))
     for scope, group in model["groups"].items():
         rows = groups.get(scope, [])
-        usable = [(d,p,s) for d,p,s in rows if s in {"WIN", "LOSS"}]
+        usable = [(d,p,s) for d,p,s in rows if s in _FINAL]
         counts = Counter(s for _, _, s in rows)
         weeks = len({d.isocalendar()[:2] for d, _, _ in usable})
         report = dict(group, passed=False, test_days=len(usable), weeks=weeks, wins=counts["WIN"],
@@ -247,7 +339,7 @@ def review(model, records, *, issued_at):
             report.update(brier_difference_ci=diff, calibration_ci=bias,
                           passed=diff[1] < 0 and -.10 <= bias[0] <= bias[1] <= .10)
         results[scope] = report
-    return _sealed(dict(kind="review", model=MODEL, policy=POLICY, arm=ARM, fit_digest=model["digest"],
+    return _sealed(dict(kind="review", model=MODEL, policy=POLICY, arm=arm, fit_digest=model["digest"],
                         test_from=str(first), test_through=str(last), issued_at=clock.isoformat(),
                         expires_at=(_midnight(last+timedelta(days=98))).isoformat(),
                         groups=results, untrained_originals=sum(len(r) for g,r in groups.items() if g not in results)))
@@ -269,6 +361,10 @@ def chance_for_slip(slip, artifact, *, as_of):
                 or not g["low"] <= p <= g["high"] or g["brier_difference_ci"][1] >= 0
                 or not -.1 <= g["calibration_ci"][0] <= g["calibration_ci"][1] <= .1):
             return None
-        return _prob(p, g["offset"])
+        q = _prob(p, g["offset"])
+        if slip["arm"] == CANDIDATE_ARM and (slip.get("fit_digest") != artifact["fit_digest"]
+                or ("candidate_probability" in slip and not _stored_score_matches(slip, q))):
+            return None
+        return q
     except (KeyError, ValueError, TypeError, OverflowError, AttributeError, IndexError):
         return None

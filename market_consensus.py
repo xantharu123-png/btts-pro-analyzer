@@ -90,6 +90,16 @@ class QuotePoint:
     odds: float
     bookmaker_id: Optional[str] = None
     observed_at: Optional[str] = None
+    # API-Football may paginate the same fixture across multiple responses.
+    # Optional evidence only; legacy/Tennis/retrieval-only points omit it.
+    fetched_at: Optional[str] = None
+
+
+def _point_payload(point):
+    payload = asdict(point)
+    if point.fetched_at is None:
+        payload.pop("fetched_at")
+    return payload
 
 
 @dataclass(frozen=True)
@@ -129,10 +139,10 @@ class MarketConsensus:
             # The live document and its stored JSON must expose the same
             # container type, just as the existing points field does.
             payload['native_market_partitions'] = list(payload['native_market_partitions'])
-        payload["points"] = [asdict(point) for point in self.points]
+        payload["points"] = [_point_payload(point) for point in self.points]
         executable = self.executable_point
         payload["executable_quote"] = (
-            asdict(executable) if executable is not None else None
+            _point_payload(executable) if executable is not None else None
         )
         return payload
 
@@ -264,16 +274,25 @@ class MarketConsensus:
         if quoted is None or not _same_moment(quoted, latest):
             return None
         serialized_executable = payload.get("executable_quote")
+        disputed_book = None
         if serialized_executable is not None:
             if not isinstance(serialized_executable, Mapping):
                 return None
             loaded_executable = _quote_point_from_payload(
                 serialized_executable,
             )
-            if loaded_executable != quote.executable_point:
+            executable = quote.executable_point
+            if executable is None or replace(loaded_executable, fetched_at=None) != replace(executable, fetched_at=None):
                 return None
-        return replace(quote, native_market_partitions=validated_native_partitions(
-            payload.get('native_market_partitions', ()), quote))
+            if "fetched_at" in serialized_executable and loaded_executable.fetched_at != executable.fetched_at:
+                # Optional point evidence must neither weaken the legacy price
+                # contract nor discard the unaffected points in the market.
+                disputed_book = executable.bookmaker_id
+                quote = replace(quote, points=tuple(replace(p, fetched_at=None) if p == executable else p
+                                                    for p in quote.points))
+        parts = validated_native_partitions(payload.get('native_market_partitions', ()), quote)
+        return replace(quote, native_market_partitions=tuple(
+            part for part in parts if part["bookmaker_id"] != disputed_book))
 
     def is_fresh(self, now: Optional[datetime] = None) -> bool:
         """Require the fetch and every contributing offer to be current.
@@ -1213,11 +1232,17 @@ def _quote_point_from_payload(
         if raw_observed is not None
         else None
     )
+    # Leave the normal market contract unchanged when this optional evidence
+    # is absent. The accumulator additionally verifies bounds against the
+    # aggregate receipt and exact side before using it.
+    raw_fetch = payload.get("fetched_at")
+    point_fetch = _parse_utc(raw_fetch) if isinstance(raw_fetch, str) else None
     return QuotePoint(
         bookmaker=bookmaker,
         odds=validate_decimal_odds(payload.get("odds")),
         bookmaker_id=bookmaker_id,
         observed_at=observed_at,
+        fetched_at=point_fetch.isoformat() if point_fetch is not None else None,
     )
 
 
@@ -1945,6 +1970,7 @@ def parse_fixture_consensus(
                                 odds=odds,
                                 bookmaker_id=bookmaker_id,
                                 observed_at=update.isoformat(),
+                                fetched_at=entry_fetched.isoformat(),
                             ),
                             update,
                             entry_fetched,

@@ -18,11 +18,11 @@ from daily_accumulator_quality import ARM, POLICY, ZONE, _midnight, fit, review,
 from daily_accumulator_receipts import load_day
 
 
-def _originals(path, first, last):
+def _originals(path, first, last, *, arm=ARM):
     if not 0 <= (last-first).days <= 365:
         raise ValueError("provide a 1–366 day window")
     while first <= last:
-        yield from load_day(path, day=first, policy=POLICY, arm=ARM)
+        yield from load_day(path, day=first, policy=POLICY, arm=arm)
         first += timedelta(days=1)
 
 
@@ -35,6 +35,7 @@ def main(argv=None):
     training.add_argument("--test-through", type=date.fromisoformat, required=True)
     scoring = sub.add_parser("review", help="after the complete holdout plus 7 days, grade exactly those slips")
     scoring.add_argument("--model", type=Path, required=True)
+    scoring.add_argument("--arm", choices=("candidate","reference"), default="candidate")
     for cmd in (training, scoring):
         cmd.add_argument("--receipts", type=Path, required=True)
         cmd.add_argument("--evidence", type=Path, required=True)
@@ -60,8 +61,9 @@ def main(argv=None):
             fixed_cutoff = _midnight(last+timedelta(days=8))
             if clock < fixed_cutoff:
                 raise ValueError("validation is not mature")
-            records = _originals(args.receipts, first, last)
-            obj = review(model, settled_receipts(records, args.evidence, known_at=fixed_cutoff), issued_at=clock)
+            records = _originals(args.receipts, first, last, arm=args.arm)
+            obj = review(model, settled_receipts(records, args.evidence, known_at=fixed_cutoff),
+                         issued_at=clock, arm=args.arm)
         with args.output.open("x", encoding="utf-8") as handle:
             json.dump(obj, handle, sort_keys=True, ensure_ascii=False, indent=2, allow_nan=False)
         print(json.dumps(dict(stage=obj["kind"], groups=len(obj["groups"]), passed=sum(

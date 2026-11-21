@@ -34,6 +34,14 @@ Ein Spiel zählt je Buch einmal, nicht einmal je Markt. Das ist keine Stichprobe
 
 **Folge:** Noch keine historische Freigabe einer Scheingröße oder eines öffentlichen Wahrscheinlichkeitsbalkens. Exakte Ticketentscheidung vor Anpfiff bei regulären Läufen im bestehenden Datenfluss festhalten, zuerst intern auswerten, Modell und Referenz getrennt führen. Eine geschätzte unabhängige Produktzahl oder die 15K-Untergrenze nicht als geprüfte Kombichance veröffentlichen.
 
+## Betrieb und Abnahme
+
+Der reguläre Veröffentlichungs- und Quotenlauf speichert Originalscheine in `runtime_state/daily_accumulators.db`. Die Kundenansicht löst keine Berechnung aus. `model-observation` misst die sportliche Auswahl auch ohne bestätigten gemeinsamen Preis, `reference` die Produktreferenz mit belegtem Buch. Bei neuen API-Football-Quoten gilt die Abrufzeit des einzelnen Buchangebots statt der jüngsten Zeit einer anderen Seite. Ein fehlender Einzelbeleg wird nicht rückdatiert.
+
+Sobald genügend abgeschlossene Referenzscheine vorliegen: `python scripts/daily_accumulator_review.py fit --help`. Training nur auf vergangenen, abgerechneten Originalen; als neue Datei `runtime_state/daily_accumulator_fit.json` ausgeben und die späteren Prüftage vorher festlegen. Währenddessen optimiert der neue Arm `candidate` die Chance des ganzen Scheins und speichert die ursprüngliche Chance und die Identität des Trainingsstands. Nach Ablauf und Ergebnisnachlauf: `python scripts/daily_accumulator_review.py review --help`; Kundenartefakt nur für `--arm candidate` nach `runtime_state/daily_accumulator_quality.json`. Eine Auswertung der Referenz allein schaltet die Kandidaten nicht frei. Annullierte Scheine zählen nicht als Volltreffer; offene Fälle sind keine Endergebnisse.
+
+Grenzen: Pro Modellgruppe mindestens 30 Trainingstage mit beiden Ausgängen; danach mindestens 100 abgeschlossene Testtage über 20 Wochen, geprüfte Kalibrierung und Verbesserung der Brier-Punktzahl. Vorher keine belastbare Prozentanzeige. Der bestehende Vollsuite-Test `test_native_conflicting_role_ids_fail_before_any_request` erwartet eine Hockey-Identitätslücke als technischen Fehler; im unveränderten Vergleichsstand scheitert dieselbe Assertion. Weder der ursprüngliche Test noch die Hockey-Logik wurden für dieses Release geändert.
+
 ## Kontrollabfrage (gleicher Archivbestand)
 
 Unabhängig nachgerechnet, ohne Anbieterzugriff. Die Zeilengrenze 88.719 fixiert den damaligen Anhangestand dieses vorhandenen Archivs; sie ist keine portable ID einer anderen Datenbank. Die folgende Prüfung gruppiert nur innerhalb derselben Sportart direkt nach der archivierten Buchmacher-ID. Sie validiert weder die Identität über mehrere Sportarten noch eine angenommene Buchmacherkombi. Als Ausgabe müssen beim unveränderten Bestand die zwei Tabellenzeilen oben entstehen.

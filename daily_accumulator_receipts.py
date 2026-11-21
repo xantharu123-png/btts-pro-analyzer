@@ -126,9 +126,17 @@ def _receipt(slip, sources, *, day, policy, arm, decision, captured):
     supplied = slip["reference_probability"]
     if not _number(supplied) or not math.isclose(baseline, supplied, rel_tol=1e-12):
         return None
+    calibration = {}
+    if arm == "candidate":
+        fit_digest = slip.get("fit_digest")
+        score = slip.get("candidate_probability")
+        if not isinstance(fit_digest, str) or not re.fullmatch("[0-9a-f]{64}", fit_digest) or not (
+                _number(score) and 0 < score < 1):
+            return None
+        calibration = {"fit_digest": fit_digest, "candidate_probability": score}
     return dict(day=day, policy=policy, arm=arm, size=size, captured_at=captured.isoformat(),
                 decision_at=decision.isoformat(), bookmaker_id=book, price_status=status,
-                reference_probability=baseline, legs=kept)
+                reference_probability=baseline, legs=kept, **calibration)
 
 
 def capture_day(path, *, day, as_of, pool, select, policy=DEFAULT_POLICY, arm=DEFAULT_ARM):

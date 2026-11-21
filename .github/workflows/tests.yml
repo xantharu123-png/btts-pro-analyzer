@@ -99,6 +99,7 @@ jobs:
           tests/test_tip_publication.py
           tests/test_daily_accumulators.py
           tests/test_daily_accumulator_surface.py
+          tests/test_daily_accumulator_prices.py
           tests/test_daily_accumulator_receipts.py
           tests/test_daily_accumulator_quality.py
           tests/test_daily_accumulator_workflow.py

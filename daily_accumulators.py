@@ -6,6 +6,7 @@ from math import isfinite, prod
 from zoneinfo import ZoneInfo
 
 from daily3_identity import event_guard
+from daily_accumulator_prices import point_fetch
 from forecast_analysis import build_forecast_analysis, forecast_highlight_reason
 from forecast_selection import select_consumer_forecasts
 from market_consensus import (
@@ -62,12 +63,13 @@ def _exact_quote(signal):
 
 def _offers(quote, now):
     prefix = _BOOK_PREFIX.get(quote.source) if quote is not None else None
-    if not prefix:
+    bundle_at = _clock(quote.fetched_at) if prefix else None
+    if bundle_at is None or bundle_at > now:
         return {}
     offers = {}
     for point in quote.points:
         book = str(point.bookmaker_id or '')
-        offer = dict(odds=point.odds, observed_at=point.observed_at, fetched_at=quote.fetched_at)
+        offer = dict(odds=point.odds, observed_at=point.observed_at, fetched_at=point_fetch(quote, point))
         if book.startswith(prefix) and book[len(prefix):].strip() and offer_is_current(offer, as_of=now):
             offers[book] = offer
     return offers
@@ -161,7 +163,13 @@ def _same_side(left, right):
             and left.get('evidence_selection') == right.get('evidence_selection'))
 
 
-def _best(pool, size, prior, confirmed):
+def _ticket(legs, books, reference_probability):
+    return dict(size=len(legs), legs=sorted(legs, key=lambda leg:(leg['starts_at'],_rank(leg))),
+                bookmaker_id=min(books) if books else None, reference_probability=reference_probability,
+                price_status='confirmed' if books else 'unconfirmed')
+
+
+def _best(pool, size, prior, confirmed, joint_score=None):
     # Pre-compute conflicts against immutable earlier slips, including alias
     # collisions. Refuse ambiguity instead of joining two differently keyed games.
     ranked = []
@@ -183,8 +191,14 @@ def _best(pool, size, prior, confirmed):
         nonlocal best, score, nodes
         remaining = size-len(picked)
         if not remaining:
-            if p > score:
-                best, score = (picked, books), p
+            if joint_score is None:
+                if p > score:
+                    best, score = _ticket(picked, books, p), p
+                return
+            slip = _ticket(picked, books, p)
+            calibrated = joint_score(slip)
+            if type(calibrated) in (float, int) and 0 < calibrated < 1 and calibrated > score:
+                best, score = dict(slip, calibrated_probability=calibrated), calibrated
             return
         for i in range(start, len(ranked)-remaining+1):
             nodes += 1
@@ -192,7 +206,8 @@ def _best(pool, size, prior, confirmed):
                 raise Limit
             # Full-precision optimistic product, with the identical sequence
             # of multiplications as a completed path (not a log-score).
-            if prod((ranked[j][0]['probability'] for j in range(i,i+remaining)),start=p) <= score:
+            # A product bound is not an upper bound for a calibrated model.
+            if joint_score is None and prod((ranked[j][0]['probability'] for j in range(i,i+remaining)),start=p) <= score:
                 break
             leg, events, participants, shared, offered = ranked[i]
             if used & events or people & participants or overlaps & shared:
@@ -208,22 +223,17 @@ def _best(pool, size, prior, confirmed):
     except Limit:
         logging.getLogger(__name__).info("Accumulator size %d omitted: optimality search limit", size)
         return None  # No unproven incumbent as an optimum.
-    if best is None:
-        return None
-    legs, common = best
-    return dict(size=size, legs=sorted(legs, key=lambda leg:(leg['starts_at'],_rank(leg))),
-                bookmaker_id=min(common) if common else None, reference_probability=score,
-                price_status='confirmed' if common else 'unconfirmed')
+    return best
 
 
-def _select(legs, frozen, confirmed):
+def _select(legs, frozen, confirmed, joint_score=None):
     pool = sorted(legs, key=_rank)
     prior = list(frozen)
     result = []
     for size in (3,4,5,6):
         if any(s['size'] == size for s in prior):
             continue
-        slip = _best(pool,size,prior,confirmed)
+        slip = _best(pool,size,prior,confirmed,joint_score)
         if slip is not None:
             prior.append(slip)
             result.append(slip)
@@ -238,3 +248,14 @@ def select_combo_set(legs, *, frozen=()):
 def select_confirmed_combo_set(legs, *, frozen=()):
     """Matched reference arm: search ALL potential sets with a shared fresh book."""
     return _select(legs, frozen, True)
+
+
+def select_calibrated_combo_set(legs, *, frozen=(), score):
+    """Proven maximum of the approved whole-slip model, not the reference product.
+
+    The score must use only the sport/model inputs, never the bookmaker/odds.
+    No comparable score or an exhausted budget leaves the size unpublished.
+    """
+    if not callable(score):
+        return []
+    return _select(legs, frozen, True, score)

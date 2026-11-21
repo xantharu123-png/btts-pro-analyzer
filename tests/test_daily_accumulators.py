@@ -6,12 +6,18 @@ from itertools import combinations
 import pytest
 
 from test_daily3_selection import NOW, football
-from test_publication_odds_floor import priced
+from market_consensus import parse_fixture_consensus
 
 
 def model(i, p=.75, odds=1.20):
     s = replace(football(i, probability=p), source="automated_wettfinder_forecast")
-    return priced(s, (odds,) * 3)
+    books = [dict(id=n, name=f"Book {n}", bets=[dict(name="Match Winner", values=[
+        dict(value="Home", odd=str(odds)), dict(value="Draw", odd="4.40"), dict(value="Away", odd="4.90")])])
+        for n in (1, 2, 3)]
+    response = dict(response=[dict(fixture=dict(id=i, date=s.scheduled_start),
+                                   update=NOW.isoformat(), bookmakers=books)])
+    quote = parse_fixture_consensus(response, [s], fetched_at=NOW)[s.candidate_id]
+    return replace(s, reference_quote=quote.to_dict(), minimum_odds=2.0)
 
 
 def pool(*signals):
@@ -175,3 +181,26 @@ def test_tennis_without_player_ids_rejects_same_player_spelled_two_ways():
                        context_evidence=context)
     legs = pool(match(1,'Roger Federer','Andy Murray'),match(2,'Federer R.','Rafael Nadal'),model(3))
     assert len(legs) == 3 and not select_combo_set(legs)
+
+
+def test_new_customer_selector_uses_actual_joint_score_not_largest_product():
+    from daily_accumulators import select_calibrated_combo_set, select_confirmed_combo_set
+    legs = pool(*(model(i,p) for i,p in enumerate([.90,.80,.70,.60,.50], 1)))
+    def score(slip):
+        ids = {leg['fixture_id'] for leg in slip['legs']}
+        return .86 if ids == {3,4,5} else .52
+    slip = select_calibrated_combo_set(legs, score=score)[0]
+    assert [leg['fixture_id'] for leg in slip['legs']] == [3,4,5]
+    assert slip['reference_probability'] == pytest.approx(.21)
+    assert slip['calibrated_probability'] == .86
+    assert slip['bookmaker_id'] == 'api-football:1'
+    assert [leg['fixture_id'] for leg in select_confirmed_combo_set(legs)[0]['legs']] == [1,2,3]
+
+
+def test_uncalibrated_groups_or_unproven_optimum_do_not_generate_customer_slips(monkeypatch):
+    import daily_accumulators as combos
+    legs = pool(*(model(i) for i in range(1, 8)))
+    for unavailable in (None, False, float('nan'), float('inf'), 1.01, -.01):
+        assert not combos.select_calibrated_combo_set(legs, score=lambda slip:unavailable)
+    monkeypatch.setattr(combos, '_NODE_LIMIT', 7)
+    assert not combos.select_calibrated_combo_set(legs, score=lambda slip:.5)

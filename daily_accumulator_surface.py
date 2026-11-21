@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-import json
 import logging
 import math
 from pathlib import Path
@@ -47,7 +46,7 @@ def customer_cards(slips, artifact, *, as_of, chance):
         try:
             size, legs = slip["size"], slip["legs"]
             if (size not in (3, 4, 5, 6) or len(legs) != size or len({leg["event_key"] for leg in legs}) != size
-                    or slip["day"] != day.isoformat() or slip["arm"] != "reference"
+                    or slip["day"] != day.isoformat() or slip["arm"] != "candidate"
                     or _time(slip["captured_at"]) > now or
                     any(not now < _time(leg["starts_at"]) or _time(leg["starts_at"]).astimezone(ZURICH).date() != day
                         for leg in legs)):
@@ -63,7 +62,7 @@ def customer_cards(slips, artifact, *, as_of, chance):
 
 
 def render_daily_accumulators(st, *, as_of=None, directory=None):
-    from daily_accumulator_publication import DB_NAME
+    from daily_accumulator_publication import DB_NAME, read_artifact
     from daily_accumulator_quality import chance_for_slip
     from daily_accumulator_receipts import load_day
     from runtime_paths import RUNTIME_STATE_DIR
@@ -71,10 +70,9 @@ def render_daily_accumulators(st, *, as_of=None, directory=None):
     root = Path(directory or RUNTIME_STATE_DIR)
     cards = []
     try:
-        artifact_path = root / "daily_accumulator_quality.json"
-        if artifact_path.is_file() and artifact_path.stat().st_size <= 2_000_000:
-            artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
-            slips = load_day(root / DB_NAME, day=now.astimezone(ZURICH).date(), arm="reference")
+        artifact = read_artifact(root / "daily_accumulator_quality.json")
+        if artifact:
+            slips = load_day(root / DB_NAME, day=now.astimezone(ZURICH).date(), arm="candidate")
             cards = customer_cards(slips, artifact, as_of=now, chance=chance_for_slip)
     except (OSError, sqlite3.Error, ValueError, TypeError, KeyError):
         logging.getLogger(__name__).warning("Daily accumulator rail unavailable")

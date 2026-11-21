@@ -22,6 +22,23 @@ def test_worker_does_not_invent_forecasts_or_create_empty_db(tmp_path):
     assert list(tmp_path.iterdir()) == []
 
 
+def test_candidate_freezes_the_original_hit_probability_and_fit(monkeypatch, tmp_path):
+    from daily_accumulator_receipts import capture_day
+    from daily_accumulator_publication import candidate_selector
+    from test_daily_accumulators import NOW, model, pool
+    import daily_accumulator_receipts as receipts
+    import daily_accumulator_quality as quality
+    monkeypatch.setattr(receipts, "_now", lambda: NOW)
+    monkeypatch.setattr(quality, "candidate_scorer", lambda model, **kw: lambda slip: .31)
+    model_info = {"kind": "fit", "digest": "a"*64, "groups": {"synthetic": {}}}
+    db = tmp_path / "proof.db"
+    legs = [dict(leg, forecast_id=f'{i:064x}') for i, leg in enumerate(pool(*(model(i) for i in range(1, 4))), 1)]
+    select = candidate_selector(NOW, model_info, None)
+    slip, = capture_day(db, day=NOW.date(), as_of=NOW, pool=legs, select=select, arm="candidate")
+    assert slip["fit_digest"] == model_info["digest"] and slip["candidate_probability"] == .31
+    assert slip["candidate_probability"] != slip["reference_probability"]
+
+
 def test_worker_freezes_common_book_and_does_not_author_a_receipt_on_page_view(tmp_path, monkeypatch):
     import daily_accumulator_receipts as receipts
     import forecast_evidence as evidence

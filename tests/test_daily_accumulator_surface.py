@@ -15,7 +15,7 @@ def example():
                     selection='Heimsieg', probability=.7, reason='Heimform', sport='Fußball',
                     model_version='v1', offers={'api:8': {
                         'odds': 1.2, 'observed_at': NOW.isoformat(), 'fetched_at': NOW.isoformat()}})
-    return dict(day='2030-01-07', size=3, policy='daily-accumulators-v1', arm='reference',
+    return dict(day='2030-01-07', size=3, policy='daily-accumulators-v1', arm='candidate',
                 legs=[leg(3), leg(1), leg(2)], price_status='confirmed', bookmaker_id='api:8',
                 captured_at=NOW.isoformat(), reference_probability=.7 ** 3)
 
@@ -44,7 +44,7 @@ def test_not_public(problem):
     elif problem == 'wrong_day':
         slip['day'] = '2029-01-01'
     elif problem == 'wrong_arm':
-        slip['arm'] = 'model-observation'
+        slip['arm'] = 'reference'
     elif problem == 'future_capture':
         slip['captured_at'] = (NOW + timedelta(seconds=1)).isoformat()
     else:

@@ -36,6 +36,8 @@ def test_result_all_legs_exactly_bound_and_captured_before_actual_start():
     assert grade(s, results) == "LOSS"
     second["outcome"] = "VOID"
     assert grade(s, results) == "VOID"
+    third["outcome"] = "UNRESOLVED"
+    assert grade(s, results) == "OPEN"
     first["outcome"] = second["outcome"] = "WIN"
     third["outcome"] = "UNRESOLVED"
     assert grade(s, results) == "OPEN"
@@ -113,7 +115,8 @@ def test_no_release_on_incomplete_holdout_or_nonimprovement_or_duplicate_days():
     assert not row(held)["passed"]
 
 
-def test_outcomes_from_real_forecast_evidence_and_missing_database(tmp_path, monkeypatch):
+@pytest.mark.parametrize("shifted", [False, True])
+def test_outcomes_from_real_forecast_evidence_and_missing_database(tmp_path, monkeypatch, shifted):
     import forecast_evidence as ev
     from daily_accumulator_quality import settled_receipts
     s = slip(BEGIN)
@@ -135,12 +138,16 @@ def test_outcomes_from_real_forecast_evidence_and_missing_database(tmp_path, mon
         ids = dict(conn.execute("select event_key,forecast_id from forecast_rows"))
     for leg in s["legs"]:
         leg["forecast_id"] = ids[leg["event_key"]]
-    monkeypatch.setattr(ev, "_now", lambda: at(BEGIN+timedelta(days=1)))
-    for leg in s["legs"]:
-        ev.append_result(leg["event_key"], "DC_1X", "1X", "WIN", observed_at=at(BEGIN,22),
+    cutoff = at(BEGIN+timedelta(days=3))
+    monkeypatch.setattr(ev, "_now", lambda: cutoff)
+    for i,leg in enumerate(s["legs"]):
+        moved = shifted and i == 1
+        result_day = BEGIN+timedelta(days=int(moved))
+        proof = {"actual_starts_at": at(result_day,19).isoformat()} if moved else {}
+        ev.append_result(leg["event_key"], "DC_1X", "1X", "WIN", observed_at=at(result_day,22),
                          provenance=dict(provider="api-football",provider_event_id=leg["event_key"].split(":")[1],
-                            source_record_id="fulltime-v1",payload_sha256="a"*64,settlement_rule="native-fulltime-v1"),db_path=path)
-    assert list(settled_receipts([s],path,known_at=at(BEGIN+timedelta(days=1)))) == [(s,"WIN")]
+                            source_record_id="fulltime-v1",payload_sha256="a"*64,settlement_rule="native-fulltime-v1", **proof),db_path=path)
+    assert list(settled_receipts([s],path,known_at=cutoff)) == [(s,"VOID" if shifted else "WIN")]
     s["legs"][1]["probability"] = .9
     assert list(settled_receipts([s],path,known_at=at(BEGIN+timedelta(days=1)))) == [(s,"UNMATCHED")]
 
@@ -156,3 +163,74 @@ def test_cli_refuses_missing_archives_and_leaves_old_artifact_intact(tmp_path):
                  "--test-through", str(tomorrow+timedelta(days=167)), "--output", str(output)]) != 0
     assert json.loads(output.read_text()) == {"original": 1}
     assert not receipts.exists() and not evidence.exists()
+
+
+def test_void_counts_as_zero_in_training_and_whole_slip_brier():
+    from daily_accumulator_quality import fit, review
+    first = BEGIN + timedelta(days=85)
+    last = first + timedelta(days=167)
+    def records(start, count):
+        return [(s, "VOID" if status == "LOSS" else status) for s,status in cohort(start,count)]
+    model = fit(records(BEGIN,80), issued_at=at(first-timedelta(days=1)), test_from=first, test_through=last)
+    trained, = model["groups"].values()
+    assert trained["training_days"] == 80 and trained["training_void"] == 20
+    result = review(model,records(first,168),issued_at=at(last+timedelta(days=9)))
+    g, = result["groups"].values()
+    assert (g["test_days"],g["wins"],g["void"],g["losses"]) == (168,126,42,0)
+    assert g["brier"] == pytest.approx(.1875)
+
+
+def test_candidate_review_requires_same_original_score_from_registered_fit_and_actual_selection_arm():
+    from daily_accumulator_quality import fit, review, score_for_candidate, chance_for_slip
+    first = BEGIN + timedelta(days=85)
+    last = first + timedelta(days=167)
+    model = fit(cohort(BEGIN,80), issued_at=at(first-timedelta(days=1)),test_from=first,test_through=last)
+    actual = []
+    for selection, status in cohort(first,168):
+        selected = dict(selection, arm="candidate",fit_digest=model["digest"])
+        day = date.fromisoformat(selected["day"])
+        p = score_for_candidate(selected,model,as_of=at(day))
+        assert p == pytest.approx(.75, abs=.001)
+        actual.append((dict(selected,candidate_probability=p),status))
+    old = dict(actual[0][0], arm="reference")
+    assert score_for_candidate(old,model,as_of=at(first)) is None
+    assert score_for_candidate(actual[0][0],model,as_of=at(first,20)) is None
+    neighboring = dict(actual[0][0],legs=[dict(x,sport="tennis") for x in old["legs"]])
+    assert score_for_candidate(neighboring,model,as_of=at(first)) is None
+    issued = at(last+timedelta(days=9))
+    record = review(model,actual,issued_at=issued,arm="candidate")
+    reported, = record["groups"].values()
+    assert reported["passed"] and reported["test_days"] == 168
+    future_day = last + timedelta(days=10)
+    future = dict(slip(future_day),arm="candidate",fit_digest=model["digest"])
+    assert score_for_candidate(future,model,as_of=at(future_day)) is None
+    assert score_for_candidate(future,model,as_of=at(future_day),review=record) == pytest.approx(.75,abs=.001)
+    # A failed group may not be skipped by the selector in favour of a lower-ranked
+    # passing group. Scoring stays the same but the first group's display stays closed.
+    failed = review(model,actual[:70],issued_at=issued,arm="candidate")
+    assert score_for_candidate(future,model,as_of=at(future_day),review=failed) == pytest.approx(.75,abs=.001)
+    assert chance_for_slip(future,failed,as_of=at(future_day)) is None
+    assert chance_for_slip(future,record,as_of=at(future_day)) == pytest.approx(.75,abs=.001)
+    assert chance_for_slip(dict(future,candidate_probability=.01),record,as_of=at(future_day)) is None
+    reference = review(model,cohort(first,168),issued_at=issued)
+    assert chance_for_slip(future,reference,as_of=at(future_day)) is None
+    assert score_for_candidate(future,model,as_of=at(future_day),review=reference) is None
+    assert chance_for_slip(dict(future, fit_digest="b"*64),record,as_of=at(future_day)) is None
+    with pytest.raises(ValueError):
+        review(model,cohort(first,168),issued_at=issued,arm="candidate")
+    for change in ({"candidate_probability":.10},{"fit_digest":"ab"*32}):
+        amended = [(dict(actual[0][0],**change), actual[0][1]),*actual[1:]]
+        with pytest.raises(ValueError):
+            review(model,amended,issued_at=issued,arm="candidate")
+
+
+def test_prepared_scorer_freezes_scopes_even_if_original_dict_changes():
+    from daily_accumulator_quality import candidate_scorer, fit
+    first = BEGIN + timedelta(days=85)
+    frame = fit(cohort(BEGIN,80),issued_at=at(first-timedelta(days=1)),
+                test_from=first,test_through=first+timedelta(days=168))
+    scorer = candidate_scorer(frame,as_of=at(first))
+    chosen = dict(slip(first),arm="candidate",fit_digest=frame["digest"])
+    next(iter(frame["groups"].values()))["offset"] = -8.0
+    assert scorer(chosen) == pytest.approx(.75,abs=.001)
+    assert candidate_scorer(frame,as_of=at(first))(chosen) is None
