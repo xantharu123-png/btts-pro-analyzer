@@ -1,0 +1,72 @@
+{
+  "schema": "betboy-wettfinder-referenz-v1",
+  "matchday": "2026-11-20",
+  "timezone": "Europe/Zurich",
+  "as_of": "2026-11-21T08:22:00+01:00",
+  "release": "363ed54a74f33464a5a453aaf018ca927f63c324",
+  "goal_model": "legacy_form_strength_v1",
+  "surface": "wettfinder_automatic_event_leads",
+  "friday_catalogues": {
+    "wettfinder_default_inventory": {
+      "main_evidence": {
+        "identified": 0,
+        "missing": 55,
+        "missing_reasons": {
+          "no_archived_event_lead_role": 55
+        }
+      },
+      "market_counts": {
+        "games": 55,
+        "selections": 178,
+        "wins": 83,
+        "losses": 81,
+        "open": 13,
+        "voids": 1,
+        "unmatched": 0,
+        "decided": 164
+      }
+    },
+    "wettfinder_automatic": {
+      "main_evidence": {
+        "identified": 0,
+        "missing": 58,
+        "missing_reasons": {
+          "no_archived_event_lead_role": 58
+        }
+      },
+      "market_counts": {
+        "games": 58,
+        "selections": 194,
+        "wins": 16,
+        "losses": 6,
+        "open": 0,
+        "voids": 0,
+        "unmatched": 172,
+        "decided": 22
+      }
+    }
+  },
+  "friday_default_observed_outcomes": {
+    "WIN": 1
+  },
+  "saturday_observed_leads": {
+    "wettfinder_automatic_event_leads": 22,
+    "wettfinder_default_event_leads": 23
+  },
+  "friday_first_observed": [
+    {"kickoff":"2026-11-20T19:00:00+00:00","home":"Almere City FC","away":"NAC Breda","market":"AWAY_UNDER_2_5","selection":"Unter 2.5","model_probability":0.817304,"result":"LOSS","price_status":"stale","event_key":"football:1551887","forecast_id":"5f6069d809a8df3866ff0498c0adb6a2072ebfa8a7257ba9d3b1053b6b848bf1","observed_at":"2026-11-20T18:45:31.841250+00:00","modeled_at":"2026-11-20T02:41:15.846331+00:00","input_cutoff_at":"2026-11-20T02:41:15.846331+00:00","model_version":"challenge-engine:legacy-form-strength-joint-calibration-v1","policy_version":"risk-ev-3pct-min-odds-1.20-v2"},
+    {"kickoff":"2026-11-20T19:00:00+00:00","home":"Den Bosch","away":"VVV Venlo","market":"AWAY_UNDER_2_5","selection":"Unter 2.5","model_probability":0.733504,"result":"WIN","price_status":"stale","event_key":"football:1551889","forecast_id":"bbb06b0a3501311213881dedf07fc8b8fda18fae3f1e26a645de43431225cde1","observed_at":"2026-11-20T18:45:31.841250+00:00","modeled_at":"2026-11-20T02:41:15.846331+00:00","input_cutoff_at":"2026-11-20T02:41:15.846331+00:00","model_version":"challenge-engine:legacy-form-strength-joint-calibration-v1","policy_version":"risk-ev-3pct-min-odds-1.20-v2"},
+    {"kickoff":"2026-11-20T19:00:00+00:00","home":"FC Volendam","away":"Jong Ajax","market":"AWAY_UNDER_2_5","selection":"Unter 2.5","model_probability":0.835619,"result":"WIN","price_status":"stale","event_key":"football:1551890","forecast_id":"85a4bc394289c5402da1e871542a8ad24198259296ce952e06c53dac6f995e44","observed_at":"2026-11-20T18:45:31.841250+00:00","modeled_at":"2026-11-20T02:41:15.846331+00:00","input_cutoff_at":"2026-11-20T02:41:15.846331+00:00","model_version":"challenge-engine:legacy-form-strength-joint-calibration-v1","policy_version":"risk-ev-3pct-min-odds-1.20-v2"},
+    {"kickoff":"2026-11-20T19:00:00+00:00","home":"Jong Utrecht","away":"Emmen","market":"AWAY_UNDER_2_5","selection":"Unter 2.5","model_probability":0.75126,"result":"WIN","price_status":"stale","event_key":"football:1551893","forecast_id":"e8ff56c079cffed301df1dbe0ad346f58495aee6ccd0a2958a0626499ec98501","observed_at":"2026-11-20T18:45:31.841250+00:00","modeled_at":"2026-11-20T02:41:15.846331+00:00","input_cutoff_at":"2026-11-20T02:41:15.846331+00:00","model_version":"challenge-engine:legacy-form-strength-joint-calibration-v1","policy_version":"risk-ev-3pct-min-odds-1.20-v2"},
+    {"kickoff":"2026-11-20T19:00:00+00:00","home":"FC OSS","away":"Roda","market":"AWAY_UNDER_2_5","selection":"Unter 2.5","model_probability":0.804617,"result":"WIN","price_status":"stale","event_key":"football:1551894","forecast_id":"e501b3ea0006a46bf6febb1e2cc7bf69b9392c89f903cce673f1f0d0f5aaca51","observed_at":"2026-11-20T18:45:31.841250+00:00","modeled_at":"2026-11-20T02:41:15.846331+00:00","input_cutoff_at":"2026-11-20T02:41:15.846331+00:00","model_version":"challenge-engine:legacy-form-strength-joint-calibration-v1","policy_version":"risk-ev-3pct-min-odds-1.20-v2"},
+    {"kickoff":"2026-11-20T19:00:00+00:00","home":"Annecy","away":"Clermont Foot","market":"HOME_OVER_0_5","selection":"Über 0.5","model_probability":0.746588,"result":"WIN","price_status":"stale","event_key":"football:1552531","forecast_id":"78caae83fc9b13b0c209eda773a2757826450e9789b703449c11959a969448c7","observed_at":"2026-11-20T18:45:31.841250+00:00","modeled_at":"2026-11-20T02:41:15.846331+00:00","input_cutoff_at":"2026-11-20T02:41:15.846331+00:00","model_version":"challenge-engine:legacy-form-strength-joint-calibration-v1","policy_version":"risk-ev-3pct-min-odds-1.20-v2"},
+    {"kickoff":"2026-11-20T19:00:00+00:00","home":"Metz","away":"Boulogne","market":"HOME_OVER_0_5","selection":"Über 0.5","model_probability":0.728407,"result":"WIN","price_status":"stale","event_key":"football:1552534","forecast_id":"cdf1aec13f1b197cf0d1c2520077d0c67947dc7ced633b67611a1af9b53dc9db","observed_at":"2026-11-20T18:45:31.841250+00:00","modeled_at":"2026-11-20T02:41:15.846331+00:00","input_cutoff_at":"2026-11-20T02:41:15.846331+00:00","model_version":"challenge-engine:legacy-form-strength-joint-calibration-v1","policy_version":"risk-ev-3pct-min-odds-1.20-v2"},
+    {"kickoff":"2026-11-20T19:00:00+00:00","home":"RED Star FC 93","away":"PAU","market":"HOME_OVER_0_5","selection":"Über 0.5","model_probability":0.733479,"result":"WIN","price_status":"stale","event_key":"football:1552537","forecast_id":"4fd19c2f864373594342a6aeee5ddf516535015f3d081c0b1d7d788864ce7c32","observed_at":"2026-11-20T18:45:31.841250+00:00","modeled_at":"2026-11-20T02:41:15.846331+00:00","input_cutoff_at":"2026-11-20T02:41:15.846331+00:00","model_version":"challenge-engine:legacy-form-strength-joint-calibration-v1","policy_version":"risk-ev-3pct-min-odds-1.20-v2"},
+    {"kickoff":"2026-11-20T19:00:00+00:00","home":"K. Lierse S.K.","away":"Lokeren-Temse","market":"HOME_OVER_0_5","selection":"Über 0.5","model_probability":0.73384,"result":"WIN","price_status":"stale","event_key":"football:1559201","forecast_id":"5673ddbf83e40e786b03d05e6ad2ceda494be57510c95d1acd98d512607d5fe0","observed_at":"2026-11-20T18:45:31.841250+00:00","modeled_at":"2026-11-20T02:41:15.846331+00:00","input_cutoff_at":"2026-11-20T02:41:15.846331+00:00","model_version":"challenge-engine:legacy-form-strength-joint-calibration-v1","policy_version":"risk-ev-3pct-min-odds-1.20-v2"},
+    {"kickoff":"2026-11-20T19:30:00+00:00","home":"Austria Salzburg","away":"Admira Wacker","market":"HOME_OVER_0_5","selection":"Über 0.5","model_probability":0.744885,"result":"WIN","price_status":"stale","event_key":"football:1567956","forecast_id":"379675b0ec5e3dd107640101dc8dddc9e1dcf5f8963a6ed3b09fffca24751b69","observed_at":"2026-11-20T18:45:31.841250+00:00","modeled_at":"2026-11-20T02:41:15.846331+00:00","input_cutoff_at":"2026-11-20T02:41:15.846331+00:00","model_version":"challenge-engine:legacy-form-strength-joint-calibration-v1","policy_version":"risk-ev-3pct-min-odds-1.20-v2"},
+    {"kickoff":"2026-11-20T19:30:00+00:00","home":"FC Andorra","away":"Leganes","market":"TOTAL_OVER_1_5","selection":"Über 1.5","model_probability":0.801691,"result":"WIN","price_status":"stale","event_key":"football:1570025","forecast_id":"204d4efe421ac3b2d5bf8782c0dac558a25a5d342123649a3c25bce31fc97b14","observed_at":"2026-11-20T18:45:31.841250+00:00","modeled_at":"2026-11-20T02:41:15.846331+00:00","input_cutoff_at":"2026-11-20T02:41:15.846331+00:00","model_version":"challenge-engine:legacy-form-strength-joint-calibration-v1","policy_version":"risk-ev-3pct-min-odds-1.20-v2"},
+    {"kickoff":"2026-11-20T19:30:00+00:00","home":"Hellas Verona","away":"Cesena","market":"AWAY_UNDER_1_5","selection":"Unter 1.5","model_probability":0.789608,"result":"LOSS","price_status":"stale","event_key":"football:1601612","forecast_id":"6004e25e995161f4f7d68731d0148fe9cbf45e98103534af6cdc5c1c39f46339","observed_at":"2026-11-20T18:45:31.841250+00:00","modeled_at":"2026-11-20T02:41:15.846331+00:00","input_cutoff_at":"2026-11-20T02:41:15.846331+00:00","model_version":"challenge-engine:legacy-form-strength-joint-calibration-v1","policy_version":"risk-ev-3pct-min-odds-1.20-v2"},
+    {"kickoff":"2026-11-20T20:00:00+00:00","home":"Athletic Club","away":"Espanyol","market":"HOME_UNDER_2_5","selection":"Unter 2.5","model_probability":0.789982,"result":"WIN","price_status":"stale","event_key":"football:1570454","forecast_id":"8c50cc74a42170a6a54142e94d7a8941b5e9c5f7fcfadf36f92a8f56bf7550aa","observed_at":"2026-11-20T18:45:31.841250+00:00","modeled_at":"2026-11-20T02:41:15.846331+00:00","input_cutoff_at":"2026-11-20T02:41:15.846331+00:00","model_version":"challenge-engine:legacy-form-strength-joint-calibration-v1","policy_version":"risk-ev-3pct-min-odds-1.20-v2"},
+    {"kickoff":"2026-11-20T21:00:00+00:00","home":"Cobresal","away":"A. Italiano","market":"HOME_OVER_0_5","selection":"Über 0.5","model_probability":0.793973,"result":"WIN","price_status":"stale","event_key":"football:1505563","forecast_id":"67d5a3bb7dab7df749e5188db194414d4264d2fee1aa464616832a28e3a6ee59","observed_at":"2026-11-20T18:45:31.841250+00:00","modeled_at":"2026-11-20T02:41:15.846331+00:00","input_cutoff_at":"2026-11-20T02:41:15.846331+00:00","model_version":"challenge-engine:legacy-form-strength-joint-calibration-v1","policy_version":"risk-ev-3pct-min-odds-1.20-v2"}
+  ]
+}

@@ -194,6 +194,10 @@ Code, dann `PROJECT_HANDBUCH.md`, dann die Bibel. Historische Logs: `TODO_AKTUEL
   `origin/main`; eigene Arbeit in einem eigenen Worktree unter `.worktrees/` auf einem
   eigenen Branch. Nie `git stash` ohne Tag, nie fremde Worktrees anfassen.
 
+- **Haupttipp-Belege seit 20.11.2026:** Live seit 19:45 CET mit `363ed54` (PR #144/#145).
+  Im [Spieltagbericht](docs/audits/2026-11-20-haupttipp-beleg.md) den ersten belegten Haupttipp je Spiel
+  und Fläche getrennt von allen Katalogmärkten auswerten. Keine rückwirkende Rekonstruktion als Haupttipp werten.
+
 ## Lokal arbeiten
 
 ```powershell
