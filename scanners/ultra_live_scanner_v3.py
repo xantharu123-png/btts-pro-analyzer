@@ -16,6 +16,7 @@ from red_card_impact_predictor import RedCardImpactPredictor
 
 
 class UltraLiveScanner:
+    MODEL_VERSION = "live-restspiel-poisson-regulation-clock-v1"
     REGULATION_MINUTES = 90
     MAX_LIVE_MINUTE = 130
     PRIOR_PSEUDO_MINUTES = 30
@@ -381,7 +382,7 @@ class UltraLiveScanner:
             remaining = 45.0
         else:
             remaining = float(90 - minute) if minute < 90 else None
-        return {'status': phase, 'elapsed_minutes': elapsed,
+        return {'status': phase, 'extra': extra, 'elapsed_minutes': elapsed,
                 'remaining_minutes': remaining,
                 'horizon': 'REGULATION_MINIMUM' if remaining is not None else 'REGULATION_END_UNKNOWN'}
 
@@ -521,6 +522,7 @@ class UltraLiveScanner:
 
             return {
                 'fixture_id': fixture_id,
+                'model_version': self.MODEL_VERSION,
                 'home_team': teams['home']['name'],
                 'away_team': teams['away']['name'],
                 'home_team_id': home_team_id,

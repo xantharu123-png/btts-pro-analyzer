@@ -956,7 +956,7 @@ def render_model_selection(
         st.info("Keine passende Quote ab 1,20.")
         return
     if analysis_only:
-        st.caption("Live-Analyse · keine passende Live-Quote.")
+        st.caption("Live-Analyse · Modellschätzung ohne Preisprüfung.")
     if presentation != "compact":
         st.subheader(candidate.event_label)
         st.write(f"{candidate.market} · {candidate.selection or 'keine Auswahl'}")
@@ -967,7 +967,7 @@ def render_model_selection(
     if candidate.blockers:
         st.caption("Daten- oder Modellprüfung noch offen.")
     from market_consensus import floor_only_pricing
-    if not floor_only_pricing():
+    if not analysis_only and not floor_only_pricing():
         # Owner 23.10.2026: under the 1.20 floor policy the app names no minimum quote.
         minimum = f"{MINIMUM_RECOMMENDED_DECIMAL_ODDS:.2f}".replace(".", ",")
         st.caption(f"Deine Mindestquote für eine tatsächliche Wette: {minimum}")

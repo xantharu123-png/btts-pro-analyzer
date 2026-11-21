@@ -1,12 +1,13 @@
 """Shadow-Logging der Rotkarten-Nächstes-Tor-Signale.
 
-Loggt jede angezeigte Platzverweis-Prediction still mit — unabhaengig davon,
-ob der User wettet. Gespeichert werden alle drei Modellwahrscheinlichkeiten
+Sammelt geeignete, frische Platzverweis-Prognosen des Scans, auch wenn niemand
+die Detailkarte öffnet. Diese Forschungsreihe ist nicht die öffentliche
+Live-Bilanz. Gespeichert werden alle drei Modellwahrscheinlichkeiten
 (11-Mann trifft / 10-Mann trifft / kein Tor mehr) zum Modell-Snapshot.
 
 Nach Abpfiff wird jedes offene Signal gegen die echten API-Events
 abgerechnet: Das erste Tor NACH dem Modell-Snapshot entscheidet das Outcome
-(opponent / red_team / no_goal). Ergebnis: Kalibrierungs-Beweis
+(opponent / red_team / no_goal). Ergebnis: Kalibrierungsdaten
 (Trefferquote + Brier-Score) als neue, zeitlich nachgelagerte Shadow-Stichprobe.
 
 CLI:
@@ -26,36 +27,11 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from red_card_impact_predictor import RED_CARD_MODEL_VERSION
+from redcard_events import (FINISHED_STATUSES, period_clock as _period_clock, regulation_clock,
+                            response_rows as _response_rows, scoring_goal, verified_next_goal)
 
 DB_PATH = Path(__file__).resolve().parent / "redcard_signals.db"
-RED_CARD_POLICY_VERSION = "next-goal-shadow-v2"
-
-FINISHED_STATUSES = {"FT", "AET", "PEN"}
-
-# Modell-Horizont: reguläre Spielzeit. 93 deckt Nachspielzeit im alten
-# API-Stil ab (elapsed ohne extra-Feld). Tore mit elapsed 91-93 zählen nur
-# bei Endstatus "FT" — bei AET/PEN sind sie bereits Verlängerung. Tore in
-# der Verlängerung (bis 120) und im Elfmeterschießen liegen außerhalb des
-# Modell-Horizonts und dürfen das Outcome nicht verfälschen.
-# Halte diese Regel synchron mit redcard_pattern_report.py.
-MODEL_HORIZON_MINUTES = 93
-
-
-def _goal_in_model_horizon(
-    elapsed: int,
-    extra: int,
-    status: Optional[str],
-) -> bool:
-    """True, wenn das Tor im Modell-Horizont (reguläre Spielzeit) fiel."""
-    effective_minute = elapsed + extra
-    if effective_minute > MODEL_HORIZON_MINUTES:
-        return False
-    # In an AET/PEN fixture an unqualified elapsed value above 90 is
-    # ambiguous and may already be extra time. A 90+extra event is explicit
-    # regulation stoppage time and remains valid.
-    if elapsed > 90 and status != "FT":
-        return False
-    return True
+RED_CARD_POLICY_VERSION = "next-goal-shadow-v3"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS signals (
@@ -118,32 +94,6 @@ def _parse_score(score: Any) -> tuple[Optional[int], Optional[int]]:
         return None, None
 
 
-def _period_clock(phase: str, elapsed: int, extra: int = 0) -> Optional[tuple[int, int, int]]:
-    """Order football clocks by half, then minute, then added time.
-
-    1H 45+4 precedes 2H 46 even though 45+4 is numerically greater than 46.
-    HT is after every first-half event, not an unknown second-half minute.
-    """
-    if (not isinstance(phase, str) or isinstance(elapsed, bool) or not isinstance(elapsed, int) or not 0 <= elapsed <= 130
-            or isinstance(extra, bool) or not isinstance(extra, int) or not 0 <= extra <= 40):
-        return None
-    if phase == "HT":
-        return (1, 91, 0) if 45 <= elapsed <= 60 else None
-    if phase not in {"1H", "2H"}:
-        return None
-    boundary, period = (45, 1) if phase == "1H" else (90, 2)
-    if (phase == "1H" and elapsed > 60) or (phase == "2H" and elapsed < 45):
-        return None
-    if elapsed > boundary:
-        # Providers using a packed elapsed clock must not double-count extra.
-        if extra not in {0, elapsed - boundary}:
-            return None
-        return period, boundary, elapsed - boundary
-    if extra and elapsed != boundary:
-        return None
-    return period, elapsed, extra
-
-
 def _snapshot_order(row) -> Optional[tuple[int, int, int]]:
     minute = row["minute"]
     raw = row["context_json"] if "context_json" in row.keys() else None
@@ -162,12 +112,6 @@ def _snapshot_order(row) -> Optional[tuple[int, int, int]]:
     # Legacy rows have no native phase. The score/timeline consistency check
     # below keeps ambiguous 45+x snapshots open instead of inventing a phase.
     return _period_clock("1H" if minute <= 45 else "2H", minute)
-
-
-def _goal_order(elapsed: int, extra: int) -> Optional[tuple[int, int, int]]:
-    if extra and elapsed not in {45, 90}:
-        return None
-    return _period_clock("1H" if elapsed <= 45 else "2H", elapsed, extra)
 
 
 def log_signal(entry: Dict[str, Any], db_path: Path = DB_PATH) -> bool:
@@ -267,129 +211,25 @@ def _first_goal_after(
     events: list, minute: int, status: Optional[str] = None,
     *, snapshot_order: Optional[tuple[int, int, int]] = None,
 ) -> Optional[tuple[int, Optional[int]]]:
-    """(elapsed, team_id) des ersten Tors nach dem Modell-Snapshot, sonst None.
-
-    Zählt nur Tore im Modell-Horizont (reguläre Spielzeit, siehe
-    _goal_in_model_horizon) — Verlängerung und Elfmeterschießen sind
-    kein Modell-Outcome.
-    """
+    """Clock-only convenience for callers without a snapshot score; not evidence."""
     snapshot_order = snapshot_order or _period_clock("1H" if minute <= 45 else "2H", minute)
     if snapshot_order is None:
         return None
-    first = None
-    for index, event in enumerate(events or []):
-        if not isinstance(event, dict) or event.get("type") != "Goal":
-            continue
-        if any(word in str(event.get("detail") or "").casefold() for word in ("missed", "shootout")):
-            continue
-        event_time = event.get("time") or {}
-        elapsed = event_time.get("elapsed")
-        extra = event_time.get("extra")
-        if not isinstance(elapsed, int) or isinstance(elapsed, bool):
-            continue
-        if not isinstance(extra, int) or isinstance(extra, bool) or extra < 0:
-            extra = 0
-        clock = _goal_order(elapsed, extra)
-        if clock is None or clock <= snapshot_order:
-            continue
-        effective_minute = clock[1] + clock[2]
-        if not _goal_in_model_horizon(elapsed, extra, status):
-            continue
-        team_id = (event.get("team") or {}).get("id")
-        candidate = (clock, index, effective_minute, team_id)
-        if first is None or candidate[:2] < first[:2]:
-            first = candidate
-    return (first[2], first[3]) if first is not None else None
-
-
-def _response_rows(response: Any, api) -> Optional[list]:
-    """A successful empty response is not the API wrapper's {} error value."""
-    if (not isinstance(response, dict) or getattr(api, "last_error", None)
-            or response.get("errors") or not isinstance(response.get("response"), list)):
-        return None
-    return response["response"]
-
-
-def _score_pair(value: Any) -> Optional[tuple[int, int]]:
-    if not isinstance(value, dict):
-        return None
-    home, away = value.get("home"), value.get("away")
-    if any(isinstance(n, bool) or not isinstance(n, int) or not 0 <= n <= 30
-           for n in (home, away)):
-        return None
-    return home, away
-
-
-def _verified_regulation_events(fixture: Dict, events: list, row) -> Optional[list]:
-    """Verify complete regulation goal evidence against the regulation score.
-
-    AET/PEN require the explicit fulltime score; the final score can include
-    extra time. Invalid/missing goal times cannot silently mean no goal.
-    This verification does not rewrite historic outcomes or money ledgers.
-    """
-    native_fixture, teams, score = fixture.get("fixture"), fixture.get("teams"), fixture.get("score")
-    if (not isinstance(native_fixture, dict) or not isinstance(native_fixture.get("status"), dict)
-            or not isinstance(teams, dict) or not isinstance(teams.get("home"), dict)
-            or not isinstance(teams.get("away"), dict) or (score is not None and not isinstance(score, dict))):
-        return None
-    status = native_fixture["status"].get("short")
-    home = teams["home"].get("id")
-    away = teams["away"].get("id")
-    if (any(isinstance(n, bool) or not isinstance(n, int) or n <= 0 for n in (home, away))
-            or home == away or row["red_side"] not in {"home", "away"}):
-        return None
-    final = _score_pair((score or {}).get("fulltime"))
-    goals = _score_pair(fixture.get("goals"))
-    if status == "FT":
-        if final is None:
-            final = goals
-        elif goals is not None and final != goals:
+    later = []
+    for event in events or []:
+        try:
+            if not isinstance(event, dict) or not scoring_goal(event):
+                continue
+            clock = regulation_clock(event, status)
+        except ValueError:
             return None
-    baseline = _score_pair({"home": row["score_home"], "away": row["score_away"]})
-    snapshot_order = _snapshot_order(row)
-    if final is None or baseline is None or snapshot_order is None or any(f < b for f, b in zip(final, baseline)):
+        if clock is not None and clock > snapshot_order:
+            later.append((clock, (event.get("team") or {}).get("id")))
+    if not later:
         return None
-    totals = {home: 0, away: 0}
-    after_snapshot = {home: 0, away: 0}
-    regulation_events = []
-    for event in events:
-        if not isinstance(event, dict):
-            return None
-        if event.get("type") != "Goal":
-            continue
-        detail = str(event.get("detail") or "").casefold()
-        if "missed" in detail or "shootout" in detail:
-            continue
-        timing = event.get("time")
-        if not isinstance(timing, dict):
-            return None
-        elapsed, extra = timing.get("elapsed"), timing.get("extra")
-        if isinstance(elapsed, bool) or not isinstance(elapsed, int) or not 0 <= elapsed <= 130:
-            return None
-        if extra is None:
-            extra = 0
-        if isinstance(extra, bool) or not isinstance(extra, int) or not 0 <= extra <= 40:
-            return None
-        # Regulation injury time is explicit as 45+x/90+x. With AET/PEN,
-        # unqualified 91+ timestamps belong to ET, not regulation.
-        if (status != "FT" and elapsed > 90) or elapsed > 120:
-            continue
-        clock = _goal_order(elapsed, extra)
-        if clock is None:
-            return None
-        team = event.get("team")
-        team = team.get("id") if isinstance(team, dict) else None
-        if isinstance(team, bool) or not isinstance(team, int) or team not in totals:
-            return None
-        totals[team] += 1
-        if clock > snapshot_order:
-            after_snapshot[team] += 1
-        regulation_events.append(event)
-    if (totals[home], totals[away]) != final:
-        return None
-    if (after_snapshot[home], after_snapshot[away]) != tuple(f - b for f, b in zip(final, baseline)):
-        return None
-    return regulation_events
+    first = min(clock for clock, _ in later)
+    teams = {team for clock, team in later if clock == first}
+    return (sum(first[1:]), teams.pop()) if len(teams) == 1 else None
 
 
 def settle_open_signals(
@@ -437,7 +277,7 @@ def settle_open_signals(
                 if status not in FINISHED_STATUSES:
                     stats["still_running"] += 1
                     continue
-                events_response = api._request("events", {"fixture": fixture_id})
+                events_response = api._request("fixtures/events", {"fixture": fixture_id})
                 events = _response_rows(events_response, api)
                 if events is None:
                     stats["provider_errors"] += 1
@@ -449,29 +289,17 @@ def settle_open_signals(
                 stats["skipped"] += 1
                 continue
 
-            events = _verified_regulation_events(fixture_data, events, row)
-            if events is None:
+            verified = verified_next_goal(
+                fixture_data, events, snapshot_order=_snapshot_order(row),
+                baseline=(row["score_home"], row["score_away"]),
+            )
+            if verified is None or row["red_side"] not in ("home", "away"):
                 stats["unverified_events"] += 1
                 stats["skipped"] += 1
                 continue
-
-            home_id = ((fixture_data.get("teams") or {}).get("home") or {}).get("id")
-            away_id = ((fixture_data.get("teams") or {}).get("away") or {}).get("id")
-            first_goal = _first_goal_after(events, row["minute"], status,
-                                           snapshot_order=_snapshot_order(row))
-            if first_goal is None:
-                outcome = "no_goal"
-            elif first_goal[1] not in {home_id, away_id}:
-                outcome = None
-            elif row["red_side"] == "home":
-                outcome = "red_team" if first_goal[1] == home_id else "opponent"
-            elif row["red_side"] == "away":
-                outcome = "opponent" if first_goal[1] == home_id else "red_team"
-            else:
-                outcome = None
-            if outcome is None:
-                stats["skipped"] += 1
-                continue
+            side, _ = verified
+            outcome = ("no_goal" if side == "no_goal" else
+                       "red_team" if side == row["red_side"] else "opponent")
             probs = {
                 "opponent": row["p_opponent"] or 0.0,
                 "red_team": row["p_red_team"] or 0.0,
@@ -560,6 +388,17 @@ def settlement_stats(
         conn.close()
 
 
+def _has_open_shadow(path: Path) -> bool:
+    """Probe the existing queue without creating/migrating its database."""
+    if not path.exists():
+        return False
+    conn = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)
+    try:
+        return conn.execute("SELECT 1 FROM signals WHERE status='open' LIMIT 1").fetchone() is not None
+    finally:
+        conn.close()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--settle", action="store_true")
@@ -571,16 +410,29 @@ def main() -> int:
     if args.settle:
         from api_football import APIFootball
         from config_loader import load_app_config
+        from live_tip_ledger import settle_displayed_live_tips
 
         config = load_app_config()
         api = APIFootball(
             config.api_football_key,
             budget_priority="critical",
         )
-        result = settle_open_signals(api, max_fixtures=args.max)
-        print(f"Settlement: {result}")
-        if result.get("provider_errors", 0) > 0:
+        # The existing result timer has one fixture budget, not one per ledger.
+        limit = max(0, args.max)
+        shadow_waiting = limit > 0 and _has_open_shadow(DB_PATH)
+        # Public gets first use of all but one slot when both queues have work.
+        # The existing timer is daily; for a one-fixture budget alternate UTC days.
+        reserve = int(shadow_waiting and (limit > 1 or datetime.now(timezone.utc).date().toordinal() % 2 == 1))
+        public = settle_displayed_live_tips(api, max_fixtures=limit - reserve)
+        print(f"Live-Anzeigen: {public}")
+        remaining = limit - public["fixtures_checked"]
+        if public["provider_errors"]:
             exit_status = 1
+        elif shadow_waiting and remaining > 0:
+            result = settle_open_signals(api, max_fixtures=remaining)
+            print(f"Settlement: {result}")
+            if result.get("provider_errors", 0) > 0:
+                exit_status = 1
     if args.stats or not (args.settle or args.stats):
         print(json.dumps(settlement_stats(), indent=2, ensure_ascii=False))
     return exit_status

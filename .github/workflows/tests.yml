@@ -53,6 +53,11 @@ jobs:
           tests/test_football_joint_calibration.py
           tests/test_forecast_evidence.py
           tests/test_model_loss_statistics.py
+          tests/test_live_tip_settlement_job.py
+          tests/test_live_tip_ledger.py
+          tests/test_live_tip_surface.py
+          tests/test_live_redcard_clock_regressions.py
+          tests/test_redcard_harvester.py
           tests/test_price_floor_policy.py
           tests/test_requirements_lock.py
           -q

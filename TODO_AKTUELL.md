@@ -1,5 +1,10 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 21.11.2026 – Fußball: Bilanz der Live-Analysen
+
+- [Vertrag, Datenstand und Grenzen](docs/audits/2026-11-21-live-tippbilanz.md). Nur die erste tatsächlich angezeigte Auswahl je Spiel, Markt und Seite zählt; der Vorab-Wettfinder und historische Spielverläufe gehören nicht in diese Statistik.
+- Produktionsnachweis für die ersten echten Treffer/Verluste: nach einer neuen Anzeige und dem regulären Ergebnislauf prüfen. Kein Zusatzscan, keine nachträgliche Befüllung.
+
 ## 21.11.2026 – Korrektur: sichtbare Tageskombis
 
 Die Kundenauswahl und ihr Balken dürfen nicht auf eine mehrmonatige interne Auswertung warten. Der Balken schätzt, dass alle Auswahlen treffen, aus den Einzelchancen unter Unabhängigkeit; er behauptet keine gemessene Trefferquote. Ursprünglich nur intern gespeicherte Scheine sind kein rückwirkender Kunden-Erfolgsnachweis. Die Produktregel unten ist überholt.

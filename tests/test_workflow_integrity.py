@@ -2512,7 +2512,7 @@ def test_red_card_app_prediction_uses_current_snapshot_minute():
         "team_id": 1,
         "minute": 55,
         "match": {
-            "fixture": {"id": 10, "status": {"elapsed": 70}},
+            "fixture": {"id": 10, "status": {"short": "2H", "elapsed": 70}},
             "teams": {
                 "home": {"id": 1, "name": "Home"},
                 "away": {"id": 2, "name": "Away"},
@@ -2522,7 +2522,7 @@ def test_red_card_app_prediction_uses_current_snapshot_minute():
         },
     }
 
-    entry = app._red_card_entry(bot, card)
+    entry = app._red_card_entry(bot, card, fixture_red_card_count=1)
 
     assert entry["prediction_minute"] == 70
     assert entry["prediction"]["minute"] == 70

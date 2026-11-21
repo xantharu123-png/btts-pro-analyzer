@@ -16,7 +16,7 @@ from league_catalog import ALTERNATIVE_MARKET_LEAGUES
 
 
 RED_CARD_MONITORED_LEAGUE_IDS = tuple(ALTERNATIVE_MARKET_LEAGUES)
-RED_CARD_BOT_VERSION = 2
+RED_CARD_BOT_VERSION = 3
 
 # Import predictor
 try:
@@ -394,6 +394,7 @@ class RedCardBotEnhanced:
     ) -> List[Dict]:
         """Return valid red-card events, optionally including earlier events."""
         red_cards = []
+        source_dismissal_count = 0
         identity = self._live_match_identity(match)
         if identity is None:
             self._record_error('red_card_events', 'invalid live match')
@@ -420,6 +421,9 @@ class RedCardBotEnhanced:
                         'Red Card',
                         'Second Yellow card',
                     }:
+                        # A confirmed dismissal with missing attribution still
+                        # disproves a single-dismissal (11-v-10) model input.
+                        source_dismissal_count += 1
                         player = event.get('player')
                         team = event.get('team')
                         event_time = event.get('time')
@@ -462,6 +466,8 @@ class RedCardBotEnhanced:
                                 'match': match
                             })
             
+            for card in red_cards:
+                card['source_dismissal_count'] = source_dismissal_count
             return red_cards
         except Exception as e:
             self._record_error('red_card_events', str(e))

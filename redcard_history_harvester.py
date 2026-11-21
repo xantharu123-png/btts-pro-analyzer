@@ -23,11 +23,12 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from config_loader import load_app_config
 from api_football import APIFootball
-from league_catalog import LEAGUES, LEAGUE_BY_ID
+from league_catalog import LEAGUE_BY_ID
+from redcard_events import (FINISHED_STATUSES, HISTORY_POLICY, regulation_clock, regulation_result,
+                            score_pair, verified_goal_timeline)
 
 DB_PATH = Path(__file__).parent / "redcard_history.db"
 HISTORY_START = date(2025, 8, 1)
-FINISHED_STATUSES = {"FT", "AET"}
 DISMISSAL_MARKERS = ("Red", "Second Yellow")
 
 # Harvest order: leagues where the user actually bets, first.
@@ -88,6 +89,16 @@ def connect(db_path: Path = DB_PATH) -> sqlite3.Connection:
     conn.execute(
         "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)"
     )
+    # Additive only. No backfill or automatic API re-scan of legacy cases.
+    for table, additions in (
+        ("fixtures", {"regulation_home": "INTEGER", "regulation_away": "INTEGER",
+                      "halftime_home": "INTEGER", "halftime_away": "INTEGER"}),
+        ("dismissals", {"evidence_policy": "TEXT", "exposure_usable": "INTEGER"}),
+    ):
+        columns = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+        for column, datatype in additions.items():
+            if column not in columns:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {datatype}")
     conn.commit()
     return conn
 
@@ -99,103 +110,57 @@ def _is_dismissal(event: Dict) -> bool:
     return any(marker in detail for marker in DISMISSAL_MARKERS)
 
 
-def _elapsed(event: Dict) -> Optional[int]:
-    value = event.get("time", {}).get("elapsed")
-    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-        return None
-    return value
-
-
 def extract_dismissal_case(fixture: Dict, events: List[Dict]) -> Optional[Dict]:
-    """Reduce one fixture + its event timeline to the first 11-v-10 phase.
-
-    Returns None when the fixture has no usable dismissal. A second
-    dismissal ends the observation window (state becomes 10-v-10 or
-    worse) and flags the case complex.
-    """
-    try:
-        home_id = fixture["teams"]["home"]["id"]
-        away_id = fixture["teams"]["away"]["id"]
-    except (KeyError, TypeError):
+    """Research only: verify regulation goals, then isolate the first 11v10 phase."""
+    goals = verified_goal_timeline(fixture, events)
+    if goals is None:
         return None
-
-    cards = sorted(
-        (
-            (minute, event)
-            for event in events or []
-            if isinstance(event, dict)
-            for minute in [_elapsed(event)]
-            if minute is not None and _is_dismissal(event)
-        ),
-        key=lambda item: item[0],
-    )
+    status = fixture["fixture"]["status"]["short"]
+    sides = {fixture["teams"][s]["id"]: s for s in ("home", "away")}
+    cards = []
+    for event in events:
+        if not _is_dismissal(event):
+            continue
+        try:
+            clock = regulation_clock(event, status)
+        except ValueError:
+            return None
+        if clock is None:  # ET dismissal after the regulation observation
+            continue
+        team = event.get("team")
+        team_id = team.get("id") if isinstance(team, dict) else None
+        if type(team_id) is not int or team_id not in sides:
+            return None
+        cards.append((clock, sides[team_id], team.get("name") or "?"))
     if not cards:
         return None
-    red_minute, red_event = cards[0]
-    second_red_minute = cards[1][0] if len(cards) > 1 else None
-
-    try:
-        red_team_id = red_event["team"]["id"]
-    except (KeyError, TypeError):
-        return None
-    if red_team_id == home_id:
-        red_side = "home"
-    elif red_team_id == away_id:
-        red_side = "away"
-    else:
-        return None
-
-    goals = sorted(
-        (
-            (minute, event)
-            for event in events or []
-            if isinstance(event, dict) and event.get("type") == "Goal"
-            for minute in [_elapsed(event)]
-            if minute is not None
-        ),
-        key=lambda item: item[0],
-    )
-    score_h = score_a = 0
-    for minute, goal in goals:
-        if minute >= red_minute:
-            break
-        if goal.get("team", {}).get("id") == home_id:
-            score_h += 1
-        elif goal.get("team", {}).get("id") == away_id:
-            score_a += 1
-
+    cards.sort(key=lambda card: card[0])
+    red, red_side, team_name = cards[0]
+    second = cards[1][0] if len(cards) > 1 else None
+    if red == second or any(clock == red or clock == second for clock, _ in goals):
+        return None  # no evidenced ordering at the boundary
+    score_h = sum(1 for clock, side in goals if clock < red and side == "home")
+    score_a = sum(1 for clock, side in goals if clock < red and side == "away")
+    red_minute = sum(red[1:])
     goals_after = []
-    for minute, goal in goals:
-        if minute <= red_minute:
+    exposure_usable = not (red[0] == 1 and red[2])
+    for clock, side in goals:
+        if clock <= red or (second is not None and clock >= second):
             continue
-        if second_red_minute is not None and minute >= second_red_minute:
-            break
-        goal_team_id = goal.get("team", {}).get("id")
-        if goal_team_id not in (home_id, away_id):
-            continue
-        by_11 = (goal_team_id != red_team_id)
-        goals_after.append(
-            {
-                "minute": minute,
-                "by_11_team": by_11,
-                "since_card": minute - red_minute,
-            }
-        )
-
-    final_home = fixture.get("goals", {}).get("home")
-    final_away = fixture.get("goals", {}).get("away")
-    goal_diff = (score_h - score_a) if red_side == "home" else (score_a - score_h)
+        minute = sum(clock[1:])
+        since = minute - red_minute
+        if clock[0] == 1 and clock[2]:
+            exposure_usable = False  # no first-half whistle for continuous exposure
+        if red[0] == 1 and red[2] and clock[0] == 2:
+            since = None
+        goals_after.append({"minute": minute, "by_11_team": side != red_side, "since_card": since})
+    final_home, final_away = regulation_result(fixture)
     return {
-        "red_minute": red_minute,
-        "red_side": red_side,
-        "red_team_name": red_event.get("team", {}).get("name", "?"),
-        "score_at_red_home": score_h,
-        "score_at_red_away": score_a,
-        "red_team_goal_diff": goal_diff,
-        "complex_state": 1 if second_red_minute is not None else 0,
-        "goals_after": goals_after,
-        "final_home": final_home if isinstance(final_home, int) else None,
-        "final_away": final_away if isinstance(final_away, int) else None,
+        "red_minute": red_minute, "red_side": red_side, "red_team_name": team_name,
+        "score_at_red_home": score_h, "score_at_red_away": score_a,
+        "red_team_goal_diff": (score_h - score_a) if red_side == "home" else (score_a - score_h),
+        "complex_state": int(second is not None), "goals_after": goals_after,
+        "final_home": final_home, "final_away": final_away, "exposure_usable": exposure_usable,
     }
 
 
@@ -206,19 +171,19 @@ class RedCardHistoryHarvester:
         self.calls_used = 0
 
     def _get(self, endpoint: str, params: Dict) -> List[Dict]:
+        self.calls_used += 1
         response = self.api._get(
             f"{self.api.base_url}/{endpoint}",
             headers=self.api.headers,
             params=params,
             timeout=20,
         )
-        self.calls_used += 1
+        if response.status_code != 200:
+            raise RuntimeError(f"provider error on {endpoint}: HTTP {response.status_code}")
         payload = response.json()
-        errors = payload.get("errors")
-        if errors:
-            raise RuntimeError(f"provider error on {endpoint}: {errors}")
-        data = payload.get("response", [])
-        return data if isinstance(data, list) else []
+        if not isinstance(payload, dict) or payload.get("errors") or not isinstance(payload.get("response"), list):
+            raise RuntimeError(f"invalid provider response on {endpoint}")
+        return payload["response"]
 
     def ingest_fixture_lists(self, budget: int) -> None:
         """One call per league+season; skips combos already ingested."""
@@ -251,21 +216,28 @@ class RedCardHistoryHarvester:
                         continue
                     if status not in FINISHED_STATUSES:
                         continue
+                    regulation = regulation_result(fx)
+                    if regulation is None:
+                        continue
+                    halftime = (fx.get("score") or {}).get("halftime")
+                    half_pair = score_pair(halftime)
+                    if half_pair is None and halftime is not None and halftime != {"home": None, "away": None}:
+                        continue
                     if match_date < HISTORY_START.isoformat():
                         continue
                     rows.append(
                         (
                             fixture_id, league_id, season, match_date, status,
                             home["id"], away["id"], home["name"], away["name"],
-                            final_home, final_away,
+                            final_home, final_away, *regulation, *(half_pair or (None, None)),
                         )
                     )
                 self.conn.executemany(
                     """INSERT OR IGNORE INTO fixtures (
                         fixture_id, league_id, season, match_date,
                         status_short, home_id, away_id, home_name, away_name,
-                        final_home, final_away
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        final_home, final_away, regulation_home, regulation_away, halftime_home, halftime_away
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     rows,
                 )
                 self.conn.execute(
@@ -282,12 +254,15 @@ class RedCardHistoryHarvester:
         """Newest-first: recent matches matter most for current patterns."""
         stats = {"fetched": 0, "dismissals": 0}
         cursor = self.conn.execute(
-            """SELECT fixture_id, league_id, match_date, home_name, away_name
+            """SELECT fixture_id, league_id, match_date, home_name, away_name, status_short,
+                      home_id, away_id, final_home, final_away, regulation_home, regulation_away,
+                      halftime_home, halftime_away
                FROM fixtures
                WHERE events_fetched = 0
                ORDER BY match_date DESC, fixture_id DESC"""
         )
-        for fixture_id, league_id, match_date, home_name, away_name in cursor:
+        for (fixture_id, league_id, match_date, home_name, away_name, status, home_id, away_id,
+             final_home, final_away, regulation_home, regulation_away, halftime_home, halftime_away) in cursor:
             if self.calls_used >= budget:
                 break
             try:
@@ -302,24 +277,29 @@ class RedCardHistoryHarvester:
                 continue
             stats["fetched"] += 1
             fixture_stub = {
+                "fixture": {"status": {"short": status}},
                 "teams": {
-                    "home": {"id": self._team_id(fixture_id, "home_id")},
-                    "away": {"id": self._team_id(fixture_id, "away_id")},
+                    "home": {"id": home_id},
+                    "away": {"id": away_id},
                 },
-                "goals": self._final_score(fixture_id),
+                "goals": {"home": final_home, "away": final_away},
             }
+            if regulation_home is not None or regulation_away is not None:
+                fixture_stub["score"] = {"fulltime": {"home": regulation_home, "away": regulation_away}}
+            if halftime_home is not None or halftime_away is not None:
+                fixture_stub.setdefault("score", {})["halftime"] = {"home": halftime_home, "away": halftime_away}
             case = extract_dismissal_case(fixture_stub, events)
             if case is not None:
                 league = LEAGUE_BY_ID.get(league_id)
-                self.conn.execute(
+                inserted = self.conn.execute(
                     """INSERT OR IGNORE INTO dismissals (
                         fixture_id, match_date, league_id, league_name,
                         home_name, away_name, final_home, final_away,
                         red_minute, red_side, red_team_name,
                         score_at_red_home, score_at_red_away,
                         red_team_goal_diff, complex_state,
-                        goals_after_json, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        goals_after_json, created_at, evidence_policy, exposure_usable
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         fixture_id, match_date, league_id,
                         league.name if league else str(league_id),
@@ -330,10 +310,10 @@ class RedCardHistoryHarvester:
                         case["score_at_red_home"], case["score_at_red_away"],
                         case["red_team_goal_diff"], case["complex_state"],
                         json.dumps(case["goals_after"], ensure_ascii=False),
-                        datetime.now(timezone.utc).isoformat(),
+                        datetime.now(timezone.utc).isoformat(), HISTORY_POLICY, int(case["exposure_usable"]),
                     ),
                 )
-                stats["dismissals"] += 1
+                stats["dismissals"] += inserted.rowcount
             self.conn.execute(
                 "UPDATE fixtures SET events_fetched = 1 WHERE fixture_id = ?",
                 (fixture_id,),
@@ -347,22 +327,6 @@ class RedCardHistoryHarvester:
             time.sleep(0.12)  # provider politeness
         self.conn.commit()
         return stats
-
-    def _team_id(self, fixture_id: int, column: str) -> int:
-        row = self.conn.execute(
-            f"SELECT {column} FROM fixtures WHERE fixture_id = ?",
-            (fixture_id,),
-        ).fetchone()
-        return row[0] if row else -1
-
-    def _final_score(self, fixture_id: int) -> Dict:
-        row = self.conn.execute(
-            "SELECT final_home, final_away FROM fixtures WHERE fixture_id = ?",
-            (fixture_id,),
-        ).fetchone()
-        if not row:
-            return {"home": None, "away": None}
-        return {"home": row[0], "away": row[1]}
 
     def backlog(self) -> int:
         row = self.conn.execute(
