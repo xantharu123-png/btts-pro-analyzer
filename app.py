@@ -22,6 +22,7 @@ from account_identity import account_scope_ready, ensure_account_scope
 from customer_access import PAGE_FEATURES, bind_customer, require_feature
 from legal_notice import render_legal_footer
 from api_budget import APIBudgetPriority, api_football_get
+from live_tip_surface import record_visible_analysis, render_live_tip_stats
 
 
 _REQUIRED_LEAGUE_CATALOG_VERSION = 2
@@ -165,8 +166,8 @@ PAGE_SCAN_JOBS = {
 }
 
 PREMATCH_SNAPSHOT_VERSION = 4
-LIVE_SNAPSHOT_VERSION = 4
-RED_CARD_SNAPSHOT_VERSION = 3
+LIVE_SNAPSHOT_VERSION = 5
+RED_CARD_SNAPSHOT_VERSION = 4
 DEFAULT_PREMATCH_LEAGUES = ("BL1", "PL", "PD")
 LIVE_QUALITY_LABELS = {
     "LOW": "Basis: teilweise Daten",
@@ -3186,13 +3187,15 @@ def _render_live_football(analyzer, market: str) -> None:
             "Wettkandidat",
             live_detail_options,
             format_func=lambda index: (
-                f"{'Berechnet' if candidate_items[index][0].model_ready else 'Daten offen'} | "
+                f"{'Berechnet' if candidate_items[index][0].forecast_available else 'Daten offen'} | "
                 f"{candidate_items[index][0].event_label} | {candidate_items[index][0].selection}"
             ),
             key=live_detail_key,
         )
-        candidate, _item = candidate_items[selected]
+        candidate, item = candidate_items[selected]
         render_model_selection(candidate, save_source="Live", analysis_only=True)
+        record_visible_analysis(st, candidate, item, snapshot_at=snapshot.get("scanned_at"),
+                                age_seconds=snapshot_age)
 
     # Live-Überblick: IMMER alle unterstützten Live-Spiele mit Modellwerten
     # zeigen — auch wenn kein Kandidat das Gate passiert. Volle Transparenz
@@ -3239,7 +3242,11 @@ def _red_card_entry(
     card: dict,
     analyzer=None,
     api_key: Optional[str] = None,
+    *,
+    fixture_red_card_count: int,
 ) -> dict:
+    from redcard_events import period_clock, regulation_clock
+
     match = card["match"]
     fixture_id = match["fixture"]["id"]
     home = match["teams"]["home"]
@@ -3254,8 +3261,12 @@ def _red_card_entry(
         "live_stats": None,
         "prediction": None,
         "prediction_minute": None,
+        "fixture_red_card_count": fixture_red_card_count,
         "error": None,
     }
+    if fixture_red_card_count != 1:
+        entry["error"] = "Das einzelne 11 gegen 10 ist für dieses Spiel nicht belegt."
+        return entry
     if home_goals is None or away_goals is None:
         entry["error"] = "Aktueller Spielstand fehlt"
         return entry
@@ -3276,9 +3287,24 @@ def _red_card_entry(
     if snapshot_minute is None:
         entry["error"] = "Aktuelle Spielminute liegt außerhalb des unterstützten 0-93-Modells"
         return entry
+    status = match["fixture"]["status"]
+    phase, extra = status.get("short"), status.get("extra")
+    if phase == "2H" and snapshot_minute >= 90:
+        entry["error"] = "Nachspielzeit: Die verbleibende Spielzeit ist unbekannt; keine neue Prognose."
+        return entry
+    snapshot_clock = period_clock(phase, snapshot_minute, 0 if extra is None else extra)
+    try:
+        card_clock = regulation_clock({"time": {"elapsed": card.get("minute"),
+                                               "extra": card.get("extra_minute")}}, phase)
+    except ValueError:
+        card_clock = None
+    if snapshot_clock is None or card_clock is None or card_clock > snapshot_clock:
+        entry["error"] = "Platzverweis und regulärer Spielstand sind zeitlich nicht gemeinsam belegt."
+        return entry
     entry["prediction_minute"] = snapshot_minute
     entry["live_stats"] = alert_system.get_live_stats(fixture_id, home["id"], away["id"])
     if alert_system.predictor:
+        from red_card_impact_predictor import RED_CARD_MODEL_VERSION
         prior_home, prior_away = _red_card_prematch_priors(
             home["id"],
             away["id"],
@@ -3297,6 +3323,7 @@ def _red_card_entry(
             red_card_minute=card.get("minute"),
         )
         entry["prediction"] = asdict(prediction)
+        entry["model_version"] = RED_CARD_MODEL_VERSION
     return entry
 
 
@@ -3334,8 +3361,9 @@ def _scan_red_cards(
     streamlit_mode: bool = True,
 ) -> dict:
     import red_card_bot as red_card_module
+    from redcard_signal_log import log_signal as record_shadow_signal
 
-    if getattr(red_card_module, "RED_CARD_BOT_VERSION", 0) < 2:
+    if getattr(red_card_module, "RED_CARD_BOT_VERSION", 0) < 3:
         red_card_module = importlib.reload(red_card_module)
     RedCardBotEnhanced = red_card_module.RedCardBotEnhanced
 
@@ -3364,9 +3392,15 @@ def _scan_red_cards(
                 card,
                 analyzer=analyzer,
                 api_key=api_key,
+                fixture_red_card_count=card["source_dismissal_count"],
             )
-            entry["fixture_red_card_count"] = len(match_cards)
             cards.append(entry)
+            # Independent research cohort: every fresh, supported scan prediction,
+            # including those never displayed. Never replay an old scan on page load.
+            if entry.get("prediction"):
+                age = _snapshot_age_seconds(scanned_at)
+                if age is not None and 0 <= age <= _football_recommendations.LIVE_MAX_AGE_SECONDS:
+                    record_shadow_signal(entry)
         if progress_cb:
             progress_cb(
                 0.15 + 0.80 * (index + 1) / total,
@@ -3574,15 +3608,6 @@ def _render_red_cards(analyzer) -> None:
         ),
         reverse=True,
     )
-    # Shadow-Logging: jede bewertete Platzverweis-Prediction still sichern
-    # (Abrechnung nach Abpfiff via redcard_signal_log --settle im Cron).
-    try:
-        from redcard_signal_log import log_signal as _log_red_card_signal
-
-        for _, _entry in candidate_entries:
-            _log_red_card_signal(_entry)
-    except Exception:
-        pass
     candidate_entries = candidate_entries[:3]
     sort_mode = display_order_control(st, key='live_redcard_order')
     candidate_entries = ordered_event_rows(candidate_entries, mode=sort_mode,
@@ -3597,17 +3622,22 @@ def _render_red_cards(analyzer) -> None:
         "Wettkandidat",
         detail_options,
         format_func=lambda index: (
-            f"{'Modell geprüft' if candidate_entries[index][0].model_ready else 'Daten offen'} | "
+            f"{'Berechnet' if candidate_entries[index][0].forecast_available else 'Daten offen'} | "
             f"{candidate_entries[index][0].event_label} | {candidate_entries[index][0].selection}"
         ),
         key=detail_key,
     )
-    candidate, _entry = candidate_entries[selected]
+    candidate, entry = candidate_entries[selected]
     render_model_selection(candidate, save_source="Live nach Platzverweis", analysis_only=True)
+    if entry.get("error"):
+        st.caption(entry["error"])
+    record_visible_analysis(st, candidate, entry, snapshot_at=snapshot.get("scanned_at"),
+                            age_seconds=snapshot_age, red=True)
 
 def render_live(analyzer) -> None:
     if analyzer is None:
         st.error("Analyzer nicht bereit.")
+        render_live_tip_stats(st)
         return
     market_label = st.selectbox(
         "Wettart",
@@ -3619,6 +3649,7 @@ def render_live(analyzer) -> None:
     else:
         market = "BTTS" if market_label == "Beide treffen" else market_label
         _render_live_football(analyzer, market)
+    render_live_tip_stats(st)
 
 
 def _render_model_validation(analyzer) -> None:

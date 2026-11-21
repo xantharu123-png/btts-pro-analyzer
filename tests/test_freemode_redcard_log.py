@@ -214,7 +214,7 @@ class RedCardSignalLogTests(unittest.TestCase):
                             }
                         ]
                     }
-                if endpoint == "events":
+                if endpoint == "fixtures/events":
                     return {
                         "response": [
                             {"type": "Goal", "time": {"elapsed": 30}, "team": {"id": 10}},
@@ -267,7 +267,7 @@ class RedCardSignalLogTests(unittest.TestCase):
 
 class RedCardHorizonSettlementTests(unittest.TestCase):
     """Modell-Horizont: Verlängerung und Elfmeterschießen zählen nicht
-    als Outcome — das Modell endet bei der regulären Spielzeit (93')."""
+    als Outcome — die reguläre Spielzeit endet mit dem Pfiff."""
 
     def setUp(self):
         import tempfile
@@ -303,7 +303,7 @@ class RedCardHorizonSettlementTests(unittest.TestCase):
                             }
                         ]
                     }
-                if endpoint == "events":
+                if endpoint == "fixtures/events":
                     return {"response": events}
                 return {"response": []}
 

@@ -102,6 +102,9 @@ class _SettlementAPI:
                                   "teams": {"home": {"id": 10}, "away": {"id": 20}},
                                   "goals": {"home": self.final[0], "away": self.final[1]},
                                   "score": {"fulltime": {"home": self.final[0], "away": self.final[1]}}}]}
+        if endpoint != "fixtures/events" or params != {"fixture": 123}:
+            self.last_error = "unknown endpoint or fixture"
+            return {}
         self.last_error = self.event_error
         return self.events
 
@@ -184,6 +187,89 @@ def test_confirmed_goal_outcome_is_scored_from_complete_goal_evidence(tmp_path):
     conn = _connect(db)
     assert tuple(conn.execute("SELECT outcome,brier FROM signals").fetchone()) == ("opponent", pytest.approx(.38))
     conn.close()
+
+
+@pytest.mark.parametrize("status", ["FT", "AET", "PEN"])
+def test_regulation_stoppage_is_not_cut_off_at_three_minutes(tmp_path, status):
+    db = tmp_path / "signals.db"
+    assert log_signal(_signal(), db_path=db)
+    goal = {"type": "Goal", "time": {"elapsed": 90, "extra": 4}, "team": {"id": 20}}
+    result = settle_open_signals(_SettlementAPI({"response": [goal]}, final=(0, 1), status=status),
+                                 sleep_seconds=0, db_path=db)
+    assert result["settled"] == 1
+    conn = _connect(db)
+    assert conn.execute("SELECT outcome FROM signals").fetchone()[0] == "opponent"
+    conn.close()
+
+
+@pytest.mark.parametrize("baseline,events,final,want", [
+    ("0-0", [(60, 20)], (0, 1), "opponent"),     # changed during the same minute
+    ("0-1", [(60, 20)], (0, 1), "no_goal"),      # already on the snapshot
+    ("0-1", [(60, 20), (60, 10)], (1, 1), "red_team"),
+    ("0-0", [(61, 20), (61, 10)], (1, 1), None),  # no reliable sub-minute order
+    ("0-0", [(60, 20), (60, 10)], (1, 1), None),
+    ("1-0", [(59, 20), (60, 10)], (1, 1), None),  # incompatible baseline
+])
+def test_goal_order_requires_score_evidence_not_list_order(tmp_path, baseline, events, final, want):
+    db = tmp_path / "signals.db"
+    entry = _signal()
+    entry["score"] = baseline
+    assert log_signal(entry, db_path=db)
+    timeline = [{"type": "Goal", "time": {"elapsed": minute}, "team": {"id": team}} for minute, team in events]
+    result = settle_open_signals(_SettlementAPI({"response": timeline}, final), sleep_seconds=0, db_path=db)
+    assert result["settled"] == (want is not None)
+    conn = _connect(db)
+    assert conn.execute("SELECT outcome FROM signals").fetchone()[0] == want
+    conn.close()
+
+
+def test_cancelled_goal_is_not_scorer_evidence(tmp_path):
+    db = tmp_path / "signals.db"
+    assert log_signal(_signal(), db_path=db)
+    goals = [{"type": "Goal", "time": {"elapsed": 65}, "team": {"id": 10}, "detail": "Goal cancelled"},
+             {"type": "Goal", "time": {"elapsed": 70}, "team": {"id": 20}, "detail": "Penalty"}]
+    result = settle_open_signals(_SettlementAPI({"response": goals}, (0, 1)), sleep_seconds=0, db_path=db)
+    assert result["settled"] == 1
+    conn = _connect(db)
+    assert conn.execute("SELECT outcome FROM signals").fetchone()[0] == "opponent"
+    conn.close()
+
+
+def test_remaining_goal_evidence_can_settle_goal_presence_even_when_first_scorer_is_tied():
+    import redcard_events
+    goals = [((2, 59, 0), "home"), ((2, 60, 0), "home"), ((2, 60, 0), "away")]
+    remaining = redcard_events.remaining_goal_timeline(goals, snapshot_order=(2, 60, 0), baseline=(1, 0))
+    assert sorted(side for _, side in remaining) == ["away", "home"]
+    assert redcard_events.first_scorer(remaining) is None
+    assert redcard_events.remaining_goal_timeline(goals, snapshot_order=(2, 500, 0), baseline=(2, 1)) is None
+
+
+@pytest.mark.parametrize("damage", ["cancelled_in_comments", "unknown_goal_detail", "unlinked_var_reversal"])
+def test_conflicting_goal_evidence_never_confirms_a_scorer(damage):
+    from redcard_events import verified_goal_timeline
+    fixture = _SettlementAPI([], (0, 1))._request("fixtures", {})["response"][0]
+    goal = {"type": "Goal", "detail": "Normal Goal", "team": {"id": 20}, "time": {"elapsed": 77}}
+    events = [goal]
+    if damage == "cancelled_in_comments":
+        goal["comments"] = "Goal cancelled by VAR"
+    elif damage == "unknown_goal_detail":
+        goal["detail"] = "Unknown provider verdict"
+    else:
+        events.append({"type": "Var", "detail": "Goal cancelled", "team": {"id": 20}, "time": {"elapsed": 78}})
+    assert verified_goal_timeline(fixture, events) is None
+
+
+@pytest.mark.parametrize("time,top_period,halftime", [
+    ({"elapsed": 46}, None, {"home": 0, "away": 1}),  # first-half score contradicts a packed 46
+    ({"elapsed": 45, "period": "HT"}, None, None),     # no goal during the interval
+    ({"elapsed": 45, "period": "1H"}, "2H", None),    # conflicting period evidence
+])
+def test_period_conflicts_cannot_be_resolved_from_final_score_alone(time, top_period, halftime):
+    from redcard_events import verified_goal_timeline
+    fixture = _SettlementAPI([], (0, 1))._request("fixtures", {})["response"][0]
+    fixture["score"]["halftime"] = halftime
+    goal = {"type": "Goal", "team": {"id": 20}, "time": time, "period": top_period}
+    assert verified_goal_timeline(fixture, [goal]) is None
 
 
 @pytest.mark.parametrize("phase,extra", [("1H", 3), ("HT", None)])
@@ -280,10 +366,15 @@ def test_first_goal_result_minute_comes_from_validated_period_clock():
 
 @pytest.mark.parametrize("provider_errors,unverified,expected", [(1, 0, 1), (0, 1, 0), (0, 0, 0)])
 def test_settlement_cli_reports_provider_failure_without_treating_pending_as_crash(
-        monkeypatch, provider_errors, unverified, expected):
+        monkeypatch, tmp_path, provider_errors, unverified, expected):
     from types import SimpleNamespace
     import redcard_signal_log as log
 
+    path = tmp_path / "shadow.db"
+    assert log_signal(_signal(), db_path=path)
+    monkeypatch.setattr(log, "DB_PATH", path)
+    monkeypatch.setattr("live_tip_ledger.settle_displayed_live_tips", lambda *a, **kw:
+                        {"fixtures_checked": 0, "provider_errors": 0})
     monkeypatch.setattr("sys.argv", ["redcard_signal_log.py", "--settle"])
     monkeypatch.setattr("config_loader.load_app_config", lambda: SimpleNamespace(api_football_key="offline"))
     monkeypatch.setattr("api_football.APIFootball", lambda *a, **kw: object())

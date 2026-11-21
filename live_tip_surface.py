@@ -1,0 +1,113 @@
+"""Join the visible Live detail to its source snapshot; never turn scan rows into tips."""
+import sqlite3
+
+from football_recommendations import LIVE_MAX_AGE_SECONDS
+
+
+MARKET_LABELS = {
+    "next_goal": "Noch ein Tor",
+    "team_scores": "Team trifft noch",
+    "btts": "Beide treffen",
+    "red_next": "Nach Platzverweis · nächstes Tor",
+}
+
+
+def _ordinary_fields(candidate, row):
+    home, away = row.get("home_team"), row.get("away_team")
+    if candidate.market == "Noch ein Tor" and candidate.selection == "Mindestens 1 weiteres Tor":
+        market, side = "next_goal", "any"
+    elif candidate.market == "BTTS" and candidate.selection == "Beide Teams treffen":
+        market, side = "btts", "yes"
+    elif candidate.market == "Team trifft noch" and home and away and home != away:
+        market = "team_scores"
+        side = {f"{home} trifft noch": "home", f"{away} trifft noch": "away"}.get(candidate.selection)
+        if side is None:
+            return None
+    else:
+        return None
+    clock = row.get("phase_data") or {}
+    if "extra" not in clock:
+        return None  # an old snapshot never proves that there was no injury time
+    return dict(fixture_id=row.get("fixture_id"), market=market, side=side,
+                minute=row.get("minute"), phase=clock.get("status"), extra=clock["extra"],
+                home_goals=row.get("home_score"), away_goals=row.get("away_score"),
+                home_id=row.get("home_team_id"), away_id=row.get("away_team_id"))
+
+
+def _red_fields(candidate, row):
+    card = row.get("card") or {}
+    match = card.get("match") or {}
+    fixture = match.get("fixture") or {}
+    clock = fixture.get("status") or {}
+    teams = match.get("teams") or {}
+    goals = match.get("goals") or {}
+    home_id = (teams.get("home") or {}).get("id")
+    away_id = (teams.get("away") or {}).get("id")
+    if (candidate.market != "Nächstes Tor" or row.get("error")
+            or clock.get("elapsed") != row.get("prediction_minute")
+            or home_id is None or away_id is None or home_id == away_id):
+        return None
+    red_side = {home_id: "home", away_id: "away"}.get(card.get("team_id"))
+    if red_side is None or red_side != row.get("red_side"):
+        return None
+    # The selection label is the exact outcome shown by red_card_candidate.
+    # Bind the card team by its native ID (not by club-name similarity).
+    labels = (card.get("team"), row.get("opponent"), "Kein weiteres Tor")
+    if not all(labels) or len(set(labels)) != 3 or candidate.selection not in labels:
+        return None
+    side = dict(zip(labels, (red_side, "away" if red_side == "home" else "home", "none")))[candidate.selection]
+    return dict(fixture_id=fixture.get("id"), market="red_next", side=side,
+                minute=clock.get("elapsed"), phase=clock.get("short"), extra=clock.get("extra"),
+                home_goals=goals.get("home"), away_goals=goals.get("away"),
+                home_id=home_id, away_id=away_id)
+
+
+def record_visible_analysis(st, candidate, row, *, snapshot_at, age_seconds, red=False):
+    """Called after rendering one detailed card, never while preparing or sorting it."""
+    from live_tip_ledger import record_displayed_live_tip
+    if not candidate.forecast_available:
+        return
+    if age_seconds is None or not 0 <= age_seconds <= LIVE_MAX_AGE_SECONDS:
+        st.warning("Datenstand veraltet oder Zeit unklar: Diese Analyse wird nicht neu gezählt.")
+        return
+    fields = (_red_fields if red else _ordinary_fields)(candidate, row)
+    if fields is None or not row.get("model_version"):
+        st.warning("Spielstand oder Modellauswahl nicht eindeutig belegt: kein neuer Bilanzeintrag.")
+        return
+    try:
+        added = record_displayed_live_tip(**fields, probability=candidate.model_probability / 100.,
+                                          snapshot_at=snapshot_at, model_version=row["model_version"])
+    except ValueError:
+        st.warning("Datenstand nicht gültig oder nicht mehr frisch: kein neuer Bilanzeintrag.")
+    except (OSError, sqlite3.Error):
+        st.warning("Diese Analyse wurde nicht gespeichert. Die Bilanz kann unvollständig sein.")
+    else:
+        clock = str(fields["minute"])
+        if fields["extra"]:
+            clock += f"+{fields['extra']}"
+        action = "Für die Bilanz erfasst." if added else "Kein neuer Eintrag: Die erste Anzeige zählt."
+        st.caption(f"Aktueller Modellstand: {clock}. Minute, {fields['home_goals']}:{fields['away_goals']}. "
+                   f"{action}")
+
+
+def render_live_tip_stats(st):
+    from live_tip_ledger import live_tip_stats
+    st.subheader("Bilanz der Live-Analysen")
+    st.caption("Über alle Spieltage seit Beginn der Erfassung. Pro Spiel, Markt und Auswahl zählt "
+               "der erste erfasste Modellstand. Trefferquote = gewonnen / (gewonnen + verloren).")
+    try:
+        stats = live_tip_stats()
+    except (OSError, sqlite3.Error):
+        st.warning("Die Live-Bilanz konnte nicht geladen werden.")
+        return
+    rows = []
+    for key, label in MARKET_LABELS.items():
+        counts = stats[key]
+        settled = counts["won"] + counts["lost"]
+        hit_rate = (f"{100 * counts['won'] / settled:.1f} %".replace(".", ",")
+                    if settled else "–")
+        rows.append({"Markt": label, "Gewonnen": counts["won"], "Verloren": counts["lost"],
+                     "Offen": counts["open"], "Ungültig": counts["void"], "Trefferquote": hit_rate})
+    if not any(row["Gewonnen"] + row["Verloren"] for row in rows):
+        st.caption("Noch keine abgerechneten Live-Analysen.")
+    st.dataframe(rows, use_container_width=True, hide_index=True)

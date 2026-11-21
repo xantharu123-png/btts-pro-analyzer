@@ -6,9 +6,8 @@ Reads the harvested dismissal history and produces:
 - score-state splits (red team leading / level / trailing)
 - markdown report + PNG chart in the workspace root
 
-Model horizon: regulation time only (up to 93'). Goals in extra time or
-shootouts never count, and dismissals that happened in extra time are
-excluded — the impact model ends at 93'.
+Predeclared research window: nominal minutes through 93, regulation only.
+The live next-goal settlement instead observes every minute before the whistle.
 
 Safe to run at any history size; every figure carries its sample count.
 """
@@ -18,6 +17,7 @@ import os
 import sqlite3
 import sys
 from pathlib import Path
+from redcard_events import HISTORY_POLICY
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
@@ -41,20 +41,6 @@ FINE_PHASES = (
 LATE_SHELL_MINUTE = 75
 
 
-def _goal_in_model_horizon(abs_minute: int, status) -> bool:
-    """True, wenn das Tor im Modell-Horizont (reguläre Spielzeit) fiel.
-
-    Halte diese Regel synchron mit redcard_signal_log.py: 93 deckt
-    Nachspielzeit im alten API-Stil ab; 91-93 zählt nur bei Endstatus FT,
-    alles darüber ist Verlängerung oder Elfmeterschießen.
-    """
-    if abs_minute > MATCH_MINUTES:
-        return False
-    if abs_minute > 90 and status != "FT":
-        return False
-    return True
-
-
 def _in_scope(case) -> bool:
     """Nur Fälle im Modell-Horizont: keine komplexen Fälle (2+ Platzverweise),
     keine Platzverweise, die erst in der Verlängerung fielen."""
@@ -62,6 +48,9 @@ def _in_scope(case) -> bool:
 
 
 def load_cases(conn: sqlite3.Connection):
+    columns = {r[1] for r in conn.execute("PRAGMA table_info(dismissals)")}
+    if not {"evidence_policy", "exposure_usable"} <= columns:
+        return []  # Reading a legacy DB must not mutate/launder old evidence.
     rows = conn.execute(
         """SELECT d.match_date, d.league_name, d.home_name, d.away_name,
                   d.final_home, d.final_away, d.red_minute, d.red_side,
@@ -69,7 +58,8 @@ def load_cases(conn: sqlite3.Connection):
                   d.red_team_goal_diff, d.complex_state, d.goals_after_json,
                   f.status_short
            FROM dismissals d
-           LEFT JOIN fixtures f ON f.fixture_id = d.fixture_id"""
+           JOIN fixtures f ON f.fixture_id = d.fixture_id
+           WHERE d.evidence_policy = ? AND d.exposure_usable = 1""", (HISTORY_POLICY,)
     ).fetchall()
     cases = []
     for row in rows:
@@ -80,7 +70,7 @@ def load_cases(conn: sqlite3.Connection):
             since = goal.get("since_card")
             if not isinstance(since, int):
                 continue
-            if _goal_in_model_horizon(red_minute + since, status):
+            if red_minute + since <= MATCH_MINUTES:
                 goals_after.append(goal)
         cases.append(
             {
@@ -242,7 +232,7 @@ def main():
     lines = [
         "# Rotkarten-Musteranalyse (Historie)",
         "",
-        f"**{len(cases)} Platzverweise** aus **{scanned} gescannten Spielen** "
+        f"**{len(cases)} scoregeprüfte, zeitlich einordenbare Platzverweise**; **{scanned} Spiele insgesamt gescannt** "
         f"({dates[0] if dates else '?'} bis {dates[-1] if dates else '?'}) | "
         f"Backlog: {backlog} Spiele",
         "",
@@ -322,11 +312,12 @@ def main():
         "",
         f"_Komplexe Fälle (2+ Platzverweise) ausgenommen: {len(cases) - len(clean)}_",
         "",
-        f"_Modell-Horizont reguläre Spielzeit (bis {MATCH_MINUTES}'): "
-        f"Platzverweise in der Verlängerung ausgenommen: "
+        f"_Festes Forschungsfenster bis zur nominellen Minute {MATCH_MINUTES}, kein gemessener Abpfiff. "
+        f"Platzverweise nach dem Fenster ausgenommen: "
         f"{sum(1 for c in cases if c['red_minute'] > MATCH_MINUTES)} · "
         "Tore in Verlängerung/Elfmeterschießen zählen nicht "
-        "(Regel synchron zur Shadow-Abrechnung in redcard_signal_log.py)._",
+        "(die Live-Abrechnung zählt hingegen die gesamte reguläre Nachspielzeit). "
+        "Altfälle ohne geprüfte Ereignisfolge sind nicht in dieser Auswertung._",
         "",
         "_Chart: rot_karten_musteranalyse.png_",
     ]
