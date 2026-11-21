@@ -1,5 +1,11 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 21.11.2026 – Vergleichspunkt für zukünftige Modell- und Auswahländerungen
+
+- [Produktionsreferenz, Einzeltipps, Messregeln und Rückkehrweg](docs/audits/2026-11-21-wettfinder-referenz.md): Code `363ed54`, Tag `betboy-referenz-2026-11-21`. Die Referenzdateien nicht fortschreiben.
+- Erste Standardseitenbelege und Abrechnung der 14 am Freitag gerenderten Haupttipps bestätigt. Noch keine Bilanz eines vollständigen Tages mit dem neuen Belegverfahren oder Rendite für diese 14.
+- Nächster Vergleich: vollständige Spieltage ab 21.11., erster Prüfpunkt nach 200 entschiedenen Fußballspielen über mehrere Wochen, getrennt nach Fläche/Wettart. Varianten vorab gegen dieselben Spiele messen; nicht anhand des Freitagabends optimieren.
+
 ## 20.11.2026, 19:45 CET – #144 und #145 live
 
 - GitHub und VPS beim Release auf `363ed54`; [Betriebsnachweis](docs/audits/2026-11-20-haupttipp-beleg.md#release-am-20-november-2026). Kein Backup, kein zusätzlicher Sportscan.

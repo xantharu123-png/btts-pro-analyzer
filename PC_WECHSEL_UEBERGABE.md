@@ -1,5 +1,11 @@
 # BetBoy - Übergabe auf einen neuen PC
 
+## 21.11.2026 – Wo steht die unveränderte Wettfinder-Referenz?
+
+[Datenstand 08:22 CET, 14 Einzelbelege und genaue Prüfanleitung](docs/audits/2026-11-21-wettfinder-referenz.md).
+Der Referenz-Tag `betboy-referenz-2026-11-21` meint den **Produktionscode** `363ed54`, nicht den späteren Doku-Commit.
+Bei einem Modellvergleich neue Ergebnisse separat ablegen; Datenspeicher, externe Konfiguration und Quotenhistorien nicht zurücksetzen.
+
 ## 11.11.2026 10:00 – Übergabe an Codex: Stand 09.–11.11. (Releases 20261110-1 bis 20261111-2)
 
 - **Ausführlich:** `docs/handoffs/2026-11-11-claude-uebergabe-codex.md`. Dort stehen Release-Verfahren, Termine,

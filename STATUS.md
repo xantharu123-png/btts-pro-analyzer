@@ -4,16 +4,14 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 „Stand“ ersetzen, nicht anhängen; Historie steht in `TODO_AKTUELL.md` und
 `PC_WECHSEL_UEBERGABE.md`. Regeln und Einstieg: `AGENTS.md`.
 
-## Stand: 20.11.2026
+## Stand: 21.11.2026
 
-**Live seit 19:45 CET:** PR #144 und #145, GitHub und VPS beim Release auf `363ed54`.
-Der [Spieltagbericht](docs/audits/2026-11-20-haupttipps-und-datenabdeckung.md) trennt alle Katalogmärkte
-vom ersten sichtbaren Haupttipp je Spiel. Neue Haupttipps können ab jetzt belegt werden; für frühere Tage
-wurde nichts nachgetragen. Hockey-Diagnosegründe und [Heimvorteil-Prüfvertrag](docs/audits/2026-11-20-club-heimvorteil-pruefvertrag.md)
-sind enthalten, die Produktionsmodelle bleiben unverändert.
-[Technischer Releasebeleg](docs/audits/2026-11-20-haupttipp-beleg.md#release-am-20-november-2026).
-Produktionsprobe: 14 Haupttipp-Erstbelege in der gerenderten Ansicht. Offen: erster Beleg der automatischen Standardseite und spätere Abrechnung;
-Wochenendprüfung am 21./22.11. Kein zusätzlicher Sportscan und kein neues Backup.
+**Produktionsreferenz:** `363ed54`, live seit 20.11., 19:45 CET (PR #144/#145); Git-Tag `betboy-referenz-2026-11-21`.
+[Referenzbericht, Einzelbelege und Rückkehrweg](docs/audits/2026-11-21-wettfinder-referenz.md) · [Technischer Releasebeleg](docs/audits/2026-11-20-haupttipp-beleg.md#release-am-20-november-2026).
+Freitagabend 12/14 tatsächlich gerenderte Fußball-Haupttipps getroffen, 10,80 erwartet; alle 14 Preise veraltet.
+Samstag, 08:22 CET: erste reguläre Standardseitenbelege bestätigt (23 Spiele des Samstags, separat 22 gerendert).
+Samstagslauf 03:35–04:17 CET erfolgreich. Offen: Bilanz vollständiger Spieltage, Sonntagslauf und Hockey-Datenabdeckung.
+Nur Dokumentation; kein Modellwechsel, zusätzlicher Scan, Datenbankabbild oder neuer Deploy.
 
 | Bereich | Status |
 |---|---|
