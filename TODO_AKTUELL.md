@@ -2,6 +2,8 @@
 
 ## 21.11.2026 – Fußball: Bilanz der Live-Analysen
 
+Klarstellung des Owners: Erfassung und Auswertung sind intern. Im Live-Tab keine Bilanztabelle, Trefferquoten-Erklärung oder Meldung zur Speicherung. Regulärer Ergebnislauf unverändert; kein Nachfüllen historischer Tipps.
+
 - [Vertrag, Datenstand und Grenzen](docs/audits/2026-11-21-live-tippbilanz.md). Nur die erste tatsächlich angezeigte Auswahl je Spiel, Markt und Seite zählt; der Vorab-Wettfinder und historische Spielverläufe gehören nicht in diese Statistik.
 - Produktionsnachweis für die ersten echten Treffer/Verluste: nach einer neuen Anzeige und dem regulären Ergebnislauf prüfen. Kein Zusatzscan, keine nachträgliche Befüllung.
 

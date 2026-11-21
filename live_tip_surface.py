@@ -1,15 +1,11 @@
 """Join the visible Live detail to its source snapshot; never turn scan rows into tips."""
+import logging
 import sqlite3
 
 from football_recommendations import LIVE_MAX_AGE_SECONDS
 
 
-MARKET_LABELS = {
-    "next_goal": "Noch ein Tor",
-    "team_scores": "Team trifft noch",
-    "btts": "Beide treffen",
-    "red_next": "Nach Platzverweis · nächstes Tor",
-}
+LOGGER = logging.getLogger(__name__)
 
 
 def _ordinary_fields(candidate, row):
@@ -62,52 +58,21 @@ def _red_fields(candidate, row):
                 home_id=home_id, away_id=away_id)
 
 
-def record_visible_analysis(st, candidate, row, *, snapshot_at, age_seconds, red=False):
-    """Called after rendering one detailed card, never while preparing or sorting it."""
-    from live_tip_ledger import record_displayed_live_tip
+def record_visible_analysis(candidate, row, *, snapshot_at, age_seconds, red=False):
+    """Record the rendered detail for internal audit, without changing its UI."""
     if not candidate.forecast_available:
         return
     if age_seconds is None or not 0 <= age_seconds <= LIVE_MAX_AGE_SECONDS:
-        st.warning("Datenstand veraltet oder Zeit unklar: Diese Analyse wird nicht neu gezählt.")
         return
     fields = (_red_fields if red else _ordinary_fields)(candidate, row)
     if fields is None or not row.get("model_version"):
-        st.warning("Spielstand oder Modellauswahl nicht eindeutig belegt: kein neuer Bilanzeintrag.")
         return
+    from live_tip_ledger import record_displayed_live_tip
     try:
-        added = record_displayed_live_tip(**fields, probability=candidate.model_probability / 100.,
-                                          snapshot_at=snapshot_at, model_version=row["model_version"])
+        record_displayed_live_tip(**fields, probability=candidate.model_probability / 100.,
+                                  snapshot_at=snapshot_at, model_version=row["model_version"])
     except ValueError:
-        st.warning("Datenstand nicht gültig oder nicht mehr frisch: kein neuer Bilanzeintrag.")
-    except (OSError, sqlite3.Error):
-        st.warning("Diese Analyse wurde nicht gespeichert. Die Bilanz kann unvollständig sein.")
-    else:
-        clock = str(fields["minute"])
-        if fields["extra"]:
-            clock += f"+{fields['extra']}"
-        action = "Für die Bilanz erfasst." if added else "Kein neuer Eintrag: Die erste Anzeige zählt."
-        st.caption(f"Aktueller Modellstand: {clock}. Minute, {fields['home_goals']}:{fields['away_goals']}. "
-                   f"{action}")
-
-
-def render_live_tip_stats(st):
-    from live_tip_ledger import live_tip_stats
-    st.subheader("Bilanz der Live-Analysen")
-    st.caption("Über alle Spieltage seit Beginn der Erfassung. Pro Spiel, Markt und Auswahl zählt "
-               "der erste erfasste Modellstand. Trefferquote = gewonnen / (gewonnen + verloren).")
-    try:
-        stats = live_tip_stats()
-    except (OSError, sqlite3.Error):
-        st.warning("Die Live-Bilanz konnte nicht geladen werden.")
         return
-    rows = []
-    for key, label in MARKET_LABELS.items():
-        counts = stats[key]
-        settled = counts["won"] + counts["lost"]
-        hit_rate = (f"{100 * counts['won'] / settled:.1f} %".replace(".", ",")
-                    if settled else "–")
-        rows.append({"Markt": label, "Gewonnen": counts["won"], "Verloren": counts["lost"],
-                     "Offen": counts["open"], "Ungültig": counts["void"], "Trefferquote": hit_rate})
-    if not any(row["Gewonnen"] + row["Verloren"] for row in rows):
-        st.caption("Noch keine abgerechneten Live-Analysen.")
-    st.dataframe(rows, use_container_width=True, hide_index=True)
+    except (OSError, sqlite3.Error) as exc:
+        # Exception details may include internal filesystem paths.
+        LOGGER.warning("Live audit write failed (%s)", type(exc).__name__)

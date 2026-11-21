@@ -22,7 +22,7 @@ from account_identity import account_scope_ready, ensure_account_scope
 from customer_access import PAGE_FEATURES, bind_customer, require_feature
 from legal_notice import render_legal_footer
 from api_budget import APIBudgetPriority, api_football_get
-from live_tip_surface import record_visible_analysis, render_live_tip_stats
+from live_tip_surface import record_visible_analysis
 
 
 _REQUIRED_LEAGUE_CATALOG_VERSION = 2
@@ -3194,8 +3194,9 @@ def _render_live_football(analyzer, market: str) -> None:
         )
         candidate, item = candidate_items[selected]
         render_model_selection(candidate, save_source="Live", analysis_only=True)
-        record_visible_analysis(st, candidate, item, snapshot_at=snapshot.get("scanned_at"),
-                                age_seconds=snapshot_age)
+        record_visible_analysis(
+            candidate, item, snapshot_at=snapshot.get("scanned_at"), age_seconds=snapshot_age
+        )
 
     # Live-Überblick: IMMER alle unterstützten Live-Spiele mit Modellwerten
     # zeigen — auch wenn kein Kandidat das Gate passiert. Volle Transparenz
@@ -3631,13 +3632,14 @@ def _render_red_cards(analyzer) -> None:
     render_model_selection(candidate, save_source="Live nach Platzverweis", analysis_only=True)
     if entry.get("error"):
         st.caption(entry["error"])
-    record_visible_analysis(st, candidate, entry, snapshot_at=snapshot.get("scanned_at"),
-                            age_seconds=snapshot_age, red=True)
+    record_visible_analysis(
+        candidate, entry, snapshot_at=snapshot.get("scanned_at"), age_seconds=snapshot_age, red=True
+    )
+
 
 def render_live(analyzer) -> None:
     if analyzer is None:
         st.error("Analyzer nicht bereit.")
-        render_live_tip_stats(st)
         return
     market_label = st.selectbox(
         "Wettart",
@@ -3649,7 +3651,6 @@ def render_live(analyzer) -> None:
     else:
         market = "BTTS" if market_label == "Beide treffen" else market_label
         _render_live_football(analyzer, market)
-    render_live_tip_stats(st)
 
 
 def _render_model_validation(analyzer) -> None:
