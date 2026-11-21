@@ -4,15 +4,10 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 „Stand“ ersetzen, nicht anhängen; Historie steht in `TODO_AKTUELL.md` und
 `PC_WECHSEL_UEBERGABE.md`. Regeln und Einstieg: `AGENTS.md`.
 
-## Stand: 20.11.2026
+## Stand: 21.11.2026
 
-PR #144 (`f30ceaa`, Basis `2c8e3b9`) trennt im [Spieltagbericht](docs/audits/2026-11-20-haupttipps-und-datenabdeckung.md)
-Katalog, Rekonstruktion und belegte Hauptkarten. Enthält Hockey-Diagnosegründe und einen
-[Offline-Prüfvertrag zum Heimvorteil](docs/audits/2026-11-20-club-heimvorteil-pruefvertrag.md), keine Modelländerung.
-Der Folgebranch `codex/wettfinder-haupttipp-beleg-20261120` hält erstmals [die tatsächlich
-angebotene Hauptauswahl](docs/audits/2026-11-20-haupttipp-beleg.md) je Spiel fest. Keine rückwirkende Schätzung.
-**Beide Pakete nicht live.** Zuletzt geprüfter VPS: `87f2434`; kein Backup und kein neuer Sportscan.
-Offen: Merge- und Release-Freigabe sowie Nachweis aus dem nächsten regulären Lauf; Wochenendprüfung 21./22.11.
+Produktionscode `363ed54` ([Referenz-Tag](https://github.com/xantharu123-png/btts-pro-analyzer/tree/betboy-referenz-2026-11-21)); PR #144 und #145 sind live. Der separate [Referenzbericht](https://github.com/xantharu123-png/btts-pro-analyzer/blob/4b43265897e816651d5221ca5c24c61be76ce033/docs/audits/2026-11-21-wettfinder-referenz.md) enthält die 14 Freitagsbelege und die Regeln für faire Vergleiche.
+Branch `codex/tageskombis-20261121`: [Produktregel](docs/superpowers/specs/2026-11-21-tageskombis.md), [Buchmacher und Datenlage](docs/audits/2026-11-21-tageskombis-datenlage.md). Der reguläre Publikationsweg kann 3er, 4er, 5er und 6er je Tag vor dem ersten zugehörigen Anstoß festschreiben. Sportlicher Vergleich und exakt bepreiste Referenz laufen getrennt. Die rechte Pro-Leiste neben Doublebet und Tennis zeigt Zahlen nur für zeitlich unabhängig geprüfte Modellgrößen. Kein Einsatz, keine zusätzlichen Anbieterabrufe. Noch kein empirisch freigegebener Chancenbalken.
 
 | Bereich | Status |
 |---|---|

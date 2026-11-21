@@ -1,5 +1,11 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 21.11.2026 – Tageskombis: Datenlage geprüft, Kundenstart offen
+
+- [Spezifikation](docs/superpowers/specs/2026-11-21-tageskombis.md) und [Plan](docs/superpowers/plans/2026-11-21-tageskombis.md) im Feature-Branch. Ein Buchmacher, ab exakt 1,20 je Auswahl, begrenzte Überschneidung. Kein Eingriff in Doublebet und Tennis.
+- [Kontrollabfrage](docs/audits/2026-11-21-tageskombis-datenlage.md): aktueller Fußballstand im Entry-Archiv ohne einen Tag mit drei frisch bepreisten Spielen beim selben Buch; bei Tennis höchstens fünf mögliche 6er-Tage. Keine Freigabe aus diesen Zahlen.
+- Nächster Schritt: internen, prospektiven Vorlauf gesondert bestätigen, dann Originalscheine zeitgerecht speichern und je Größe unbeeinflusst prüfen. Kein Zahlenbalken aus Einzelchancen, 15K-Abschlägen oder historischen Zufallskombis.
+
 ## 20.11.2026 – Erste sichtbare Hauptauswahl je Spiel
 
 - Folgebranch nach PR #144: [Vertrag, Grenzen und Betriebsabnahme](docs/audits/2026-11-20-haupttipp-beleg.md).
