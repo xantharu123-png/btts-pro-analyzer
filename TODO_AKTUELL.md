@@ -1,7 +1,31 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 22.11.2026 – Automatischer Live-Vorschlag und breite Spielstandansicht
+
+- Nur im Live-Tab: Wettartwahl, Prozentregler, rechte Pre-Match-Wettenspalte
+  und feste Innen-Scrollbox entfallen. Desktop zeigt Tipp und laufende Spiele
+  nebeneinander, am Handy steht die Auswahl vor der Liste.
+- Verglichen werden die schon berechneten offenen Märkte je Partie, ohne
+  Buchmacherpreis. Bei Platzverweis gehört die gewählte Seite zum jeweiligen
+  Rotkartenmodell. Kein Tipp aus fremdem oder veraltetem Spielstand; auch ohne
+  Vorschlag bleibt die Partie sichtbar. Manuelles Umschalten benötigt keinen Scan.
+- Umfang: UI und Auswahl, keine neue Modellkalibrierung, keine neuen
+  Sportdatenabfragen und keine Änderung am 500er-Limit. Weltweite manuelle
+  Platzverweissuche separat; sie startet nicht durch das Öffnen des Live-Tabs.
+- Abnahme: 451 betroffene Tests, vier Chromium-Fensterbreiten von 320 bis
+  1720 px mit synthetischem Feed. Laufender 60-Sekunden-Wechsel von 1:0 zu 2:0
+  am selben Spiel; bei 4:0 in der 86. Minute ohne geeigneten Markt kein
+  Beleg. Das Verlassen des Live-Tabs hebt die manuelle Spielauswahl auf;
+  offene manuelle Rotkartenbelege altern auch ohne Benutzereingriff aus.
+  Vollsuite mit Abbruch beim unveränderten Hockeytest
+  `test_native_conflicting_role_ids_fail_before_any_request` (99 bestanden,
+  danach 1 fehlgeschlagen). Kein Schluss auf Wettqualität.
+
 ## 22.11.2026 – Fußballbudget und Liveticker
 
+- Release-Beleg: PR #156 als `c7c6f23` auf GitHub und VPS; App aktiv seit
+  13:24:18 CET. Regulärer Statusabruf 13:32:22: HTTP 200, Anbieter 6.417,
+  lokal 6.416 statt 1.928. Beide Healthchecks nach Neustart ok, kein Sonderlauf.
 - VPS-Befund (13:02 CET; UTC-Kontingenttag): 1.040 echte Abrufe, 6.460
   letzte Anbieter-Restmeldung bei 7.500 Limit, lokal 1.971. Die Differenz
   von 4.489 war kein Verbrauch: um 00:02:23 UTC startete das lokale Konto

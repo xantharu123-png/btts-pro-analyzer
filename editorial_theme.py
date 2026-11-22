@@ -211,6 +211,35 @@ details.wf-fact {padding:0 !important;}
 .st-key-riskobet_page .rb-probabilities strong {font-family:'BB Sport',sans-serif !important;font-size:2rem !important;}
 .st-key-riskobet_page .rb-reasons {background:transparent !important;border-color:var(--bb-line) !important;}
 .st-key-riskobet_page .rb-reasons h4 {font-family:'BB Sport',sans-serif !important;font-size:1.2rem !important;}
+/* Only Live lifts the editorial shell cap; the other workspaces keep their own rails. */
+.stApp [data-testid="stMainBlockContainer"]:has(.st-key-live_page) {max-width:none !important;}
+.st-key-live_page, .st-key-live_board {min-width:0;width:100%;max-width:100%;}
+.st-key-live_board[data-testid="stVerticalBlock"], .st-key-live_board > [data-testid="stVerticalBlock"] {
+  display:grid;grid-template-columns:minmax(0,2fr) minmax(0,3fr);
+  align-items:start;gap:clamp(1rem,2vw,2rem);
+}
+.st-key-live_detail, .st-key-live_scoreboard {min-width:0;overflow-wrap:anywhere;}
+.st-key-live_detail {border:1px solid var(--bb-line);border-top:4px solid var(--bb-green);
+  border-radius:8px;background:var(--bb-surface);padding:clamp(.8rem,2vw,1.5rem);}
+.st-key-live_board h2 {line-height:1.1;padding:0;margin:0;}
+.st-key-live_scoreboard_matches[data-testid="stVerticalBlock"], .st-key-live_scoreboard_matches > [data-testid="stVerticalBlock"] {
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,18rem),1fr));gap:.55rem;
+}
+.st-key-live_scoreboard_matches [data-testid="stButton"] button {text-align:left;justify-content:flex-start;
+  min-height:52px;height:100%;padding:.6rem .8rem;border:1px solid var(--bb-line);
+  background:var(--bb-surface);color:var(--bb-ink);white-space:normal;overflow-wrap:anywhere;}
+.st-key-live_scoreboard_matches [data-testid="stButton"] button:hover {border-color:var(--bb-green);}
+.st-key-live_scoreboard_matches [data-testid="stButton"] button[data-testid="stBaseButton-primary"] {
+  background:var(--bb-green);color:white;border-color:var(--bb-green);
+}
+.st-key-live_scoreboard_matches button p {font-size:.92rem;line-height:1.35;margin:0;}
+.st-key-live_scoreboard_matches button strong {font-variant-numeric:tabular-nums;font-size:1.11em;}
+@media(max-width:820px) {
+  .st-key-live_board[data-testid="stVerticalBlock"], .st-key-live_board > [data-testid="stVerticalBlock"],
+  .st-key-live_scoreboard_matches[data-testid="stVerticalBlock"], .st-key-live_scoreboard_matches > [data-testid="stVerticalBlock"] {
+    grid-template-columns:minmax(0,1fr);
+  }
+}
 @media(max-width:1100px) and (min-width:761px) {
   .se-card-top {grid-template-columns:1fr;} .se-match {max-width:420px;width:100%;margin:auto;}
   .form-window {grid-template-columns:1fr;} .form-team+.form-team {border-left:0;padding-left:0;border-top:1px solid var(--bb-line);padding-top:.8rem;}

@@ -62,9 +62,9 @@ def fresh_age(stamp, now):
     return seconds if 0 <= seconds <= LIVE_MAX_AGE_SECONDS else None
 
 
-def render_board(ui, games, candidates, *, automatic_ids, market_label, format_time, render_tip, reasons, now,
+def render_board(ui, games, candidates, *, preferred_id, format_time, render_tip, reasons, now,
                  refresh_issue=None):
-    """Stable fixture buttons. A missing candidate never selects a different match's tip."""
+    """Render one tip/detail pane and a keyboard-accessible list of live scores."""
     if refresh_issue is not None:
         message = _REFRESH_MESSAGES.get(refresh_issue, _REFRESH_MESSAGES[LiveRefreshIssue.TEMPORARY_ERROR])
         ui.info(message + (" Die zuletzt bekannten Spielstände bleiben sichtbar." if games else ""))
@@ -77,35 +77,57 @@ def render_board(ui, games, candidates, *, automatic_ids, market_label, format_t
     key = "live_selected_fixture_id"
     selected = ui.session_state.get(key)
     if selected not in by_id:
-        # Selection policy is upstream; start time only orders the admitted top three.
-        selected = next((g.id for g in games if g.id in automatic_ids), games[0].id)
+        # The upstream model ranks tips; kickoff order applies only to the scoreboard.
+        selected = preferred_id if preferred_id in by_id and preferred_id in candidates else games[0].id
         ui.session_state.pop(key, None)
-    left, right = ui.columns([1, 1])
-    with left:
-        ui.markdown("### Spielstände")
-        with ui.container(height=300 if len(games) > 4 else "content"):
-            for game in games:
-                label = f"{game.clock} · {game.score} · {plain_markdown(game.title)}"
-                if fresh_age(game.observed_at, now) is None:
-                    stamp = game.observed_at
-                    label += f" · Letzter Stand: {format_time(stamp.isoformat() if stamp else None)}"
-                if ui.button(label,
-                             key=f"live_fixture_{game.id}", use_container_width=True,
-                             type="primary" if selected == game.id else "secondary",
-                             on_click=_select_game, args=(ui.session_state, game.id)):
-                    selected = game.id
-                    _select_game(ui.session_state, selected)
-    with right:
+    with ui.container(key="live_board"):
+        # Reserve the pane before the scoreboard so phone reading order matches the layout.
+        detail = ui.container(key="live_detail")
+        with ui.container(key="live_scoreboard"):
+            ui.markdown("## Spielstände")
+            count = f"{len(games)} laufende Spiele" if len(games) != 1 else "1 laufendes Spiel"
+            ui.caption(f"{count} · Wähle ein Spiel für die Details.")
+            if key in ui.session_state and len(by_id) > 1:
+                ui.button("Zur automatischen Auswahl", key="live_resume_automatic",
+                          on_click=_resume_automatic, args=(ui.session_state,))
+            with ui.container(key="live_scoreboard_matches"):
+                for game in games:
+                    label = f"**{plain_markdown(game.score)}** · {plain_markdown(game.clock)} · {plain_markdown(game.title)}"
+                    league = game.fixture.get("league")
+                    league_name = league.get("name") if isinstance(league, dict) else None
+                    if isinstance(league_name, str) and league_name.strip():
+                        label += f" · {plain_markdown(league_name)}"
+                    if fresh_age(game.observed_at, now) is None:
+                        stamp = game.observed_at
+                        label += f" · Letzter Stand: {format_time(stamp.isoformat() if stamp else None)}"
+                    if selected == game.id:
+                        label += " · Ausgewählt"
+                    if ui.button(label,
+                                 key=f"live_fixture_{game.id}", width="stretch",
+                                 type="primary" if selected == game.id else "secondary",
+                                 on_click=_select_game, args=(ui.session_state, game.id)):
+                        selected = game.id
+                        _select_game(ui.session_state, selected)
+    with detail:
         game = by_id[selected]
-        ui.markdown(f"### {market_label}")
+        heading = ui.empty()
         stamp = game.observed_at
-        ui.caption(f"{game.clock} · {game.score} · Datenstand: {format_time(stamp.isoformat() if stamp else None)}")
-        if selected not in candidates or not render_tip(game, candidates[selected]):
+        ui.markdown(f"**{plain_markdown(game.score)}** · {plain_markdown(game.clock)}")
+        ui.caption(f"Datenstand: {format_time(stamp.isoformat() if stamp else None)}")
+        if selected in candidates and render_tip(game, candidates[selected]):
+            title = "Bester Live-Tipp" if selected == preferred_id else "Live-Tipp zum Spiel"
+        else:
+            title = "Spieldetails"
             ui.write(plain_markdown(game.title))
-            ui.info("Kein aktueller Modellvorschlag für dieses Spiel und diesen Markt.")
+            ui.info("Kein aktueller Modellvorschlag für dieses Spiel.")
             if reason := reasons.get(selected):
-                ui.caption(reason)
+                ui.caption(plain_markdown(reason))
+        heading.markdown(f"## {title}")
 
 
 def _select_game(state, game_id):
     state["live_selected_fixture_id"] = game_id
+
+
+def _resume_automatic(state):
+    state.pop("live_selected_fixture_id", None)

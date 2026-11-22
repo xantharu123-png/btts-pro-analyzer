@@ -14,10 +14,12 @@ def feed_row(game, stamp, *, analysis=None, red=None):
     analysis = _analysis(game) if analysis is None else analysis
     fixture = {
         "fixture": {"id": game, "date": analysis.get("scheduled_start"),
-                    "status": {"short": "1H", "elapsed": 45, "extra": 3}},
+                    "status": {"short": analysis["phase_data"]["status"], "elapsed": analysis["minute"],
+                               "extra": analysis["phase_data"]["extra"]}},
         "teams": {"home": {"id": game+100, "name": analysis["home_team"]},
                   "away": {"id": game+200, "name": analysis["away_team"]}},
-        "goals": {"home": 1, "away": 0}, "league": {"id": 39, "name": "Testliga"},
+        "goals": {"home": analysis["home_score"], "away": analysis["away_score"]},
+        "league": {"id": 39, "name": "Testliga"},
         "offline_analysis": analysis, "offline_red": red,
     }
     return {"fixture": fixture, "observed_at": stamp, "detailed_at": stamp}
@@ -110,12 +112,12 @@ def test_selected_id_survives_reorder_then_loses_only_its_own_tip(monkeypatch):
     assert len(writes) == 2 and "Kein aktueller" in str(ui.messages)
 
 
-def test_fourth_eligible_game_requires_a_deliberate_click_until_it_finishes(monkeypatch):
+def test_highest_probability_opens_without_click_manual_selection_sticks_until_finished(monkeypatch):
     now = datetime.now(timezone.utc)
     rows = {}
     for game in (1, 2, 3, 4):
         data = _analysis(game)
-        data["remaining_goals"]["over_0_5_probability"] = {1:61., 2:81., 3:75., 4:70.}[game]
+        data["remaining_goals"]["over_0_5_probability"] = {1:61., 2:81., 3:85., 4:70.}[game]
         data["scheduled_start"] = (now - timedelta(minutes=100-game)).isoformat()
         rows[game] = feed_row(game, now, analysis=data)
     ui = Screen({"workspace": "Live"})
@@ -125,20 +127,20 @@ def test_fourth_eligible_game_requires_a_deliberate_click_until_it_finishes(monk
     ui.button = lambda label, *, key, **kwargs: key == click[0]
     monkeypatch.setattr(app, "record_visible_analysis", lambda c, item, **kw: writes.append(c.event_key))
     app.render_live(object())
-    assert writes == ["2"]  # earliest of the automatic three, not overall earliest
+    assert writes == ["3"]  # highest model probability, independent of kick-off
     click[0] = "live_fixture_1"
     app.render_live(object())
-    assert writes == ["2", "1"]
+    assert writes == ["3", "1"]
     click[0] = None
     rows[1]["fixture"]["fixture"]["date"] = now.isoformat()
     app.render_live(object())
     assert writes[-1] == "1"
-    ui.widget_values["live_min_probability_Noch ein Tor"] = 65
+    rows[1]["fixture"]["offline_analysis"]["live_data_quality"] = "LOW"
     app.render_live(object())
-    assert writes == ["2", "1", "1"]
+    assert writes == ["3", "1", "1"]
     del rows[1]
     app.render_live(object())
-    assert writes == ["2", "1", "1", "2"] and "live_selected_fixture_id" not in ui.session_state
+    assert writes == ["3", "1", "1", "3"] and "live_selected_fixture_id" not in ui.session_state
 
 
 @pytest.mark.parametrize("quality,probs,shown", [
@@ -152,13 +154,123 @@ def test_click_outside_automatic_red_shortlist_requires_supported_probability_an
     rows = {n:feed_row(n, now, red=_red(n)) for n in (1, 2, 3, 4)}
     rows[4] = feed_row(4, now, red=_red(4, probs))
     rows[4]["fixture"]["offline_red"]["prediction"]["data_quality"] = quality
-    ui = Screen({"workspace":"Live"}, {"live_market_choice":"Nach Platzverweis"})
+    for row in rows.values():
+        row["fixture"]["offline_analysis"]["live_data_quality"] = "LOW"
+    ui = Screen({"workspace":"Live"})
     mount(monkeypatch, ui, rows)
     ui.button = lambda label, *, key, **kwargs: key == "live_fixture_4"
     writes = []
     monkeypatch.setattr(app, "record_visible_analysis", lambda c, item, **kw: writes.append(c.event_key))
     app.render_live(object())
     assert writes == (["card-4"] if shown else [])
+
+
+@pytest.mark.parametrize("bad", ["low", "late", "multiple", "foreign-game", "missing-side", "wrong-total",
+                                 "foreign-label", "wrong-opponent"])
+def test_even_the_only_dismissal_cannot_bypass_eligibility(monkeypatch, bad):
+    from test_live_tip_surface import _red
+    red = _red(1)
+    if bad == "low":
+        red["prediction"]["data_quality"] = "LOW"
+    elif bad == "late":
+        red["prediction"]["too_late_for_signal"] = True
+    elif bad == "multiple":
+        red["fixture_red_card_count"] = 2
+    elif bad == "foreign-game":
+        red["card"]["match"]["fixture"]["id"] = 2
+    elif bad == "missing-side":
+        del red["prediction"]["no_more_goals"]
+    elif bad == "wrong-total":
+        red["prediction"]["no_more_goals"] = .79
+    elif bad == "foreign-label":
+        red["card"]["team"] = "Fremder Verein"
+    else:
+        red["opponent"] = "Fremder Verein"
+    row = feed_row(1, datetime.now(timezone.utc), red=red)
+    row["fixture"]["offline_analysis"]["live_data_quality"] = "LOW"
+    ui = Screen({"workspace": "Live"}, {"live_market_choice":"Nach Platzverweis"})
+    mount(monkeypatch, ui, {1:row})
+    monkeypatch.setattr(app, "record_visible_analysis", lambda *a, **kw: pytest.fail("unqualified receipt"))
+    app.render_live(object())
+    assert "Kein aktueller" in str(ui.messages) and "Modell:" not in str(ui.messages)
+
+
+@pytest.mark.parametrize("case,expected", [
+    ("warm", ("next_goal", "any", "Mindestens 1 weiteres Tor", .674)),
+    ("dismissal", ("red_next", "home", "Nächstes Tor · 1", .660621370588)),
+    ("late-no-card", None),
+])
+def test_grouped_native_model_to_visible_market_and_frozen_receipt(monkeypatch, tmp_path, case, expected):
+    import sqlite3
+    import requests
+    import live_tip_ledger
+    from live_football_feed import LiveFootballFeed
+    from test_live_football_source import native, warm
+    fixture = native()
+    if case == "late-no-card":
+        fixture["fixture"]["status"]["elapsed"] = 86
+        fixture["goals"]["home"] = 4
+        fixture["statistics"][0]["statistics"][1]["value"] = 0
+        fixture["events"] = [
+            {"time":{"elapsed":minute}, "team":{"id":1}, "type":"Goal", "detail":"Normal Goal"}
+            for minute in (31, 51, 64, 78)]
+    analyzer = warm(fixture, monkeypatch) if case != "dismissal" else None
+    analyze = app._analyze_ticker_fixture
+    ui = Screen({"workspace":"Live"})
+    mount(monkeypatch, ui, {})
+    feed = LiveFootballFeed()
+    calls = []
+    class OfflineSource:
+        def discover(self):
+            calls.append("discover")
+            return [fixture]
+        def details(self, ids):
+            calls.append(tuple(ids))
+            return [fixture]
+    monkeypatch.setattr(app, "_live_ticker_resources", lambda key: (feed, OfflineSource()))
+    monkeypatch.setattr(app, "_analyze_ticker_fixture", analyze)
+    monkeypatch.setattr(requests.sessions.Session, "request", lambda *a, **kw: pytest.fail("unexpected HTTP"))
+    db = tmp_path / "tips.db"
+    write = live_tip_ledger.record_displayed_live_tip
+    monkeypatch.setattr(live_tip_ledger, "record_displayed_live_tip", lambda **kw: write(**kw, db_path=db))
+    app.render_live(analyzer or object())
+    assert calls == ["discover", (81,)]
+    if expected is None:
+        assert "Kein aktueller" in str(ui.messages) and "4:0" in str(ui.messages)
+        assert not db.exists()
+    else:
+        market, side, label, probability = expected
+        assert label in str(ui.messages)
+        with sqlite3.connect(db) as connection:
+            rows = connection.execute("SELECT fixture_id, home_id, away_id, minute, home_goals, away_goals, "
+                                      "market, side, probability FROM live_tips").fetchall()
+        assert rows == [(81, 1, 2, 60, 1, 0, market, side, pytest.approx(probability))]
+
+
+@pytest.mark.parametrize("bad", ["weak-at-86", "changed-teams", "changed-score", "changed-minute",
+                                 "unsupported-reds", "decided-btts"])
+def test_score_only_or_unbound_model_is_not_a_recommendation(monkeypatch, bad):
+    data = _analysis(9)
+    data.update(minute=86, home_score=4, score="4-0", btts_prob=6., phase_data={"status":"2H", "extra":None})
+    data["remaining_goals"].update(over_0_5_probability=13., home_scores_probability=8., away_scores_probability=6.)
+    if bad != "weak-at-86":
+        data["btts_prob"] = 80.
+    if bad == "decided-btts":
+        data.update(away_score=1, score="4-1")
+    row = feed_row(9, datetime.now(timezone.utc), analysis=data)
+    if bad == "changed-teams":
+        data["away_team_id"] = 600
+    elif bad == "changed-score":
+        data["home_score"] = 3
+    elif bad == "changed-minute":
+        data["minute"] = 32
+    elif bad == "unsupported-reds":
+        data["red_cards"] = {"supported":False}
+    ui = Screen({"workspace":"Live"}, {"live_market_choice":"Beide treffen"})
+    mount(monkeypatch, ui, {9:row})
+    monkeypatch.setattr(app, "record_visible_analysis", lambda *a, **kw: pytest.fail("invalid receipt"))
+    app.render_live(object())
+    assert "Kein aktueller" in str(ui.messages) and "Modell:" not in str(ui.messages)
 
 
 @pytest.mark.parametrize("change", ["goal", "finish", "missing-detail"])
@@ -344,6 +456,36 @@ def test_retained_fragment_rechecks_original_account_before_access(monkeypatch):
     assert len(ticks) == 1
 
 
+def test_open_manual_snapshot_expires_on_timed_tick_without_new_global_scan(monkeypatch):
+    from test_live_tip_surface import _red
+    snapshot = {"scope": "Weltweit", "version": app.RED_CARD_SNAPSHOT_VERSION,
+                "scanned_at": datetime.now(timezone.utc).isoformat(), "cards": [_red(7)]}
+    ui = Screen({"workspace": "Live", "red_card_snapshot": snapshot})
+    mount(monkeypatch, ui, {})
+    fragments, writes = [], []
+    def retain(fn):
+        fragments.append(fn)
+        return fn
+    ui.fragment = lambda **kwargs: retain
+    monkeypatch.setattr(app, "_freemode_enabled", lambda: False)
+    monkeypatch.setattr(app, "_job_key", lambda name: "offline:" + name)
+    monkeypatch.setattr(app.scan_jobs, "get_job", lambda key: {"state": "idle"})
+    monkeypatch.setattr(app.scan_jobs, "start_job", lambda *a, **kw: pytest.fail("passive worldwide scan"))
+    monkeypatch.setattr(app, "record_visible_analysis",
+                        lambda candidate, row, **kw: writes.append((candidate.event_key, kw["red"])))
+    app.render_live(object())
+    assert writes == []  # Stored results do not opt in on the user's behalf.
+    ui.session_state["live_worldwide_research"] = True
+    app.render_live(object())
+    assert writes == [("card-7", True)] and "Modell:" in str(ui.messages)
+    # Only the timer reruns from here; a page refresh must not be required.
+    ui.messages.clear()
+    snapshot["scanned_at"] = (datetime.now(timezone.utc) - timedelta(seconds=121)).isoformat()
+    fragments[-1]()
+    assert "weltweite Suche bei Bedarf erneut starten" in str(ui.messages)
+    assert "Modell:" not in str(ui.messages) and writes == [("card-7", True)]
+
+
 def _test_ticker_app():
     import streamlit as st
     import app
@@ -351,13 +493,14 @@ def _test_ticker_app():
     app.render_live(object())
 
 
-def test_real_streamlit_fixture_buttons_and_market_slider_do_not_restart_scans(monkeypatch):
+def test_real_streamlit_picks_the_best_market_without_widgets_or_new_requests(monkeypatch):
     from streamlit.testing.v1 import AppTest
     from live_football_feed import LiveFootballFeed
     stamp = datetime.now(timezone.utc)
     fixtures = [feed_row(n, stamp)["fixture"] for n in (10, 20)]
     for fixture in fixtures:
         fixture.update(events=[], statistics=[])
+    fixtures[1]["offline_analysis"]["remaining_goals"]["away_scores_probability"] = 82.
     calls, receipts = [], []
     class Source:
         def discover(self):
@@ -374,11 +517,9 @@ def test_real_streamlit_fixture_buttons_and_market_slider_do_not_restart_scans(m
     monkeypatch.setattr(app, "record_visible_analysis", lambda c, *a, **kw: receipts.append((c.event_key, c.market)))
     screen = AppTest.from_function(_test_ticker_app).run(timeout=30)
     assert not screen.exception
-    screen.button(key="live_fixture_20").click().run(timeout=30)
-    assert not screen.exception and screen.session_state["live_selected_fixture_id"] == 20
-    screen.selectbox(key="live_market_choice").set_value("Team trifft noch").run(timeout=30)
-    assert not screen.exception and receipts[-1] == ("20", "Team trifft noch")
-    screen.slider(key="live_min_probability_Team trifft noch").set_value(80).run(timeout=30)
-    assert not screen.exception and any("Kein aktueller" in el.value for el in screen.info)
-    assert receipts == [("10", "Noch ein Tor"), ("20", "Noch ein Tor"), ("20", "Team trifft noch")]
+    assert not screen.selectbox and not screen.slider
+    assert receipts == [("20", "Team trifft noch")]
+    screen.button(key="live_fixture_10").click().run(timeout=30)
+    assert not screen.exception and screen.session_state["live_selected_fixture_id"] == 10
+    assert receipts == [("20", "Team trifft noch"), ("10", "Noch ein Tor")]
     assert calls == ["discover", (10, 20)]

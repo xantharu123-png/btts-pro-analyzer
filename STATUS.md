@@ -6,8 +6,10 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 
 ## Stand: 22.11.2026
 
-Zuletzt auf dem VPS nachgewiesen: [PR #155](https://github.com/xantharu123-png/btts-pro-analyzer/pull/155),
-`bac322f`, einschließlich Liga-Cache und Anstoßanzeige aus #154. Die Ligaprüfung
+Letzter bestätigter Produktionsstand: [PR #156](https://github.com/xantharu123-png/btts-pro-analyzer/pull/156),
+`c7c6f23`, seit 22.11.2026 13:24 CET. Sechs CI-Prüfungen, isolierte Linux-Abnahme,
+beide Healthchecks und sieben aktive Timer im Release belegt. Enthält den Ticker
+aus #155 sowie Liga-Cache und Anstoßanzeige aus #154. Die Ligaprüfung
 holt nur die Abdeckung je Saison; sie ersetzt keine Abfrage von Ausfällen,
 Aufstellungen oder Quoten. Im Betriebsjournal nach Füllen des Caches: 16
 verschiedene Liga-/Saisonabfragen für 32 Shadow-Kontextprüfungen.
@@ -19,9 +21,18 @@ vom Vortag. Normale Spielantworten dürfen den Rest nicht erhöhen. Sperrt eine
 widersprüchliche Schätzung die Hintergrundreserve, prüft der nächste fällige
 Shadow-Lauf das Anbieterkonto höchstens einmal je UTC-Tag, ohne neuen Timer
 und ohne Sportscan. Ein unbestätigter Kontostand lockert die Sperre nicht.
-Der Live-Tab unterscheidet Reserve, eigenes Tageslimit und fehlende Daten.
+Der reguläre Lauf um 13:32 CET bestätigte 6.417 Abrufe Rest beim Anbieter,
+6.416 lokal statt zuvor 1.928. Der Live-Tab unterscheidet Reserve, eigenes
+Tageslimit und fehlende Daten.
 Kein grüner Gesamttest behauptet: der bekannte unabhängige Hockeyfehler
 steht unten. Aktueller Prüf- und Freigabestand: `TODO_AKTUELL.md`.
+
+Neuer Stand auf `codex/live-automatische-auswahl`: Die Live-Seite nutzt die
+Inhaltsbreite ohne Wettartwahl oder Prozentregler. Sie öffnet den wahrscheinlichsten
+unter den unterstützten aktuellen Modellvorschlägen. Die Spielstandliste bleibt
+chronologisch, ein angeklicktes Spiel bleibt im Fokus; Rückkehr zur Automatik per
+Knopfdruck. Kandidatenbildung und Anzeige nutzen denselben Spielstand. Kein
+zusätzlicher Anbieterabruf; Merge und Deployment separat nachweisen.
 
 Fußball-Liveticker: Nur ein
 geöffneter, berechtigter Live-Tab stößt die Spielsuche (5 Minuten) und gruppierte
