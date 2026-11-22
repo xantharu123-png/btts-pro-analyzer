@@ -5,6 +5,7 @@ from html import escape
 
 from football_recommendations import LIVE_MAX_AGE_SECONDS
 from live_football_feed import LiveRefreshIssue
+from live_football_source import confirmed_live_dismissals
 from tip_display_order import ordered_event_rows
 from wettfinder_surface import plain_markdown
 
@@ -31,6 +32,7 @@ class Game:
     fixture: dict
     observed_at: datetime | None
     detailed_at: datetime | None
+    dismissals: tuple[tuple[str, int, int, bool], ...] = ()
 
 
 def _team_names(fixture):
@@ -60,8 +62,11 @@ def games_in_start_order(rows):
         goals = fixture.get("goals") or {}
         score = (f"{goals['home']}:{goals['away']}" if all(goals.get(s) is not None for s in ("home", "away"))
                  else "Stand offen")
-        games.append(Game(game_id, f"{home} – {away}", clock, score, source.get("date"),
-                          fixture, row["observed_at"], row["detailed_at"]))
+        cards = confirmed_live_dismissals(fixture)
+        matchup = " – ".join(name + "".join(f" 🟥 {when}" for when in _card_times(cards, side))
+                             for side, name in (("home", home), ("away", away)))
+        games.append(Game(game_id, matchup, clock, score, source.get("date"),
+                          fixture, row["observed_at"], row["detailed_at"], cards))
     return ordered_event_rows(games, event_key=lambda g: g.id, starts_at=lambda g: g.start,
                               probability=lambda _: None)
 
@@ -71,6 +76,11 @@ def fresh_age(stamp, now):
         return None
     seconds = (now - stamp).total_seconds()
     return seconds if 0 <= seconds <= LIVE_MAX_AGE_SECONDS else None
+
+
+def _card_times(cards, side):
+    return [f"{minute}{f'+{extra}' if extra else ''}′" + (" (Bank)" if off_field else "")
+            for team, minute, extra, off_field in cards if team == side]
 
 
 _COUNTRY_DE = {
@@ -129,9 +139,13 @@ def _inspector_header(ui, game, now):
     status = (game.fixture.get("fixture") or {}).get("status") or {}
     phase, elapsed = status.get("short"), status.get("elapsed")
     badge = "Letzter Stand" if fresh_age(game.observed_at, now) is None else "Live"
+    def team_cell(side, name):
+        cards = ''.join(f'<small class="lv-card-fact">Rot {when}</small>' for when in _card_times(game.dismissals, side))
+        return f'<span>{escape(name)}{cards}</span>'
+
     ui.markdown(f'<div class="lv-inspector-kicker"><span>{escape(" · ".join(filter(None, (league, country))))}</span>'
-                f'<b>{badge}</b></div><div class="lv-scoreline"><span>{escape(home)}</span>'
-                f'<b>{escape(game.score)}</b><span>{escape(away)}</span></div>', unsafe_allow_html=True)
+                f'<b>{badge}</b></div><div class="lv-scoreline">{team_cell("home", home)}'
+                f'<b>{escape(game.score)}</b>{team_cell("away", away)}</div>', unsafe_allow_html=True)
     if type(elapsed) is int and elapsed >= 0 and phase in {"1H", "2H", "HT", "ET", "BT"}:
         limit = 120 if phase in {"ET", "BT"} else 90
         value = 45 if phase == "HT" else min(elapsed, limit)

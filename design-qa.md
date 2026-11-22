@@ -6,6 +6,8 @@ Interner Browser, lokaler Streamlit-Renderer mit neun synthetischen Spielen, ohn
 
 Ergebnis: lokale visuelle und funktionale Abnahme bestanden; keine Aussage über die aktuelle Zahl echter Tipps oder eine Produktionsveröffentlichung.
 
+Platzverweis-Ergänzung: Mit fiktiven Daten auf Desktop „St. Gallen 🟥 52′“ in der Liste und „Rot 52′“ beim selben Team im Detail geprüft. Beim Wechsel auf Burnley ohne Karte verschwindet das Kartenmerkmal; bei Rückkehr ist es wieder sichtbar. Keine Konsolenfehler festgestellt. Lokales Bild: `live-platzverweis.jpg` im Vorschauordner.
+
 ---
 
 # Design QA – freigegebene BetBoy-Landingpage

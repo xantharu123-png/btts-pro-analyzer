@@ -97,6 +97,39 @@ def test_malformed_score_only_text_cannot_break_the_inspector_or_insert_a_pick(m
     assert not any(":green[Tipp]" in str(v) for _, v in ui.messages)
 
 
+def test_dismissal_is_bound_to_the_team_with_no_pick_and_disappears_after_correction(monkeypatch):
+    from test_live_football_source import native
+    stamp = datetime.now(timezone.utc)
+    fixture = native()
+    for team in (fixture['teams']['home'], fixture['statistics'][1]['team']):
+        team['name'] = 'Basel'
+    for team in (fixture['teams']['away'], fixture['statistics'][0]['team'], fixture['events'][1]['team']):
+        team['name'] = 'Luzern'
+    ui = Screen({'workspace': 'Live', 'live_selected_fixture_id': 81})
+    mount(monkeypatch, ui, {81: {'fixture': fixture, 'observed_at': stamp, 'detailed_at': stamp},
+                            2: feed_row(2, stamp)})
+    monkeypatch.setattr(app, 'record_visible_analysis', lambda *a, **kw: None)
+
+    def screen():
+        ui.messages.clear()
+        app.render_live(object())
+        buttons = {key: label for kind, value in ui.messages if kind == 'button' for label, key in (value,)}
+        return buttons, _last_panel(ui, 'lv-scoreline')
+
+    buttons, header = screen()
+    assert 'Luzern 🟥 52′' in buttons['live_fixture_81'] and 'Spieldaten fehlen' in buttons['live_fixture_81']
+    assert '🟥' not in buttons['live_fixture_2'] and 'Basel 🟥' not in buttons['live_fixture_81']
+    assert 'Luzern' in header and 'Rot 52′' in header and header.index('Luzern') < header.index('Rot 52′')
+    fixture['events'][1]['comments'] = 'Substitute'
+    buttons, header = screen()
+    assert 'Luzern 🟥 52′' in buttons['live_fixture_81'] and 'Bank' in buttons['live_fixture_81']
+    assert 'Rot 52′ (Bank)' in header
+    fixture['events'].pop()
+    fixture['statistics'][0]['statistics'][1]['value'] = 0
+    buttons, header = screen()
+    assert '🟥' not in buttons['live_fixture_81'] and 'Rot 52′' not in header
+
+
 def test_inactive_disconnected_or_revoked_view_cannot_tick(monkeypatch):
     import customer_access
     analyzer = SimpleNamespace()

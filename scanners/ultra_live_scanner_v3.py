@@ -16,7 +16,7 @@ from red_card_impact_predictor import RedCardImpactPredictor
 
 
 class UltraLiveScanner:
-    MODEL_VERSION = "live-restspiel-poisson-regulation-clock-v1"
+    MODEL_VERSION = "live-restspiel-poisson-regulation-clock-v2"
     REGULATION_MINUTES = 90
     MAX_LIVE_MINUTE = 130
     PRIOR_PSEUDO_MINUTES = 30
@@ -189,7 +189,8 @@ class UltraLiveScanner:
                 continue
             if event.get('type') != 'Card':
                 continue
-            if 'Red' not in str(event.get('detail') or ''):
+            detail = str(event.get('detail') or '')
+            if 'Red' not in detail and detail != 'Second Yellow card':
                 continue
             elapsed = event.get('time', {}).get('elapsed')
             if isinstance(elapsed, int) and not isinstance(elapsed, bool) and elapsed >= 0:
@@ -386,7 +387,8 @@ class UltraLiveScanner:
                 'remaining_minutes': remaining,
                 'horizon': 'REGULATION_MINIMUM' if remaining is not None else 'REGULATION_END_UNKNOWN'}
 
-    def analyze_live_match_ultra(self, match: Dict, *, prematch_priors=None) -> Optional[Dict]:
+    def analyze_live_match_ultra(self, match: Dict, *, prematch_priors=None,
+                                 corroborated_red_card_minute: Optional[int] = None) -> Optional[Dict]:
         try:
             fixture = match['fixture']
             teams = match['teams']
@@ -455,9 +457,8 @@ class UltraLiveScanner:
                 away_team_id,
                 raw_league_id,
             )
-            red_card_minute = self._get_red_card_minute(
-                fixture_id, stats
-            )
+            red_card_minute = (corroborated_red_card_minute if corroborated_red_card_minute is not None
+                               else self._get_red_card_minute(fixture_id, stats))
             red_card_state = self._red_card_state(
                 stats,
                 home_score=home_score,

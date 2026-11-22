@@ -1,5 +1,12 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 22.11.2026 – Live: Platzverweis bei der Mannschaft
+
+- In PR #160: bestätigte direkte/zweite gelbe Karte mit Minute auch ohne Modellvorschlag in Spielzeile und Details; explizite Bank-/Trainerkarte separat, kein daraus abgeleiteter Überzahltipp. Annullierte Karten sind keine Platzverweise. Keine weiteren API-Abrufe.
+- Gewöhnlicher Scanner: Gelb-Rot nutzt dieselbe Kartenminute wie direkte Rot (v2). Ticker: beide Modellpfade behandeln eine ausdrücklich zur ersten Halbzeit gehörende 48′ als 45+3′, ohne originale Ereignis-IDs oder historische Prognosen zu ändern.
+- QA: 610 betroffene Tests; weitere 230 unter der Produktionspreisregel `floor`; im internen Browser Sankt Gallen mit Karte → anderes Spiel ohne Karte → zurück geprüft. Gesamtlauf mit `-x` am separaten Hockeytest `test_native_conflicting_role_ids_fail_before_any_request` nach 99 bestandenen Tests abgebrochen. Kein Deploy, Backup oder Sportscan.
+- Fachlich offen: Die Rotkartenanalyse berechnet den Spielausgang, aber der Sieg in Überzahl ist kein validierter automatischer Live-Tippmarkt. Vor einer Erweiterung die Restzeithorizonte des normalen und des spezialisierten Schätzers (90/93 Minuten) und die jeweilige Kalibrierung auf abgerechneten Fällen prüfen. Keine neue Sieg-Regel oder Schwelle aktiviert.
+
 ## 22.11.2026 – gewählter Live-Entwurf 3 „Spielfeldrand“
 
 - `codex/live-spielfeldrand` baut auf dem offenen Ladezustand-PR #159 (`93caf05`) auf. Nicht auf dem VPS.

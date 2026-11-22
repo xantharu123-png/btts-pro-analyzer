@@ -4,6 +4,7 @@ from dataclasses import asdict
 from math import isfinite
 
 import api_budget
+import redcard_events
 from api_football import APIFootball
 from league_catalog import LEAGUE_BY_ID
 from live_football_feed import LiveRefreshIssue, LiveSourceError
@@ -120,6 +121,138 @@ def _valid_child(row, fixture_id, names):
             (team.get("name") is None or team["name"] == names[identifier]))
 
 
+def _card_counts(rows, fixture_id, names):
+    """Only the native Red Cards field is relevant; explicit null means zero."""
+    counts = {}
+    if rows is None:
+        return counts
+    if not isinstance(rows, list):
+        return None
+    for row in rows:
+        fields = _mapping(row).get("statistics")
+        if not _valid_child(row, fixture_id, names) or not isinstance(fields, list):
+            return None
+        team = row["team"]["id"]
+        for field in fields:
+            if _mapping(field).get("type") == "Red Cards":
+                value = field.get("value")
+                if team in counts or "value" not in field or not (value is None or type(value) is int and value >= 0):
+                    return None
+                counts[team] = 0 if value is None else value
+    return counts
+
+
+def _card_clock(phase, timing, event=None):
+    """Extend the regulation clock for display only; ET stoppage precedes the next period."""
+    minute, extra = timing.get("elapsed"), timing.get("extra")
+    extra = 0 if extra is None else extra
+    if phase not in ("ET", "BT", "P"):
+        return (period_clock(phase, minute, extra) if event is None else regulation_clock(event, phase))
+    if type(minute) is not int or type(extra) is not int or not 0 <= extra <= 30:
+        return None
+    if event is None and phase in ("BT", "P"):
+        # Some competitions go directly from 90 minutes to the shootout.
+        periods = {90: 2, 105: 3} if phase == "BT" else {90: 2, 120: 4}
+        return (periods[minute], minute, 30) if minute in periods else None
+    period = timing.get("period")
+    if event is not None:
+        other = event.get("period")
+        if period is not None and other is not None and period != other:
+            return None
+        period = other if period is None else period
+        if period in ("1H", "2H") or period is None and minute <= 90:
+            return regulation_clock(event, phase)
+    if not 90 <= minute <= 120:
+        return None
+    if period == "ET1" or period in ("ET", None) and minute <= 105:
+        return (3, minute, extra) if minute <= 105 and (not extra or minute == 105) else None
+    if period in ("ET", "ET2", None):
+        return (4, minute, extra) if minute >= 105 and (not extra or minute == 120) else None
+    return None
+
+
+def confirmed_live_dismissals(fixture):
+    """Return (side, minute, extra, explicitly off-field) facts, never an on-field count or a pick."""
+    match = _mapping(fixture)
+    native, teams = _mapping(match.get("fixture")), _mapping(match.get("teams"))
+    fixture_id, status = native.get("id"), _mapping(native.get("status"))
+    sides = {}
+    names = {}
+    for side in ("home", "away"):
+        team = _mapping(teams.get(side))
+        team_id, name = team.get("id"), team.get("name")
+        if not _positive(team_id) or team_id in sides or not isinstance(name, str) or not name.strip():
+            return ()
+        sides[team_id], names[team_id] = side, name
+    phase = status.get("short")
+    snapshot = _card_clock(phase, status)
+    events = match.get("events")
+    if not _positive(fixture_id) or snapshot is None or not isinstance(events, list):
+        return ()
+    counts = _card_counts(match.get("statistics"), fixture_id, names)
+    if counts is None:
+        return ()
+
+    cards, reviews, confirmations = {}, [], {}
+    for event in events:
+        kind, detail = _mapping(event).get("type"), _mapping(event).get("detail")
+        if not isinstance(kind, str) or kind.strip().casefold() not in ("card", "var") or not isinstance(detail, str):
+            continue
+        var = kind.strip().casefold() == "var"
+        label = detail.strip().casefold()
+        text = (label + " " + str(event.get("comments") or "")).casefold()
+        reversed_card = any(word in text for word in (
+            "cancel", "overturn", "disallow", "rescind", "withdraw", "no card", "no red card", "not a red card"))
+        reversed_or_open = reversed_card or redcard_events.denied_or_pending_dismissal(event) or "review" in text
+        review = (var and "card" in text
+                  or reversed_or_open and ("red card" in text or "second yellow" in text))
+        if not review and (var or label not in ("red card", "second yellow card")):
+            continue
+        if not _valid_child(event, fixture_id, names):
+            if review:
+                return ()  # An unbound card review cannot safely be attributed.
+            continue
+        team, player = event["team"]["id"], _mapping(event.get("player")).get("id")
+        try:
+            clock = _card_clock(phase, _mapping(event.get("time")), event)
+        except ValueError:
+            clock = None
+        if clock is None or clock[2] > 30:
+            if review:
+                return ()
+            continue
+        if clock > snapshot:
+            continue
+        if review:
+            recipient = player if _positive(player) else None
+            # An upgrade isn't a dismissal by itself. It is compatible with a separate
+            # red event when the native side count can corroborate the resulting list.
+            if var and label == "red card confirmed" and not reversed_or_open and recipient is not None:
+                key = team, recipient
+                confirmations[key] = max(clock, confirmations.get(key, clock))
+            elif reversed_or_open or label not in ("red card confirmed", "card upgrade") or (
+                    label == "card upgrade" and team not in counts):
+                reviews.append((team, recipient, clock, reversed_card))
+        if not var and label in ("red card", "second yellow card") and _positive(player):
+            off_field = redcard_events.explicit_off_field_dismissal(event)
+            if player not in cards:
+                cards[player] = (clock, team, off_field)
+            elif (prior := cards[player]) is not None:
+                # Second yellow + red can describe one event. No guess between
+                # conflicting timestamps or teams; retain explicit bench evidence.
+                cards[player] = (clock, team, prior[2] or off_field) if prior[:2] == (clock, team) else None
+
+    # VAR need not carry a player id: withhold ambiguous earlier cards on that side.
+    # Only a strictly later confirmation of the same recipient resolves an open review.
+    unresolved = [(t, p, when) for t, p, when, cancelled in reviews
+                  if cancelled or confirmations.get((t, p), when) <= when]
+    confirmed = sorted(card for player, card in cards.items() if card is not None and
+                       not any(t == card[1] and p in (None, player) and card[0] <= when for t, p, when in unresolved))
+    totals = Counter(team for _, team, _ in confirmed)
+    return tuple((sides[t], minute, extra, off) for (_, minute, extra), t, off in confirmed
+                 if t not in counts or counts[t] == totals[t])
+
+
 def _validate_stats(rows, fixture_id, names):
     if not isinstance(rows, list) or len(rows) != 2:
         return None
@@ -155,6 +288,8 @@ def _validate_stats(rows, fixture_id, names):
 
 
 def _corroborate(match, teams, snapshot_clock, stats):
+    from redcard_events import denied_or_pending_dismissal, explicit_off_field_dismissal
+
     events = match.get("events")
     if not isinstance(events, list):
         return False, None
@@ -202,10 +337,12 @@ def _corroborate(match, teams, snapshot_clock, stats):
             return False, None
         if typ == "Card":
             if detail in ("Red Card", "Second Yellow card"):
+                if explicit_off_field_dismissal(event) or denied_or_pending_dismissal(event):
+                    return False, None  # A team card statistic does not prove missing manpower.
                 if not _positive(_mapping(event.get("player")).get("id")) or clock[2] > 30:
                     return False, None
                 reds[team] += 1
-                dismissal = event
+                dismissal = event, clock
                 findings.append(("Red", team, clock))
             elif detail != "Yellow Card":
                 return False, None
@@ -231,7 +368,7 @@ def _corroborate(match, teams, snapshot_clock, stats):
     return True, dismissal
 
 
-def _red_result(match, event, stats, priors):
+def _red_result(match, event, card_clock, stats, priors):
     time, player, team = event["time"], event["player"], event["team"]["id"]
     teams, score = match["teams"], match["goals"]
     side, other = ("home", "away") if team == teams["home"]["id"] else ("away", "home")
@@ -243,7 +380,9 @@ def _red_result(match, event, stats, priors):
         ("total_attacks", "attacks"), ("dangerous_attacks", "dangerous_attacks"),
         ("corners", "corners"), ("total_shots", "shots"))}
     prediction = RedCardImpactPredictor().predict(
-        minute, score["home"], score["away"], side, live, *priors, red_card_minute=time["elapsed"])
+        minute, score["home"], score["away"], side, live, *priors, red_card_minute=card_clock[1])
+    version = (RED_CARD_MODEL_VERSION + ":grouped-first-half-added-v1"
+               if card_clock[0] == 1 and card_clock[2] else RED_CARD_MODEL_VERSION)
     return {"card": {"card_id": f"{fid}_{team}_{player['id']}_{time['elapsed']}_{extra}",
                      "minute": time["elapsed"], "extra_minute": extra, "detail": event["detail"],
                      "player": player.get("name") or "Unknown", "team": teams[side]["name"], "team_id": team,
@@ -252,7 +391,7 @@ def _red_result(match, event, stats, priors):
             "home": teams["home"]["name"], "away": teams["away"]["name"],
             "score": f"{score['home']}-{score['away']}", "opponent": teams[other]["name"], "red_side": side,
             "fixture_red_card_count": 1, "error": None, "live_stats": live, "prediction_minute": minute,
-            "prediction": asdict(prediction), "model_version": RED_CARD_MODEL_VERSION}
+            "prediction": asdict(prediction), "model_version": version}
 
 
 def analyze_detail(fixture, analyzer=None):
@@ -274,7 +413,7 @@ def analyze_detail(fixture, analyzer=None):
     stats = _validate_stats(match.get("statistics"), native["id"], names)
     if stats is None:
         return None, None
-    consistent, card = _corroborate(match, names, clock, stats)
+    consistent, dismissal = _corroborate(match, names, clock, stats)
     if not consistent:
         return None, None
     priors = (None, None)
@@ -284,7 +423,11 @@ def analyze_detail(fixture, analyzer=None):
             priors = AdvancedBTTSAnalyzer.cached_live_goal_priors(
                 analyzer, *ids, league["id"], league.get("season"), native.get("date"))
     local = _FixtureObservations((native["id"], *ids), stats, match["events"])
-    ordinary = UltraLiveScanner(None, local).analyze_live_match_ultra(match, prematch_priors=priors)
+    card, card_clock = dismissal if dismissal else (None, None)
+    # The scalar models run on regulation minutes. 1H 48 and 45+3 both have
+    # base minute 45; an unqualified 48 remains 2H. Keep the raw receipt clock.
+    ordinary = UltraLiveScanner(None, local).analyze_live_match_ultra(
+        match, prematch_priors=priors, corroborated_red_card_minute=card_clock[1] if card_clock else None)
     if ordinary:
         ordinary["scheduled_start"] = native.get("date")
-    return ordinary, _red_result(match, card, stats, priors) if card else None
+    return ordinary, _red_result(match, card, card_clock, stats, priors) if card else None

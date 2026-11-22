@@ -280,6 +280,7 @@ details.wf-fact {padding:0 !important;}
   gap:clamp(.45rem,1vw,1rem);font:800 clamp(1.45rem,3.1vw,3.5rem)/1 'BB Sport',sans-serif;}
 .st-key-live_detail .lv-scoreline >span {min-width:0;overflow-wrap:anywhere;}
 .st-key-live_detail .lv-scoreline >span:last-child {text-align:right;}
+.st-key-live_detail .lv-card-fact {display:block;margin-top:.3rem;color:#a32626;font:700 .88rem/1.2 sans-serif;}
 .st-key-live_detail .lv-scoreline >b {background:#0b3e27;border-radius:6px;color:#fff;text-align:center;
   padding:.12em .24em;font-variant-numeric:tabular-nums;letter-spacing:.015em;}
 .st-key-live_detail .lv-clock {position:relative;display:grid;gap:.32rem;padding-bottom:1.75rem;}

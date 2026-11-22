@@ -268,6 +268,57 @@ def test_second_yellow_native_dismissal_keeps_existing_card_attribution():
     assert source().analyze_detail(row) == (None, None)
 
 
+@pytest.mark.parametrize("card_minute", [52, 32])
+def test_second_yellow_and_straight_red_share_the_observed_duration_and_goal_probabilities(card_minute):
+    row = native()
+    card = row["events"][1]
+    card["time"]["elapsed"] = card_minute
+    row["events"].insert(0, dict(card, time={"elapsed": 12}, detail="Yellow Card"))
+    straight_red, _ = source().analyze_detail(row)
+
+    card["detail"] = "Second Yellow card"
+    second_yellow, _ = source().analyze_detail(row)
+    assert second_yellow["red_cards"]["context"]["minutes_since_card"] == 60 - card_minute
+    assert second_yellow["remaining_goals"] == straight_red["remaining_goals"]
+    # The standalone scanner reads the native event itself, without the
+    # grouped adapter's already-corroborated minute.
+    scanner = UltraLiveScanner(None, SimpleNamespace(
+        get_match_statistics=lambda *args: second_yellow["stats"], get_fixture_events=lambda _: row["events"]))
+    standalone = scanner.analyze_live_match_ultra(row, prematch_priors=(None, None))
+    assert standalone["red_cards"]["context"]["minutes_since_card"] == 60 - card_minute
+    assert standalone["remaining_goals"] == straight_red["remaining_goals"]
+
+
+@pytest.mark.parametrize("detail", ["Red Card", "Second Yellow card"])
+def test_grouped_first_half_added_time_uses_one_model_clock_but_preserves_native_receipt(detail):
+    from red_card_impact_predictor import RED_CARD_MODEL_VERSION
+    row = native()
+    row["fixture"]["status"]["elapsed"] = 57
+    row["events"][1]["detail"] = detail
+
+    def at(timing):
+        original = deepcopy(timing)
+        row["events"][1]["time"] = timing
+        ordinary, red = source().analyze_detail(row)
+        assert row["events"][1]["time"] == original
+        return ordinary, red
+
+    split, split_red = at({"elapsed": 45, "extra": 3})
+    packed, packed_red = at({"elapsed": 48, "period": "1H"})
+    regular, regular_red = at({"elapsed": 48})  # no period evidence for first-half added time
+    assert packed["remaining_goals"] == split["remaining_goals"]
+    assert packed_red["prediction"] == split_red["prediction"]
+    assert packed["red_cards"]["context"]["minutes_since_card"] == 12
+    assert regular["red_cards"]["context"]["minutes_since_card"] == 9
+    assert regular_red["prediction"]["context_effects"]["minutes_since_card"] == 9
+    assert regular["remaining_goals"] != packed["remaining_goals"]
+    assert regular_red["model_version"] == RED_CARD_MODEL_VERSION
+    assert packed_red["model_version"] == split_red["model_version"] != RED_CARD_MODEL_VERSION
+    assert (split_red["card"]["card_id"], packed_red["card"]["card_id"]) == ("81_2_9_45_3", "81_2_9_48_0")
+    assert (split_red["card"]["minute"], split_red["card"]["extra_minute"]) == (45, 3)
+    assert (packed_red["card"]["minute"], packed_red["card"]["extra_minute"]) == (48, 0)
+
+
 def test_duplicate_goal_row_cannot_validate_an_inflated_score():
     row = native()
     row["goals"]["home"] = row["score"]["halftime"]["home"] = 2

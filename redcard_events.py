@@ -1,7 +1,33 @@
-"""Pure checks for a provider's completed, regulation-only football timeline."""
+"""Pure checks for native football events and completed regulation timelines."""
+
+import re
 
 FINISHED_STATUSES = {"FT", "AET", "PEN"}
 HISTORY_POLICY = "regulation-goals-score-verified-v2"
+
+
+_OFF_FIELD_RECIPIENT = re.compile(
+    r"(?:(?:red card|second yellow card|card)(?: (?:shown to|for|to) (?:the |a )?|\s*[:(–-]\s*))?"
+    r"(?:bench(?: player)?|(?:player )?on (?:the )?bench|(?:unused )?substitute|"
+    r"(?:player )?(?:already )?substituted(?: off| player)?|(?:head |assistant )?coach|manager|"
+    r"(?:(?:technical|coaching|team) )?staff(?: member)?|team official)\s*(?:$|[,;():.!–-])"
+)
+_CARD_NOT_FINAL = re.compile(
+    r"\b(?:no (?:red )?card|not a red card|(?:cancelled|canceled|rescinded|overturned|"
+    r"disallowed|withdrawn)|under review|var check)\b"
+)
+
+
+def explicit_off_field_dismissal(event):
+    """Native recipient label, not an inference from the player's name or a roster."""
+    # An offence involving a bench player is not itself a card *for* that player.
+    comment = str(event.get("comments") or "").casefold().strip()
+    return bool(_OFF_FIELD_RECIPIENT.match(comment))
+
+
+def denied_or_pending_dismissal(event):
+    """A negated/reviewed card is no evidence for the numerical advantage model."""
+    return bool(_CARD_NOT_FINAL.search(_event_description(event)))
 
 
 def response_rows(response, api):
