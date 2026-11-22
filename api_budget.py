@@ -25,6 +25,8 @@ DEFAULT_RECOMMENDATION_RESERVE = 750
 DEFAULT_BACKGROUND_RESERVE = 2_500
 LIVE_TICKER_DAILY_CAP = 500
 LIVE_TICKER_PREFIX = "live-ticker:"
+FOOTBALL_ROLLOVER_STATUS_LABEL = "account rollover check"
+_FOOTBALL_STATUS_URL = "https://v3.football.api-sports.io/status"
 DEFAULT_DB_PATH = Path(__file__).resolve().parent / "runtime_state" / "api_budget.db"
 
 
@@ -42,6 +44,10 @@ class APIBudgetError(RuntimeError):
 
 class APIBudgetExceeded(APIBudgetError):
     """Raised before a request that would consume protected quota."""
+
+    def __init__(self, message: str, *, reason: str = "unknown"):
+        super().__init__(message)
+        self.reason = reason
 
 
 class APIBudgetUnavailable(APIBudgetError):
@@ -319,6 +325,22 @@ class APIBudgetGovernor:
                         int(row["daily_limit"]),
                     )
 
+                if endpoint == FOOTBALL_ROLLOVER_STATUS_LABEL:
+                    # The ordinary Shadow run checks cheaply before calling; repeat
+                    # admission under the write lock shared by every worker.
+                    if provider != "api-football" or self.quota_period != "day":
+                        raise APIBudgetExceeded("Kein Fußball-Tageskonto.", reason="not_needed")
+                    prior_check = connection.execute(
+                        "SELECT 1 FROM api_budget_events WHERE provider=? AND account_hash=? "
+                        "AND quota_day=? AND endpoint=? AND decision!='BLOCKED' LIMIT 1",
+                        (provider, account, day, endpoint),
+                    ).fetchone()
+                    if prior_check:
+                        raise APIBudgetExceeded("Kontostand heute bereits geprüft.", reason="already_checked")
+                    if (row is None or row["observed_remaining"] is None or
+                            not remaining <= self.background_reserve < row["observed_remaining"]):
+                        raise APIBudgetExceeded("Kein widersprüchlicher Kontostand.", reason="not_needed")
+
                 blocked_reason = None
                 if remaining - cost < floor:
                     blocked_reason = f"protected floor {floor}"
@@ -359,11 +381,12 @@ class APIBudgetGovernor:
                     )
                     connection.commit()
                     if blocked_reason.startswith("live ticker"):
-                        raise APIBudgetExceeded("Live-Tageskontingent ausgeschöpft.")
+                        raise APIBudgetExceeded("Live-Tageskontingent ausgeschöpft.", reason="ticker_limit")
                     raise APIBudgetExceeded(
                         "API-Budget geschützt: "
                         f"{selected_priority.value} wurde bei geschätzten "
-                        f"{remaining} Rest-Calls vor dem Reservebereich {floor} blockiert."
+                        f"{remaining} Rest-Calls vor dem Reservebereich {floor} blockiert.",
+                        reason="protected_reserve",
                     )
 
                 after = remaining - cost
@@ -426,6 +449,7 @@ class APIBudgetGovernor:
         http_status: Optional[int] = None,
         error: Optional[str] = None,
         now: Optional[datetime] = None,
+        account_status_response: Any = None,
     ) -> None:
         completed = (now or _utc_now()).astimezone(timezone.utc).isoformat()
         provider_remaining = _header_int(
@@ -436,12 +460,13 @@ class APIBudgetGovernor:
             response_headers,
             "x-ratelimit-requests-limit",
         )
+        usage = active_football_account_usage(account_status_response) if account_status_response is not None else None
         try:
             with closing(self._connect()) as connection:
                 connection.execute("BEGIN IMMEDIATE")
                 row = connection.execute(
                     """
-                    SELECT daily_limit, remaining_estimate
+                    SELECT daily_limit, remaining_estimate, observed_remaining, updated_at
                     FROM api_budget_state
                     WHERE provider=? AND account_hash=? AND quota_day=?
                     """,
@@ -453,23 +478,42 @@ class APIBudgetGovernor:
                 ).fetchone()
                 if row is not None:
                     current_remaining = int(row["remaining_estimate"])
-                    current_limit = int(row["daily_limit"])
-                    stored_limit = current_limit
-                    if provider_limit is not None and provider_limit > 0:
-                        current_limit = provider_limit
-                    if provider_remaining is not None:
-                        if current_limit > stored_limit:
-                            # The plan grew during the quota day (23.10.2026: free
-                            # tier back to Pro). The stored estimate describes the
-                            # old plan, so the provider's own count replaces it;
-                            # within one plan the estimate still never rises.
-                            current_remaining = min(provider_remaining, current_limit)
+                    stored_limit = int(row["daily_limit"])
+                    current_limit = provider_limit or stored_limit
+                    observed = provider_remaining
+                    if account_status_response is not None:
+                        bound = None
+                        if (usage is not None and reservation.provider == "api-football"
+                                and self.quota_period == "day" and completed[:10] == reservation.quota_day
+                                and http_status == 200 and not error):
+                            used, limit = usage
+                            observed = min(limit - used, observed if observed is not None else limit)
+                            current_limit = min(limit, provider_limit if provider_limit is not None else limit)
+                            if provider_limit in (None, limit):
+                                bound = self._status_bound(connection, reservation, row["updated_at"], limit, observed)
+                        if bound is not None:
+                            current_remaining = bound
                         else:
-                            current_remaining = min(
-                                current_remaining,
-                                provider_remaining,
-                                current_limit,
-                            )
+                            # Conflicting plans, malformed status or overlapping state
+                            # changes: tighten only. Keep the stored plan so a later
+                            # normal header cannot look like a plan upgrade.
+                            current_remaining = min(current_remaining, current_limit)
+                            current_limit = stored_limit
+                            if observed is not None and row["observed_remaining"] is not None:
+                                observed = min(observed, row["observed_remaining"])
+                    elif reservation.provider == "api-football" and (
+                            error or http_status is None or not 200 <= http_status < 300):
+                        # Failed responses can tighten but cannot redefine the tariff.
+                        current_remaining = min(current_remaining, current_limit)
+                        current_limit = stored_limit
+                        if observed is not None and row["observed_remaining"] is not None:
+                            observed = min(observed, row["observed_remaining"])
+                    elif current_limit > stored_limit and observed is not None:
+                        # Existing plan-upgrade contract on a successful response.
+                        current_remaining = observed
+                    current_remaining = min(current_remaining, current_limit)
+                    if observed is not None:
+                        current_remaining = min(current_remaining, observed)
                     connection.execute(
                         """
                         UPDATE api_budget_state
@@ -481,7 +525,7 @@ class APIBudgetGovernor:
                         (
                             current_limit,
                             current_remaining,
-                            provider_remaining,
+                            observed,
                             completed,
                             reservation.provider,
                             reservation.account_hash,
@@ -509,6 +553,32 @@ class APIBudgetGovernor:
             raise APIBudgetUnavailable(
                 f"API budget completion could not be recorded: {type(exc).__name__}"
             ) from exc
+
+    @staticmethod
+    def _status_bound(connection, reservation, updated_at, limit, observed) -> Optional[int]:
+        """A confirmed account snapshot covers only calls settled before it began."""
+        key = (reservation.provider, reservation.account_hash, reservation.quota_day)
+        started = connection.execute(
+            "SELECT started_at FROM api_budget_events WHERE provider=? AND account_hash=? "
+            "AND quota_day=? AND id=? AND decision='RESERVED'", (*key, reservation.event_id),
+        ).fetchone()
+        if started is None or started[0] != updated_at:
+            return None  # Another reservation/completion/reconciliation changed state in flight.
+        spent, uncertain, overlap = connection.execute(
+            """SELECT SUM(remaining_before-remaining_after),
+                      SUM(remaining_before-remaining_after -
+                          CASE WHEN decision='COMPLETED' AND http_status BETWEEN 200 AND 299
+                               THEN 1 ELSE 0 END),
+                      MAX(id > ? OR (id != ? AND completed_at >= ?))
+               FROM api_budget_events WHERE provider=? AND account_hash=? AND quota_day=?
+               AND decision!='BLOCKED'""",
+            (reservation.event_id, reservation.event_id, started[0], *key),
+        ).fetchone()
+        if overlap:
+            return None
+        # Hold all local units, including failed/uncertain and weighted costs.
+        # The status request itself is still RESERVED and may be unbilled.
+        return max(0, min(limit - spent, observed - uncertain))
 
     def snapshot(
         self,
@@ -645,6 +715,28 @@ TIMEOUT_ATTEMPTS = 2
 TIMEOUT_RETRY_DELAY_SECONDS = 3.0
 
 
+def active_football_account_usage(response: Any) -> Optional[tuple[int, int]]:
+    """Validated (used, daily limit) from an active API-Football account response."""
+    if response.status_code != 200:
+        return None
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    if not isinstance(body, dict) or body.get("errors") not in ([], {}):
+        return None
+    account = body.get("response")
+    if not isinstance(account, dict):
+        return None
+    subscription, usage = account.get("subscription"), account.get("requests")
+    if not isinstance(subscription, dict) or subscription.get("active") is not True or not isinstance(usage, dict):
+        return None
+    used, limit = usage.get("current"), usage.get("limit_day")
+    if type(used) is not int or type(limit) is not int or not 0 <= used <= limit or limit <= 0:
+        return None
+    return used, limit
+
+
 def api_football_get(
     url: str,
     *,
@@ -661,8 +753,12 @@ def api_football_get(
     # whole nightly runs). Each attempt holds its own quota reservation; any other error and a
     # second timeout are raised unchanged.
     live_ticker = endpoint.startswith(LIVE_TICKER_PREFIX)
-    attempts = 1 if live_ticker else TIMEOUT_ATTEMPTS
-    if live_ticker:
+    status_call = str(url) == _FOOTBALL_STATUS_URL
+    auto_check = endpoint == FOOTBALL_ROLLOVER_STATUS_LABEL
+    if auto_check and not status_call:
+        raise APIBudgetUnavailable("Rollover check requires the API-Football account endpoint")
+    attempts = 1 if live_ticker or auto_check else TIMEOUT_ATTEMPTS
+    if live_ticker or status_call:
         request_kwargs["allow_redirects"] = False
     for attempt in range(1, attempts + 1):
         reservation = governor.reserve(
@@ -687,6 +783,7 @@ def api_football_get(
         break
     governor.complete(
         reservation,
+        account_status_response=response if status_call else None,
         response_headers=getattr(response, "headers", None),
         http_status=(
             int(response.status_code)
@@ -695,34 +792,6 @@ def api_football_get(
             else None
         ),
     )
-    if urlparse(str(url)).path.rstrip("/").endswith("/status"):
-        try:
-            payload = response.json()
-            provider_response = (
-                payload.get("response") if isinstance(payload, dict) else None
-            )
-            usage = (
-                provider_response.get("requests")
-                if isinstance(provider_response, dict)
-                else None
-            )
-            used = usage.get("current") if isinstance(usage, dict) else None
-            daily_limit = (
-                usage.get("limit_day") if isinstance(usage, dict) else None
-            )
-            if (
-                isinstance(used, int)
-                and not isinstance(used, bool)
-                and isinstance(daily_limit, int)
-                and not isinstance(daily_limit, bool)
-            ):
-                governor.reconcile_usage(
-                    api_key=str(api_key),
-                    used=used,
-                    daily_limit=daily_limit,
-                )
-        except (APIBudgetError, ValueError):
-            pass
     return response
 
 
@@ -734,6 +803,8 @@ __all__ = [
     "APIBudgetReservation",
     "APIBudgetSnapshot",
     "APIBudgetUnavailable",
+    "FOOTBALL_ROLLOVER_STATUS_LABEL",
+    "active_football_account_usage",
     "api_football_get",
     "get_api_budget_governor",
     "reset_api_budget_governor_cache",

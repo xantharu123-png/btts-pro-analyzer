@@ -6,13 +6,10 @@ from math import isfinite
 import api_budget
 from api_football import APIFootball
 from league_catalog import LEAGUE_BY_ID
+from live_football_feed import LiveRefreshIssue, LiveSourceError
 from red_card_impact_predictor import RED_CARD_MODEL_VERSION, RedCardImpactPredictor
 from redcard_events import period_clock, regulation_clock, score_pair, scoring_goal
 from scanners.ultra_live_scanner_v3 import UltraLiveScanner
-
-
-class LiveSourceError(RuntimeError):
-    """Report a failed refresh without disclosing a provider response or a credential."""
 
 
 def _positive(n):
@@ -42,20 +39,32 @@ class LiveFootballSource:
             ready = self._ready
             if ready is None:
                 from live_football_readiness import jobs_idle as ready
-            if not self._api_key or ready() is not True:
-                raise LiveSourceError("live request deferred")
+            if not self._api_key:
+                raise LiveSourceError(LiveRefreshIssue.TEMPORARY_ERROR)
+            if ready() is not True:
+                raise LiveSourceError(LiveRefreshIssue.JOBS_DEFERRED)
             response = api_budget.api_football_get(
                 "https://v3.football.api-sports.io/fixtures", headers={"x-apisports-key": self._api_key},
                 params=params, priority=api_budget.APIBudgetPriority.BACKGROUND,
                 label=f"live-ticker:{label}", allow_redirects=False, timeout=10)
             if response.status_code != 200:
-                raise LiveSourceError("live request unavailable")
-            data = response.json()
+                raise LiveSourceError(LiveRefreshIssue.PROVIDER_ERROR)
+        except api_budget.APIBudgetExceeded as error:
+            issue = {
+                "protected_reserve": LiveRefreshIssue.PROTECTED_RESERVE,
+                "ticker_limit": LiveRefreshIssue.TICKER_LIMIT,
+            }.get(getattr(error, "reason", None), LiveRefreshIssue.BUDGET_BLOCKED)
+            raise LiveSourceError(issue) from None
+        except api_budget.APIBudgetError:
+            raise LiveSourceError(LiveRefreshIssue.BUDGET_UNAVAILABLE) from None
         except LiveSourceError:
             raise
         except Exception:
-            raise LiveSourceError("live request unavailable") from None
-        data = _mapping(data)
+            raise LiveSourceError(LiveRefreshIssue.TEMPORARY_ERROR) from None
+        try:
+            data = _mapping(response.json())
+        except Exception:
+            raise LiveSourceError(LiveRefreshIssue.PROVIDER_ERROR) from None
         rows = data.get("response")
         paging = _mapping(data.get("paging"))
         if (data.get("get") != "fixtures" or data.get("parameters") != params
@@ -63,7 +72,7 @@ class LiveFootballSource:
                 or type(data.get("results")) is not int or data["results"] != len(rows)
                 or type(paging.get("current")) is not int or paging["current"] != 1
                 or type(paging.get("total")) is not int or paging["total"] not in ((1,) if rows else (0, 1))):
-            raise LiveSourceError("invalid live response envelope")
+            raise LiveSourceError(LiveRefreshIssue.PROVIDER_ERROR)
         grouped = {}
         for row in rows:
             fixture_id = _mapping(_mapping(row).get("fixture")).get("id")
@@ -72,15 +81,15 @@ class LiveFootballSource:
                     # The envelope is bound to this exact group. An extra
                     # or unidentified row says nothing about its siblings.
                     continue
-                raise LiveSourceError("unattributable live response")
+                raise LiveSourceError(LiveRefreshIssue.PROVIDER_ERROR)
             if requested is None and (fixture_id in grouped or not _positive(_mapping(row.get("league")).get("id"))):
                 # A complete discovery replaces the previous list. Withhold the
                 # refresh, don't turn corrupt identity into a confirmed removal.
-                raise LiveSourceError("ambiguous discovery")
+                raise LiveSourceError(LiveRefreshIssue.PROVIDER_ERROR)
             # Duplicate IDs are ambiguous, but do not discard other valid fixtures.
             grouped[fixture_id] = None if fixture_id in grouped else row
         if requested is not None and rows and not grouped:
-            raise LiveSourceError("unattributable live response")
+            raise LiveSourceError(LiveRefreshIssue.PROVIDER_ERROR)
         return [row for row in grouped.values() if row is not None
                 and _positive(league_id := _mapping(row.get("league")).get("id")) and league_id in LEAGUE_BY_ID]
 

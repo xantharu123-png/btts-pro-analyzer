@@ -3,8 +3,21 @@ from datetime import datetime
 from dataclasses import dataclass
 
 from football_recommendations import LIVE_MAX_AGE_SECONDS
+from live_football_feed import LiveRefreshIssue
 from tip_display_order import ordered_event_rows
 from wettfinder_surface import plain_markdown
+
+
+_REFRESH_MESSAGES = {
+    LiveRefreshIssue.TICKER_LIMIT: "Tageslimit des Live-Tickers erreicht.",
+    LiveRefreshIssue.PROTECTED_RESERVE: "Das verbleibende Abrufkontingent ist für die Tagesläufe reserviert.",
+    LiveRefreshIssue.BUDGET_BLOCKED: "Ein Abruflimit verhindert die Live-Aktualisierung.",
+    LiveRefreshIssue.BUDGET_UNAVAILABLE: "Das Abrufkontingent konnte nicht geprüft werden.",
+    LiveRefreshIssue.JOBS_DEFERRED: "Live-Aktualisierung pausiert: Hintergrundläufe haben Vorrang.",
+    LiveRefreshIssue.PROVIDER_ERROR: "Live-Daten des Anbieters sind derzeit nicht verfügbar.",
+    LiveRefreshIssue.TEMPORARY_ERROR: "Live-Aktualisierung ist vorübergehend gestört; neue Spielstände sind nicht verfügbar.",
+    LiveRefreshIssue.PARTIAL_DATA: "Die Live-Daten sind unvollständig.",
+}
 
 
 @dataclass(frozen=True)
@@ -49,8 +62,14 @@ def fresh_age(stamp, now):
     return seconds if 0 <= seconds <= LIVE_MAX_AGE_SECONDS else None
 
 
-def render_board(ui, games, candidates, *, automatic_ids, market_label, format_time, render_tip, reasons, now):
+def render_board(ui, games, candidates, *, automatic_ids, market_label, format_time, render_tip, reasons, now,
+                 refresh_issue=None):
     """Stable fixture buttons. A missing candidate never selects a different match's tip."""
+    if refresh_issue is not None:
+        message = _REFRESH_MESSAGES.get(refresh_issue, _REFRESH_MESSAGES[LiveRefreshIssue.TEMPORARY_ERROR])
+        ui.info(message + (" Die zuletzt bekannten Spielstände bleiben sichtbar." if games else ""))
+        if not games:
+            return
     if not games:
         ui.info("Kein Live-Spiel in den unterstützten Ligen verfügbar.")
         return

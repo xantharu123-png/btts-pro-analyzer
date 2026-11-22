@@ -3042,10 +3042,6 @@ def _render_live_football(analyzer, market, *, viewer_active):
         st.info("Live-Zugang nicht verfügbar.")
         return
     games = games_in_start_order(rows)
-    if feed.unavailable:
-        st.info("Neue Live-Daten sind derzeit nicht verfügbar. Der nächste Abruf erfolgt automatisch.")
-        if not games:
-            return
     candidates, reasons = [], {}
     now = datetime.now(timezone.utc)
     for game in games:
@@ -3108,7 +3104,7 @@ def _render_live_football(analyzer, market, *, viewer_active):
 
     render_board(st, games, admitted, automatic_ids=automatic_ids, market_label="Beide treffen" if market == "BTTS" else market,
                  format_time=_format_snapshot_time, render_tip=render_tip, reasons=reasons,
-                 now=datetime.now(timezone.utc))
+                 now=datetime.now(timezone.utc), refresh_issue=feed.refresh_issue)
 
 
 def _red_card_entry(
