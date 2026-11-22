@@ -24,7 +24,7 @@
 4. Bei knappem Budget, Neustart oder geschlossenem Tab darf kein versteckter Abruf entstehen.
 5. Wechselnde Sortierung darf einen Tipp weder dem falschen Spiel zuordnen noch mehrfach als sichtbar erfassen.
 
-### 1. Gemeinsamer Takt und Budget
+### Task 1: Gemeinsamer Takt und Budget
 
 Dateien: `live_football_feed.py`, `api_budget.py` (falls für eine atomare Feed-Grenze nötig), `tests/test_live_football_feed.py`.
 
@@ -32,7 +32,7 @@ Dateien: `live_football_feed.py`, `api_budget.py` (falls für eine atomare Feed-
 - [ ] `LiveFootballFeed.tick(...)` stößt nur fällige Arbeit an; kein eigener regelmäßig laufender Thread. Je Konto/Anbieter eine gemeinsame Instanz, keine Geheimnisse in Ausgaben. Ein einzelner aktiver Abruf darf nach Verlassen des Tabs enden.
 - [ ] Gruppenergebnisse getrennt je Spiel halten, alte Tipps bei Fehler/Änderung verwerfen. Bereitschaft zu weiteren Abrufen unmittelbar vor jedem Request mit der vorhandenen Reserve und Feed-Grenze prüfen. Prüfen mit `pytest tests/test_live_football_feed.py tests/test_api_budget.py -q`; committen.
 
-### 2. Spielstand und Modell aus derselben Antwort
+### Task 2: Spielstand und Modell aus derselben Antwort
 
 Dateien: `live_football_source.py`, `api_football.py`, `scanners/ultra_live_scanner_v3.py`, bestehender Rotkartenpfad, `tests/test_live_football_source.py`.
 
@@ -40,7 +40,7 @@ Dateien: `live_football_source.py`, `api_football.py`, `scanners/ultra_live_scan
 - [ ] `discover()` liest die gemeinsame Liste, `details(ids)` liefert nur exakt passende Gruppendaten. Bestehende Statistik- und Marktberechnung mit einem offline begrenzten Adapter wiederverwenden. Vorabwerte nur exakt passend zu Spiel, Seiten und Modellversion wiederverwenden. Ohne belastbare Details bleibt der belegte Spielstand sichtbar.
 - [ ] Gegenprobe: alte und neue Rechnung bei identischen vollständigen Quellen gleich; Statuswechsel/VAR entwertet die vorige Rechnung. `pytest tests/test_live_football_source.py tests/test_live_tip_surface.py -q`; committen.
 
-### 3. Anzeige und Freigabe
+### Task 3: Anzeige und Freigabe
 
 Dateien: `app.py:render_live`, `live_football_board.py`, `tests/test_live_football_board.py`, `STATUS.md`.
 
