@@ -74,6 +74,31 @@ def customer_cards(slips, artifact=None, *, as_of, chance=None):
     return sorted(cards, key=lambda card: card["size"])
 
 
+def _selection_label(leg):
+    """Name the subject of a goal line without changing the original selection."""
+    selection = leg["selection"]
+    if leg.get("sport") != "football":
+        return selection
+    from challenge_engine import MARKET_BY_KEY
+    spec = MARKET_BY_KEY.get(leg.get("market_key"))
+    if spec is None or spec.kind not in {"team_total", "total"}:
+        return selection
+    line = selection.replace(".", ",")
+    if spec.kind == "total":
+        return f"Gesamttore im Spiel: {line}"
+
+    home = spec.side.startswith("home_")
+    team = "Heimteam" if home else "Auswärtsteam"
+    # Original receipts keep the two participant identities in home/away order.
+    # Use the event's original spelling only when BOTH names match in that order.
+    names = [name.strip() for name in leg["event_label"].split(" vs ")]
+    if len(names) == 2 and all(names) and leg.get("participant_names") == [
+        "football:name:" + " ".join(name.casefold().split()) for name in names
+    ]:
+        team = names[0 if home else 1]
+    return f"{team}: {line} Tore"
+
+
 def render_daily_accumulators(st, *, as_of=None, directory=None):
     from daily_accumulator_publication import DB_NAME
     from daily_accumulator_receipts import load_daily_picks
@@ -98,7 +123,7 @@ def render_daily_accumulators(st, *, as_of=None, directory=None):
             st.progress(card["chance"], text=label)
             for leg in card["legs"]:
                 start = _time(leg["starts_at"]).astimezone(ZURICH).strftime("%H:%M")
-                st.text(f"{start}  {leg['event_label']}\n{leg['selection']}")
+                st.text(f"{start}  {leg['event_label']}\n{_selection_label(leg)}")
                 if leg.get("reason"):
                     st.caption(leg["reason"])
             if not card["started"]:

@@ -4,7 +4,13 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 „Stand“ ersetzen, nicht anhängen; Historie steht in `TODO_AKTUELL.md` und
 `PC_WECHSEL_UEBERGABE.md`. Regeln und Einstieg: `AGENTS.md`.
 
-## Stand: 21.11.2026
+## Stand: 22.11.2026
+
+Tageskombis: Die Tippzeile unterscheidet Teamtore und Gesamttore im Spiel.
+Der Originalbeleg Augsburg–Mainz enthält `HOME_UNDER_2_5` (75,8 %).
+Nur die Anzeige ist geändert; gespeicherte Scheine, Modelle und Abrechnung bleiben unverändert.
+87 Kombi-Tests unter der produktiven Preisregel bestanden. Der lokale Gesamtlauf stoppt
+separat in `test_native_conflicting_role_ids_fail_before_any_request` (Eishockey).
 
 Fußball-Live: [interner Nachweis für tatsächlich angezeigte Auswahlen](docs/audits/2026-11-21-live-tippbilanz.md), keine Bilanz oder Erfassungsmeldung im Kundentab. Die Korrekturen aus `88be814` an Ereignisabruf und Abrechnung bleiben bestehen. Frühere Anzeigen ohne gespeicherten Beleg werden nicht rückwirkend gezählt.
 

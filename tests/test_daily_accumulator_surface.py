@@ -8,6 +8,40 @@ from daily_accumulator_surface import customer_cards, quote_status
 NOW = datetime(2030, 1, 7, 12, tzinfo=timezone.utc)
 
 
+def test_rendered_archived_combo_keeps_home_away_and_match_goals_distinct(monkeypatch):
+    from streamlit.testing.v1 import AppTest
+
+    slip = dict(example(), arm='daily-picks')
+    for leg, key, names in zip(slip['legs'], ('HOME_UNDER_2_5', 'AWAY_UNDER_2_5', 'TOTAL_UNDER_2_5'),
+                               (('FC Augsburg', 'FSV Mainz 05'), ('SC Freiburg', 'Werder Bremen'),
+                                ('Köln', 'Stuttgart'))):
+        leg.update(sport='football', market_key=key, selection='Unter 2.5',
+                   event_label=' vs '.join(names),
+                   participant_names=['football:name:' + n.casefold() for n in names])
+    monkeypatch.setattr('daily_accumulator_receipts.load_daily_picks', lambda *a, **k: [slip])
+    app = AppTest.from_string("""
+import streamlit as st
+from daily_accumulator_surface import render_daily_accumulators
+render_daily_accumulators(st, as_of='2030-01-07T12:00:00+00:00')
+""").run()
+    assert not app.exception
+    assert {row.value.splitlines()[1] for row in app.text} == {
+        'FC Augsburg: Unter 2,5 Tore', 'Werder Bremen: Unter 2,5 Tore',
+        'Gesamttore im Spiel: Unter 2,5'}
+
+
+@pytest.mark.parametrize(('sport', 'key', 'expected'), [
+    ('football', 'AWAY_OVER_0_5', 'Auswärtsteam: Über 0,5 Tore'),
+    ('ice_hockey', 'AWAY_OVER_0_5', 'Über 0.5'),
+])
+def test_no_team_is_inferred_from_reversed_event_names_or_another_sport(sport, key, expected):
+    from daily_accumulator_surface import _selection_label
+
+    assert _selection_label(dict(sport=sport, market_key=key, selection='Über 0.5',
+                                 event_label='Mainz vs Augsburg',
+                                 participant_names=['football:name:augsburg', 'football:name:mainz'])) == expected
+
+
 def example():
     def leg(i):
         return dict(event_key=f'football:{i}', forecast_id=f'{i:064x}', event_label=f'Spiel {i}',
