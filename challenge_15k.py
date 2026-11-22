@@ -429,6 +429,24 @@ def _valid_upcoming_fixture(value: Any, expected_league_id: int) -> bool:
     return _fixture_kickoff(value) is not None
 
 
+def _live_goal_prior_target(fixture, competition, start_date, end_date) -> bool:
+    """Only a consistent, native pre-match club fixture can own a live goal basis."""
+    league, native = fixture["league"], fixture["fixture"]
+    kickoff = _fixture_kickoff(fixture)
+    if (competition is None or league["id"] != competition[0]
+            or league["id"] == 5 or league["id"] in CONTINENTAL_LEAGUE_IDS
+            or fixture.get("challenge_senior_national_team") is True or kickoff is None
+            or not start_date <= kickoff.astimezone(CHALLENGE_TIMEZONE).date() <= end_date
+            or ("season" in league and _positive_integer(league["season"]) != competition[1])
+            or ("timestamp" in native and (type(native["timestamp"]) is not int
+                                            or native["timestamp"] != kickoff.timestamp()))):
+        return False
+    status = native.get("status")
+    goals = fixture.get("goals", {})
+    return (isinstance(status, dict) and status.get("short") == "NS" and status.get("elapsed") is None
+            and isinstance(goals, dict) and all(goals.get(side) is None for side in ("home", "away")))
+
+
 def _reconcile_candidate_fixture(
     candidate: ChallengeCandidate,
     detail: object,
@@ -2561,6 +2579,7 @@ def scan_daily_challenge(
     max_new_xg_calls: int = XG_MAX_NEW_CALLS_PER_SCAN,
     progress_cb=None,
     original_publication=None,
+    capture_live_goal_priors: bool = True,
 ) -> dict[str, Any]:
     """Run one explicit, quota-aware scan over at most fourteen days."""
     if not isinstance(allow_above_challenge_probability, bool):
@@ -2571,6 +2590,7 @@ def scan_daily_challenge(
         CANDIDATE_PROFILE_CHALLENGE, CANDIDATE_PROFILE_WETTFINDER,
     ):
         raise ValueError("candidate_profile must be challenge or wettfinder")
+    capture_priors = capture_live_goal_priors is True and candidate_profile == CANDIDATE_PROFILE_WETTFINDER
     end_date = search_end_date or search_date
     _validate_scan_inputs(league_ids, search_date, max_fixtures, end_date)
     supported_market_kinds = {spec.kind for spec in market_specs()}
@@ -2593,6 +2613,7 @@ def scan_daily_challenge(
     histories: dict[tuple[int, int], list[dict[str, Any]]] = {}
     coverage: dict[tuple[int, int], dict[str, bool]] = {}
     fixture_competitions: dict[int, tuple[int, int]] = {}
+    ambiguous_prior_ids: set[int] = set()
 
     league_total = len(league_ids)
     for league_index, league_id in enumerate(league_ids):
@@ -2637,10 +2658,11 @@ def scan_daily_challenge(
                 )
             fixtures.extend(valid_upcoming)
             for fixture in valid_upcoming:
-                fixture_competitions[fixture["fixture"]["id"]] = (
-                    league_id,
-                    season,
-                )
+                fixture_id = fixture["fixture"]["id"]
+                competition = league_id, season
+                if fixture_competitions.get(fixture_id, competition) != competition:
+                    ambiguous_prior_ids.add(fixture_id)
+                fixture_competitions[fixture_id] = competition
             if valid_upcoming:
                 history = provider.completed_history(
                     league_id,
@@ -2678,13 +2700,15 @@ def scan_daily_challenge(
         progress_cb(0.50, "Spiele werden bereinigt und sortiert")
     fixtures.sort(key=lambda item: _fixture_kickoff(item) or datetime.max.replace(tzinfo=timezone.utc))
     unique_fixtures: list[dict[str, Any]] = []
-    seen_fixture_ids: set[int] = set()
+    seen_fixtures: dict[int, dict[str, Any]] = {}
     for fixture in fixtures:
         fixture_id = fixture["fixture"]["id"]
-        if fixture_id in seen_fixture_ids:
+        if fixture_id in seen_fixtures:
+            if seen_fixtures[fixture_id] != fixture:
+                ambiguous_prior_ids.add(fixture_id)
             provider.errors.append(f"Fixture {fixture_id}: doppelter Provider-Eintrag verworfen")
             continue
-        seen_fixture_ids.add(fixture_id)
+        seen_fixtures[fixture_id] = fixture
         unique_fixtures.append(fixture)
     fixtures = unique_fixtures
     if len(fixtures) > max_fixtures:
@@ -2928,6 +2952,7 @@ def scan_daily_challenge(
         )
     all_candidates: list[ChallengeCandidate] = []
     football_recent_results = {}
+    live_goal_priors = []
     if original_publication is not None:
         original_publication.freeze(tuple([*fixtures,
             *(row for rows in histories.values() for row in rows),
@@ -2981,6 +3006,9 @@ def scan_daily_challenge(
             candidate_profile=candidate_profile,
             **(original_publication.model_kwargs(decision_at=datetime.now(timezone.utc))
                if original_publication is not None else {}),
+            **({"live_goal_prior_capture": live_goal_priors.append}
+               if (capture_priors and fixture_id not in ambiguous_prior_ids
+                   and _live_goal_prior_target(fixture, competition, search_date, end_date)) else {}),
         )
         if fixture_candidates:
             from football_customer_facts import build_football_recent_results
@@ -3234,6 +3262,7 @@ def scan_daily_challenge(
         "version": CHALLENGE_SNAPSHOT_VERSION,
         "invalidated_fixture_ids": sorted(invalidated_fixture_ids),
         "football_recent_results": football_recent_results,
+        **({"live_goal_priors": {"version": 1, "rows": live_goal_priors}} if capture_priors else {}),
         **({"football_original_capture": original_publication.report()} if original_publication is not None else {}),
         "scanned_at": datetime.now(timezone.utc).isoformat(),
         "scope": _scope_signature(

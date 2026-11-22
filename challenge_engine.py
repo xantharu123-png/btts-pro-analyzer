@@ -2900,6 +2900,7 @@ def build_fixture_candidates(
     native_provenance=None,
     native_resolver=None,
     goal_model: str = GOAL_MODEL_LEGACY,
+    live_goal_prior_capture=None,
 ) -> list[ChallengeCandidate]:
     """Build price-independent candidates for one fixture.
 
@@ -2946,6 +2947,27 @@ def build_fixture_candidates(
         return []
 
     active_home, active_away = model["active_lambdas"]
+    expected_home_goals, expected_away_goals = round(active_home, 3), round(active_away, 3)
+    # Capture the same calibrated goal means as public candidates, independent of the returned markets.
+    # In particular a failed projection returns raw rates for research, not a live prior.
+    if live_goal_prior_capture is not None and model_scope == MODEL_SCOPE_SAME_COMPETITION:
+        modeled_at = datetime.now(timezone.utc)
+        active_goal = (model.get("distribution_capture", {}).get("families", {})
+                       .get("goals", {}).get("active", {}))
+        if (goal_model == model.get("goal_model") == PRODUCTION_GOAL_MODEL
+                and basis_version == CHALLENGE_PREDICTION_VERSION
+                and team_history is None and "national_samples" not in model
+                and active_goal.get("diagnostics", {}).get("success") is True
+                and all(type(v) in (float, int) and 0 <= v <= 8 for v in (active_home, active_away))
+                and modeled_at < datetime.fromisoformat(identity["kickoff"])):
+            live_goal_prior_capture({
+                "fixture_id": identity["fixture_id"], "league_id": identity["league_id"],
+                "home_id": identity["home_team_id"], "away_id": identity["away_team_id"],
+                "home_team": identity["home_team"], "away_team": identity["away_team"],
+                "scheduled_start": identity["kickoff"], "modeled_at": modeled_at.isoformat(),
+                "model_version": basis_version, "model_scope": model_scope,
+                "expected_home_goals": expected_home_goals, "expected_away_goals": expected_away_goals,
+            })
     comparisons = {}
     if candidate_profile == CANDIDATE_PROFILE_WETTFINDER and model_scope in {
         MODEL_SCOPE_SAME_COMPETITION, MODEL_SCOPE_SENIOR_NATIONAL,
@@ -3085,8 +3107,8 @@ def build_fixture_candidates(
                 model_price=round(model_price, 4) if math.isfinite(model_price) else math.inf,
                 evidence_score=round(evidence, 1),
                 model_spread_pp=round(spread_pp, 2),
-                expected_home_goals=round(active_home, 3),
-                expected_away_goals=round(active_away, 3),
+                expected_home_goals=expected_home_goals,
+                expected_away_goals=expected_away_goals,
                 venue_samples=venue_samples,
                 form_samples=form_samples,
                 national_samples=model.get("national_samples", (0, 0)) if national else (0, 0),

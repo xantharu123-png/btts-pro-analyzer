@@ -85,6 +85,7 @@ def refresh_fixture_models(provider, candidates, search_date, *, now, original_p
             # Reuse stored xG observations; background refresh cannot multiply
             # the discovery worker's optional xG acquisition budget.
             max_new_xg_calls=0,
+            capture_live_goal_priors=False,  # The fixture batch is not the daily discovery edition.
             **({"original_publication": original_publication} if original_publication is not None else {}),
         )
         if result.get("operational_errors"):

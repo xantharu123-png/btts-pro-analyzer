@@ -1,5 +1,10 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 22.11.2026 – Live-Fußball: Vorabwerte unabhängig von den 20 Detailspielen
+
+- Tagesmodell, Publikation und Live-Leser geändert; kein zweiter Scan, keine neue Datenbank, keine zusätzlichen Providerabrufe und keine geänderte Tippschwelle. Echte Tagesdatei am 22.11. 18:16 CET: 37 belegbare Spiele mit neuem Leser statt 20. Nicht 37 Tipps.
+- Offen: separater Merge und Release, dann im nächsten **regulären** Lauf die Zahl eindeutig gespeicherter Paare und ihre Übereinstimmung mit den laufenden Spielen abgleichen. Keine rückwirkenden Belege erstellen. [Details und Tests](docs/audits/2026-11-22-live-fussball-alle-modellierten-spiele.md).
+
 ## 22.11.2026 – Live: Vorabwerte ohne Sitzungscache und Statistik unter dem Platz
 
 - Regulärer Ticker und Platzverweis-Modell lesen die Torwerte aus der bereits veröffentlichten Wettfinder-Tagesdatei; neuer Modellstand im internen Tippbeleg. Strikte Spiel-, Team-, Liga-, Modell-, Einheiten- und Zeitprüfung; keine zusätzlichen Anbieterabrufe. Der unabhängige Rotkartenpfad ohne Vorabwerte bleibt unverändert. Keine neue Tipp- oder Preisschwelle.

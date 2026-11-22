@@ -63,6 +63,7 @@ from context_sources.football_capture import capture_report_fields, capture_foot
 from context_models.football_original_publication import original_capture_report_fields
 from football_joint_worker import joint_comparison_report_fields
 from football_context_decisions import decision_report_fields
+from football_live_publication import capture_section, check_write_deadlines, confirm_write, previous_section, publish_live_bases
 from forecast_analysis import project_football_analysis
 from selection_coherence import select_coherent_forecasts
 from football_model_refresh import MODEL_REFRESH_VERSION, refresh_fixture_models
@@ -1341,6 +1342,7 @@ def _football_state_from_snapshot(
         "discovery_league_ids": sorted(ALTERNATIVE_MARKET_LEAGUES),
         "discovery_model_version": CHALLENGE_PREDICTION_VERSION,
         "discovery_market_catalog_signature": CHALLENGE_MARKET_CATALOG_SIGNATURE,
+        **capture_section(snapshot),
         "last_attempt_at": attempted_at.isoformat(),
         "last_discovery_at": scanned_at.isoformat() if not degraded else None,
         "last_success_at": scanned_at.isoformat() if not degraded else None,
@@ -2518,19 +2520,18 @@ def write_state(document: dict[str, Any], path: str | Path = STATE_PATH) -> None
     temporary = state_path.with_name(
         f".{state_path.name}.{os.getpid()}.tmp"
     )
-    serialized = json.dumps(
-        document,
-        ensure_ascii=False,
-        indent=2,
-        sort_keys=True,
-    )
     try:
-        with temporary.open("w", encoding="utf-8", newline="\n") as handle:
-            handle.write(serialized)
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
+        while True:
+            serialized = json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True)
+            with temporary.open("w", encoding="utf-8", newline="\n") as handle:
+                handle.write(serialized)
+                handle.write("\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            if not check_write_deadlines(document, datetime.now(timezone.utc)):
+                break
         os.replace(temporary, state_path)
+        confirm_write(document)
     finally:
         try:
             temporary.unlink()
@@ -2636,6 +2637,12 @@ def _default_football_context_refresh(
     return snapshot
 
 
+def _live_only_football_state(state):
+    if not isinstance(state, dict) or "live_goal_priors" not in state:
+        return {}
+    return {k: state[k] for k in ("search_date", "discovery_model_version", "live_goal_priors")}
+
+
 def _football_next_day(
     previous_state: object,
     search_date: date,
@@ -2660,6 +2667,7 @@ def _football_next_day(
         dict(previous_state)
         if isinstance(previous_state, dict)
         and previous_state.get("search_date") == search_date.isoformat()
+        and "status" in previous_state
         else None
     )
     current = now
@@ -2690,10 +2698,10 @@ def _football_next_day(
             context_fixture_ids.extend(batch_fixture_ids)
     except Exception as exc:
         # Provider messages can carry request details; the public summary keeps the type only.
-        return {}, {**summary, "status": "failed", "failure_type": type(exc).__name__}
+        return _live_only_football_state(state), {**summary, "status": "failed", "failure_type": type(exc).__name__}
     summary["context_fixture_count"] = len(context_fixture_ids)
     if _validated_football_context_statuses(state) is None:
-        return {}, {**summary, "status": "degraded"}
+        return _live_only_football_state(state), {**summary, "status": "degraded"}
     partial_errors = int(state.get("operational_error_count") or 0)
     if state.get("status") != "completed" or partial_errors:
         return state, {**summary, "status": "scanned_partial", "partial_operational_errors": partial_errors}
@@ -5153,6 +5161,14 @@ def run_wettfinder(
     receipt_failures: list[Exception] = []
 
     def publish_today() -> None:
+        publish_live_bases(football_state, previous, day=target, now=datetime.now(timezone.utc))
+        # First publication precedes tomorrow's scan. Preserve already frozen tomorrow
+        # values even when this run stops before that second publication.
+        if "football_next_day" not in document and previous_section(previous, next_target) is not None:
+            carried = {"search_date": next_target.isoformat(), "discovery_model_version": CHALLENGE_PREDICTION_VERSION}
+            publish_live_bases(carried, previous, day=next_target, now=datetime.now(timezone.utc))
+            if carried.get("live_goal_priors", {}).get("rows"):
+                document["football_next_day"] = carried
         stage('forecast_publication', write_state, document, state_path)
         if production_state:
             # The receipts used to be the very last statement of the run. An error they do
@@ -5312,6 +5328,10 @@ def run_wettfinder(
     if isinstance(document["sources"].get("football"), dict):
         document["sources"]["football"]["next_day"] = next_day_summary
     if football_next_day_due:
+        if "live_goal_priors" in next_day_state:
+            publish_live_bases(next_day_state, previous, day=next_target, now=datetime.now(timezone.utc))
+            if not next_day_ledger:
+                document["football_next_day"] = _live_only_football_state(next_day_state)
         stage('forecast_publication_next_day', write_state, document, state_path)
         if production_state:
             # Tomorrow can move today's cards across a page boundary. The final
