@@ -50,3 +50,11 @@ def isolate_runtime_disk_status(monkeypatch, request):
         return
     import runtime_disk_guard
     monkeypatch.setattr(runtime_disk_guard, "guard_runtime_disk", lambda **_kwargs: None)
+
+
+@pytest.fixture(autouse=True)
+def isolate_football_coverage_cache(monkeypatch, request, tmp_path_factory):
+    """Never reuse a live provider observation or leak a test response to another test."""
+    import football_coverage_cache
+    directory = tmp_path_factory.getbasetemp() / "league-coverage" / sha256(request.node.nodeid.encode()).hexdigest()
+    monkeypatch.setattr(football_coverage_cache, "CACHE_PATH", directory / "coverage.db")

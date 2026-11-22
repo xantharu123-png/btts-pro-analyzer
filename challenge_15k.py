@@ -98,6 +98,7 @@ from ui_components import (
 from football_data_history import fetch_history as fetch_stat_history
 from football_data_history import _normalized_team_name, _pseudo_team_id
 from football_data_history import merge_api_tail
+from football_coverage_cache import load_coverage, remember_coverage
 from football_league_strength import league_strength_annotation
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES, LEAGUE_BY_ID
 from market_consensus import (
@@ -1313,11 +1314,18 @@ class ChallengeDataProvider:
         return result
 
     def coverage(self, league_id: int, season: int) -> dict[str, bool]:
+        cached = load_coverage(league_id, season)
+        if cached is not None:
+            self.last_request_budget_deferred = self.last_request_rate_limited = False
+            return cached
         data = self._football_get(
             "leagues",
             {"id": league_id, "season": season},
             f"Coverage Liga {league_id}",
         )
+        verified = remember_coverage(league_id, season, data)
+        if verified is not None:
+            return verified
         if not data:
             return {"injuries": False, "lineups": False}
         seasons = data[0].get("seasons") or []

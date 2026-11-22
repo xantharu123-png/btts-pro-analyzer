@@ -71,10 +71,11 @@ für alle berechtigten Zuschauer, mit zwei Takten. Kein Zusatzabo, kein Quotenab
   Live-Obergrenze vor Aktivierung prüfen; 2.293 ist kein zugesichertes
   Tagesbudget. Auch die erstmaligen Vorabgrundlagen und alle Zusatzdaten zählen.
   Keine Erhöhung der bestehenden Tarifgrenze.
-- Betriebsdauer ist vom Aktualisierungstakt unabhängig: Nur bei offenem Tab
-  spart außerhalb der Nutzung alle Live-Abrufe. Dauerbetrieb liefert auch
-  ohne Zuschauer vorbereitete Stände, kostet aber zusätzlich Kontingent.
-  Ohne ausdrückliche Entscheidung keinen neuen ständig laufenden Serverjob aktivieren.
+- Betriebsdauer (Owner, 22.11.): **nur bei offenem berechtigtem Live-Tab**.
+  Erster Zuschauer startet die gemeinsame Aktualisierung, weitere Zuschauer lesen
+  denselben Stand. Ohne aktive Zuschauer keine neuen Anbieterabrufe; kein
+  dauernder Server-Timer. Eine ausstehende Anfrage darf zu Ende gehen.
+  Dauerbetrieb ohne Zuschauer ist ausdrücklich nicht gewählt.
 
 ## Abnahme
 
