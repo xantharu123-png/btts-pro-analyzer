@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from threading import Lock
@@ -32,6 +33,13 @@ class LiveRefreshIssue(str, Enum):
     PROVIDER_ERROR = "provider_error"
     TEMPORARY_ERROR = "temporary_error"
     PARTIAL_DATA = "partial_data"
+
+
+@dataclass(frozen=True)
+class LiveFeedView:
+    rows: dict
+    issue: LiveRefreshIssue | None
+    loading: bool
 
 
 class LiveSourceError(RuntimeError):
@@ -115,6 +123,7 @@ class LiveFootballFeed:
         self._rows = {}
         self._details_due = {}
         self._discover_due = self._retry_after = None
+        self._discovery_valid_until = None  # None until this attempt publishes a result or an error.
         self._discovery_issue = None
         self._detail_issues = {}
 
@@ -125,12 +134,20 @@ class LiveFootballFeed:
 
     @property
     def refresh_issue(self):
+        with self._publication:
+            return self._issue()
+
+    def _issue(self):
         issues = {self._discovery_issue, *self._detail_issues.values()}
         return next((issue for issue in LiveRefreshIssue if issue in issues), None)
 
-    def _publish(self, rows):
+    def _awaiting_discovery(self, now):
+        return not self._rows and (self._discovery_valid_until is None or now >= self._discovery_valid_until)
+
+    def awaiting_discovery(self, now):
+        """Only for the immediate loading indicator, before blocking on provider I/O."""
         with self._publication:
-            self._rows = rows
+            return self._awaiting_discovery(now)
 
     @contextmanager
     def current_detail(self, number, stamp, fixture):
@@ -140,23 +157,34 @@ class LiveFootballFeed:
             yield (row is not None and stamp is not None and row["detailed_at"] == stamp
                    and row["fixture"] == fixture)
 
-    def _invalidate(self, ids):
+    def _invalidate(self, ids, issue, *, discovery_retry_at=None):
         rows = self._rows.copy()
         for number in ids:
             if number in rows:
                 rows[number] = {**rows[number], "detailed_at": None}
-        self._publish(rows)
+        with self._publication:
+            self._rows = rows
+            if discovery_retry_at is not None:
+                self._discovery_issue = issue
+                self._discovery_valid_until = discovery_retry_at
+            else:
+                self._detail_issues.update(dict.fromkeys(ids, issue))
 
     def _eligible(self, ids, now):
         return [i for i in ids if i not in self._details_due or now >= self._details_due[i]]
 
     def _snapshot(self, now):
-        result = deepcopy(self._rows)
+        # Rows are replaced, never modified in place. Capture their status before
+        # releasing the publication lock; another viewer may publish before rendering.
+        with self._publication:
+            rows, issue = self._rows, self._issue()
+            loading = self._awaiting_discovery(now)
+        result = deepcopy(rows)
         for entry in result.values():
             stamp = entry["detailed_at"]
             if stamp is not None and not timedelta(0) <= now - stamp <= MAX_DETAIL_AGE:
                 entry["detailed_at"] = None
-        return result
+        return LiveFeedView(result, None if loading else issue, loading)
 
     def _discover(self, source, now):
         indexed = _indexed(source.discover())
@@ -170,8 +198,11 @@ class LiveFootballFeed:
                 incomplete = True
                 if number in self._rows:
                     rows[number] = {**self._rows[number], "detailed_at": None}
-        self._publish(rows)
-        return LiveRefreshIssue.PARTIAL_DATA if incomplete else None
+        with self._publication:
+            self._rows = rows
+            self._discovery_valid_until = now + DISCOVERY_INTERVAL
+            self._discovery_issue = LiveRefreshIssue.PARTIAL_DATA if incomplete else None
+            self._detail_issues = {i: issue for i, issue in self._detail_issues.items() if i in rows}
 
     def _details(self, source, ids, now):
         indexed = _indexed(source.details(ids))
@@ -192,15 +223,21 @@ class LiveFootballFeed:
                     continue
             rows[number] = {**old, "detailed_at": None}
             incomplete.add(number)
-        self._publish(rows)
-        return incomplete
+        with self._publication:
+            self._rows = rows
+            for number in ids:
+                self._detail_issues.pop(number, None)
+            self._detail_issues.update(dict.fromkeys(incomplete, LiveRefreshIssue.PARTIAL_DATA))
 
     def tick(self, source, *, now: datetime, viewer_active=lambda: True):
+        return self.tick_view(source, now=now, viewer_active=viewer_active).rows
+
+    def tick_view(self, source, *, now: datetime, viewer_active=lambda: True):
         if not isinstance(now, datetime) or now.utcoffset() is None:
             raise ValueError("Live tick requires an aware clock")
         now = now.astimezone(timezone.utc)
         if not viewer_active():
-            return {}
+            return LiveFeedView({}, None, True)
         if not self._writer.acquire(blocking=False):
             return self._snapshot(now)
         started = self._monotonic()
@@ -213,14 +250,17 @@ class LiveFootballFeed:
                 return self._snapshot(now)
             if self._discover_due is None or now >= self._discover_due:
                 self._discover_due = now + DISCOVERY_INTERVAL
+                # Even a viewer whose clock was sampled just before expiry must
+                # no longer present the previous empty result during this fetch.
+                with self._publication:
+                    self._discovery_valid_until = None
                 try:
-                    self._discovery_issue = self._discover(source, now)
+                    self._discover(source, now)
                 except Exception as error:
-                    self._discovery_issue = _refresh_issue(error)
-                    self._invalidate(self._rows)
                     self._retry_after = current() + ERROR_BACKOFF
+                    self._invalidate(self._rows, _refresh_issue(error),
+                                     discovery_retry_at=max(self._retry_after, self._discover_due))
                     return self._snapshot(now)
-                self._detail_issues = {i: issue for i, issue in self._detail_issues.items() if i in self._rows}
                 self._details_due = {i: due for i, due in self._details_due.items() if i in self._rows}
             ids = sorted(self._rows)
             for offset in range(0, len(ids), BATCH_SIZE):
@@ -229,19 +269,14 @@ class LiveFootballFeed:
                 if not group:
                     continue
                 if not viewer_active():
-                    return {}
+                    return LiveFeedView({}, None, True)
                 self._details_due.update(dict.fromkeys(group, stamp + DETAIL_INTERVAL))
                 try:
-                    incomplete = self._details(source, group, stamp)
+                    self._details(source, group, stamp)
                 except Exception as error:
-                    self._detail_issues = self._detail_issues | dict.fromkeys(ids[offset:], _refresh_issue(error))
-                    self._invalidate(ids[offset:])
+                    self._invalidate(ids[offset:], _refresh_issue(error))
                     self._retry_after = current() + ERROR_BACKOFF
                     break
-                self._detail_issues = (
-                    {i: issue for i, issue in self._detail_issues.items() if i not in group}
-                    | dict.fromkeys(incomplete, LiveRefreshIssue.PARTIAL_DATA)
-                )
-            return self._snapshot(current()) if viewer_active() else {}
+            return self._snapshot(current()) if viewer_active() else LiveFeedView({}, None, True)
         finally:
             self._writer.release()

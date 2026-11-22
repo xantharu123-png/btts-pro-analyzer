@@ -44,6 +44,59 @@ def feed(monotonic=lambda: 0):
     return LiveFootballFeed(monotonic=monotonic)
 
 
+@pytest.mark.parametrize("reader_clock", [302, 299.999])
+def test_expired_empty_cache_is_not_a_result_for_the_inflight_rediscovery(reader_clock):
+    ticker, source = feed(), Source(0)
+    assert ticker.tick(source, now=at(0)) == {}
+    started, release = Event(), Event()
+
+    def discover():
+        source.calls.append("discovery")
+        started.set()
+        assert release.wait(5)
+        return [match(2)]
+
+    source.discover = discover
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        owner = pool.submit(ticker.tick, source, now=at(301))
+        try:
+            assert started.wait(5)
+            # Another session may have sampled its clock just before expiry.
+            cached = ticker.tick_view(source, now=at(reader_clock))
+        finally:
+            release.set()
+        assert set(owner.result(timeout=5)) == {2}
+    # The reader's copy must remain internally consistent even if the writer
+    # finishes between tick and render; joining it must not send a second request.
+    assert cached.rows == {} and cached.loading and cached.issue is None
+    assert source.calls == ["discovery", "discovery", (2,)]
+    warm = ticker.tick_view(source, now=at(303))
+    assert set(warm.rows) == {2} and not warm.loading and warm.issue is None
+
+
+def test_discovery_error_stays_visible_until_a_new_attempt_is_due():
+    ticker, source = feed(), Source(0)
+    from live_football_feed import LiveRefreshIssue
+
+    def fail():
+        raise ValueError("offline")
+
+    source.discover = fail
+    assert ticker.tick_view(source, now=at(0)).issue == LiveRefreshIssue.TEMPORARY_ERROR
+    assert not ticker.awaiting_discovery(at(299))
+    assert ticker.tick_view(source, now=at(299)).issue == LiveRefreshIssue.TEMPORARY_ERROR
+    assert ticker.awaiting_discovery(at(300))
+
+    def inspect_during_retry():
+        view = ticker.tick_view(source, now=at(299.999))
+        assert view.loading and view.issue is None
+        return []
+
+    source.discover = inspect_during_retry
+    resolved = ticker.tick_view(source, now=at(300))
+    assert not resolved.loading and resolved.issue is None and not resolved.rows
+
+
 @pytest.mark.parametrize("count,batches", [(0, 0), (1, 1), (20, 1), (21, 2), (80, 4)])
 def test_viewer_ticks_share_five_minutes_of_batches_and_never_catch_up(count, batches):
     ticker, source = feed(), Source(count)

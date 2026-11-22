@@ -64,6 +64,9 @@ class _RecordingPlaceholder:
     def markdown(self, value, **kwargs):
         self.streamlit.markdown(value, **kwargs)
 
+    def info(self, value, **kwargs):
+        self.streamlit.info(value, **kwargs)
+
     def container(self):
         return _RecordingContext(self.streamlit, "placeholder", None)
 

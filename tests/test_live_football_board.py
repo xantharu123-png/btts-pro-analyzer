@@ -26,12 +26,12 @@ def feed_row(game, stamp, *, analysis=None, red=None):
 
 
 def mount(monkeypatch, ui, rows, *, connected=lambda: True, unavailable=False):
-    from live_football_feed import LiveRefreshIssue
+    from live_football_feed import LiveFeedView, LiveRefreshIssue
     ticks, checked = [], []
     def tick(source, *, now, viewer_active):
         if viewer_active():
             ticks.append(now)
-        return rows
+        return LiveFeedView(rows, LiveRefreshIssue.TEMPORARY_ERROR if unavailable else None, False)
     def analyze(row, analyzer):
         checked.append(row["fixture"]["id"])
         return row.get("offline_analysis"), row.get("offline_red")
@@ -43,8 +43,7 @@ def mount(monkeypatch, ui, rows, *, connected=lambda: True, unavailable=False):
     def current_detail(number, stamp, fixture):
         row = rows.get(number)
         return nullcontext(row is not None and stamp is not None and row["detailed_at"] == stamp and row["fixture"] == fixture)
-    feed = SimpleNamespace(tick=tick, refresh_issue=LiveRefreshIssue.TEMPORARY_ERROR if unavailable else None,
-                           current_detail=current_detail)
+    feed = SimpleNamespace(tick_view=tick, awaiting_discovery=lambda _now: False, current_detail=current_detail)
     monkeypatch.setattr(app, "_live_ticker_resources", lambda key: (feed, object()), raising=False)
     monkeypatch.setattr(app, "load_app_config", lambda _st: SimpleNamespace(api_football_key="offline", freemode=False))
     return ticks, checked
