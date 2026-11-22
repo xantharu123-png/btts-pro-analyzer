@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from threading import Lock
 from time import monotonic as monotonic_clock
@@ -84,6 +85,7 @@ class LiveFootballFeed:
     def __init__(self, *, monotonic=monotonic_clock):
         self._monotonic = monotonic
         self._writer = Lock()
+        self._publication = Lock()
         self._rows = {}
         self._details_due = {}
         self._discover_due = self._retry_after = None
@@ -94,12 +96,24 @@ class LiveFootballFeed:
         """A failed or deferred fetch is not evidence that there are no live games."""
         return self._discovery_failed or self._details_failed
 
+    def _publish(self, rows):
+        with self._publication:
+            self._rows = rows
+
+    @contextmanager
+    def current_detail(self, number, stamp, fixture):
+        """Pin only the final local display, never HTTP, analysis, account or ledger I/O."""
+        with self._publication:
+            row = self._rows.get(number)
+            yield (row is not None and stamp is not None and row["detailed_at"] == stamp
+                   and row["fixture"] == fixture)
+
     def _invalidate(self, ids):
         rows = self._rows.copy()
         for number in ids:
             if number in rows:
                 rows[number] = {**rows[number], "detailed_at": None}
-        self._rows = rows
+        self._publish(rows)
 
     def _eligible(self, ids, now):
         return [i for i in ids if i not in self._details_due or now >= self._details_due[i]]
@@ -121,7 +135,7 @@ class LiveFootballFeed:
                 rows[number] = {"fixture": row, "observed_at": now, "detailed_at": None}
             elif number in self._rows and (not row or _phase(row) not in FINISHED):
                 rows[number] = {**self._rows[number], "detailed_at": None}
-        self._rows = rows
+        self._publish(rows)
 
     def _details(self, source, ids, now):
         indexed = _indexed(source.details(ids))
@@ -138,7 +152,7 @@ class LiveFootballFeed:
                     rows[number] = {"fixture": row, "observed_at": now, "detailed_at": now if arrays else None}
                     continue
             rows[number] = {**old, "detailed_at": None}
-        self._rows = rows
+        self._publish(rows)
 
     def tick(self, source, *, now: datetime, viewer_active=lambda: True):
         if not isinstance(now, datetime) or now.utcoffset() is None:

@@ -49,7 +49,7 @@ def fresh_age(stamp, now):
     return seconds if 0 <= seconds <= LIVE_MAX_AGE_SECONDS else None
 
 
-def render_board(ui, games, candidates, *, market_label, format_time, render_tip, reasons, now):
+def render_board(ui, games, candidates, *, automatic_ids, market_label, format_time, render_tip, reasons, now):
     """Stable fixture buttons. A missing candidate never selects a different match's tip."""
     if not games:
         ui.info("Kein Live-Spiel in den unterstützten Ligen verfügbar.")
@@ -59,7 +59,7 @@ def render_board(ui, games, candidates, *, market_label, format_time, render_tip
     selected = ui.session_state.get(key)
     if selected not in by_id:
         # Selection policy is upstream; start time only orders the admitted top three.
-        selected = next((g.id for g in games if g.id in candidates), games[0].id)
+        selected = next((g.id for g in games if g.id in automatic_ids), games[0].id)
         ui.session_state.pop(key, None)
     left, right = ui.columns([1, 1])
     with left:

@@ -1,5 +1,6 @@
 """The open page and the actual selected game, never a background scan, own the live tip."""
 from datetime import datetime, timedelta, timezone
+from contextlib import nullcontext
 from types import SimpleNamespace
 
 import pytest
@@ -36,7 +37,11 @@ def mount(monkeypatch, ui, rows, *, connected=lambda: True, unavailable=False):
     ui.fragment = lambda **kwargs: lambda fn: fn
     monkeypatch.setattr(app, "_live_session_connected", connected, raising=False)
     monkeypatch.setattr(app, "_analyze_ticker_fixture", analyze, raising=False)
-    monkeypatch.setattr(app, "_live_ticker_resources", lambda key: (SimpleNamespace(tick=tick, unavailable=unavailable), object()), raising=False)
+    def current_detail(number, stamp, fixture):
+        row = rows.get(number)
+        return nullcontext(row is not None and stamp is not None and row["detailed_at"] == stamp and row["fixture"] == fixture)
+    feed = SimpleNamespace(tick=tick, unavailable=unavailable, current_detail=current_detail)
+    monkeypatch.setattr(app, "_live_ticker_resources", lambda key: (feed, object()), raising=False)
     monkeypatch.setattr(app, "load_app_config", lambda _st: SimpleNamespace(api_football_key="offline", freemode=False))
     return ticks, checked
 
@@ -101,6 +106,89 @@ def test_selected_id_survives_reorder_then_loses_only_its_own_tip(monkeypatch):
     rows[1]["detailed_at"] = None
     app.render_live(SimpleNamespace())
     assert len(writes) == 2 and "Kein aktueller" in str(ui.messages)
+
+
+def test_fourth_eligible_game_requires_a_deliberate_click_until_it_finishes(monkeypatch):
+    now = datetime.now(timezone.utc)
+    rows = {}
+    for game in (1, 2, 3, 4):
+        data = _analysis(game)
+        data["remaining_goals"]["over_0_5_probability"] = {1:61., 2:81., 3:75., 4:70.}[game]
+        data["scheduled_start"] = (now - timedelta(minutes=100-game)).isoformat()
+        rows[game] = feed_row(game, now, analysis=data)
+    ui = Screen({"workspace": "Live"})
+    mount(monkeypatch, ui, rows)
+    writes = []
+    click = [None]
+    ui.button = lambda label, *, key, **kwargs: key == click[0]
+    monkeypatch.setattr(app, "record_visible_analysis", lambda c, item, **kw: writes.append(c.event_key))
+    app.render_live(object())
+    assert writes == ["2"]  # earliest of the automatic three, not overall earliest
+    click[0] = "live_fixture_1"
+    app.render_live(object())
+    assert writes == ["2", "1"]
+    click[0] = None
+    rows[1]["fixture"]["fixture"]["date"] = now.isoformat()
+    app.render_live(object())
+    assert writes[-1] == "1"
+    ui.widget_values["live_min_probability_Noch ein Tor"] = 65
+    app.render_live(object())
+    assert writes == ["2", "1", "1"]
+    del rows[1]
+    app.render_live(object())
+    assert writes == ["2", "1", "1", "2"] and "live_selected_fixture_id" not in ui.session_state
+
+
+@pytest.mark.parametrize("quality,probs,shown", [
+    ("MEDIUM", (.18, .65, .17), True),
+    ("LOW", (.18, .65, .17), False),
+    ("MEDIUM", (.25, .45, .30), False),
+])
+def test_click_outside_automatic_red_shortlist_requires_supported_probability_and_quality(monkeypatch, quality, probs, shown):
+    from test_live_tip_surface import _red
+    now = datetime.now(timezone.utc)
+    rows = {n:feed_row(n, now, red=_red(n)) for n in (1, 2, 3, 4)}
+    rows[4] = feed_row(4, now, red=_red(4, probs))
+    rows[4]["fixture"]["offline_red"]["prediction"]["data_quality"] = quality
+    ui = Screen({"workspace":"Live"}, {"live_market_choice":"Nach Platzverweis"})
+    mount(monkeypatch, ui, rows)
+    ui.button = lambda label, *, key, **kwargs: key == "live_fixture_4"
+    writes = []
+    monkeypatch.setattr(app, "record_visible_analysis", lambda c, item, **kw: writes.append(c.event_key))
+    app.render_live(object())
+    assert writes == (["card-4"] if shown else [])
+
+
+@pytest.mark.parametrize("change", ["goal", "finish", "missing-detail"])
+def test_another_viewer_revising_the_fixture_during_model_work_prevents_display(monkeypatch, change):
+    from copy import deepcopy
+    from live_football_feed import LiveFootballFeed
+    now = datetime.now(timezone.utc)
+    fixture = feed_row(2, now)["fixture"]
+    fixture.update(events=[], statistics=[])
+    class Source:
+        def discover(self):
+            return [deepcopy(fixture)]
+        def details(self, ids):
+            return [deepcopy(fixture)]
+    feed, source = LiveFootballFeed(), Source()
+    ui = Screen({"workspace": "Live"})
+    mount(monkeypatch, ui, {})
+    monkeypatch.setattr(app, "_live_ticker_resources", lambda key: (feed, source))
+    def analyze(old, _analyzer):
+        fixture["goals"]["away"] = 1
+        if change == "finish":
+            fixture["fixture"]["status"]["short"] = "FT"
+        elif change == "missing-detail":
+            del fixture["statistics"]
+        # An independently open viewer received a new revision after this tab's read.
+        feed.tick(source, now=now+timedelta(seconds=65))
+        return old["offline_analysis"], None
+    writes = []
+    monkeypatch.setattr(app, "_analyze_ticker_fixture", analyze)
+    monkeypatch.setattr(app, "record_visible_analysis", lambda *a, **kw: writes.append(True))
+    app.render_live(object())
+    assert not writes and "Modell:" not in str(ui.messages)
 
 
 def test_discovery_failure_is_not_a_successful_empty_game_list(monkeypatch):

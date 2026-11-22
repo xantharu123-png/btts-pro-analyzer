@@ -3079,20 +3079,34 @@ def _render_live_football(analyzer, market, *, viewer_active):
     if not red:
         candidates.sort(key=lambda row: row[1].model_probability, reverse=True)
     candidates.sort(key=lambda row: (row[1].model_ready, row[1].risk_adjusted_probability or -1.), reverse=True)
-    admitted = {game_id: (candidate, item) for game_id, candidate, item in candidates[:3]}
+    automatic_ids = {game_id for game_id, _, _ in candidates[:3]}
+    admitted = {}
+    for game_id, candidate, item in candidates:
+        if game_id not in automatic_ids:
+            # A deliberate drill-down is still an analysis, not a calibration/price release.
+            # Never promote an unsupported, late or weak dismissal alternative via a click.
+            if not item.get("model_version") or candidate.model_probability < 55:
+                continue
+            if red and (item["prediction"].get("data_quality") != "MEDIUM"
+                        or item["prediction"].get("too_late_for_signal") is True
+                        or item.get("fixture_red_card_count") != 1):
+                continue
+        admitted[game_id] = candidate, item
 
     def render_tip(game, pair):
         candidate, item = pair
         if not viewer_active():
             return False
-        age = fresh_age(game.detailed_at, datetime.now(timezone.utc))
-        if age is None:
-            return False
-        render_model_selection(candidate, save_source="Live nach Platzverweis" if red else "Live", analysis_only=True)
+        with feed.current_detail(game.id, game.detailed_at, game.fixture) as current:
+            age = fresh_age(game.detailed_at, datetime.now(timezone.utc))
+            if not current or age is None:
+                return False
+            render_model_selection(candidate, save_source="Live nach Platzverweis" if red else "Live", analysis_only=True)
+        # This receipt belongs to the exact revision just emitted. Never hold up publication on storage I/O.
         record_visible_analysis(candidate, item, snapshot_at=game.detailed_at.isoformat(), age_seconds=age, red=red)
         return True
 
-    render_board(st, games, admitted, market_label="Beide treffen" if market == "BTTS" else market,
+    render_board(st, games, admitted, automatic_ids=automatic_ids, market_label="Beide treffen" if market == "BTTS" else market,
                  format_time=_format_snapshot_time, render_tip=render_tip, reasons=reasons,
                  now=datetime.now(timezone.utc))
 
