@@ -3091,11 +3091,20 @@ def _render_live_football(analyzer, *, viewer_active):
         st.info("Der Live-Spielstand ist vorübergehend nicht verfügbar.")
         return
     feed, source = _live_ticker_resources(config.api_football_key)
-    rows = feed.tick(source, now=datetime.now(timezone.utc), viewer_active=viewer_active)
+    now = datetime.now(timezone.utc)
+    board = st  # A warm refresh must leave the existing scoreboard in place during I/O.
+    loading_text = "Live-Spielstände werden geladen …"
+    if feed.awaiting_discovery(now):
+        board = st.empty()
+        board.info(loading_text)
+    view = feed.tick_view(source, now=now, viewer_active=viewer_active)
     if not viewer_active():
-        st.info("Live-Zugang nicht verfügbar.")
+        board.info("Live-Zugang nicht verfügbar.")
         return
-    games = games_in_start_order(rows)
+    if view.loading:
+        board.info(loading_text)
+        return
+    games = games_in_start_order(view.rows)
     admitted, reasons = {}, {}
     now = datetime.now(timezone.utc)
     for game in games:
@@ -3128,9 +3137,10 @@ def _render_live_football(analyzer, *, viewer_active):
         record_visible_analysis(candidate, item, snapshot_at=game.detailed_at.isoformat(), age_seconds=age, red=red)
         return True
 
-    render_board(st, games, admitted, preferred_id=preferred_id,
-                 format_time=_format_snapshot_time, render_tip=render_tip, reasons=reasons,
-                 now=datetime.now(timezone.utc), refresh_issue=feed.refresh_issue)
+    with board.container():
+        render_board(st, games, admitted, preferred_id=preferred_id,
+                     format_time=_format_snapshot_time, render_tip=render_tip, reasons=reasons,
+                     now=datetime.now(timezone.utc), refresh_issue=view.issue)
 
 
 def _red_card_entry(

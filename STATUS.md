@@ -34,6 +34,11 @@ chronologisch, ein angeklicktes Spiel bleibt im Fokus; Rückkehr zur Automatik p
 Knopfdruck. Kandidatenbildung und Anzeige nutzen denselben Spielstand. Kein
 zusätzlicher Anbieterabruf; Merge und Deployment separat nachweisen.
 
+Live-Ladeanzeige (`codex/live-ladezustand`, auf Basis des veröffentlichten
+PR #157): Ohne gültigen Spielstand zeigt die Oberfläche beim Abruf „Live-Spielstände
+werden geladen …“. Eine leere Liste ist erst nach einer erfolgreichen Suche
+ein Ergebnis. Gleichzeitige Zuschauer teilen sich denselben Abruf.
+
 Fußball-Liveticker: Nur ein
 geöffneter, berechtigter Live-Tab stößt die Spielsuche (5 Minuten) und gruppierte
 Spielstände (1 Minute) an. Höchstens 500 zusätzliche Abrufe je Anbieterkonto

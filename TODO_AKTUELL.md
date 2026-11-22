@@ -1,5 +1,19 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 22.11.2026 – Live-Tab: Laden ist nicht „kein Spiel“
+
+- Erster Abruf und erneute Suche nach Ablauf eines leeren Ergebnisses: Der
+  erste Zuschauer sieht vor der Anbieterantwort eine Ladeanzeige. Gleichzeitige
+  Zuschauer ohne Ergebnis sehen diese ebenfalls, ohne einen neuen Abruf auszulösen.
+  Ein erfolgreiches leeres Ergebnis und ein Anbieterfehler bleiben unterscheidbar.
+- Offline mit einer angehaltenen Spielsuche getestet (Spielstand, null Spiele,
+  Anbieterfehler, zwei Zuschauer, erneute Suche nach fünf Minuten). Keine Änderung
+  an Modellen, Kontingent, Timer oder Abfrageintervallen.
+- 248 betroffene Tests bestanden, darunter die Anzeige eines vorhandenen Spielstands
+  während der Detailaktualisierung. Die lokale Vollsuite mit `-x` stoppte bei
+  dem bereits dokumentierten, unabhängigen Hockeytest
+  `test_native_conflicting_role_ids_fail_before_any_request` (99 zuvor bestanden).
+
 ## 22.11.2026 – Automatischer Live-Vorschlag und breite Spielstandansicht
 
 - Nur im Live-Tab: Wettartwahl, Prozentregler, rechte Pre-Match-Wettenspalte
