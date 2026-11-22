@@ -75,28 +75,31 @@ def customer_cards(slips, artifact=None, *, as_of, chance=None):
 
 
 def _selection_label(leg):
-    """Name the subject of a goal line without changing the original selection."""
-    selection = leg["selection"]
-    if leg.get("sport") != "football":
-        return selection
-    from challenge_engine import MARKET_BY_KEY
-    spec = MARKET_BY_KEY.get(leg.get("market_key"))
-    if spec is None or spec.kind not in {"team_total", "total"}:
-        return selection
-    line = selection.replace(".", ",")
-    if spec.kind == "total":
-        return f"Gesamttore im Spiel: {line}"
+    """Use original spellings only when both names match the stored sides, in order."""
+    from editorial_rail_labels import rail_selection_label
 
-    home = spec.side.startswith("home_")
-    team = "Heimteam" if home else "Auswärtsteam"
-    # Original receipts keep the two participant identities in home/away order.
-    # Use the event's original spelling only when BOTH names match in that order.
-    names = [name.strip() for name in leg["event_label"].split(" vs ")]
-    if len(names) == 2 and all(names) and leg.get("participant_names") == [
-        "football:name:" + " ".join(name.casefold().split()) for name in names
-    ]:
-        team = names[0 if home else 1]
-    return f"{team}: {line} Tore"
+    sport = leg.get("sport")
+    identities = leg.get("participant_names")
+    event = leg.get("event_label") or ""
+    # E-sports may prefix the game title; tennis appends exclusion aliases AFTER the
+    # two side identities. Neither is itself a participant. No lookup or fuzzy join.
+    labels = (event, event.partition(" · ")[2]) if sport == "esports" else (event,)
+    home = away = ""
+    if isinstance(identities, (list, tuple)):
+        for label in labels:
+            names = [name.strip() for name in label.split(" vs ")]
+            if (len(names) == 2 and all(names) and list(identities[:2]) == [
+                f"{sport}:name:" + " ".join(name.casefold().split()) for name in names
+            ]):
+                home, away = names
+                break
+    key = leg.get("market_key")
+    evidence = leg.get("evidence_selection")
+    # The archived evidence field may instead be a selection key or plain display
+    # text. Only a verbatim H2H participant from the proven pair binds a winner.
+    winner = evidence if key == "H2H" and home and away and evidence in (home, away) else ""
+    return rail_selection_label(sport=sport, market_key=key, selection=leg["selection"],
+                                home=home, away=away, selected_competitor=winner)
 
 
 def render_daily_accumulators(st, *, as_of=None, directory=None):
