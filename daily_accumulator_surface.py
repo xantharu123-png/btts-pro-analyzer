@@ -130,6 +130,5 @@ def render_daily_accumulators(st, *, as_of=None, directory=None):
                 st.text(f"{start}  {leg['event_label']}\n{_selection_label(leg)}")
                 if leg.get("reason"):
                     st.caption(leg["reason"])
-            if not card["started"]:
-                st.caption("Einzelquoten beim selben Buchmacher beobachtet." if card["price_observed"]
-                           else "Gemeinsame Buchmacherquote offen.")
+            if not card["started"] and card["price_observed"]:
+                st.caption("Einzelquoten beim selben Buchmacher beobachtet.")

@@ -127,6 +127,27 @@ render_daily_accumulators(st, as_of='2030-01-07T12:00:00+00:00')
     assert 'multipliziert' not in other_text
 
 
+@pytest.mark.parametrize('price_confirmed', [False, True])
+def test_only_confirmed_price_gets_a_customer_caption(monkeypatch, price_confirmed):
+    from streamlit.testing.v1 import AppTest
+
+    slip = dict(example(), arm='daily-picks')
+    if not price_confirmed:
+        slip.update(price_status='unconfirmed', bookmaker_id=None)
+        for leg in slip['legs']:
+            leg['offers'] = {}
+    monkeypatch.setattr('daily_accumulator_receipts.load_daily_picks', lambda *a, **kw: [slip])
+    app = AppTest.from_string("""
+import streamlit as st
+from daily_accumulator_surface import render_daily_accumulators
+render_daily_accumulators(st, as_of='2030-01-07T12:00:00+00:00')
+""").run()
+    assert not app.exception and len(app.text) == 3
+    captions = [el.value for el in app.caption]
+    assert 'Gemeinsame Buchmacherquote offen.' not in captions
+    assert ('Einzelquoten beim selben Buchmacher beobachtet.' in captions) == price_confirmed
+
+
 def test_uncalibrated_reference_is_never_a_customer_percentage():
     assert customer_cards([example()], {}, as_of=NOW, chance=lambda *a, **k: None) == []
 
