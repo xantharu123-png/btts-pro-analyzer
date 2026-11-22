@@ -80,6 +80,35 @@ def test_partial_batch_removes_stale_evidence_without_refreshing_absent_or_wrong
     assert result[6]["observed_at"] == at(60) and result[6]["detailed_at"] is None
 
 
+@pytest.mark.parametrize("newer,older", [
+    (("2H", 60, None), ("2H", 59, None)),
+    (("2H", 46, None), ("1H", 45, 8)),
+    (("1H", 45, 4), ("1H", 45, 2)),
+    (("ET", 101, None), ("2H", 90, 11)),
+])
+def test_older_provider_clock_never_overwrites_discovery_or_previous_detail(newer, older):
+    ticker, source = feed(), Source(1)
+    def clocked(clock, goals):
+        phase, minute, extra = clock
+        row = match(1, phase=phase, home=goals)
+        row["fixture"]["status"].update(elapsed=minute, extra=extra)
+        return row
+    fresh, stale = clocked(newer, 1), clocked(older, 0)
+    source.discover, source.details = lambda: [fresh], lambda ids: [stale]
+    first = ticker.tick(source, now=at(0))[1]
+    assert first == {"fixture": fresh, "observed_at": at(0), "detailed_at": None}
+    source.details = lambda ids: [fresh]
+    assert ticker.tick(source, now=at(60))[1]["detailed_at"] == at(60)
+    source.discover, source.details = lambda: [stale], lambda ids: [stale]
+    later = ticker.tick(source, now=at(300))[1]
+    assert later == {"fixture": fresh, "observed_at": at(60), "detailed_at": None}
+    # A legitimate goal reversal is allowed on a coherent, non-regressing clock.
+    reverse = clocked(newer, 0)
+    source.details = lambda ids: [reverse]
+    assert ticker.tick(source, now=at(360))[1] == {"fixture": reverse, "observed_at": at(360),
+                                                    "detailed_at": at(360)}
+
+
 def test_provider_error_invalidates_evidence_and_backs_off_without_losing_scores():
     ticker, source = feed(), Source(21)
     ticker.tick(source, now=at(0))

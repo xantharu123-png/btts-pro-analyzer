@@ -7,6 +7,7 @@ from threading import Lock
 from time import monotonic as monotonic_clock
 
 from live_tip_ledger import MAX_SNAPSHOT_AGE_SECONDS
+from redcard_events import period_clock
 
 
 DISCOVERY_INTERVAL = timedelta(minutes=5)
@@ -57,6 +58,22 @@ def _scored(row):
                                            for s in ("home", "away"))
 
 
+def _clock(row):
+    status = row["fixture"]["status"]
+    phase, minute, extra = _phase(row), status.get("elapsed"), status.get("extra")
+    extra = 0 if extra is None else extra
+    if phase in {"ET", "BT", "P"} and type(minute) is int and 0 <= minute <= 130 and type(extra) is int and 0 <= extra <= 40:
+        # BT is the break within extra time; do not order it after the entire ET period.
+        return (4 if phase == "P" else 3, minute, extra)
+    return period_clock(phase, minute, extra)
+
+
+def _not_older(row, previous):
+    before = _clock(previous)
+    current = _clock(row)
+    return before is None or (current is not None and current >= before)
+
+
 class LiveFootballFeed:
     """One instance per credential/provider, shared by the authorized UI sessions.
 
@@ -99,7 +116,8 @@ class LiveFootballFeed:
         indexed = _indexed(source.discover())
         rows = {}
         for number, row in indexed.items():
-            if row and _phase(row) in LIVE and _sides(row) and _scored(row):
+            if (row and _phase(row) in LIVE and _sides(row) and _scored(row)
+                    and (number not in self._rows or _not_older(row, self._rows[number]["fixture"]))):
                 rows[number] = {"fixture": row, "observed_at": now, "detailed_at": None}
             elif number in self._rows and (not row or _phase(row) not in FINISHED):
                 rows[number] = {**self._rows[number], "detailed_at": None}
@@ -115,7 +133,7 @@ class LiveFootballFeed:
                 if phase in FINISHED:
                     del rows[number]
                     continue
-                if phase in LIVE and _scored(row):
+                if phase in LIVE and _scored(row) and _not_older(row, old["fixture"]):
                     arrays = all(isinstance(row.get(k), list) for k in ("events", "statistics"))
                     rows[number] = {"fixture": row, "observed_at": now, "detailed_at": now if arrays else None}
                     continue
