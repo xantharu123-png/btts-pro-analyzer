@@ -6,22 +6,24 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 
 ## Stand: 22.11.2026
 
-Produktion: [PR #154](https://github.com/xantharu123-png/btts-pro-analyzer/pull/154),
-Merge `9711db5`. Die isolierte Linux-Prüfung lief als App-Nutzer; anschließend
-wurde nur die App neu gestartet. Beide Healthchecks meldeten `ok`; die Prüfsummen
-der veröffentlichten Auswahlen waren vor und nach dem Neustart identisch.
-Wettfinder und Shadow können die bestätigte Liga-/Saisonabdeckung für Ausfälle
-und Aufstellungen gemeinsam bis zu 24 Stunden nutzen; tatsächliche Aufstellungen,
-Ausfälle sowie Quoten werden davon nicht berührt. Im geöffneten Vorab-Wettfinder
-verschwinden gestartete Spiele; begonnene Originalkombis bleiben unter den
-offenen Scheinen eingeklappt. Im lokalen Browser mit simulierten Spielen am
-Anpfiff ohne Klick auf Desktop und Mobil geprüft. Ein inzwischen neuer Tageslauf
-schreibt normale Belege, die bloße Uhraktualisierung nicht. Pakettest:
-je 92 bestanden mit `floor` und `gate`;
-56 weitere Tests für Budget, Originalscheine und bisherige Liveanzeige bestanden.
-Der bekannte Hockeyfehler unten blockiert die Vollsuite.
+Zuletzt auf dem VPS nachgewiesen: [PR #155](https://github.com/xantharu123-png/btts-pro-analyzer/pull/155),
+`bac322f`, einschließlich Liga-Cache und Anstoßanzeige aus #154. Die Ligaprüfung
+holt nur die Abdeckung je Saison; sie ersetzt keine Abfrage von Ausfällen,
+Aufstellungen oder Quoten. Im Betriebsjournal nach Füllen des Caches: 16
+verschiedene Liga-/Saisonabfragen für 32 Shadow-Kontextprüfungen.
 
-Separater Fußball-Liveticker (`codex/live-ticker-20261122`): Nur ein
+Budgetkorrektur (`codex/football-budget-reconcile-20261122`): Am 22.11. um
+13:02 CET bestätigte das Journal 1.040 Fußballabrufe, 6.460 Rest beim Anbieter,
+aber nur 1.971 in BetBoy. Nahe 00:00 UTC stammten die ersten Restzähler noch
+vom Vortag. Normale Spielantworten dürfen den Rest nicht erhöhen. Sperrt eine
+widersprüchliche Schätzung die Hintergrundreserve, prüft der nächste fällige
+Shadow-Lauf das Anbieterkonto höchstens einmal je UTC-Tag, ohne neuen Timer
+und ohne Sportscan. Ein unbestätigter Kontostand lockert die Sperre nicht.
+Der Live-Tab unterscheidet Reserve, eigenes Tageslimit und fehlende Daten.
+Kein grüner Gesamttest behauptet: der bekannte unabhängige Hockeyfehler
+steht unten. Aktueller Prüf- und Freigabestand: `TODO_AKTUELL.md`.
+
+Fußball-Liveticker: Nur ein
 geöffneter, berechtigter Live-Tab stößt die Spielsuche (5 Minuten) und gruppierte
 Spielstände (1 Minute) an. Höchstens 500 zusätzliche Abrufe je Anbieterkonto
 und UTC-Tag; laufende Sportjobs und die Kontingentreserve gehen vor.

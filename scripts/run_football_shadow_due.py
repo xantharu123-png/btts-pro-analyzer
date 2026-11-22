@@ -16,6 +16,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import shadow_clv_automation as shadow  # noqa: E402
+from scripts.api_budget_resync import check_rollover_if_needed  # noqa: E402
 
 
 def main() -> int:
@@ -23,6 +24,7 @@ def main() -> int:
         if not shadow.should_fire(None):
             print(json.dumps({"status": "idle", "reason": "no_shadow_work_due"}))
             return 0
+        check_rollover_if_needed()
         result = shadow.run(
             {
                 "input": {

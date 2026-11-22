@@ -1,5 +1,34 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 22.11.2026 – Fußballbudget und Liveticker
+
+- VPS-Befund (13:02 CET; UTC-Kontingenttag): 1.040 echte Abrufe, 6.460
+  letzte Anbieter-Restmeldung bei 7.500 Limit, lokal 1.971. Die Differenz
+  von 4.489 war kein Verbrauch: um 00:02:23 UTC startete das lokale Konto
+  neu, die erste Spielantwort meldete noch 3.010. Eine gewöhnliche spätere
+  Meldung war zu Recht keine Berechtigung für eine Gutschrift.
+- Bei widersprüchlicher Reserve höchstens ein automatischer, mitgezählter
+  HTTP-Versuch auf den Kontostatus pro Konto und UTC-Tag, nur aus dem
+  ohnehin fälligen Hintergrundlauf. Kein neuer Timer, kein zusätzlicher
+  Sportscan, keine Abrufe aus geschlossenen Tabs; 2.500 Reserve und
+  500er-Tickerlimit unverändert. Kontostatus und tatsächlich nutzbarer Rest
+  können wegen laufender oder ungeklärter Abrufe leicht voneinander abweichen.
+- Oberfläche: konkrete Pausengründe, bei Teildaten letzter Spielstand mit
+  Zeitstempel statt eines neuen Tipps aus alten Daten.
+- Liga-Cache unabhängig kontrolliert: 16 Abfragen für 16 erstmalig geladene
+  Schlüssel, 16 weitere Auswertungen auf bereits geladenen Schlüsseln ohne
+  zweiten Ligaabruf (erste Erfassung bis 13:06 CET). Kein Rückschluss auf
+  eine garantierte Tagesersparnis.
+- Separate Kontrollpunkte: CI / Merge / Live-Nachweis auf identischem Commit;
+  danach im normalen Betriebsjournal `account rollover check`, verfügbare
+  Reserve und Tickerabrufe unterscheiden. Kein Sonderlauf, keine Sicherung.
+  Die Vollsuite stoppt unverändert am bekannten separaten Hockeytest
+  `test_native_conflicting_role_ids_fail_before_any_request`.
+- Lokale Regression: 338 bestanden, 7 Plattform-Skips; 210 unter der
+  produktiven Preisregel `floor`; 181 zusätzliche bzw. überlappende
+  Budget-/Client-Prüfungen. Ruff ohne Befund. Unabhängiges Review ohne
+  verbleibenden Blocker. Dies sind keine addierbaren Einzeltestzahlen.
+
 ## 22.11.2026 – Produktion und Zuschauerbetrieb
 
 - `9711db5` ist auf dem VPS verifiziert: App-Neustart nach bestandenem isoliertem

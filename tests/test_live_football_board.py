@@ -24,6 +24,7 @@ def feed_row(game, stamp, *, analysis=None, red=None):
 
 
 def mount(monkeypatch, ui, rows, *, connected=lambda: True, unavailable=False):
+    from live_football_feed import LiveRefreshIssue
     ticks, checked = [], []
     def tick(source, *, now, viewer_active):
         if viewer_active():
@@ -40,7 +41,8 @@ def mount(monkeypatch, ui, rows, *, connected=lambda: True, unavailable=False):
     def current_detail(number, stamp, fixture):
         row = rows.get(number)
         return nullcontext(row is not None and stamp is not None and row["detailed_at"] == stamp and row["fixture"] == fixture)
-    feed = SimpleNamespace(tick=tick, unavailable=unavailable, current_detail=current_detail)
+    feed = SimpleNamespace(tick=tick, refresh_issue=LiveRefreshIssue.TEMPORARY_ERROR if unavailable else None,
+                           current_detail=current_detail)
     monkeypatch.setattr(app, "_live_ticker_resources", lambda key: (feed, object()), raising=False)
     monkeypatch.setattr(app, "load_app_config", lambda _st: SimpleNamespace(api_football_key="offline", freemode=False))
     return ticks, checked
@@ -197,6 +199,95 @@ def test_discovery_failure_is_not_a_successful_empty_game_list(monkeypatch):
     app.render_live(object())
     text = str(ui.messages)
     assert "nicht verfügbar" in text and "Kein Live-Spiel" not in text
+
+
+@pytest.mark.parametrize("failure,expected", [
+    ("protected_reserve", "für die Tagesläufe reserviert"),
+    ("ticker_limit", "Tageslimit des Live-Tickers erreicht"),
+    ("unknown_budget_limit", "Ein Abruflimit verhindert die Live-Aktualisierung"),
+    ("budget_unavailable", "Abrufkontingent konnte nicht geprüft werden"),
+    ("jobs_deferred", "Hintergrundläufe haben Vorrang"),
+    ("provider_error", "Live-Daten des Anbieters sind derzeit nicht verfügbar"),
+    ("temporary_error", "Live-Aktualisierung ist vorübergehend gestört"),
+])
+def test_live_board_explains_failed_refresh_and_keeps_last_score(monkeypatch, failure, expected):
+    import api_budget
+    from live_football_feed import LiveFootballFeed
+    from live_football_source import LiveFootballSource
+    from test_live_football_source import response
+
+    stamp = datetime.now(timezone.utc) - timedelta(seconds=70)
+    fixture = feed_row(1, stamp)["fixture"]
+    fixture.update(events=[], statistics=[])
+    feed = LiveFootballFeed(monotonic=lambda: 0)
+    attempts = []
+    failed = False
+
+    def get(url, **kwargs):
+        attempts.append(kwargs["params"])
+        if not failed:
+            return response([fixture], kwargs["params"])
+        if failure in {"protected_reserve", "ticker_limit", "unknown_budget_limit"}:
+            raise api_budget.APIBudgetExceeded("private quota detail", reason=failure)
+        if failure == "budget_unavailable":
+            raise api_budget.APIBudgetUnavailable("private DB detail")
+        if failure == "provider_error":
+            return response([], kwargs["params"], errors={"private": "provider payload"})
+        raise api_budget.requests.ReadTimeout("private URL")
+
+    monkeypatch.setattr(api_budget, "api_football_get", get)
+    source = LiveFootballSource("offline", ready=lambda: not failed or failure != "jobs_deferred")
+    feed.tick(source, now=stamp)
+    failed = True
+    ui = Screen({"workspace": "Live"})
+    mount(monkeypatch, ui, {})
+    monkeypatch.setattr(app, "_live_ticker_resources", lambda key: (feed, source))
+    monkeypatch.setattr(app, "record_visible_analysis", lambda *a, **kw: pytest.fail("stale model receipt"))
+    app.render_live(object())
+    app.render_live(object())  # another render during the existing backoff
+
+    rendered = str(ui.messages)
+    assert expected in rendered
+    assert "1:0" in rendered and "Datenstand:" in rendered
+    assert "Kein Live-Spiel" not in rendered and "private" not in rendered
+    last = feed.tick(source, now=stamp + timedelta(seconds=90))[1]
+    assert last["observed_at"] == stamp and last["detailed_at"] is None
+    assert len(attempts) == (2 if failure == "jobs_deferred" else 3)
+    failed = False
+    recovered_at = stamp + timedelta(seconds=200)
+    recovered = feed.tick(source, now=recovered_at)[1]
+    assert recovered["observed_at"] == recovered_at and not feed.unavailable
+
+
+def test_partial_live_data_is_reported_and_full_success_clears_status(monkeypatch):
+    import api_budget
+    from live_football_feed import LiveFootballFeed
+    from live_football_source import LiveFootballSource
+    from test_live_football_source import response
+
+    now = datetime.now(timezone.utc)
+    stamp = now - timedelta(seconds=70)
+    fixtures = [feed_row(game, stamp)["fixture"] for game in (1, 2)]
+    for fixture in fixtures:
+        fixture.update(events=[], statistics=[])
+    next_rows = fixtures
+    monkeypatch.setattr(api_budget, "api_football_get", lambda url, **kw: response(next_rows, kw["params"]))
+    feed = LiveFootballFeed(monotonic=lambda: 0)
+    source = LiveFootballSource("offline", ready=lambda: True)
+    feed.tick(source, now=stamp)
+    next_rows = fixtures[:1]
+    ui = Screen({"workspace": "Live"})
+    mount(monkeypatch, ui, {})
+    monkeypatch.setattr(app, "_live_ticker_resources", lambda key: (feed, source))
+    monkeypatch.setattr(app, "record_visible_analysis", lambda *a, **kw: None)
+    app.render_live(object())
+    assert "Live-Daten sind unvollständig" in str(ui.messages)
+    assert sum(kind == "button" for kind, _ in ui.messages) == 2
+    next_rows = fixtures
+    feed.tick(source, now=now + timedelta(seconds=65))
+    ui.messages.clear()
+    app.render_live(object())
+    assert "Live-Daten sind unvollständig" not in str(ui.messages)
 
 
 def test_an_unselected_stale_score_is_labelled_in_the_game_list(monkeypatch):

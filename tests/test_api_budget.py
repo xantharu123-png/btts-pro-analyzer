@@ -327,3 +327,175 @@ def test_a_second_timeout_and_other_errors_are_not_retried_further(tmp_path, mon
         api_budget.api_football_get("https://v3.football.api-sports.io/fixtures",
                                     headers={"x-apisports-key": "retry-key"})
     assert len(calls) == 1
+
+
+_STATUS_URL = "https://v3.football.api-sports.io/status"
+_AUTO_STATUS = "account rollover check"
+
+
+def _sticky_account(tmp_path, monkeypatch):
+    _wrapped_budget(tmp_path, monkeypatch)
+    gov = api_budget.get_api_budget_governor()
+    for reported in (25, 98):
+        ticket = gov.reserve(api_key="key", endpoint="fixtures", priority="critical")
+        gov.complete(ticket, response_headers={"x-ratelimit-requests-remaining": str(reported)},
+                     http_status=200)
+    return gov
+
+
+def _status_response(current=15, *, code=200, errors=None, active=True):
+    class Response:
+        status_code = code
+        headers = {}
+
+        def json(self):
+            return {"errors": [] if errors is None else errors, "response": {
+                "subscription": {"active": active}, "requests": {"current": current, "limit_day": 100}}}
+
+    return Response()
+
+
+def _request_status(**kwargs):
+    return api_budget.api_football_get(_STATUS_URL, headers={"x-apisports-key": "key"},
+                                      priority="critical", **kwargs)
+
+
+def test_status_repairs_sticky_estimate_without_refunding_uncertain_units(tmp_path, monkeypatch):
+    gov = _sticky_account(tmp_path, monkeypatch)
+    failed = gov.reserve(api_key="key", endpoint="timeout", priority="critical", cost=2)
+    gov.complete(failed, error="Timeout")
+    gov.reserve(api_key="key", endpoint="in flight", priority="critical", cost=3)
+    def successful(*args, **kwargs):
+        return _status_response()
+    monkeypatch.setattr(api_budget.requests, "get", successful)
+    _request_status(label=_AUTO_STATUS)
+    result = gov.snapshot(api_key="key")
+    # 85 authoritative; hold 2 failed + 3 in flight + the status call itself.
+    assert (result.remaining_estimate, result.observed_remaining) == (79, 85)
+    assert gov.reserve(api_key="key", endpoint="live-ticker:details", priority="background").remaining_after == 78
+
+
+@pytest.mark.parametrize("response", [_status_response(code=429), _status_response(errors={"quota": "denied"}),
+                                      _status_response(active=False), _status_response(current=-1),
+                                      _status_response(current=True)])
+def test_untrusted_status_does_not_repair_budget(tmp_path, monkeypatch, response):
+    gov = _sticky_account(tmp_path, monkeypatch)
+    monkeypatch.setattr(api_budget.requests, "get", lambda *a, **k: response)
+    _request_status()
+    assert gov.snapshot(api_key="key").remaining_estimate == 23
+
+
+def test_overlapping_lower_response_cannot_be_overwritten_by_status(tmp_path, monkeypatch):
+    gov = _sticky_account(tmp_path, monkeypatch)
+    slow = gov.reserve(api_key="key", endpoint="fixtures", priority="critical")
+    def overlap(*args, **kwargs):
+        gov.complete(slow, response_headers={"x-ratelimit-requests-remaining": "3"}, http_status=429)
+        return _status_response()
+    monkeypatch.setattr(api_budget.requests, "get", overlap)
+    _request_status()
+    result = gov.snapshot(api_key="key")
+    assert (result.remaining_estimate, result.observed_remaining) == (3, 3)
+
+
+def test_status_cannot_undo_downgrade_in_headers_or_upgrade_on_incomplete_payload(tmp_path, monkeypatch):
+    gov = _sticky_account(tmp_path, monkeypatch)
+    response = _status_response()
+    response.headers = {"x-ratelimit-requests-limit": "10", "x-ratelimit-requests-remaining": "7"}
+    monkeypatch.setattr(api_budget.requests, "get", lambda *a, **k: response)
+    _request_status()
+    result = gov.snapshot(api_key="key")
+    # Tighten remaining but don't manufacture a downgrade + future fake upgrade.
+    assert (result.daily_limit, result.remaining_estimate) == (100, 7)
+    response.headers = {"x-ratelimit-requests-limit": "100", "x-ratelimit-requests-remaining": "85"}
+    api_budget.api_football_get("https://v3.football.api-sports.io/fixtures",
+                               headers={"x-apisports-key": "key"}, priority="critical")
+    assert gov.snapshot(api_key="key").remaining_estimate == 6
+    response.headers = {"x-ratelimit-requests-limit": "150", "x-ratelimit-requests-remaining": "135"}
+    response.json = lambda: {"response": {"requests": {"current": 15, "limit_day": 100}}}
+    _request_status()
+    result = gov.snapshot(api_key="key")
+    assert (result.daily_limit, result.remaining_estimate) == (100, 5)
+
+
+def test_status_crossing_midnight_does_not_set_next_day_usage(tmp_path, monkeypatch):
+    gov = _sticky_account(tmp_path, monkeypatch)
+    before = datetime(2026, 11, 22, 23, 59, 59, tzinfo=timezone.utc)
+    after = before + timedelta(seconds=2)
+    monkeypatch.setattr(api_budget, "_utc_now", lambda: before)
+    def crosses(*args, **kwargs):
+        monkeypatch.setattr(api_budget, "_utc_now", lambda: after)
+        return _status_response(current=80)
+    monkeypatch.setattr(api_budget.requests, "get", crosses)
+    _request_status()
+    assert gov.snapshot(api_key="key", now=after).remaining_estimate == 100
+
+
+@pytest.mark.parametrize("code", [429, 500])
+def test_failed_response_cannot_manufacture_a_downgrade_then_upgrade(tmp_path, monkeypatch, code):
+    gov = _sticky_account(tmp_path, monkeypatch)
+    for status, limit, remaining in ((code, 10, 7), (200, 100, 85)):
+        ticket = gov.reserve(api_key="key", endpoint="fixtures", priority="critical")
+        gov.complete(ticket, http_status=status, response_headers={
+            "x-ratelimit-requests-limit": str(limit), "x-ratelimit-requests-remaining": str(remaining)})
+    result = gov.snapshot(api_key="key")
+    assert (result.daily_limit, result.remaining_estimate) == (100, 6)
+
+
+def test_only_exact_status_url_can_replace_an_observation(tmp_path, monkeypatch):
+    gov = _sticky_account(tmp_path, monkeypatch)
+    monkeypatch.setattr(api_budget.requests, "get", lambda *a, **k: _status_response())
+    api_budget.api_football_get("https://other.invalid/status", headers={"x-apisports-key": "key"},
+                               priority="critical")
+    result = gov.snapshot(api_key="key")
+    assert (result.remaining_estimate, result.observed_remaining) == (23, 98)
+
+
+def test_consistent_status_cannot_refund_successes_even_if_usage_is_zero(tmp_path, monkeypatch):
+    gov = _sticky_account(tmp_path, monkeypatch)
+    monkeypatch.setattr(api_budget.requests, "get", lambda *a, **k: _status_response(current=0))
+    _request_status()
+    assert gov.snapshot(api_key="key").remaining_estimate == 97
+
+
+def test_concurrent_workers_can_reserve_only_one_rollover_check(tmp_path, monkeypatch):
+    gov = _sticky_account(tmp_path, monkeypatch)
+    def reserve(_):
+        try:
+            gov.reserve(api_key="key", priority="critical", endpoint=_AUTO_STATUS)
+        except APIBudgetExceeded as exc:
+            return exc.reason
+        return "admitted"
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(reserve, range(8)))
+    assert sorted(results) == ["admitted"] + ["already_checked"] * 7
+
+
+def test_rollover_call_rechecks_need_and_only_attempts_once_even_on_timeout(tmp_path, monkeypatch):
+    _wrapped_budget(tmp_path, monkeypatch)
+    calls = []
+    def timeout(*args, **kwargs):
+        calls.append(1)
+        raise api_budget.requests.Timeout()
+    monkeypatch.setattr(api_budget.requests, "get", timeout)
+    with pytest.raises(APIBudgetExceeded) as exc:
+        _request_status(label=_AUTO_STATUS)
+    assert exc.value.reason == "not_needed" and not calls
+    _sticky_account(tmp_path, monkeypatch)
+    with pytest.raises(api_budget.requests.Timeout):
+        _request_status(label=_AUTO_STATUS)
+    with pytest.raises(APIBudgetExceeded) as exc:
+        _request_status(label=_AUTO_STATUS)
+    assert exc.value.reason == "already_checked" and calls == [1]
+
+
+def test_floor_and_ticker_cap_have_distinct_machine_reasons(tmp_path):
+    gov = APIBudgetGovernor(tmp_path / "budget.db")
+    gov.reserve(api_key="key", endpoint="live-ticker:details", cost=500, priority="background")
+    with pytest.raises(APIBudgetExceeded) as exc:
+        gov.reserve(api_key="key", endpoint="live-ticker:details", priority="background")
+    assert exc.value.reason == "ticker_limit"
+    gov.reconcile_usage(api_key="key", used=5000, daily_limit=7500)
+    with pytest.raises(APIBudgetExceeded) as exc:
+        gov.reserve(api_key="key", endpoint="jobs", priority="background")
+    assert exc.value.reason == "protected_reserve"
+    assert APIBudgetExceeded("other").reason == "unknown"

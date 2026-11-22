@@ -4,6 +4,7 @@ from __future__ import annotations
 from copy import deepcopy
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+from enum import Enum
 from threading import Lock
 from time import monotonic as monotonic_clock
 
@@ -18,6 +19,31 @@ MAX_DETAIL_AGE = timedelta(seconds=MAX_SNAPSHOT_AGE_SECONDS)
 BATCH_SIZE = 20
 LIVE = frozenset({"1H", "HT", "2H", "ET", "BT", "P", "INT", "SUSP", "LIVE"})
 FINISHED = frozenset({"FT", "AET", "PEN", "PST", "CANC", "ABD", "AWD", "WO", "NS", "TBD"})
+
+
+class LiveRefreshIssue(str, Enum):
+    """Safe display codes, in descending priority when more than one applies."""
+
+    TICKER_LIMIT = "ticker_limit"
+    PROTECTED_RESERVE = "protected_reserve"
+    BUDGET_BLOCKED = "budget_blocked"
+    BUDGET_UNAVAILABLE = "budget_unavailable"
+    JOBS_DEFERRED = "jobs_deferred"
+    PROVIDER_ERROR = "provider_error"
+    TEMPORARY_ERROR = "temporary_error"
+    PARTIAL_DATA = "partial_data"
+
+
+class LiveSourceError(RuntimeError):
+    """The source may pass only a safe code, never provider or governor text."""
+
+    def __init__(self, issue: LiveRefreshIssue):
+        super().__init__(issue.value)
+        self.issue = issue
+
+
+def _refresh_issue(error):
+    return error.issue if isinstance(error, LiveSourceError) else LiveRefreshIssue.TEMPORARY_ERROR
 
 
 def _positive(value):
@@ -89,12 +115,18 @@ class LiveFootballFeed:
         self._rows = {}
         self._details_due = {}
         self._discover_due = self._retry_after = None
-        self._discovery_failed = self._details_failed = False
+        self._discovery_issue = None
+        self._detail_issues = {}
 
     @property
     def unavailable(self):
         """A failed or deferred fetch is not evidence that there are no live games."""
-        return self._discovery_failed or self._details_failed
+        return self.refresh_issue is not None
+
+    @property
+    def refresh_issue(self):
+        issues = {self._discovery_issue, *self._detail_issues.values()}
+        return next((issue for issue in LiveRefreshIssue if issue in issues), None)
 
     def _publish(self, rows):
         with self._publication:
@@ -129,17 +161,22 @@ class LiveFootballFeed:
     def _discover(self, source, now):
         indexed = _indexed(source.discover())
         rows = {}
+        incomplete = False
         for number, row in indexed.items():
             if (row and _phase(row) in LIVE and _sides(row) and _scored(row)
                     and (number not in self._rows or _not_older(row, self._rows[number]["fixture"]))):
                 rows[number] = {"fixture": row, "observed_at": now, "detailed_at": None}
-            elif number in self._rows and (not row or _phase(row) not in FINISHED):
-                rows[number] = {**self._rows[number], "detailed_at": None}
+            elif not row or _phase(row) not in FINISHED:
+                incomplete = True
+                if number in self._rows:
+                    rows[number] = {**self._rows[number], "detailed_at": None}
         self._publish(rows)
+        return LiveRefreshIssue.PARTIAL_DATA if incomplete else None
 
     def _details(self, source, ids, now):
         indexed = _indexed(source.details(ids))
         rows = self._rows.copy()
+        incomplete = set()
         for number in ids:
             old, row = rows[number], indexed.get(number)
             if row and _sides(row) == _sides(old["fixture"]):
@@ -150,9 +187,13 @@ class LiveFootballFeed:
                 if phase in LIVE and _scored(row) and _not_older(row, old["fixture"]):
                     arrays = all(isinstance(row.get(k), list) for k in ("events", "statistics"))
                     rows[number] = {"fixture": row, "observed_at": now, "detailed_at": now if arrays else None}
+                    if not arrays:
+                        incomplete.add(number)
                     continue
             rows[number] = {**old, "detailed_at": None}
+            incomplete.add(number)
         self._publish(rows)
+        return incomplete
 
     def tick(self, source, *, now: datetime, viewer_active=lambda: True):
         if not isinstance(now, datetime) or now.utcoffset() is None:
@@ -173,18 +214,15 @@ class LiveFootballFeed:
             if self._discover_due is None or now >= self._discover_due:
                 self._discover_due = now + DISCOVERY_INTERVAL
                 try:
-                    self._discover(source, now)
-                except Exception:
-                    self._discovery_failed = True
+                    self._discovery_issue = self._discover(source, now)
+                except Exception as error:
+                    self._discovery_issue = _refresh_issue(error)
                     self._invalidate(self._rows)
                     self._retry_after = current() + ERROR_BACKOFF
                     return self._snapshot(now)
-                self._discovery_failed = False
-                if not self._rows:
-                    self._details_failed = False
+                self._detail_issues = {i: issue for i, issue in self._detail_issues.items() if i in self._rows}
                 self._details_due = {i: due for i, due in self._details_due.items() if i in self._rows}
             ids = sorted(self._rows)
-            refreshed = False
             for offset in range(0, len(ids), BATCH_SIZE):
                 stamp = current()
                 group = self._eligible(ids[offset:offset + BATCH_SIZE], stamp)
@@ -194,16 +232,16 @@ class LiveFootballFeed:
                     return {}
                 self._details_due.update(dict.fromkeys(group, stamp + DETAIL_INTERVAL))
                 try:
-                    self._details(source, group, stamp)
-                    refreshed = True
-                except Exception:
-                    self._details_failed = True
+                    incomplete = self._details(source, group, stamp)
+                except Exception as error:
+                    self._detail_issues = self._detail_issues | dict.fromkeys(ids[offset:], _refresh_issue(error))
                     self._invalidate(ids[offset:])
                     self._retry_after = current() + ERROR_BACKOFF
                     break
-            else:
-                if refreshed:
-                    self._details_failed = False
+                self._detail_issues = (
+                    {i: issue for i, issue in self._detail_issues.items() if i not in group}
+                    | dict.fromkeys(incomplete, LiveRefreshIssue.PARTIAL_DATA)
+                )
             return self._snapshot(current()) if viewer_active() else {}
         finally:
             self._writer.release()
