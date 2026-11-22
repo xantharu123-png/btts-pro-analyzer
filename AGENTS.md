@@ -203,6 +203,8 @@ Hintergrundreserve; keine neue Timer-Einheit. Spielstand ohne ausreichend
 frische, eindeutig zugeordnete Daten ist kein Tipp. Weltweite Rotkartensuche
 bleibt manuell.
 
+Seit 22.11.2026 17:55 CET nutzt der Ticker belegte Torerwartungen aus dem Wettfinder-Tageslauf; die native Spielstatistik unter dem Feld ist nicht an einen Tipp gebunden ([Release #162](docs/audits/2026-11-22-live-vorabwerte-release.md)).
+
 ```powershell
 # aus dem jeweiligen Checkout (Worktree oder Hauptcheckout)
 ..\..\.venv\Scripts\python.exe -m pytest tests -q          # Vollsuite ≈ 1,5 h auf Windows

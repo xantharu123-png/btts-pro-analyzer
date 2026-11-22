@@ -6,12 +6,15 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 
 ## Stand: 22.11.2026
 
-Reparatur auf `codex/live-vorabbasis-statistik` (noch nicht live): Der Ticker nutzt
+Live seit 22.11.2026 17:55:54 CET: [PR #162](https://github.com/xantharu123-png/btts-pro-analyzer/pull/162),
+`48534ee` auf GitHub-main und dem VPS. Der Ticker nutzt
 belegte Torerwartungen aus dem Wettfinder auch ohne warme Benutzersitzung.
 Im Spielvergleich stehen die aktuellen Statistiken unter dem Spielfeld, unabhängig
 vom Tipp. Auf der VPS-Tagesdatei 20 eindeutige Paare; kein Nachweis für 20 Live-Tipps.
 670 betroffene Tests, weitere 327 unter `floor`. Browser offline bei 1440/390/320 px.
-Kein zusätzlicher Anbieterabruf. Produktionsabnahme dieser Reparatur steht aus.
+Offlineprüfung auf dem VPS, App-Neustart und beide Healthchecks bestätigt.
+Kein zusätzlicher Sportabruf, kein Backup. Direkt nach Neustart noch kein neuer
+angezeigter Tipp im Protokoll. [Release-Beleg](docs/audits/2026-11-22-live-vorabwerte-release.md).
 
 Produktion und GitHub-main, geprüft am 22.11. um 16:35 CET: `9a3e5bd`, mit
 Ladezustand (#159) und Live-Entwurf 3 ([PR #160](https://github.com/xantharu123-png/btts-pro-analyzer/pull/160)).
