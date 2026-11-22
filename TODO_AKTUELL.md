@@ -1,5 +1,10 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 22.11.2026 16:35 CET – Live-Ansicht veröffentlicht
+
+- Ladezustand (#159), Spielfeldrand und Karten je Mannschaft (#160): `main` und VPS auf `9a3e5bd`. Neuer App-Prozess, beide Healthchecks `ok`, sieben Timer aktiv. Kein Backup oder zusätzlicher Sportscan. [Prüfbeleg und Grenzen](docs/audits/2026-11-22-live-spielfeldrand-release.md).
+- Separater Wettfinder-Morgenlauf: vor dem Release um 04:05:59 CET mit Exit 1 beendet. Die Ursache wurde in diesem App-Release nicht untersucht. Der alte Hockey-Testvertrag und die fachlichen Modellprüfungen bleiben offen.
+
 ## 22.11.2026 – Live: Platzverweis bei der Mannschaft
 
 - In PR #160: bestätigte direkte/zweite gelbe Karte mit Minute auch ohne Modellvorschlag in Spielzeile und Details; explizite Bank-/Trainerkarte separat, kein daraus abgeleiteter Überzahltipp. Annullierte Karten sind keine Platzverweise. Keine weiteren API-Abrufe.

@@ -7,6 +7,8 @@ Code, dann `PROJECT_HANDBUCH.md`, dann die Bibel. Historische Logs: `TODO_AKTUEL
 
 ## Nicht verhandelbar
 
+- **Fußball-Liveticker:** Ladezustand und „Spielfeldrand“ mit bestätigten Platzverweisen am betroffenen Team sind seit 22.11.2026, 16:35 CET live (`9a3e5bd`). Kein automatischer Siegtipp allein wegen Rot; Bankkarten begründen keine Unterzahl. [Produktionsbeleg](docs/audits/2026-11-22-live-spielfeldrand-release.md).
+
 - **Modell vor Preis.** Keine Quote fließt in eine Modellschätzung. Quoten dürfen
   Benchmark, Validierung, Mindestquote, EV und Einsatz bestimmen, nie Modell-p oder
   Reihenfolge. Validierung gegen den Markt ist ausdrücklich erlaubt (Bibel §3.1).
