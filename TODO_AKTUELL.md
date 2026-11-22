@@ -1,5 +1,15 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 22.11.2026 – Produktion und Zuschauerbetrieb
+
+- `9711db5` ist auf dem VPS verifiziert: App-Neustart nach bestandenem isoliertem
+  Test, beide Healthchecks erfolgreich, veröffentlichte Stände unverändert. Kein Backup.
+- Separates Tickerpaket: gemeinsamer 5-/1-Minuten-Takt ausschließlich im
+  geöffneten Live-Bereich, 500er-Tageslimit zusätzlich zur Reserve. Zur
+  Betriebsbeobachtung genügt der normale erste Zuschauer; kein Sonderlauf.
+- Offen getrennt: Bei realem Spiel Datenabdeckung und Zahl der echten Anbieterabrufe
+  im regulären Betrieb beobachten; der alte unabhängige Hockey-Test bleibt offen.
+
 ## 22.11.2026 – Kommende Tipps, Liga-Abfragen und Live-Ticker
 
 - Arbeitsbranch `codex/live-spieltag-20261122`: wiederverwendete Liga-Metadaten

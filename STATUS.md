@@ -6,7 +6,10 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 
 ## Stand: 22.11.2026
 
-Arbeitsbranch `codex/live-spieltag-20261122` (noch nicht auf dem VPS):
+Produktion: [PR #154](https://github.com/xantharu123-png/btts-pro-analyzer/pull/154),
+Merge `9711db5`. Die isolierte Linux-Prüfung lief als App-Nutzer; anschließend
+wurde nur die App neu gestartet. Beide Healthchecks meldeten `ok`; die Prüfsummen
+der veröffentlichten Auswahlen waren vor und nach dem Neustart identisch.
 Wettfinder und Shadow können die bestätigte Liga-/Saisonabdeckung für Ausfälle
 und Aufstellungen gemeinsam bis zu 24 Stunden nutzen; tatsächliche Aufstellungen,
 Ausfälle sowie Quoten werden davon nicht berührt. Im geöffneten Vorab-Wettfinder
@@ -18,11 +21,13 @@ je 92 bestanden mit `floor` und `gate`;
 56 weitere Tests für Budget, Originalscheine und bisherige Liveanzeige bestanden.
 Der bekannte Hockeyfehler unten blockiert die Vollsuite.
 
-Fußball-Liveticker: Der Owner hat **nur bei offenem Live-Tab** gewählt, neue Spiele
-alle fünf Minuten, laufende jede Minute. Der [Entwurf](docs/superpowers/specs/2026-11-22-live-spieltag-design.md)
-ist getrennt von den beiden Vorab-Änderungen; der neue Feed ist noch nicht aktiv.
-Die vorhandenen Batch-Belege enthalten kein laufendes Spiel mit nachgewiesen
-vollständigen Ereignissen und Statistiken. Kein zusätzlicher API-Scan, kein Backup.
+Separater Fußball-Liveticker (`codex/live-ticker-20261122`): Nur ein
+geöffneter, berechtigter Live-Tab stößt die Spielsuche (5 Minuten) und gruppierte
+Spielstände (1 Minute) an. Höchstens 500 zusätzliche Abrufe je Anbieterkonto
+und UTC-Tag; laufende Sportjobs und die Kontingentreserve gehen vor.
+Score und Modellbeleg werden getrennt: unpassende oder alte Daten erzeugen keinen
+Tipp. [Plan und Abnahme](docs/superpowers/plans/2026-11-22-live-ticker.md).
+Ein synthetischer Test ist kein Nachweis für einen echten laufenden Anbieterstand.
 
 „Kombis des Tages“: Der einzige Balken zeigt **Ø Modellchance je Einzeltipp**, den
 Durchschnitt der gespeicherten Einzelchancen (heutiger 3er: 83 %). Er ist keine
