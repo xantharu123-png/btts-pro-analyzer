@@ -76,7 +76,7 @@ def test_league_list_shows_each_games_actual_pick_or_data_state_without_clicking
     entries = [(key, label) for kind, value in ui.messages if kind == "button"
                for label, key in (value,) if key.startswith("live_fixture_")]
     assert [key for key, _ in entries] == ["live_fixture_11", "live_fixture_13", "live_fixture_12"]
-    assert "71 %" in entries[0][1] and "83 %" in entries[1][1] and "Spieldaten fehlen" in entries[2][1]
+    assert "71 %" in entries[0][1] and "83 %" in entries[1][1] and "Nur Spielstand verfügbar" in entries[2][1]
     assert set(writes) == {"11", "13"}
     inspector = [value for kind, value in ui.messages if kind == "markdown" and 'class="lv-scoreline"' in value]
     assert len(inspector) == 1 and "Heim13" in inspector[0] and "Gast13" in inspector[0]
@@ -117,7 +117,7 @@ def test_dismissal_is_bound_to_the_team_with_no_pick_and_disappears_after_correc
         return buttons, _last_panel(ui, 'lv-scoreline')
 
     buttons, header = screen()
-    assert 'Luzern 🟥 52′' in buttons['live_fixture_81'] and 'Spieldaten fehlen' in buttons['live_fixture_81']
+    assert 'Luzern 🟥 52′' in buttons['live_fixture_81'] and 'Kein verlässlicher Live-Tipp' in buttons['live_fixture_81']
     assert '🟥' not in buttons['live_fixture_2'] and 'Basel 🟥' not in buttons['live_fixture_81']
     assert 'Luzern' in header and 'Rot 52′' in header and header.index('Luzern') < header.index('Rot 52′')
     fixture['events'][1]['comments'] = 'Substitute'
@@ -164,7 +164,8 @@ def test_stand_without_current_detail_has_no_model_or_receipt(monkeypatch, bad_d
     app.render_live(SimpleNamespace())
     assert len(ticks) == 1
     assert not writes and not checked
-    assert "Datenstand:" in str(ui.messages) and "Spieldaten fehlen" in _last_panel(ui, "lv-no-pick")
+    expected = "Nur Spielstand verfügbar" if bad_detail is None else "Kein aktueller Detailstand"
+    assert "Datenstand:" in str(ui.messages) and expected in _last_panel(ui, "lv-no-pick")
     assert _no_public_tip(ui)
 
 
@@ -194,7 +195,7 @@ def test_selected_id_survives_reorder_then_loses_only_its_own_tip(monkeypatch):
     rows[1]["detailed_at"] = None
     app.render_live(SimpleNamespace())
     assert writes[8:] == ["5", "2", "8"]
-    assert "Spieldaten fehlen" in _last_panel(ui, "lv-no-pick") and not _last_panel(ui, "lv-pick")
+    assert "Nur Spielstand verfügbar" in _last_panel(ui, "lv-no-pick") and not _last_panel(ui, "lv-pick")
 
 
 def test_highest_probability_opens_without_click_manual_selection_sticks_until_finished(monkeypatch):
@@ -285,6 +286,7 @@ def test_even_the_only_dismissal_cannot_bypass_eligibility(monkeypatch, bad):
 
 @pytest.mark.parametrize("case,expected", [
     ("warm", ("next_goal", "any", "Noch ein Tor", .674)),
+    ("stored-cold", ("next_goal", "any", "Noch ein Tor", .674)),
     ("dismissal", ("red_next", "home", "Nächstes Tor: 1", .660621370588)),
     ("late-no-card", None),
 ])
@@ -302,8 +304,23 @@ def test_grouped_native_model_to_visible_market_and_frozen_receipt(monkeypatch, 
         fixture["events"] = [
             {"time":{"elapsed":minute}, "team":{"id":1}, "type":"Goal", "detail":"Normal Goal"}
             for minute in (31, 51, 64, 78)]
-    analyzer = warm(fixture, monkeypatch) if case != "dismissal" else None
+    import ev_signal_sources
+    artifact = tmp_path / "wettfinder.json"
+    monkeypatch.setattr(ev_signal_sources, "AUTOMATED_WETTFINDER_PATH", artifact)
+    analyzer = None
     analyze = app._analyze_ticker_fixture
+    if case == "warm":
+        # Historical caller/receipt contract for the existing venue rates.
+        from live_football_source import analyze_detail
+        analyzer = warm(fixture, monkeypatch)
+        analyze = analyze_detail
+    elif case == "stored-cold":
+        # Same rates, but published before kickoff and no viewer cache.
+        import json
+        from test_live_football_priors import case as issued_case
+        fixture, document, record = issued_case()
+        record["analysis_evidence"]["basis"].update(expected_home_goals=1.45, expected_away_goals=1.29)
+        artifact.write_text(json.dumps(document), encoding="utf-8")
     ui = Screen({"workspace":"Live"})
     mount(monkeypatch, ui, {})
     feed = LiveFootballFeed()
@@ -321,7 +338,7 @@ def test_grouped_native_model_to_visible_market_and_frozen_receipt(monkeypatch, 
     db = tmp_path / "tips.db"
     write = live_tip_ledger.record_displayed_live_tip
     monkeypatch.setattr(live_tip_ledger, "record_displayed_live_tip", lambda **kw: write(**kw, db_path=db))
-    app.render_live(analyzer or object())
+    app.render_live(None if case == "stored-cold" else analyzer or object())
     assert calls == ["discover", (81,)]
     if expected is None:
         assert _no_public_tip(ui) and "4:0" in _last_panel(ui, "lv-scoreline")
@@ -332,6 +349,8 @@ def test_grouped_native_model_to_visible_market_and_frozen_receipt(monkeypatch, 
         with sqlite3.connect(db) as connection:
             rows = connection.execute("SELECT fixture_id, home_id, away_id, minute, home_goals, away_goals, "
                                       "market, side, probability FROM live_tips").fetchall()
+            version, = connection.execute("SELECT model_version FROM live_tips").fetchone()
+            assert ("wettfinder-goal-prior-v1" in version) is (case == "stored-cold")
         assert rows == [(81, 1, 2, 60, 1, 0, market, side, pytest.approx(probability))]
 
 

@@ -305,6 +305,22 @@ details.wf-fact {padding:0 !important;}
 .st-key-live_detail .lv-pitch {display:grid;place-items:center;width:100%;aspect-ratio:2.4;border-radius:6px;background-color:#265836;
   background-size:100% 100%;background-repeat:no-repeat;}
 .st-key-live_detail .lv-pitch-minute {font:800 clamp(1.3rem,2vw,2rem)/1 'BB Sport',sans-serif;color:#fff;text-shadow:0 1px 3px #143a1e;}
+.st-key-live_detail table.lv-stats {width:100%;margin:.75rem 0 .55rem;table-layout:fixed;border-collapse:collapse;
+  color:var(--lv-navy);font-variant-numeric:tabular-nums;}
+.st-key-live_detail .lv-stats caption {caption-side:top;text-align:left;padding:0 0 .35rem;color:var(--lv-navy);
+  font:800 1.35rem/1.1 'BB Sport',sans-serif;}
+.st-key-live_detail .lv-stats :is(th,td) {border:0;border-bottom:1px solid var(--lv-line);background-color:transparent;
+  padding:.28rem .35rem;text-align:center;vertical-align:middle;line-height:1.22;overflow-wrap:anywhere;}
+.st-key-live_detail .lv-stats thead th {font-size:.82rem;color:#284b39;font-weight:700;background:#edf3ee;}
+.st-key-live_detail .lv-stats thead th:nth-child(2) {width:46%;color:#4d5a62;font-weight:500;}
+.st-key-live_detail .lv-stats thead th:last-child {color:#245675;}
+.st-key-live_detail .lv-stats tbody th {font-size:.84rem;font-weight:550;}
+.st-key-live_detail .lv-stats td {position:relative;font-size:.99rem;font-weight:750;}
+.st-key-live_detail .lv-stats td[style]::after {content:"";display:block;height:3px;margin:.12rem 0 0;border-radius:2px;
+  background:linear-gradient(to left,#287447 var(--lv-share),#e3e9e6 var(--lv-share));}
+.st-key-live_detail .lv-stats td[style]:last-child::after {
+  background:linear-gradient(to right,#386f91 var(--lv-share),#e3e9e6 var(--lv-share));}
+.st-key-live_detail .lv-stats-empty {padding:.55rem 0;color:#4b5b64;font-size:.86rem;}
 .st-key-live_detail .lv-meta {display:grid;grid-template-columns:.7fr .7fr minmax(0,1.6fr);border-top:1px solid var(--lv-line);padding:.8rem 0 .1rem;}
 .st-key-live_detail .lv-meta>div {padding-inline:.65rem;min-width:0;}
 .st-key-live_detail .lv-meta>div+div {border-left:1px solid var(--lv-line);}

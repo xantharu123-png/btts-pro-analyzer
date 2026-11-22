@@ -198,8 +198,10 @@ def test_ledger_failure_does_not_change_customer_ui(surface, error_type, caplog)
 
 
 def test_unavailable_analyzer_does_not_read_the_internal_audit(surface):
+    surface.ui.session_state["live_worldwide_research"] = True
     app.render_live(None)
-    assert ("error", "Analyzer nicht bereit.") in surface.ui.messages
+    assert ("info", "Kein Live-Spiel in den unterstützten Ligen verfügbar.") in surface.ui.messages
+    assert ("info", "Die manuelle Platzverweis-Suche ist nicht verfügbar.") in surface.ui.messages
     _assert_no_audit_ui(surface)
 
 
@@ -308,5 +310,5 @@ def test_unsupported_red_snapshot_does_not_publish_an_unverified_provider_reason
     row.update(prediction=None, error="Nachspielzeit: Die verbleibende Spielzeit ist unbekannt; keine neue Prognose.")
     _show(surface, "Nach Platzverweis", items=[row], selected=0)
     text = str(surface.ui.messages)
-    assert "Spieldaten fehlen" in text and row["error"] not in text
+    assert "Kein verlässlicher Live-Tipp" in text and row["error"] not in text
     assert "Geprüft – kein Tipp" not in text and surface.writes == []
