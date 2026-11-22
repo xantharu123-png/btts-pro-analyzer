@@ -1,4 +1,4 @@
-"""Offline: the displayed selection, not the dropdown or scan, owns the receipt."""
+"""Offline: only the automatically chosen, actually displayed market owns a receipt."""
 from datetime import datetime, timedelta, timezone
 import sqlite3
 import sys
@@ -56,6 +56,16 @@ def _red(game, probs=(.21, .62, .17)):
                             "no_more_goals": probs[2], "data_quality": "MEDIUM"})
 
 
+def _market_sample(game, market):
+    """A real render chooses from the model outputs present, never a mocked market widget."""
+    analysis = _analysis(game)
+    if market == "Team trifft noch":
+        analysis["remaining_goals"].pop("over_0_5_probability")
+    elif market == "Beide treffen":
+        analysis.pop("remaining_goals")
+    return analysis
+
+
 @pytest.fixture
 def surface(monkeypatch):
     # Replace only the database I/O, both app renderers and their candidates stay real.
@@ -92,14 +102,18 @@ def _show(surface, label, *, age=0, items=None, selected=1):
     now = datetime.now(timezone.utc)-timedelta(seconds=age)
     red = label == "Nach Platzverweis"
     ui = surface.ui
-    ui.widget_values["live_market_choice"] = label
     if items is None:
-        items = [(_red if red else _analysis)(n) for n in (1, 2, 3, 4)]
+        items = [_red(n) if red else _market_sample(n, label) for n in (1, 2, 3, 4)]
     from test_live_football_board import feed_row
     surface.feed.clear()
     for i, item in enumerate(items):
         game = item["card"]["match"]["fixture"]["id"] if red else item["fixture_id"]
-        surface.feed[game] = feed_row(game, now, red=item) if red else feed_row(game, now, analysis=item)
+        if red:
+            # This fixture has a dismissal model but no independent ordinary forecast.
+            surface.feed[game] = feed_row(game, now, red=item)
+            surface.feed[game]["fixture"]["offline_analysis"] = None
+        else:
+            surface.feed[game] = feed_row(game, now, analysis=item)
         if i == selected:
             ui.session_state["live_selected_fixture_id"] = game
     app.render_live(SimpleNamespace(engine=SimpleNamespace(LEAGUES_CONFIG={"league": 39})))
@@ -126,7 +140,7 @@ def test_only_selected_actual_card_binds_native_snapshot_and_visible_model(surfa
     assert "keine passende Live-Quote" not in text and "Deine Mindestquote" not in text
     already_rendered, = surface.details_at_write
     assert visible in str(already_rendered) and "Modell:" in str(already_rendered)
-    assert [value[1] for kind, value in surface.ui.messages if kind == "button"] == [
+    assert [v[1] for kind, v in surface.ui.messages if kind == "button" and (v[1] or "").startswith("live_fixture_")] == [
         "live_fixture_1", "live_fixture_2", "live_fixture_3", "live_fixture_4"]
     _assert_no_audit_ui(surface)
 
@@ -197,7 +211,7 @@ def test_repeat_display_of_new_scan_keeps_first_visible_baseline_internally(surf
     write = ledger.record_displayed_live_tip
     monkeypatch.setattr(ledger, "record_displayed_live_tip", lambda **fields: write(**fields, db_path=db))
     monkeypatch.setattr(ledger, "live_tip_stats", surface.ledger.live_tip_stats)
-    row = _analysis(8)
+    row = _market_sample(8, "Team trifft noch")
     _show(surface, "Team trifft noch", items=[row], selected=0)
     row.update(minute=61, score="2-0", home_score=2, phase_data={"status": "2H", "extra": None})
     surface.ui.messages.clear()
@@ -264,9 +278,14 @@ def test_fresh_scan_preserves_separate_shadow_cohort_public_requires_actual_disp
     with sqlite3.connect(shadow) as conn:
         assert conn.execute("SELECT fixture_id FROM signals ORDER BY fixture_id").fetchall() == [(1,), (2,), (3,), (4,)]
     surface.ui.session_state["red_card_snapshot"] = snapshot
-    surface.ui.widget_values.update({"live_market_choice": "Nach Platzverweis", "red_card_scope": "Weltweit",
-                                     "red_card_detail": snapshot["cards"][1]["card"]["card_id"]})
-    app.render_live(SimpleNamespace(engine=SimpleNamespace(LEAGUES_CONFIG={"league": 39})))
+    # A stored worldwide scan is not published merely because somebody opens Live.
+    analyzer = SimpleNamespace(engine=SimpleNamespace(LEAGUES_CONFIG={"league": 39}))
+    app.render_live(analyzer)
+    assert not public.exists()
+    # The explicit manual view still records its actually displayed market.
+    surface.ui.session_state["live_worldwide_research"] = True
+    surface.ui.widget_values["red_card_detail"] = snapshot["cards"][1]["card"]["card_id"]
+    app.render_live(analyzer)
     with sqlite3.connect(public) as conn:
         assert conn.execute("SELECT fixture_id FROM live_tips").fetchall() == [(2,)]
     # A slow source fetch must not create a shadow observation from an old score either.

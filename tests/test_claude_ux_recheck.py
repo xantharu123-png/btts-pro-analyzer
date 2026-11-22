@@ -207,10 +207,10 @@ def test_live_selection_does_not_claim_independent_model_confirmation(monkeypatc
     import app
     from test_workflow_integrity import _RecordingStreamlit
     from test_live_football_board import feed_row, mount
-    ui = _RecordingStreamlit(session_state={'workspace': 'Live'}, widget_values={'live_market_choice': 'Beide treffen'})
-    analysis = {'fixture_id': 100, 'home_team': 'Alpha', 'away_team': 'Beta',
-            'minute': 60, 'score': '1:0', 'btts_prob': 70., 'live_data_quality': 'MEDIUM',
-            'model_calibrated': True, 'scheduled_start': '2030-01-01T22:30:00Z'}
+    from test_live_tip_surface import _market_sample
+    ui = _RecordingStreamlit(session_state={'workspace': 'Live'})
+    analysis = _market_sample(100, "Beide treffen")
+    analysis.update(home_team='Alpha', away_team='Beta', btts_prob=70., model_calibrated=True)
     mount(monkeypatch, ui, {100: feed_row(100, datetime.now(timezone.utc), analysis=analysis)})
     # The candidate builder, filters and selection renderer remain real.
     app.render_live(object())

@@ -3027,22 +3027,76 @@ def _analyze_ticker_fixture(fixture, analyzer):
     return analyze_detail(fixture, analyzer)
 
 
-def _render_live_football(analyzer, market, *, viewer_active):
+def _best_live_analysis(fixture, ordinary, dismissal, *, age, freemode):
+    """Best existing, still-open outcome for this exact native game revision (no prices)."""
+    from live_tip_surface import live_snapshot_fields
+    from redcard_events import period_clock, score_pair
+    source, teams = fixture["fixture"], fixture["teams"]
+    status = source["status"]
+    phase, minute, extra = status.get("short"), status.get("elapsed"), status.get("extra")
+    score = score_pair(fixture.get("goals"))
+    if (score is None or period_clock(phase, minute, 0 if extra is None else extra) is None
+            or minute < 1 or (phase == "2H" and minute >= 90)):
+        return None
+    native = dict(fixture_id=source["id"], minute=minute, phase=phase, extra=extra,
+                  home_id=teams["home"]["id"], away_id=teams["away"]["id"],
+                  home_goals=score[0], away_goals=score[1])
+    options = []
+
+    def admit(candidate, item, red):
+        if not candidate.forecast_available or candidate.model_probability < 55:
+            return
+        if not isinstance(item.get("model_version"), str) or not item["model_version"].strip():
+            return
+        fields = live_snapshot_fields(candidate, item, red=red)
+        if fields is None or any(type(fields[k]) is not type(v) or fields[k] != v for k, v in native.items()):
+            return
+        options.append((candidate, item, red))
+
+    if (ordinary and ordinary.get("live_data_quality") == "MEDIUM"
+            and (ordinary.get("red_cards") or {}).get("supported") is not False
+            and ordinary.get("home_team") == teams["home"]["name"]
+            and ordinary.get("away_team") == teams["away"]["name"]):
+        # Tie: prefer a team-specific outcome over an equivalent broader statement.
+        for market in ("Team trifft noch", "Noch ein Tor", "BTTS"):
+            if market == "BTTS" and (min(score) > 0 or ordinary.get("btts_confidence") != "MEDIUM"):
+                continue
+            probability, selection = _live_market_signal(ordinary, market)
+            if probability is not None and probability >= 55:
+                candidate = live_football_candidate(
+                    ordinary, market=market, selection=selection, probability=probability,
+                    snapshot_age_seconds=age, freemode=freemode)
+                admit(candidate, ordinary, False)
+    if dismissal and not dismissal.get("error") and dismissal.get("fixture_red_card_count") == 1:
+        prediction = dismissal.get("prediction") or {}
+        red_side = dismissal.get("red_side")
+        opponent_side = {"home": "away", "away": "home"}.get(red_side)
+        probabilities = [_live_probability(prediction.get(k)) for k in
+                         ("next_goal_by_opponent", "next_goal_by_red_team", "no_more_goals")]
+        if (prediction.get("data_quality") == "MEDIUM" and prediction.get("too_late_for_signal") is not True
+                and all(p is not None and p <= 1 for p in probabilities)
+                and math.isclose(sum(probabilities), 1.0, abs_tol=1e-6)
+                and opponent_side and (dismissal.get("card") or {}).get("team") == teams[red_side]["name"]
+                and dismissal.get("opponent") == teams[opponent_side]["name"]
+                and dismissal.get("home") == teams["home"]["name"] and dismissal.get("away") == teams["away"]["name"]):
+            candidate = red_card_candidate(dismissal, snapshot_age_seconds=age, freemode=freemode)
+            admit(candidate, dismissal, True)
+    return max(options, key=lambda option: option[0].model_probability, default=None)
+
+
+def _render_live_football(analyzer, *, viewer_active):
     from live_football_board import fresh_age, games_in_start_order, render_board
     config = load_app_config(st)
     if not config.api_football_key:
         st.info("Der Live-Spielstand ist vorübergehend nicht verfügbar.")
         return
-    red = market == "Nach Platzverweis"
-    minimum = None if red else st.slider("Min. Modellwahrscheinlichkeit (%)", 0, 100, 55,
-                                           key=f"live_min_probability_{market}")
     feed, source = _live_ticker_resources(config.api_football_key)
     rows = feed.tick(source, now=datetime.now(timezone.utc), viewer_active=viewer_active)
     if not viewer_active():
         st.info("Live-Zugang nicht verfügbar.")
         return
     games = games_in_start_order(rows)
-    candidates, reasons = [], {}
+    admitted, reasons = {}, {}
     now = datetime.now(timezone.utc)
     for game in games:
         age = fresh_age(game.detailed_at, now)
@@ -3050,47 +3104,19 @@ def _render_live_football(analyzer, market, *, viewer_active):
             continue
         try:
             ordinary, dismissal = _analyze_ticker_fixture(game.fixture, analyzer)
+            best = _best_live_analysis(game.fixture, ordinary, dismissal, age=age, freemode=config.freemode)
         except (ArithmeticError, LookupError, TypeError, ValueError):
             # Malformed data in one game cannot erase the rest of the scoreboard.
             reasons[game.id] = "Die Datenbasis dieses Spiels ist nicht eindeutig."
             continue
-        if red:
-            if not dismissal:
-                continue
-            if dismissal.get("error"):
-                reasons[game.id] = dismissal["error"]
-                continue
-            item = dismissal
-            candidate = red_card_candidate(item, snapshot_age_seconds=age, freemode=config.freemode)
-        else:
-            if not ordinary or not _filter_live_opportunities([ordinary], minimum, LIVE_DATA_BASIS_OPTIONS[0], market):
-                continue
-            item = ordinary
-            probability, selection = _live_market_signal(item, market)
-            candidate = live_football_candidate(item, market=market, selection=selection, probability=probability,
-                                                snapshot_age_seconds=age, freemode=config.freemode)
-        if candidate.forecast_available:
-            candidates.append((game.id, candidate, item))
-    # Before ranking readiness, the ordinary legacy filter ranked by its market's raw probability.
-    if not red:
-        candidates.sort(key=lambda row: row[1].model_probability, reverse=True)
-    candidates.sort(key=lambda row: (row[1].model_ready, row[1].risk_adjusted_probability or -1.), reverse=True)
-    automatic_ids = {game_id for game_id, _, _ in candidates[:3]}
-    admitted = {}
-    for game_id, candidate, item in candidates:
-        if game_id not in automatic_ids:
-            # A deliberate drill-down is still an analysis, not a calibration/price release.
-            # Never promote an unsupported, late or weak dismissal alternative via a click.
-            if not item.get("model_version") or candidate.model_probability < 55:
-                continue
-            if red and (item["prediction"].get("data_quality") != "MEDIUM"
-                        or item["prediction"].get("too_late_for_signal") is True
-                        or item.get("fixture_red_card_count") != 1):
-                continue
-        admitted[game_id] = candidate, item
+        if best is not None:
+            admitted[game.id] = best
+        elif dismissal and dismissal.get("error"):
+            reasons[game.id] = dismissal["error"]
+    preferred_id = max(admitted, key=lambda fid: (admitted[fid][0].model_probability, -fid), default=None)
 
     def render_tip(game, pair):
-        candidate, item = pair
+        candidate, item, red = pair
         if not viewer_active():
             return False
         with feed.current_detail(game.id, game.detailed_at, game.fixture) as current:
@@ -3102,7 +3128,7 @@ def _render_live_football(analyzer, market, *, viewer_active):
         record_visible_analysis(candidate, item, snapshot_at=game.detailed_at.isoformat(), age_seconds=age, red=red)
         return True
 
-    render_board(st, games, admitted, automatic_ids=automatic_ids, market_label="Beide treffen" if market == "BTTS" else market,
+    render_board(st, games, admitted, preferred_id=preferred_id,
                  format_time=_format_snapshot_time, render_tip=render_tip, reasons=reasons,
                  now=datetime.now(timezone.utc), refresh_issue=feed.refresh_issue)
 
@@ -3506,17 +3532,12 @@ def render_live(analyzer) -> None:
         if not viewer_active():
             st.info("Live-Zugang nicht verfügbar.")
             return
-        market_label = st.selectbox(
-            "Wettart", ["Noch ein Tor", "Team trifft noch", "Beide treffen", "Nach Platzverweis"],
-            key="live_market_choice",
-        )
-        if market_label == "Nach Platzverweis":
-            scope = st.selectbox("Suchumfang", ["Konfigurierte Ligen", "Weltweit"], key="red_card_scope")
-            if scope == "Weltweit":
+        _render_live_football(analyzer, viewer_active=viewer_active)
+        # Age out any visible manual result on the same clock as the board.
+        # A closed drawer never reads its snapshot; only the explicit button starts a scan.
+        with st.expander("Manuelle weltweite Platzverweis-Suche", key="live_worldwide_research", on_change="rerun"):
+            if st.session_state.get("live_worldwide_research") is True and viewer_active():
                 _render_red_cards(analyzer)
-                return
-        market = "BTTS" if market_label == "Beide treffen" else market_label
-        _render_live_football(analyzer, market, viewer_active=viewer_active)
 
     open_ticker()
 
@@ -5139,6 +5160,8 @@ def main() -> None:
         st.session_state["analyzer_error"] = str(exc)
 
     workspace = _render_sidebar(analyzer)
+    if workspace != "Live":
+        st.session_state.pop("live_selected_fixture_id", None)
     # Render the shared selector before any feature guard can stop the page.
     # A denied paid area must still let the customer choose another area.
     _render_editorial_header(workspace)
@@ -5162,7 +5185,8 @@ def main() -> None:
 
         render_riskobet()
     elif workspace == "Live":
-        render_live(analyzer)
+        with st.container(key="live_page"):
+            render_live(analyzer)
     elif workspace == "15K":
         render_challenge_15k()
     elif workspace == "Meine Tipps":

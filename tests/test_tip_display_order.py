@@ -407,21 +407,23 @@ def test_15k_actual_card_and_ticket_options_share_display_order_without_ledger_w
 
 
 @pytest.mark.parametrize('market', ['BTTS', 'Noch ein Tor', 'Team trifft noch'])
-def test_live_real_candidates_and_overview_ignore_old_time_order_without_rescan(monkeypatch, market):
+def test_live_scoreboard_chronological_but_auto_focus_tracks_best_without_rescan(monkeypatch, market):
     import app
     from copy import deepcopy
     now = datetime.now(timezone.utc)
-    analyses = [dict(fixture_id=game, home_team=label, away_team='Opponent',
-        scheduled_start=(now-timedelta(hours=hours)).isoformat(), minute=60, score='0-0',
-        btts_prob=p, btts_confidence='MEDIUM', live_data_quality='MEDIUM',
-        remaining_goals={'over_0_5_probability': p, 'home_scores_probability': p,
-                         'away_scores_probability': 10.})
-        for game, label, p, hours in [(1, 'Early', 70., 2), (2, 'Late', 90., 1)]]
+    from test_live_tip_surface import _analysis, Screen
+    analyses = []
+    for game, label, p, hours in [(1, 'Early', 70., 2), (2, 'Late', 90., 1)]:
+        row = _analysis(game)
+        row.update(home_team=label, away_team='Opponent', scheduled_start=(now-timedelta(hours=hours)).isoformat(),
+                   btts_prob=p if market == 'BTTS' else None,
+                   remaining_goals={'over_0_5_probability': p} if market == 'Noch ein Tor' else
+                                  {'home_scores_probability': p, 'away_scores_probability': 10.}
+                                  if market == 'Team trifft noch' else {})
+        analyses.append(row)
     before = deepcopy(analyses)
     from test_live_football_board import feed_row, mount
-    from test_live_tip_surface import Screen
-    ui = Screen({'workspace': 'Live'}, {'live_football_order': START_TIME,
-                                        'live_market_choice': 'Beide treffen' if market == 'BTTS' else market})
+    ui = Screen({'workspace': 'Live'}, {'live_football_order': START_TIME})
     rendered = []
     mount(monkeypatch, ui, {r['fixture_id']: feed_row(r['fixture_id'], now, analysis=r) for r in analyses})
     monkeypatch.setattr(app, '_freemode_enabled', lambda: False)
@@ -429,9 +431,11 @@ def test_live_real_candidates_and_overview_ignore_old_time_order_without_rescan(
     monkeypatch.setattr(app.scan_jobs, 'start_job', lambda *_a, **_k: pytest.fail('Sorting cannot scan'))
     monkeypatch.setattr(app, 'render_model_selection', lambda c, **_k: rendered.append(c))
     app.render_live(object())
-    assert [v[0].split(' · ')[-1] for k,v in ui.messages if k == 'button'] == ['Early – Opponent', 'Late – Opponent']
-    assert len(rendered) == 1 and rendered[0].event_key == '1'
-    assert rendered[0].model_probability == 70. and rendered[0].risk_adjusted_probability is None
+    buttons = [v for k, v in ui.messages if k == 'button' and (v[1] or '').startswith('live_fixture_')]
+    assert [key for _, key in buttons] == ['live_fixture_1', 'live_fixture_2']
+    assert all(label in button for label, (button, _) in zip(('Early – Opponent', 'Late – Opponent'), buttons, strict=True))
+    assert len(rendered) == 1 and rendered[0].event_key == '2' and rendered[0].market == market
+    assert rendered[0].model_probability == 90. and rendered[0].risk_adjusted_probability is None
     assert rendered[0].probability_haircut == 12. and rendered[0].evidence_stage == 'RESEARCH'
     assert analyses == before
 
@@ -442,20 +446,20 @@ def test_redcard_real_candidate_selector_ignores_old_time_order_without_rescan(m
     from types import SimpleNamespace
     from test_workflow_integrity import _RecordingStreamlit
     now = datetime.now(timezone.utc)
-    entries = [dict(home=label, away='Opponent', opponent='Opponent', score='0-0',
-        prediction_minute=60, fixture_red_card_count=1,
-        card={'card_id': label, 'minute': 40, 'team': label,
-              'match': {'fixture': {'date': (now-timedelta(hours=hours)).isoformat()}}},
-        prediction={'next_goal_by_opponent': p, 'next_goal_by_red_team': .05,
-                    'no_more_goals': 1-p-.05, 'data_quality': 'MEDIUM',
-                    'calibrated': True, 'actionable': True})
-        for label, p, hours in [('Early', .70, 2), ('Late', .90, 1)]]
+    from test_live_tip_surface import _red
+    entries = []
+    for i, p, hours in [(1, .70, 2), (2, .90, 1)]:
+        row = _red(i, (p, .05, 1-p-.05))
+        row['card']['match']['fixture']['date'] = (now-timedelta(hours=hours)).isoformat()
+        row['prediction'].update(calibrated=True, actionable=True)
+        entries.append(row)
     from test_live_football_board import feed_row, mount
     before = deepcopy(entries)
-    ui = _RecordingStreamlit({'workspace': 'Live'}, {'live_market_choice': 'Nach Platzverweis', 'live_redcard_order': START_TIME})
+    ui = _RecordingStreamlit({'workspace': 'Live'}, {'live_redcard_order': START_TIME})
     rows = {i: feed_row(i, now, red=row) for i, row in enumerate(entries, 1)}
     for i, row in rows.items():
         row['fixture']['fixture']['date'] = entries[i-1]['card']['match']['fixture']['date']
+        row['fixture']['offline_analysis'] = None
     mount(monkeypatch, ui, rows)
     rendered = []
     monkeypatch.setattr(app, 'st', ui)
@@ -465,6 +469,6 @@ def test_redcard_real_candidate_selector_ignores_old_time_order_without_rescan(m
     monkeypatch.setattr('redcard_signal_log.log_signal', lambda _entry: None)  # Existing writer boundary only.
     monkeypatch.setattr(app, 'render_model_selection', lambda c, **_k: rendered.append(c))
     app.render_live(SimpleNamespace(engine=SimpleNamespace(LEAGUES_CONFIG={'league': 39})))
-    assert len(rendered) == 1 and rendered[0].event_key == 'Early'
-    assert rendered[0].model_probability == 70. and rendered[0].risk_adjusted_probability == 55.
+    assert len(rendered) == 1 and rendered[0].event_key == 'card-2'
+    assert rendered[0].model_probability == 90. and rendered[0].risk_adjusted_probability == 75.
     assert entries == before

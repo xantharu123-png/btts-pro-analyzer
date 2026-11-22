@@ -58,13 +58,18 @@ def _red_fields(candidate, row):
                 home_id=home_id, away_id=away_id)
 
 
+def live_snapshot_fields(candidate, row, *, red):
+    """Identify the outcome and baseline used both for display and its receipt."""
+    return (_red_fields if red else _ordinary_fields)(candidate, row)
+
+
 def record_visible_analysis(candidate, row, *, snapshot_at, age_seconds, red=False):
     """Record the rendered detail for internal audit, without changing its UI."""
     if not candidate.forecast_available:
         return
     if age_seconds is None or not 0 <= age_seconds <= LIVE_MAX_AGE_SECONDS:
         return
-    fields = (_red_fields if red else _ordinary_fields)(candidate, row)
+    fields = live_snapshot_fields(candidate, row, red=red)
     if fields is None or not row.get("model_version"):
         return
     from live_tip_ledger import record_displayed_live_tip
