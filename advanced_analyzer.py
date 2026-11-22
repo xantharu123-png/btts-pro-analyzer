@@ -892,12 +892,7 @@ class AdvancedBTTSAnalyzer:
         # λ = erwartete Tore
         # Inputs are already venue-specific. Applying another fixed home/away
         # multiplier would count venue effects twice.
-        lambda_home = (
-            home_season['avg_scored'] + away_season['avg_conceded']
-        ) / 2
-        lambda_away = (
-            away_season['avg_scored'] + home_season['avg_conceded']
-        ) / 2
+        lambda_home, lambda_away = self._venue_goal_means(home_season, away_season)
         
         # P(Team ≥ 1 Tor) = 1 - e^(-λ) - für Anzeige
         p_home_scores = (1 - math.exp(-lambda_home)) * 100
@@ -1131,13 +1126,42 @@ class AdvancedBTTSAnalyzer:
                 break
         if not home_season or not away_season:
             return None, None
-        lambda_home = (
-            home_season['avg_scored'] + away_season['avg_conceded']
-        ) / 2
-        lambda_away = (
-            away_season['avg_scored'] + home_season['avg_conceded']
-        ) / 2
-        return lambda_home, lambda_away
+        return self._venue_goal_means(home_season, away_season)
+
+    @staticmethod
+    def _venue_goal_means(home_season, away_season):
+        return ((home_season['avg_scored'] + away_season['avg_conceded']) / 2,
+                (away_season['avg_scored'] + home_season['avg_conceded']) / 2)
+
+    def cached_live_goal_priors(self, home, away, league, season, kickoff):
+        """Project the same rounded analyze_match priors from proved PRE-kickoff data.
+
+        No lookup, refresh, domestic-league fallback, form, database read or model fit.
+        Both teams must qualify in the actual fixture's own league and season.
+        """
+        missing = (None, None)
+        try:
+            start = datetime.fromisoformat(kickoff)
+            if (start.utcoffset() is None or type(season) is not int
+                    or current_season_start_year_for_id(league) != season
+                    or league not in self.engine.LEAGUES_CONFIG.values()):
+                return missing
+            seasons = []
+            for team, side in ((home, "home"), (away, "away")):
+                key = f"season_{team}_{league}_{season}"
+                stats = self._fresh_stats_cache("_team_stats_cache", key)
+                source = stats.get("_native_prior_source") if isinstance(stats, dict) else None
+                if (not isinstance(source, tuple) or len(source) != 4 or source[:3] != (team, league, season)
+                        or type(source[3]) not in (int, float) or not 0 < source[3] < start.timestamp()):
+                    return missing
+                venue = self._season_venue_stats(stats, side)
+                if not venue:
+                    return missing
+                seasons.append(venue)
+            # analyze_match publishes the priors rounded to two decimals.
+            return tuple(round(v, 2) for v in self._venue_goal_means(*seasons))
+        except (AttributeError, KeyError, TypeError, ValueError, OverflowError, OSError):
+            return missing
 
     def _get_season_stats(
         self,
@@ -1165,6 +1189,13 @@ class AdvancedBTTSAnalyzer:
             except Exception as e:
                 print(f"WARNING: API error: {e}")
 
+        venue_stats = self._season_venue_stats(stats, venue)
+        if venue_stats is None:
+            print(f"Insufficient BTTS sample for team {team_id}")
+        return venue_stats
+
+    @staticmethod
+    def _season_venue_stats(stats, venue):
         venue_rate = stats.get(f'btts_rate_{venue}') if stats else None
         total_rate = stats.get('btts_rate_total') if stats else None
         scored = stats.get(f'avg_goals_scored_{venue}') if stats else None
@@ -1180,7 +1211,6 @@ class AdvancedBTTSAnalyzer:
             or total_sample < 5
             or venue_sample < 2
         ):
-            print(f"Insufficient BTTS sample for team {team_id}")
             return None
 
         return {

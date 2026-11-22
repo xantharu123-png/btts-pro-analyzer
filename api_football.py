@@ -355,102 +355,69 @@ class APIFootball:
                 f"fixture statistics {fixture_id}",
                 list,
             )
-            if stats_list is not None:
-                if len(stats_list) >= 2:
-                    stats_by_team = {}
-                    for item in stats_list:
-                        if not isinstance(item, dict):
-                            continue
-                        team = item.get('team')
-                        statistics = item.get('statistics')
-                        if not isinstance(team, dict) or not isinstance(statistics, list):
-                            continue
-                        team_id = self._positive_integer(team.get('id'))
-                        if team_id is not None:
-                            stats_by_team[team_id] = statistics
-                    home_stats = stats_by_team.get(home_team_id)
-                    away_stats = stats_by_team.get(away_team_id)
-                    if home_stats is None or away_stats is None:
-                        return None
-
-                    def get_stat(stats, stat_type):
-                        for s in stats:
-                            if not isinstance(s, dict):
-                                continue
-                            if s.get('type') == stat_type:
-                                val = s.get('value')
-                                if stat_type == 'Ball Possession':
-                                    return self._finite_nonnegative(val, maximum=100.0)
-                                if stat_type == 'expected_goals':
-                                    # Provider delivers xG as decimal text such as
-                                    # "1.34"; an integer-only parse would silently
-                                    # disable every live-xG data-quality tier.
-                                    return self._finite_nonnegative(val, maximum=20.0)
-                                if stat_type == 'Red Cards' and val is None:
-                                    # API-Football includes the field with JSON null
-                                    # when the verified count is zero. A missing field
-                                    # still falls through to None below.
-                                    return 0
-                                return self._nonnegative_integer(val, maximum=5000)
-                        return None
-
-                    result = {
-                        # Shots
-                        'shots_home': get_stat(home_stats, 'Total Shots'),
-                        'shots_away': get_stat(away_stats, 'Total Shots'),
-                        'shots_on_target_home': get_stat(home_stats, 'Shots on Goal'),
-                        'shots_on_target_away': get_stat(away_stats, 'Shots on Goal'),
-                        'shots_off_target_home': get_stat(home_stats, 'Shots off Goal'),
-                        'shots_off_target_away': get_stat(away_stats, 'Shots off Goal'),
-                        'shots_blocked_home': get_stat(home_stats, 'Blocked Shots'),
-                        'shots_blocked_away': get_stat(away_stats, 'Blocked Shots'),
-                        'shots_inside_box_home': get_stat(home_stats, 'Shots insidebox'),
-                        'shots_inside_box_away': get_stat(away_stats, 'Shots insidebox'),
-                        
-                        # Cards (CRITICAL FOR ALTERNATIVE MARKETS!)
-                        'yellow_cards_home': get_stat(home_stats, 'Yellow Cards'),
-                        'yellow_cards_away': get_stat(away_stats, 'Yellow Cards'),
-                        'red_cards_home': get_stat(home_stats, 'Red Cards'),
-                        'red_cards_away': get_stat(away_stats, 'Red Cards'),
-                        
-                        # Fouls (CRITICAL FOR CARD PREDICTIONS!)
-                        'fouls_home': get_stat(home_stats, 'Fouls'),
-                        'fouls_away': get_stat(away_stats, 'Fouls'),
-                        
-                        # Corners (CRITICAL FOR CORNER MARKET!)
-                        'corners_home': get_stat(home_stats, 'Corner Kicks'),
-                        'corners_away': get_stat(away_stats, 'Corner Kicks'),
-                        
-                        # Possession & xG
-                        'possession_home': get_stat(home_stats, 'Ball Possession'),
-                        'possession_away': get_stat(away_stats, 'Ball Possession'),
-                        'xg_home': get_stat(home_stats, 'expected_goals'),
-                        'xg_away': get_stat(away_stats, 'expected_goals'),
-                        
-                        # Additional useful stats
-                        'attacks_home': get_stat(home_stats, 'Total attacks'),
-                        'attacks_away': get_stat(away_stats, 'Total attacks'),
-                        'dangerous_attacks_home': get_stat(home_stats, 'Dangerous attacks'),
-                        'dangerous_attacks_away': get_stat(away_stats, 'Dangerous attacks'),
-                        'offsides_home': get_stat(home_stats, 'Offsides'),
-                        'offsides_away': get_stat(away_stats, 'Offsides'),
-                        'saves_home': get_stat(home_stats, 'Goalkeeper Saves'),
-                        'saves_away': get_stat(away_stats, 'Goalkeeper Saves'),
-                        'passes_home': get_stat(home_stats, 'Total passes'),
-                        'passes_away': get_stat(away_stats, 'Total passes'),
-                        'passes_accurate_home': get_stat(home_stats, 'Passes accurate'),
-                        'passes_accurate_away': get_stat(away_stats, 'Passes accurate')
-                    }
-                    return result
+            if stats_list is not None and len(stats_list) < 2:
                 self.last_error = f"fixture statistics {fixture_id}: both teams are required"
-            
-            return None
+            return self.parse_match_statistics(stats_list, home_team_id, away_team_id)
             
         except Exception as e:
             self.last_error = f"fixture statistics {fixture_id}: {type(e).__name__}"
             print(f"WARNING: Stats error: {e}")
             return None
     
+
+    @classmethod
+    def parse_match_statistics(cls, stats_list, home_team_id, away_team_id):
+        """Parse native team rows identically for standalone and grouped fixtures."""
+        if not isinstance(stats_list, list) or len(stats_list) < 2:
+            return None
+        by_team = {}
+        for row in stats_list:
+            if not isinstance(row, dict) or not isinstance(row.get("team"), dict):
+                continue
+            identifier = cls._positive_integer(row["team"].get("id"))
+            if identifier is not None and isinstance(row.get("statistics"), list):
+                by_team[identifier] = row["statistics"]
+        if home_team_id not in by_team or away_team_id not in by_team:
+            return None
+        fields = {
+            "shots": "Total Shots",
+            "shots_on_target": "Shots on Goal",
+            "shots_off_target": "Shots off Goal",
+            "shots_blocked": "Blocked Shots",
+            "shots_inside_box": "Shots insidebox",
+            "yellow_cards": "Yellow Cards",
+            "red_cards": "Red Cards",
+            "fouls": "Fouls",
+            "corners": "Corner Kicks",
+            "possession": "Ball Possession",
+            "xg": "expected_goals",
+            "attacks": "Total attacks",
+            "dangerous_attacks": "Dangerous attacks",
+            "offsides": "Offsides",
+            "saves": "Goalkeeper Saves",
+            "passes": "Total passes",
+            "passes_accurate": "Passes accurate",
+        }
+        result = {}
+        for side, team_id in (("home", home_team_id), ("away", away_team_id)):
+            values = {}
+            for entry in by_team[team_id]:
+                if isinstance(entry, dict) and isinstance(entry.get("type"), str):
+                    values.setdefault(entry["type"], entry.get("value"))
+            for key, field in fields.items():
+                raw = values.get(field)
+                if field == "Ball Possession":
+                    value = cls._finite_nonnegative(raw, maximum=100)
+                elif field == "expected_goals":
+                    value = cls._finite_nonnegative(raw, maximum=20)
+                elif field == "Red Cards" and field in values and raw is None:
+                    # Explicit null count is zero in this native provider field.
+                    value = 0
+                else:
+                    value = cls._nonnegative_integer(raw, maximum=5000)
+                result[f"{key}_{side}"] = value
+        return result
+
     def get_team_statistics(self, team_id: int, league_id: int,
                             season: Optional[int] = None) -> Optional[Dict]:
         """Get team statistics from API-Football"""
@@ -559,7 +526,19 @@ class APIFootball:
                             else None
                         )
 
+                    # Existing consumers use the aggregates unchanged. Only identified
+                    # native aggregates AND history may serve as an offline live prior.
+                    source = None
+                    native_team = stats.get('team')
+                    native_league = stats.get('league')
+                    if (isinstance(native_team, dict) and isinstance(native_league, dict)
+                            and self._positive_integer(native_team.get('id')) == team_id
+                            and self._positive_integer(native_league.get('id')) == league_id
+                            and self._positive_integer(native_league.get('season')) == season
+                            and btts_rates.get('native_history_verified') is True):
+                        source = (team_id, league_id, season, time.time())
                     return {
+                        '_native_prior_source': source,
                         'team_name': stats.get('team', {}).get('name', 'Unknown'),
                         'matches_played_home': played_home,
                         'matches_played_away': played_away,
@@ -642,12 +621,23 @@ class APIFootball:
             return empty
 
         counts = {'home': [0, 0], 'away': [0, 0]}
+        native_history_verified = bool(fixtures)
+        fixture_ids = set()
         for fixture in fixtures:
             values = self._completed_fixture_values(fixture)
             if values is None or team_id not in values[:2]:
                 self.last_error = f"BTTS history {team_id}: invalid fixture data"
                 return empty
             home_id, away_id, home_score, away_score = values
+            native = fixture.get('fixture')
+            competition = fixture.get('league')
+            identifier = self._positive_integer(native.get('id')) if isinstance(native, dict) else None
+            if (identifier is None or identifier in fixture_ids or not isinstance(competition, dict)
+                    or self._positive_integer(competition.get('id')) != league_id
+                    or self._positive_integer(competition.get('season')) != season
+                    or not isinstance(native.get('status'), dict) or native['status'].get('short') != 'FT'):
+                native_history_verified = False
+            fixture_ids.add(identifier)
             venue = 'home' if home_id == team_id else 'away'
             counts[venue][1] += 1
             if home_score > 0 and away_score > 0:
@@ -662,6 +652,7 @@ class APIFootball:
             return round(btts / matches * 100.0, 1) if matches else None
 
         return {
+            'native_history_verified': native_history_verified,
             'home_rate': rate(home_btts, home_matches),
             'away_rate': rate(away_btts, away_matches),
             'total_rate': rate(total_btts, total_matches),

@@ -386,7 +386,7 @@ class UltraLiveScanner:
                 'remaining_minutes': remaining,
                 'horizon': 'REGULATION_MINIMUM' if remaining is not None else 'REGULATION_END_UNKNOWN'}
 
-    def analyze_live_match_ultra(self, match: Dict) -> Optional[Dict]:
+    def analyze_live_match_ultra(self, match: Dict, *, prematch_priors=None) -> Optional[Dict]:
         try:
             fixture = match['fixture']
             teams = match['teams']
@@ -450,7 +450,7 @@ class UltraLiveScanner:
             ) if self.api_football is not None else None
             xg_home = self._optional_nonnegative((stats or {}).get('xg_home'))
             xg_away = self._optional_nonnegative((stats or {}).get('xg_away'))
-            prior_home, prior_away = self._get_prematch_goal_priors(
+            prior_home, prior_away = prematch_priors if prematch_priors is not None else self._get_prematch_goal_priors(
                 home_team_id,
                 away_team_id,
                 raw_league_id,
