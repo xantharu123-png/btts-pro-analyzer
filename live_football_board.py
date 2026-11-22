@@ -2,10 +2,11 @@
 from datetime import datetime
 from dataclasses import dataclass
 from html import escape
+from math import isfinite
 
 from football_recommendations import LIVE_MAX_AGE_SECONDS
 from live_football_feed import LiveRefreshIssue
-from live_football_source import confirmed_live_dismissals
+from live_football_source import _valid_child, confirmed_live_dismissals
 from tip_display_order import ordered_event_rows
 from wettfinder_surface import plain_markdown
 
@@ -33,6 +34,7 @@ class Game:
     observed_at: datetime | None
     detailed_at: datetime | None
     dismissals: tuple[tuple[str, int, int, bool], ...] = ()
+    stats_at: datetime | None = None
 
 
 def _team_names(fixture):
@@ -66,7 +68,7 @@ def games_in_start_order(rows):
         matchup = " – ".join(name + "".join(f" 🟥 {when}" for when in _card_times(cards, side))
                              for side, name in (("home", home), ("away", away)))
         games.append(Game(game_id, matchup, clock, score, source.get("date"),
-                          fixture, row["observed_at"], row["detailed_at"], cards))
+                          fixture, row["observed_at"], row["detailed_at"], cards, row.get("stats_at")))
     return ordered_event_rows(games, event_key=lambda g: g.id, starts_at=lambda g: g.start,
                               probability=lambda _: None)
 
@@ -169,9 +171,100 @@ def _inspector_tip(ui, candidate):
     ui.caption(notice)
 
 
-def _inspector_footer(ui, game, format_time):
+# The display does not require a model-ready pair of xG or a complete event history.
+# Only named native fields count: no inferred attacks, complementary possession or null -> zero.
+_STAT_FIELDS = (
+    ("attacks", "Angriffe", "total attacks"), ("dangerous_attacks", "Gefährliche Angriffe", "dangerous attacks"),
+    ("corners", "Eckbälle", "corner kicks"), ("shots", "Schüsse", "total shots"),
+    ("on_target", "Schüsse aufs Tor", "shots on goal"), ("xg", "Erwartete Tore (xG)", "expected_goals"),
+    ("possession", "Ballbesitz", "ball possession"),
+)
+_STAT_KEYS = {native: key for key, _, native in _STAT_FIELDS}
+_STAT_KEYS["attacks"] = "attacks"
+
+
+def _stat_number(key, raw):
+    if key not in ("xg", "possession"):
+        return raw if type(raw) is int and 0 <= raw <= 5000 else None
+    if type(raw) not in (int, float, str):
+        return None
+    if isinstance(raw, str) and key == "possession":
+        raw = raw.strip().removesuffix("%")
+    try:
+        value = float(raw)
+    except (ValueError, OverflowError):
+        return None
+    return value if isfinite(value) and 0 <= value <= (100 if key == "possession" else 20) else None
+
+
+def native_stat_pairs(fixture, fixture_id):
+    """Home/away observations; None means no identified group, not two missing xG."""
+    if not isinstance(fixture, dict) or type(fixture_id) is not int or fixture_id <= 0:
+        return None
+    native, teams, groups = (fixture.get(k) for k in ("fixture", "teams", "statistics"))
+    if (not isinstance(native, dict) or type(native.get("id")) is not int or native["id"] != fixture_id
+            or not isinstance(teams, dict) or not isinstance(groups, list) or not 1 <= len(groups) <= 2):
+        return None
+    names = {}
+    for side in ("home", "away"):
+        team = teams.get(side)
+        if not isinstance(team, dict):
+            return None
+        team_id, name = team.get("id"), team.get("name")
+        if type(team_id) is not int or team_id <= 0 or team_id in names or not isinstance(name, str) or not name.strip():
+            return None
+        names[team_id] = name
+    by_team = {}
+    for group in groups:
+        if not _valid_child(group, fixture_id, names) or not isinstance(group.get("statistics"), list):
+            return None
+        team_id = group["team"]["id"]
+        if team_id in by_team:
+            return None
+        observed = by_team[team_id] = {}
+        for stat in group["statistics"]:
+            label = stat.get("type") if isinstance(stat, dict) else None
+            key = _STAT_KEYS.get(label.strip().casefold()) if isinstance(label, str) else None
+            if key is not None:
+                observed[key] = _stat_number(key, stat.get("value")) if key not in observed else None
+    return {key: tuple(by_team.get(team, {}).get(key) for team in names) for key, _, _ in _STAT_FIELDS}
+
+
+def _stat_cell(key, value, total):
+    if value is None:
+        return '<td aria-label="Nicht gemeldet">–</td>'
+    if key == "xg":
+        label = f"{value:.2f}".replace(".", ",")
+    elif key == "possession":
+        label = f"{value:g}".replace(".", ",") + " %"
+    else:
+        label = str(value)
+    share = f' style="--lv-share:{100 * value / total:.2f}%"' if total else ""
+    return f'<td{share}>{label}</td>'
+
+
+def _stat_table(game, now, *, revision_current):
+    pairs = (native_stat_pairs(game.fixture, game.id)
+             if revision_current and fresh_age(game.stats_at or game.detailed_at, now) is not None else None)
+    rows = []
+    for key, label, _ in _STAT_FIELDS:
+        home, away = pairs[key] if pairs else (None, None)
+        if home is None and away is None:
+            continue
+        total = home + away if home is not None and away is not None else None
+        rows.append(f'<tr>{_stat_cell(key, home, total)}<th scope="row">{label}</th>{_stat_cell(key, away, total)}</tr>')
+    if not rows:
+        return '<div class="lv-stats-empty">Keine aktuellen Statistikdaten.</div>'
+    home, away = _team_names(game.fixture)
+    return ('<table class="lv-stats"><caption>Spielstatistik</caption><thead><tr>'
+            f'<th scope="col">{escape(home)}</th><th scope="col">Kennzahl</th><th scope="col">{escape(away)}</th>'
+            '</tr></thead><tbody>' + ''.join(rows) + '</tbody></table>')
+
+
+def _inspector_footer(ui, game, now, format_time, *, revision_current):
     _, league, _ = _competition(game)
     ui.markdown(f'<div class="lv-pitch" aria-hidden="true"><span class="lv-pitch-minute">{escape(game.clock)}</span></div>'
+                + _stat_table(game, now, revision_current=revision_current) +
                 '<div class="lv-meta">' + ''.join(f'<div><small>{key}</small><b>{escape(val)}</b></div>'
                 for key, val in (("Stand", game.score), ("Zeit", game.clock), ("Liga", league))) + '</div>',
                 unsafe_allow_html=True)
@@ -191,6 +284,10 @@ def render_board(ui, games, candidates, *, preferred_id, format_time, publish_pi
         ui.info("Kein Live-Spiel in den unterstützten Ligen verfügbar.")
         return
     by_id = {game.id: game for game in games}
+
+    def no_pick_reason(game_id):
+        return "Live-Stand wird aktualisiert" if game_id in candidates else reasons.get(game_id, "Kein aktueller Live-Tipp")
+
     key = "live_selected_fixture_id"
     selected = ui.session_state.get(key)
     if selected not in by_id:
@@ -227,15 +324,17 @@ def render_board(ui, games, candidates, *, preferred_id, format_time, publish_pi
                             lambda c: show(f"{_pick_label(c)} · Modell {_percent(c)}", pick=True),
                         ):
                             continue
-                        show(reasons.get(game.id, "Spieldaten fehlen"))
+                        show(no_pick_reason(game.id))
         with ui.container(key="live_detail"):
             game = by_id[selected]
             _inspector_header(ui, game, now)
-            if selected not in candidates or not publish_pick(game, candidates[selected], lambda c: _inspector_tip(ui, c)):
-                reason = reasons.get(selected, "Spieldaten fehlen")
+            has_candidate = selected in candidates
+            revision_current = not has_candidate or publish_pick(game, candidates[selected], lambda c: _inspector_tip(ui, c))
+            if not has_candidate or not revision_current:
+                reason = no_pick_reason(selected)
                 ui.markdown(f'<div class="lv-no-pick"><small>Live-Tipp</small><strong>{escape(reason)}</strong></div>',
                             unsafe_allow_html=True)
-            _inspector_footer(ui, game, format_time)
+            _inspector_footer(ui, game, now, format_time, revision_current=revision_current)
 
 
 def _select_game(state, game_id):

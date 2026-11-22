@@ -3021,10 +3021,10 @@ def _live_viewer_active(owner):
     return True
 
 
-@_serialized_analyzer(position=1)
 def _analyze_ticker_fixture(fixture, analyzer):
+    from live_football_priors import stored_goal_priors
     from live_football_source import analyze_detail
-    return analyze_detail(fixture, analyzer)
+    return analyze_detail(fixture, prior_reader=stored_goal_priors)
 
 
 def _live_closed_window(fixture):
@@ -3035,18 +3035,39 @@ def _live_closed_window(fixture):
     extra = status.get("extra")
     extra = 0 if extra is None else extra
     if score_pair(fixture.get("goals")) is None:
-        return "Spieldaten fehlen"
+        return "Spielstand unklar"
     if phase in ("ET", "BT", "P"):
         if type(minute) is not int or not 90 <= minute <= 130 or type(extra) is not int or not 0 <= extra <= 40:
-            return "Spieldaten fehlen"
+            return "Spielzeit unklar"
         return "Elfmeterschießen – kein neuer Tipp" if phase == "P" else "Verlängerung – kein neuer Tipp"
     if period_clock(phase, minute, extra) is None:
-        return "Spieldaten fehlen"
+        return "Spielzeit unklar"
     if minute == 0:
         return "Anpfiff – noch kein Tipp"
     if phase == "2H" and minute >= 90:
         return "Keine neuen Tipps ab Minute 90"
     return None
+
+
+def _live_analysis_gap(fixture, ordinary):
+    """Explain an observable missing input, never guess why a provider withheld it."""
+    from live_football_board import native_stat_pairs
+    # Read only the current fixture's own rows. Another game's data, a missing
+    # detail packet, or an incomplete model output cannot establish missing xG.
+    fid = fixture["fixture"]["id"]
+    pairs = native_stat_pairs(fixture, fid)
+    if pairs is not None and None in pairs["xg"]:
+        return "Live-Torchancen (xG) fehlen"
+    if pairs is None and fixture.get("statistics") == []:
+        return "Noch keine Live-Statistik"
+    if (ordinary and ordinary.get("fixture_id") == fid
+            and ordinary.get("home_team_id") == fixture["teams"]["home"]["id"]
+            and ordinary.get("away_team_id") == fixture["teams"]["away"]["id"]):
+        basis = ordinary.get("xg_data")
+        if (isinstance(basis, dict) and pairs is not None
+                and any(side in basis and basis[side] is None for side in ("home_prior", "away_prior"))):
+            return "Keine Vorabprognose"
+    return "Kein verlässlicher Live-Tipp"
 
 
 def _assess_live_fixture(fixture, ordinary, dismissal, *, age, freemode):
@@ -3118,7 +3139,11 @@ def _assess_live_fixture(fixture, ordinary, dismissal, *, age, freemode):
             if red_checked and (too_early or too_late):
                 red_window = "Platzverweis: noch zu früh" if too_early else "Kein neuer Platzverweis-Tipp"
     best = max(options, key=lambda option: option[0].model_probability, default=None)
-    return best, red_window or ("Geprüft – kein Tipp" if ordinary_checked and red_checked else "Spieldaten fehlen")
+    if best:
+        return best, "Live-Tipp"
+    if red_window or (ordinary_checked and red_checked):
+        return best, red_window or "Geprüft – kein Tipp"
+    return None, _live_analysis_gap(fixture, ordinary)
 
 
 def _render_live_football(analyzer, *, viewer_active):
@@ -3150,13 +3175,16 @@ def _render_live_football(analyzer, *, viewer_active):
             state = (_live_closed_window(game.fixture)
                      if age is not None or fresh_age(game.observed_at, now) is not None else None)
             if state or age is None:
-                reasons[game.id] = state or "Spieldaten fehlen"
+                reasons[game.id] = state or ("Spielereignisse fehlen" if fresh_age(game.stats_at, now) is not None
+                                             else "Nur Spielstand verfügbar" if game.detailed_at is None
+                                             and fresh_age(game.observed_at, now) is not None
+                                             else "Kein aktueller Detailstand")
                 continue
             ordinary, dismissal = _analyze_ticker_fixture(game.fixture, analyzer)
             best, status = _assess_live_fixture(game.fixture, ordinary, dismissal, age=age, freemode=config.freemode)
         except (ArithmeticError, AttributeError, LookupError, TypeError, ValueError):
             # Malformed data in one game cannot erase the rest of the scoreboard.
-            reasons[game.id] = "Spieldaten fehlen"
+            reasons[game.id] = "Kein verlässlicher Live-Tipp"
             continue
         if best is not None:
             admitted[game.id] = best
@@ -3571,9 +3599,6 @@ def _render_red_cards(analyzer) -> None:
 
 
 def render_live(analyzer) -> None:
-    if analyzer is None:
-        st.error("Analyzer nicht bereit.")
-        return
     from customer_access import ACCESS_KEY
     owner = st.session_state.get(ACCESS_KEY, {}).get("account_id")
     def viewer_active():
@@ -3609,7 +3634,10 @@ def render_live(analyzer) -> None:
         # A closed drawer never reads its snapshot; only the explicit button starts a scan.
         with st.expander("Manuelle weltweite Platzverweis-Suche", key="live_worldwide_research", on_change="rerun"):
             if st.session_state.get("live_worldwide_research") is True and can_show():
-                _render_red_cards(analyzer)
+                if analyzer is None:
+                    st.info("Die manuelle Platzverweis-Suche ist nicht verfügbar.")
+                else:
+                    _render_red_cards(analyzer)
 
     open_ticker()
 

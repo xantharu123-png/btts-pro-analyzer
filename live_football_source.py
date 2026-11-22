@@ -394,7 +394,7 @@ def _red_result(match, event, card_clock, stats, priors):
             "prediction": asdict(prediction), "model_version": version}
 
 
-def analyze_detail(fixture, analyzer=None):
+def analyze_detail(fixture, analyzer=None, *, prior_reader=None):
     """Return model rows only for an independently corroborated, supported grouping."""
     match = _mapping(fixture)
     native, league, teams = (_mapping(match.get(k)) for k in ("fixture", "league", "teams"))
@@ -417,7 +417,15 @@ def analyze_detail(fixture, analyzer=None):
     if not consistent:
         return None, None
     priors = (None, None)
-    if analyzer is not None:
+    stored = False
+    if prior_reader is not None:
+        # The explicitly selected production artifact is authoritative. Never
+        # replace a missing or disputed pair with an unrelated session's rates.
+        pair = prior_reader(match)
+        if (isinstance(pair, tuple) and len(pair) == 2
+                and all(type(n) in (int, float) and 0 <= n <= 8 for n in pair)):
+            priors, stored = pair, True
+    elif analyzer is not None:
         from advanced_analyzer import AdvancedBTTSAnalyzer
         if isinstance(analyzer, AdvancedBTTSAnalyzer):
             priors = AdvancedBTTSAnalyzer.cached_live_goal_priors(
@@ -430,4 +438,11 @@ def analyze_detail(fixture, analyzer=None):
         match, prematch_priors=priors, corroborated_red_card_minute=card_clock[1] if card_clock else None)
     if ordinary:
         ordinary["scheduled_start"] = native.get("date")
-    return ordinary, _red_result(match, card, card_clock, stats, priors) if card else None
+    red = _red_result(match, card, card_clock, stats, priors) if card else None
+    if stored:
+        from live_football_priors import PRIOR_MODEL, PRIOR_REVISION
+        for result in (ordinary, red):
+            if result is not None:
+                result["model_version"] += PRIOR_REVISION
+                result["prematch_prior_source"] = PRIOR_MODEL
+    return ordinary, red

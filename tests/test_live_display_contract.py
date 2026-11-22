@@ -10,10 +10,10 @@ from test_live_tip_surface import Screen, _analysis
 
 
 @pytest.mark.parametrize("kind,status", [
-    ("below", "Geprüft – kein Tipp"), ("no-detail", "Spieldaten fehlen"),
-    ("clock", "Spieldaten fehlen"), ("version", "Spieldaten fehlen"),
-    ("no-prior", "Spieldaten fehlen"), ("absent-market", "Spieldaten fehlen"),
-    ("wrong-team", "Spieldaten fehlen"), ("late", "Keine neuen Tipps ab Minute 90"),
+    ("below", "Geprüft – kein Tipp"), ("no-detail", "Nur Spielstand verfügbar"),
+    ("clock", "Kein verlässlicher Live-Tipp"), ("version", "Kein verlässlicher Live-Tipp"),
+    ("unknown-quality", "Kein verlässlicher Live-Tipp"), ("absent-market", "Kein verlässlicher Live-Tipp"),
+    ("wrong-team", "Kein verlässlicher Live-Tipp"), ("late", "Keine neuen Tipps ab Minute 90"),
 ])
 def test_result_text_distinguishes_completed_evaluation_from_missing_or_foreign_data(monkeypatch, kind, status):
     data = _analysis(1)
@@ -28,7 +28,7 @@ def test_result_text_distinguishes_completed_evaluation_from_missing_or_foreign_
         data["minute"] += 1
     elif kind == "version":
         data["model_version"] = ""
-    elif kind == "no-prior":
+    elif kind == "unknown-quality":
         data["live_data_quality"] = "LOW"
     elif kind == "wrong-team":
         data["away_team_id"] += 1
@@ -69,6 +69,37 @@ def test_each_visible_pick_rechecks_snapshot_and_owner_but_row_and_inspector_sha
     assert actual == want + ([want[0]] if change == "none" else [])
 
 
+@pytest.mark.parametrize("coverage,reason", [
+    ("prematch", "Keine Vorabprognose"),
+    ("no-xg", "Live-Torchancen (xG) fehlen"),
+    ("waiting", "Nur Spielstand verfügbar"),
+])
+def test_real_coverage_names_what_is_missing_without_hiding_the_score(monkeypatch, coverage, reason):
+    from test_live_football_source import native
+    from live_football_source import analyze_detail
+    from datetime import timedelta
+    now = datetime.now(timezone.utc)
+    fixture = native()
+    fixture["fixture"]["date"] = (now - timedelta(hours=1)).isoformat()
+    fixture["events"] = [e for e in fixture["events"] if e["type"] != "Card"]
+    for group in fixture["statistics"]:
+        for stat in group["statistics"]:
+            if stat["type"] == "Red Cards":
+                stat["value"] = 0
+        if coverage == "no-xg":
+            group["statistics"] = [s for s in group["statistics"] if s["type"] != "expected_goals"]
+    fid = fixture["fixture"]["id"]
+    ui = Screen({"workspace": "Live"})
+    mount(monkeypatch, ui, {fid: {"fixture": fixture, "observed_at": now,
+                                  "detailed_at": None if coverage == "waiting" else now}})
+    monkeypatch.setattr(app, "_analyze_ticker_fixture", lambda row, _: analyze_detail(row))
+    monkeypatch.setattr(app, "record_visible_analysis", lambda *a, **k: pytest.fail("No pick was calculated"))
+    app._render_live_football(object(), viewer_active=lambda: True)
+    assert any(kind == "button" and live_football_board.plain_markdown(reason) in value[0]
+               and "1:0" in value[0] for kind, value in ui.messages)
+    assert any(kind == "markdown" and 'class="lv-no-pick"' in value and reason in value for kind, value in ui.messages)
+
+
 def test_masthead_uses_an_unambiguous_german_zurich_calendar_date(monkeypatch):
     from datetime import date
     monkeypatch.setattr(app, "zurich_today", lambda: date(2026, 11, 22))
@@ -85,11 +116,11 @@ def test_masthead_uses_an_unambiguous_german_zurich_calendar_date(monkeypatch):
     ("ET", 111, None, 1, "Verlängerung"),
     ("P", 120, None, 2, "Elfmeterschießen"),
     ("P", 90, None, 2, "Elfmeterschießen"),  # Direct shoot-out, without extra time.
-    ("ET", 40, None, 0, "Spieldaten fehlen"),
-    ("ET", True, None, 0, "Spieldaten fehlen"),
-    ("P", 120, -1, 2, "Spieldaten fehlen"),
-    ("BT", 105, None, None, "Spieldaten fehlen"),
-    ("1H", 0, 3, 0, "Spieldaten fehlen"),
+    ("ET", 40, None, 0, "Spielzeit unklar"),
+    ("ET", True, None, 0, "Spielzeit unklar"),
+    ("P", 120, -1, 2, "Spielzeit unklar"),
+    ("BT", 105, None, None, "Spielstand unklar"),
+    ("1H", 0, 3, 0, "Spielzeit unklar"),
 ])
 @pytest.mark.parametrize("details", [True, False])
 def test_scoreboard_phase_explains_nonapplicable_markets_without_inventing_a_pick(
@@ -150,7 +181,7 @@ def test_first_revocation_stops_access_checks_and_all_later_picks_in_same_fragme
 @pytest.mark.parametrize("case,phrase", [
     ("early", "Platzverweis: noch zu früh"),
     ("closed", "Kein neuer Platzverweis-Tipp"),
-    ("foreign", "Spieldaten fehlen"),
+    ("foreign", "Kein verlässlicher Live-Tipp"),
 ])
 def test_red_model_timing_explains_only_its_own_current_fixture(monkeypatch, case, phrase):
     from test_live_tip_surface import _red

@@ -109,6 +109,12 @@ def _not_older(row, previous):
     return before is None or (current is not None and current >= before)
 
 
+def _without_detail(row):
+    invalid = {**row, "detailed_at": None}
+    invalid.pop("stats_at", None)
+    return invalid
+
+
 class LiveFootballFeed:
     """One instance per credential/provider, shared by the authorized UI sessions.
 
@@ -161,7 +167,7 @@ class LiveFootballFeed:
         rows = self._rows.copy()
         for number in ids:
             if number in rows:
-                rows[number] = {**rows[number], "detailed_at": None}
+                rows[number] = _without_detail(rows[number])
         with self._publication:
             self._rows = rows
             if discovery_retry_at is not None:
@@ -197,7 +203,7 @@ class LiveFootballFeed:
             elif not row or _phase(row) not in FINISHED:
                 incomplete = True
                 if number in self._rows:
-                    rows[number] = {**self._rows[number], "detailed_at": None}
+                    rows[number] = _without_detail(self._rows[number])
         with self._publication:
             self._rows = rows
             self._discovery_valid_until = now + DISCOVERY_INTERVAL
@@ -220,8 +226,12 @@ class LiveFootballFeed:
                     rows[number] = {"fixture": row, "observed_at": now, "detailed_at": now if arrays else None}
                     if not arrays:
                         incomplete.add(number)
+                        # A current stats packet may arrive without events. Its counts
+                        # can be displayed but must never unlock a model prediction.
+                        if isinstance(row.get("statistics"), list) and row["statistics"]:
+                            rows[number]["stats_at"] = now
                     continue
-            rows[number] = {**old, "detailed_at": None}
+            rows[number] = _without_detail(old)
             incomplete.add(number)
         with self._publication:
             self._rows = rows

@@ -6,16 +6,20 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 
 ## Stand: 22.11.2026
 
-Letzter dokumentierter Produktionsstand: [PR #157](https://github.com/xantharu123-png/btts-pro-analyzer/pull/157),
-`5a67a63`. Nicht Teil dieses Deployments: Ladezustand (#159) und der darauf aufbauende
-Live-Entwurf 3 ([PR #160](https://github.com/xantharu123-png/btts-pro-analyzer/pull/160)).
+Reparatur auf `codex/live-vorabbasis-statistik` (noch nicht live): Der Ticker nutzt
+belegte Torerwartungen aus dem Wettfinder auch ohne warme Benutzersitzung.
+Im Spielvergleich stehen die aktuellen Statistiken unter dem Spielfeld, unabhängig
+vom Tipp. Auf der VPS-Tagesdatei 20 eindeutige Paare; kein Nachweis für 20 Live-Tipps.
+670 betroffene Tests, weitere 327 unter `floor`. Browser offline bei 1440/390/320 px.
+Kein zusätzlicher Anbieterabruf. Produktionsabnahme dieser Reparatur steht aus.
+
+Produktion und GitHub-main, geprüft am 22.11. um 16:35 CET: `9a3e5bd`, mit
+Ladezustand (#159) und Live-Entwurf 3 ([PR #160](https://github.com/xantharu123-png/btts-pro-analyzer/pull/160)).
 Die Ligaübersicht und die Details zeigen bestätigte Platzverweise pro Team mit Minute,
 auch ohne Tipp. Explizite Bankkarten werden gekennzeichnet und begründen keine Überzahl.
 Der normale Scanner berücksichtigt auch die Gelb-Rot-Minute; Gruppendaten nutzen für
 beide Schätzer dieselbe Halbzeituhr. Auswahlmärkte und Schwellen bleiben unverändert.
-610 betroffene Tests grün, 230 zusätzlich unter `floor`; Browsernachweis mit synthetischen
-Spielen. Vollsuite am separaten Hockeytest gestoppt. Kein Anbieterabruf, kein neuer
-Produktionsnachweis. Siehe `design-qa.md` und `TODO_AKTUELL.md`.
+Produktionsnachweis für diese frühere Version: [Release-Beleg #161](https://github.com/xantharu123-png/btts-pro-analyzer/pull/161).
 
 Der vorherige Release #156 (`c7c6f23`) enthält den Ticker
 aus #155 sowie Liga-Cache und Anstoßanzeige aus #154. Die Ligaprüfung
