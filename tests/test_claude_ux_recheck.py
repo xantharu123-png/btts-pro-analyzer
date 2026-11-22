@@ -206,27 +206,17 @@ def test_empty_original_cohort_is_not_treated_as_unanchored_legacy_selection():
 def test_live_selection_does_not_claim_independent_model_confirmation(monkeypatch):
     import app
     from test_workflow_integrity import _RecordingStreamlit
-    class LiveUI(_RecordingStreamlit):
-        def selectbox(self, label, options, *, index=0, format_func=str, **kwargs):
-            options = tuple(options)
-            self.messages.extend(('option', format_func(option)) for option in options)
-            return options[index]
-        def dataframe(self, *_args, **_kwargs):
-            pass
-    ui = LiveUI(session_state={'live_football_snapshot': {
-        'version': app.LIVE_SNAPSHOT_VERSION, 'scanned_at': '2030-01-01T23:30:00Z',
-        'analyses': [{'fixture_id': 100, 'home_team': 'Alpha', 'away_team': 'Beta',
+    from test_live_football_board import feed_row, mount
+    ui = _RecordingStreamlit(session_state={'workspace': 'Live'}, widget_values={'live_market_choice': 'Beide treffen'})
+    analysis = {'fixture_id': 100, 'home_team': 'Alpha', 'away_team': 'Beta',
             'minute': 60, 'score': '1:0', 'btts_prob': 70., 'live_data_quality': 'MEDIUM',
-            'model_calibrated': True, 'scheduled_start': '2030-01-01T22:30:00Z'}],
-    }})
-    monkeypatch.setattr(app, 'st', ui)
-    monkeypatch.setattr('bet_finder_ui.st', ui)
-    monkeypatch.setattr(app, 'datetime', _UtcHostDateTime)
+            'model_calibrated': True, 'scheduled_start': '2030-01-01T22:30:00Z'}
+    mount(monkeypatch, ui, {100: feed_row(100, datetime.now(timezone.utc), analysis=analysis)})
     # The candidate builder, filters and selection renderer remain real.
-    app._render_live_football(None, 'BTTS')
-    options = [text for kind, text in ui.messages if kind == 'option' and 'Alpha vs Beta' in text]
-    assert len(options) == 1 and options[0].startswith('Berechnet | ')
-    assert 'geprüft' not in options[0]
+    app.render_live(object())
+    text = str(ui.messages)
+    assert 'Alpha vs Beta' in text and 'Modell: 70' in text and 'Modellschätzung ohne Preisprüfung' in text
+    assert 'geprüft' not in text and 'bestätigt' not in text
 
 
 def test_riskobet_customer_clocks_and_game_counts_use_zurich_german(monkeypatch):
