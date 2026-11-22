@@ -201,7 +201,9 @@ Spielsuche alle fünf Minuten, Spieldetails je Gruppe (bis 20) jede Minute.
 Maximal 500 zusätzliche Abrufe je Konto und Anbieter-Tag, zusätzlich zur
 Hintergrundreserve; keine neue Timer-Einheit. Spielstand ohne ausreichend
 frische, eindeutig zugeordnete Daten ist kein Tipp. Weltweite Rotkartensuche
-bleibt manuell.
+bleibt manuell. Seit PR #157 (`5a67a63`, 22.11.2026 14:42 CET) öffnet die
+breite Live-Seite ohne Markt- und Prozentwahl den stärksten zulässigen
+Modellvorschlag; ein manueller Spielfokus gilt nur für den aktuellen Besuch.
 
 ```powershell
 # aus dem jeweiligen Checkout (Worktree oder Hauptcheckout)
