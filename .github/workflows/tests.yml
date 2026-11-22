@@ -56,6 +56,10 @@ jobs:
           tests/test_live_tip_settlement_job.py
           tests/test_live_tip_ledger.py
           tests/test_live_tip_surface.py
+          tests/test_live_all_priors_capture.py
+          tests/test_live_all_priors_publication.py
+          tests/test_live_all_priors_reader.py
+          tests/test_live_football_legacy_priors.py
           tests/test_live_redcard_clock_regressions.py
           tests/test_redcard_harvester.py
           tests/test_price_floor_policy.py

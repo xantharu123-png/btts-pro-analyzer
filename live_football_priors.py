@@ -24,6 +24,8 @@ from season_utils import current_season_start_year_for_id
 # A different production basis requires explicit review, not an implicit live revision.
 PRIOR_MODEL = FORM_STRENGTH_PREDICTION_VERSION
 PRIOR_REVISION = ":wettfinder-goal-prior-v1:" + PRIOR_MODEL
+LIVE_GOAL_PRIORS_VERSION = 1
+MAX_LIVE_GOAL_PRIORS = 1_200  # daily discovery fixture bound; independent of public market shortlists
 _GOAL_KINDS = {"result", "double_chance", "btts", "total", "total_range", "team_total", "team_range",
                "result_total", "mixed_or"}
 _MAX_BYTES = 64 * 1024 * 1024
@@ -41,9 +43,10 @@ class _GoalBasis:
     home_name: str
     away_name: str
     kickoff: datetime
-    cutoff: datetime
+    cutoff: datetime | None  # only the legacy market evidence contains a separate input-cutoff clock
     modeled: datetime
     rates: tuple[float, float]
+    first_published: datetime | None = None  # compact, fixture-level evidence only
 
 
 def _basis(row, day, published):
@@ -72,7 +75,63 @@ def _basis(row, day, published):
                       identity["home_team"], identity["away_team"], kickoff, cutoff, modeled, rates)
 
 
-def _project_index(document):
+def _compact_basis(row, day, publication):
+    if (row.get("model_version") != PRIOR_MODEL or row.get("model_scope") != MODEL_SCOPE_SAME_COMPETITION
+            or not all(type(row.get(k)) is int and row[k] > 0 for k in ("league_id", "home_id", "away_id"))
+            or row["home_id"] == row["away_id"]):
+        return None
+    names = row.get("home_team"), row.get("away_team")
+    if (not all(isinstance(n, str) and n.strip() and len(n) <= 200 for n in names)
+            or names[0].strip().casefold() == names[1].strip().casefold()):
+        return None
+    kickoff = _clock(row.get("scheduled_start"))
+    modeled = _clock(row.get("modeled_at"))
+    first_published = _clock(row["published_at"]) if "published_at" in row else publication
+    rates = row.get("expected_home_goals"), row.get("expected_away_goals")
+    if (None in (kickoff, modeled, first_published) or not modeled <= first_published <= publication
+            or first_published >= kickoff or kickoff.astimezone(_ZURICH).date() != day
+            or not all(type(n) in (int, float) and 0 <= n <= 8 for n in rates)):
+        return None
+    return _GoalBasis(row["league_id"], row["home_id"], row["away_id"], *names, kickoff, None,
+                      modeled, rates, first_published)
+
+
+def _compact_index(section, day):
+    if (not isinstance(section, dict) or type(section.get("version")) is not int
+            or section["version"] != LIVE_GOAL_PRIORS_VERSION
+            or not isinstance(rows := section.get("rows"), list) or len(rows) > MAX_LIVE_GOAL_PRIORS
+            or (publication := _clock(section.get("published_at"))) is None):
+        return {}
+    index = {}
+    for row in rows:
+        if not isinstance(row, dict) or type(fid := row.get("fixture_id")) is not int or fid <= 0:
+            continue
+        if fid in index:
+            index[fid] = None  # unlike old per-market rows, this contract publishes one row per fixture
+            continue
+        try:
+            index[fid] = _compact_basis(row, day, publication)
+        except (ValueError, OverflowError):
+            index[fid] = None
+    return index
+
+
+def compact_goal_rows(envelope, day: date) -> dict[int, dict]:
+    """Project validated published priors for carry-forward; never carry arbitrary payload or reset first clocks."""
+    return {
+        fid: {
+            "fixture_id": fid, "league_id": value.league, "home_id": value.home, "away_id": value.away,
+            "home_team": value.home_name, "away_team": value.away_name,
+            "scheduled_start": value.kickoff.isoformat(), "modeled_at": value.modeled.isoformat(),
+            "published_at": value.first_published.isoformat(),
+            "model_version": PRIOR_MODEL, "model_scope": MODEL_SCOPE_SAME_COMPETITION,
+            "expected_home_goals": value.rates[0], "expected_away_goals": value.rates[1],
+        }
+        for fid, value in _compact_index(envelope, day).items() if value is not None
+    }
+
+
+def _project_index(document, *, stat=None):
     if (not isinstance(document, dict) or type(document.get("version")) is not int
             or document["version"] != AUTOMATED_WETTFINDER_VERSION or CHALLENGE_PREDICTION_VERSION != PRIOR_MODEL):
         return {}
@@ -84,15 +143,26 @@ def _project_index(document):
     except (KeyError, TypeError, ValueError):
         return {}
     index = {}
+    compact_present = False
     for group, field in (("football", "target_search_date"), ("football_next_day", "next_day_search_date")):
         state = document.get(group)
+        compact_present |= isinstance(state, dict) and "live_goal_priors" in state
         if not isinstance(state, dict) or state.get("discovery_model_version") != PRIOR_MODEL:
             continue
         day = today + timedelta(days=1) if group == "football_next_day" else today
+        if day.isoformat() != state.get("search_date"):
+            continue
+        if "live_goal_priors" in state:
+            # A tomorrow search may have priors but no publishable market preview.
+            # A present but broken section must never fall through to that market catalog.
+            if field not in document or document[field] == day.isoformat():
+                for fid, basis in _compact_index(state["live_goal_priors"], day).items():
+                    index[fid] = basis if fid not in index else None
+            continue
         published = _clock(document.get("decision_at")) if group == "football_next_day" else generated
         pools = [state.get(k) for k in ("candidates", "basis_candidates")]
-        if (day.isoformat() != document.get(field) or day.isoformat() != state.get("search_date")
-                or not published or published < generated or not all(isinstance(pool, list) for pool in pools)
+        if (day.isoformat() != document.get(field) or not published or published < generated
+                or not all(isinstance(pool, list) for pool in pools)
                 or sum(map(len, pools)) > MAX_AUTOMATED_FOOTBALL_CANDIDATES):
             continue
         for pool in pools:
@@ -110,6 +180,11 @@ def _project_index(document):
                 # Each goal market of a fixture should repeat the same model facts.
                 # Conflicting or broken target evidence is sticky for this edition.
                 index[fid] = candidate if fid not in index or index[fid] == candidate else None
+    if stat is not None and not compact_present:
+        from live_football_legacy_priors import legacy_unpublished_priors
+        for fid, basis in legacy_unpublished_priors(document, stat=stat, basis_factory=_GoalBasis,
+                                                    model=PRIOR_MODEL).items():
+            index.setdefault(fid, basis)  # Never revive a conflicting or malformed legacy goal record.
     return {fid: value for fid, value in index.items() if value is not None}
 
 
@@ -130,13 +205,16 @@ def _index(path):
             edition = _edition(path, info)
             if edition != _cached_edition:
                 with path.open("rb") as stream:
-                    if _edition(path, os.fstat(stream.fileno())) != edition:
+                    opened = os.fstat(stream.fileno())
+                    if _edition(path, opened) != edition:
                         return {}
                     data = stream.read(info.st_size + 1)
+                    if _edition(path, os.fstat(stream.fileno())) != edition:
+                        return {}
                 if len(data) != info.st_size:
                     return {}
                 try:
-                    index = _project_index(json.loads(data))
+                    index = _project_index(json.loads(data), stat=opened)
                 except (TypeError, ValueError, RecursionError, OverflowError):
                     index = {}
                 if _edition(path, path.stat()) != edition:
