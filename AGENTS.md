@@ -196,6 +196,13 @@ Code, dann `PROJECT_HANDBUCH.md`, dann die Bibel. Historische Logs: `TODO_AKTUEL
 
 ## Lokal arbeiten
 
+Fußball-Liveticker (Owner, 22.11.2026): nur bei offenem berechtigtem Live-Tab.
+Spielsuche alle fünf Minuten, Spieldetails je Gruppe (bis 20) jede Minute.
+Maximal 500 zusätzliche Abrufe je Konto und Anbieter-Tag, zusätzlich zur
+Hintergrundreserve; keine neue Timer-Einheit. Spielstand ohne ausreichend
+frische, eindeutig zugeordnete Daten ist kein Tipp. Weltweite Rotkartensuche
+bleibt manuell.
+
 ```powershell
 # aus dem jeweiligen Checkout (Worktree oder Hauptcheckout)
 ..\..\.venv\Scripts\python.exe -m pytest tests -q          # Vollsuite ≈ 1,5 h auf Windows

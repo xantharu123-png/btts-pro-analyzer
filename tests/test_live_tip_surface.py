@@ -14,8 +14,9 @@ from test_workflow_integrity import _RecordingStreamlit
 
 
 class Screen(_RecordingStreamlit):
-    def dataframe(self, rows, **kwargs):
-        self.messages.append(("rows", rows))
+    def button(self, label, **kwargs):
+        self.messages.append(("button", (label, kwargs.get("key"))))
+        return super().button(label, **kwargs)
 
 
 def _assert_no_audit_ui(surface):
@@ -59,7 +60,10 @@ def _red(game, probs=(.21, .62, .17)):
 def surface(monkeypatch):
     # Replace only the database I/O, both app renderers and their candidates stay real.
     writes, old_writes, reads, details_at_write = [], [], [], []
-    ui = Screen()
+    ui = Screen({"workspace": "Live"})
+    from test_live_football_board import mount
+    feed = {}
+    mount(monkeypatch, ui, feed)
     counts = {market: dict(won=0, lost=0, open=0, void=0) for market in
               ("next_goal", "team_scores", "btts", "red_next")}
     def record(**row):
@@ -80,8 +84,7 @@ def surface(monkeypatch):
     monkeypatch.setattr(app, "_job_key", lambda name: f"offline:{name}")
     monkeypatch.setattr(app.scan_jobs, "get_job", lambda key: {"state": "idle"})
     monkeypatch.setattr(app, "_freemode_enabled", lambda: False)
-    monkeypatch.setattr(app, "load_app_config", lambda _st: SimpleNamespace(api_football_key=""))
-    return SimpleNamespace(ui=ui, ledger=ledger, writes=writes, old=old_writes, reads=reads,
+    return SimpleNamespace(ui=ui, feed=feed, ledger=ledger, writes=writes, old=old_writes, reads=reads,
                            details_at_write=details_at_write, shadow_writer=shadow_writer)
 
 
@@ -89,14 +92,16 @@ def _show(surface, label, *, age=0, items=None, selected=1):
     now = datetime.now(timezone.utc)-timedelta(seconds=age)
     red = label == "Nach Platzverweis"
     ui = surface.ui
-    ui.widget_values.update({"live_market_choice": label, "live_match_detail": selected,
-                             "red_card_detail": selected})
+    ui.widget_values["live_market_choice"] = label
     if items is None:
         items = [(_red if red else _analysis)(n) for n in (1, 2, 3, 4)]
-    ui.session_state["red_card_snapshot" if red else "live_football_snapshot"] = {
-        "version": app.RED_CARD_SNAPSHOT_VERSION if red else app.LIVE_SNAPSHOT_VERSION,
-        "scanned_at": now.isoformat(), "scope": "Konfigurierte Ligen",
-        ("cards" if red else "analyses"): items}
+    from test_live_football_board import feed_row
+    surface.feed.clear()
+    for i, item in enumerate(items):
+        game = item["card"]["match"]["fixture"]["id"] if red else item["fixture_id"]
+        surface.feed[game] = feed_row(game, now, red=item) if red else feed_row(game, now, analysis=item)
+        if i == selected:
+            ui.session_state["live_selected_fixture_id"] = game
     app.render_live(SimpleNamespace(engine=SimpleNamespace(LEAGUES_CONFIG={"league": 39})))
     return now.isoformat()
 
@@ -121,9 +126,8 @@ def test_only_selected_actual_card_binds_native_snapshot_and_visible_model(surfa
     assert "keine passende Live-Quote" not in text and "Deine Mindestquote" not in text
     already_rendered, = surface.details_at_write
     assert visible in str(already_rendered) and "Modell:" in str(already_rendered)
-    if key != "red_next":
-        overview, = [rows for kind, rows in surface.ui.messages if kind == "rows"]
-        assert len(overview) == 4
+    assert [value[1] for kind, value in surface.ui.messages if kind == "button"] == [
+        "live_fixture_1", "live_fixture_2", "live_fixture_3", "live_fixture_4"]
     _assert_no_audit_ui(surface)
 
 
@@ -254,13 +258,14 @@ def test_fresh_scan_preserves_separate_shadow_cohort_public_requires_actual_disp
     bot.get_live_stats = lambda *args: {"xg_home": .90, "xg_away": 1.1}
     monkeypatch.setattr(red_card_bot, "RedCardBotEnhanced", lambda **kwargs: bot)
     monkeypatch.setattr(app, "_red_card_prematch_priors", lambda *args, **kwargs: (1.4, 1.2))
-    snapshot = app._scan_red_cards("offline", [39], "Konfigurierte Ligen", streamlit_mode=False)
+    snapshot = app._scan_red_cards("offline", None, "Weltweit", streamlit_mode=False)
     assert snapshot["cards"][4]["prediction"] is None and snapshot["cards"][4]["error"]
     assert shadow.exists() and not public.exists()
     with sqlite3.connect(shadow) as conn:
         assert conn.execute("SELECT fixture_id FROM signals ORDER BY fixture_id").fetchall() == [(1,), (2,), (3,), (4,)]
     surface.ui.session_state["red_card_snapshot"] = snapshot
-    surface.ui.widget_values.update({"live_market_choice": "Nach Platzverweis", "red_card_detail": 1})
+    surface.ui.widget_values.update({"live_market_choice": "Nach Platzverweis", "red_card_scope": "Weltweit",
+                                     "red_card_detail": snapshot["cards"][1]["card"]["card_id"]})
     app.render_live(SimpleNamespace(engine=SimpleNamespace(LEAGUES_CONFIG={"league": 39})))
     with sqlite3.connect(public) as conn:
         assert conn.execute("SELECT fixture_id FROM live_tips").fetchall() == [(2,)]
