@@ -8,6 +8,83 @@ from daily_accumulator_surface import customer_cards, quote_status
 NOW = datetime(2030, 1, 7, 12, tzinfo=timezone.utc)
 
 
+def test_rendered_archived_combo_keeps_home_away_and_match_goals_distinct(monkeypatch):
+    from streamlit.testing.v1 import AppTest
+
+    slip = dict(example(), arm='daily-picks')
+    for leg, key, names in zip(slip['legs'], ('HOME_UNDER_2_5', 'AWAY_UNDER_2_5', 'TOTAL_UNDER_2_5'),
+                               (('FC Augsburg', 'FSV Mainz 05'), ('SC Freiburg', 'Werder Bremen'),
+                                ('Köln', 'Stuttgart'))):
+        leg.update(sport='football', market_key=key, selection='Unter 2.5',
+                   event_label=' vs '.join(names),
+                   participant_names=['football:name:' + n.casefold() for n in names])
+    monkeypatch.setattr('daily_accumulator_receipts.load_daily_picks', lambda *a, **k: [slip])
+    app = AppTest.from_string("""
+import streamlit as st
+from daily_accumulator_surface import render_daily_accumulators
+render_daily_accumulators(st, as_of='2030-01-07T12:00:00+00:00')
+""").run()
+    assert not app.exception
+    assert {row.value.splitlines()[1] for row in app.text} == {
+        'FC Augsburg: Unter 2,5 Tore', 'Werder Bremen: Unter 2,5 Tore',
+        'Gesamttore im Spiel: Unter 2,5'}
+
+
+@pytest.mark.parametrize(('sport', 'key', 'expected'), [
+    ('football', 'AWAY_OVER_0_5', 'Auswärtsteam: Über 0,5 Tore'),
+    ('ice_hockey', 'AWAY_OVER_0_5', 'Über 0.5'),
+])
+def test_no_team_is_inferred_from_reversed_event_names_or_another_sport(sport, key, expected):
+    from daily_accumulator_surface import _selection_label
+
+    assert _selection_label(dict(sport=sport, market_key=key, selection='Über 0.5',
+                                 event_label='Mainz vs Augsburg',
+                                 participant_names=['football:name:augsburg', 'football:name:mainz'])) == expected
+
+
+@pytest.mark.parametrize(('leg', 'expected'), [
+    (dict(sport='football', market_key='RESULT_AWAY', selection='Auswärtssieg',
+          event_label='Basel vs Zürich',
+          participant_names=['football:name:basel', 'football:name:zürich']),
+     'Sieg Zürich (90 Minuten)'),
+    (dict(sport='esports', market_key='H2H', selection='Sieg Team Blau',
+          event_label='Counter-Strike · Team Rot vs Team Blau',
+          participant_names=['esports:name:team rot', 'esports:name:team blau']),
+     'Seriensieg Team Blau'),
+    (dict(sport='tennis', market_key='H2H', selection='Spieler B',
+          event_label='Spieler A vs Spieler B', participant_names=[
+              'tennis:name:spieler a', 'tennis:name:spieler b', 'tennis:words:a spieler',
+              'tennis:words:b spieler']),
+     'Sieg Spieler B'),
+    (dict(sport='ice_hockey', market_key='H2H', selection='EHC Biel',
+          event_label='SC Bern vs EHC Biel',
+          participant_names=['ice_hockey:name:sc bern', 'ice_hockey:name:ehc biel']),
+     'Sieg EHC Biel (inkl. Verlängerung und Penaltyschießen)'),
+    (dict(sport='basketball', market_key='H2H', selection='Paris',
+          event_label='Paris vs Berlin', participant_names=['basketball:name:paris', 'basketball:name:berlin']),
+     'Sieg Paris (inkl. Verlängerung)'),
+])
+def test_original_multi_sport_leg_labels_need_no_market_name_or_new_receipt_fields(leg, expected):
+    from daily_accumulator_surface import _selection_label
+
+    assert _selection_label(leg) == expected
+
+
+@pytest.mark.parametrize(('evidence', 'expected'), [
+    ('Spieler A', 'Siegauswahl nicht eindeutig'),
+    ('Spieler B', 'Sieg Spieler B'),
+    ('Sieg Spieler B', 'Sieg Spieler B'),  # original display copy, not a bound player name
+    ('2', 'Sieg Spieler B'),               # opaque selection key, not a bound player name
+])
+def test_archived_h2h_only_uses_evidence_selection_as_a_player_if_bound_to_the_original_side(evidence, expected):
+    from daily_accumulator_surface import _selection_label
+
+    assert _selection_label(dict(
+        sport='tennis', market_key='H2H', selection='Sieg Spieler B', evidence_selection=evidence,
+        event_label='Spieler A vs Spieler B', participant_names=['tennis:name:spieler a', 'tennis:name:spieler b'],
+    )) == expected
+
+
 def example():
     def leg(i):
         return dict(event_key=f'football:{i}', forecast_id=f'{i:064x}', event_label=f'Spiel {i}',

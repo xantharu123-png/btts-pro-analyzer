@@ -4,7 +4,18 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 „Stand“ ersetzen, nicht anhängen; Historie steht in `TODO_AKTUELL.md` und
 `PC_WECHSEL_UEBERGABE.md`. Regeln und Einstieg: `AGENTS.md`.
 
-## Stand: 21.11.2026
+## Stand: 22.11.2026
+
+Rechte Spalte „Deine Wetten“ ([PR #151](https://github.com/xantharu123-png/btts-pro-analyzer/pull/151)):
+Doublebet (heute und Vorschau), Tennis und Tageskombis zeigen den Markt mit Mannschaft,
+Spieler oder Spielbezug. Beispiel aus dem Originalschein: **FC Augsburg: Unter 2,5 Tore**;
+bei Konyaspor–Beşiktaş betrifft die Doublebet-Linie die Eckbälle von Konyaspor.
+Die Beschriftung ändert weder Modellergebnisse noch Reihenfolge, Quoten oder gespeicherte Scheine.
+Prüfung: alle 96 Fußball-Marktschlüssel; eigene Anzeige- und Archivtests für die rechte Spalte.
+Unabhängig davon bleiben lokal der Eishockey-Test `test_native_conflicting_role_ids_fail_before_any_request`
+und unter explizitem `floor` zwei ältere Quotenanzeige-Erwartungen der Hauptkarte offen
+(`test_second_market_stays_visible_without_repeating_the_whole_match`,
+`test_card_first_level_shows_minimum_odds_and_price_status`). Diese Änderung betrifft keine dieser Funktionen.
 
 Fußball-Live: [interner Nachweis für tatsächlich angezeigte Auswahlen](docs/audits/2026-11-21-live-tippbilanz.md), keine Bilanz oder Erfassungsmeldung im Kundentab. Die Korrekturen aus `88be814` an Ereignisabruf und Abrechnung bleiben bestehen. Frühere Anzeigen ohne gespeicherten Beleg werden nicht rückwirkend gezählt.
 

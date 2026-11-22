@@ -4956,9 +4956,23 @@ def _render_automated_daily_selection() -> None:
 
 def _render_editorial_rail(choices, tennis_cards, *, daily3_allowed, target_label, as_of=None, source_run_id=None,
                            preview_choices=()):
+    from editorial_rail_labels import rail_selection_label
     from html import escape
     from pathlib import Path
     assets = Path(__file__).parent / 'assets' / 'editorial'
+
+    def selection_html(row):
+        return escape(rail_selection_label(
+            sport=row.sport, market_key=row.market_key, market=row.market, selection=row.selection,
+            home=row.home_team or row.competitor_a, away=row.away_team or row.competitor_b,
+            selected_competitor=row.selected_competitor))
+
+    def render_choice(index, choice):
+        signal = choice.signal
+        st.markdown('<div class="se-rail-choice"><span class="se-choice-rank">' + str(index)
+            + '</span><div><strong>' + escape(signal.event_label) + '</strong><span>'
+            + selection_html(signal) + '</span></div></div>', unsafe_allow_html=True)
+
     with st.container(key='editorial_daily3_rail'):
         with st.container(key='editorial_daily3_cover'):
             st.image(str(assets / 'stadium-cover.png'), width='stretch', output_format='JPEG')
@@ -4968,10 +4982,7 @@ def _render_editorial_rail(choices, tennis_cards, *, daily3_allowed, target_labe
             event_key=lambda item: item[1].event_id, starts_at=lambda item: item[1].start,
             probability=lambda item: item[1].signal.probability)
         for index, choice in display_choices:
-            signal = choice.signal
-            st.markdown('<div class="se-rail-choice"><span class="se-choice-rank">' + str(index)
-                + '</span><div><strong>' + escape(signal.event_label) + '</strong><span>'
-                + escape(signal.market + ' · ' + signal.selection) + '</span></div></div>', unsafe_allow_html=True)
+            render_choice(index, choice)
         if daily3_allowed and source_run_id is not None:
             from tip_publication import record_signal_catalog
             from daily3_selection import POLICY_VERSION as DAILY3_SELECTION_POLICY
@@ -4988,10 +4999,7 @@ def _render_editorial_rail(choices, tennis_cards, *, daily3_allowed, target_labe
             for index, choice in ordered_event_rows(enumerate(preview_choices, 1),
                     event_key=lambda item: item[1].event_id, starts_at=lambda item: item[1].start,
                     probability=lambda item: item[1].signal.probability):
-                signal = choice.signal
-                st.markdown('<div class="se-rail-choice"><span class="se-choice-rank">' + str(index)
-                    + '</span><div><strong>' + escape(signal.event_label) + '</strong><span>'
-                    + escape(signal.market + ' · ' + signal.selection) + '</span></div></div>', unsafe_allow_html=True)
+                render_choice(index, choice)
             st.caption('Vormerken erst am Spieltag.')
         def _open_daily3():
             _set_active_area("Doublebet")
@@ -5002,7 +5010,7 @@ def _render_editorial_rail(choices, tennis_cards, *, daily3_allowed, target_labe
         if tennis_cards:
             card = tennis_cards[0]
             st.markdown('<div class="se-tennis-copy"><h3>' + escape(card.event_label) + '</h3><p>'
-                + escape(card.selection) + ' · ' + escape(format_probability(card.model_probability))
+                + selection_html(card) + ' · ' + escape(format_probability(card.model_probability))
                 + '</p></div>', unsafe_allow_html=True)
         else:
             st.markdown('<div class="se-tennis-copy"><h3>Auf dem Court.</h3><p>Aktuell keine Tennis-Auswahl.</p></div>', unsafe_allow_html=True)

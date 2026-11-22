@@ -74,6 +74,34 @@ def customer_cards(slips, artifact=None, *, as_of, chance=None):
     return sorted(cards, key=lambda card: card["size"])
 
 
+def _selection_label(leg):
+    """Use original spellings only when both names match the stored sides, in order."""
+    from editorial_rail_labels import rail_selection_label
+
+    sport = leg.get("sport")
+    identities = leg.get("participant_names")
+    event = leg.get("event_label") or ""
+    # E-sports may prefix the game title; tennis appends exclusion aliases AFTER the
+    # two side identities. Neither is itself a participant. No lookup or fuzzy join.
+    labels = (event, event.partition(" · ")[2]) if sport == "esports" else (event,)
+    home = away = ""
+    if isinstance(identities, (list, tuple)):
+        for label in labels:
+            names = [name.strip() for name in label.split(" vs ")]
+            if (len(names) == 2 and all(names) and list(identities[:2]) == [
+                f"{sport}:name:" + " ".join(name.casefold().split()) for name in names
+            ]):
+                home, away = names
+                break
+    key = leg.get("market_key")
+    evidence = leg.get("evidence_selection")
+    # The archived evidence field may instead be a selection key or plain display
+    # text. Only a verbatim H2H participant from the proven pair binds a winner.
+    winner = evidence if key == "H2H" and home and away and evidence in (home, away) else ""
+    return rail_selection_label(sport=sport, market_key=key, selection=leg["selection"],
+                                home=home, away=away, selected_competitor=winner)
+
+
 def render_daily_accumulators(st, *, as_of=None, directory=None):
     from daily_accumulator_publication import DB_NAME
     from daily_accumulator_receipts import load_daily_picks
@@ -98,7 +126,7 @@ def render_daily_accumulators(st, *, as_of=None, directory=None):
             st.progress(card["chance"], text=label)
             for leg in card["legs"]:
                 start = _time(leg["starts_at"]).astimezone(ZURICH).strftime("%H:%M")
-                st.text(f"{start}  {leg['event_label']}\n{leg['selection']}")
+                st.text(f"{start}  {leg['event_label']}\n{_selection_label(leg)}")
                 if leg.get("reason"):
                     st.caption(leg["reason"])
             if not card["started"]:
