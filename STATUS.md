@@ -6,8 +6,12 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 
 ## Stand: 22.11.2026
 
-Zuletzt auf dem VPS nachgewiesen: [PR #155](https://github.com/xantharu123-png/btts-pro-analyzer/pull/155),
-`bac322f`, einschließlich Liga-Cache und Anstoßanzeige aus #154. Die Ligaprüfung
+Produktion: [PR #156](https://github.com/xantharu123-png/btts-pro-analyzer/pull/156),
+`c7c6f23`, seit 22.11.2026 13:24 CET. Sechs GitHub-Prüfungen erfolgreich,
+isolierte Linux-Abnahme vor dem App-Neustart, beide Healthchecks anschließend
+`ok`, sieben Timer aktiv. Kein Backup, kein zusätzlicher Sportscan, keine
+Änderung an den veröffentlichten Auswahlen. Enthält den Ticker aus #155 sowie
+Liga-Cache und Anstoßanzeige aus #154. Die Ligaprüfung
 holt nur die Abdeckung je Saison; sie ersetzt keine Abfrage von Ausfällen,
 Aufstellungen oder Quoten. Im Betriebsjournal nach Füllen des Caches: 16
 verschiedene Liga-/Saisonabfragen für 32 Shadow-Kontextprüfungen.
@@ -19,6 +23,10 @@ vom Vortag. Normale Spielantworten dürfen den Rest nicht erhöhen. Sperrt eine
 widersprüchliche Schätzung die Hintergrundreserve, prüft der nächste fällige
 Shadow-Lauf das Anbieterkonto höchstens einmal je UTC-Tag, ohne neuen Timer
 und ohne Sportscan. Ein unbestätigter Kontostand lockert die Sperre nicht.
+Echter Produktionsnachweis: Der reguläre Lauf vom 22.11. um 13:32:22 CET
+erhielt HTTP 200; die Kontoauskunft bestätigte 6.417 Restabrufe, davon blieb
+einer lokal für die Statusprüfung zurückgehalten. Der verfügbare Rest
+sprang von 1.928 auf 6.416. Der Dienst endete um 13:32:33 erfolgreich.
 Der Live-Tab unterscheidet Reserve, eigenes Tageslimit und fehlende Daten.
 Kein grüner Gesamttest behauptet: der bekannte unabhängige Hockeyfehler
 steht unten. Aktueller Prüf- und Freigabestand: `TODO_AKTUELL.md`.

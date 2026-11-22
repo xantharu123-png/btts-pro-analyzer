@@ -2,6 +2,10 @@
 
 ## 22.11.2026 – Fußballbudget und Liveticker
 
+- Abgeschlossen: PR #156 als `c7c6f23` auf GitHub und VPS, App aktiv seit
+  13:24:18 CET. Echter regulärer Statusabruf 13:32:22: HTTP 200,
+  Anbieter 6.417, lokal 6.416 statt 1.928, anschließend Dienst erfolgreich.
+  Kein Sonderlauf, kein Backup; beide Healthchecks nach Neustart `ok`.
 - VPS-Befund (13:02 CET; UTC-Kontingenttag): 1.040 echte Abrufe, 6.460
   letzte Anbieter-Restmeldung bei 7.500 Limit, lokal 1.971. Die Differenz
   von 4.489 war kein Verbrauch: um 00:02:23 UTC startete das lokale Konto
@@ -19,10 +23,7 @@
   Schlüssel, 16 weitere Auswertungen auf bereits geladenen Schlüsseln ohne
   zweiten Ligaabruf (erste Erfassung bis 13:06 CET). Kein Rückschluss auf
   eine garantierte Tagesersparnis.
-- Separate Kontrollpunkte: CI / Merge / Live-Nachweis auf identischem Commit;
-  danach im normalen Betriebsjournal `account rollover check`, verfügbare
-  Reserve und Tickerabrufe unterscheiden. Kein Sonderlauf, keine Sicherung.
-  Die Vollsuite stoppt unverändert am bekannten separaten Hockeytest
+- Die Vollsuite stoppt unverändert am bekannten separaten Hockeytest
   `test_native_conflicting_role_ids_fail_before_any_request`.
 - Lokale Regression: 338 bestanden, 7 Plattform-Skips; 210 unter der
   produktiven Preisregel `floor`; 181 zusätzliche bzw. überlappende
