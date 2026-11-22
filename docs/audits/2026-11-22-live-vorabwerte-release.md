@@ -1,0 +1,8 @@
+# Live-Vorabwerte und Spielstatistik: Produktionsbeleg #162
+
+Am 22.11.2026 ging [PR #162](https://github.com/xantharu123-png/btts-pro-analyzer/pull/162) per Fast-forward von `9a3e5bd` auf `48534eeb3e578607c688d8773022e7b5034f2fde` live. Der Merge enthält exakt den getesteten Git-Baum `85c5e72254f6f954c6e42ece2c6ab96375b05123` des PR-Kopfs `5593098`. Alle 13 geänderten Pfade wurden auf dem VPS geprüft.
+
+- Nur `betboy-app.service` neu gestartet, um 17:55:54 CET (PID 1748520 → 1752296). App und Caddy aktiv, sieben Kerntimer aktiv, interner und öffentlicher Healthcheck jeweils `ok`, unabhängig nachgeprüft.
+- Der Linux-Vertrag im isolierten Netzwerk prüfte die Vorabwerte ohne Sitzungscache und die Statistik mit echter Null und fehlendem Gegenwert an synthetischen Spielen. Der separat auf dem Server installierte Leser bestätigt 20 zuordenbare Spiele in der vorhandenen Tagesdatei vom 22.11. Bei der ersten Kontrolle nach dem Neustart: null neue angezeigte Tipps protokolliert. Das ist keine Aussage über die spätere Zahl tatsächlicher Tipps oder deren Qualität.
+- Bei der Release-Prüfung lokal nochmals 168 Live-Tests unter der Produktionspreisregel bestanden; vorab 670 betroffene Tests und 327 zusätzlich unter `floor`. Kein grüner Vollsuitelauf behauptet.
+- Unveränderte Prüfsummen der Wettfinder-/RisikoBet-Tagesdateien und der Ligaabdeckungsdatenbank vor und nach dem Release. Keine neue Sicherung, keine Einheitenänderung und kein zusätzlicher Sportscan. Der vorbestehende Fehlerstatus des separaten Wettfinder-Tageslaufs wurde nicht zurückgesetzt oder neu ausgelöst. Releasehelfer: `DEPLOY_EXIT=0 PHASE=complete`.

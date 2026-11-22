@@ -1,12 +1,17 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 22.11.2026, 17:55 CET – #162 veröffentlicht
+
+- GitHub-main und VPS `48534ee`. Ticker-Vorabwerte und Spielstatistik unter dem Feld sind aktiv. App/Caddy, interne und öffentliche Erreichbarkeit sowie sieben Timer geprüft. Nur die App neu gestartet.
+- Bestehende Tagesdatei: 20 eindeutige Torpaare auch mit dem auf dem Server installierten Leser bestätigt. Direkt nach Start noch kein neu protokollierter Tipp; kein zusätzlicher Sportscan und kein Backup. [Produktionsbeleg](docs/audits/2026-11-22-live-vorabwerte-release.md).
+
 ## 22.11.2026 – Live: Vorabwerte ohne Sitzungscache und Statistik unter dem Platz
 
 - Regulärer Ticker und Platzverweis-Modell lesen die Torwerte aus der bereits veröffentlichten Wettfinder-Tagesdatei; neuer Modellstand im internen Tippbeleg. Strikte Spiel-, Team-, Liga-, Modell-, Einheiten- und Zeitprüfung; keine zusätzlichen Anbieterabrufe. Der unabhängige Rotkartenpfad ohne Vorabwerte bleibt unverändert. Keine neue Tipp- oder Preisschwelle.
 - Auf der bestehenden Produktionstagesdatei (nur gelesen): 20 eindeutige Spiele mit Torpaar. 17 zum Prüfzeitpunkt nach Anstoß identisch zugeordnet, drei künftige nicht für live zugelassen. Das ist keine Zählung laufender Spiele, Tipps oder Treffer.
 - Rechts unter dem Spielfeld: Angriffe, gefährliche Angriffe, Ecken, Schüsse, Schüsse aufs Tor, Ballbesitz und xG, soweit für dieses Spiel tatsächlich gemeldet. Keine Ableitung fehlender Angriffszahlen. Aktuelle Statistik ohne Ereignisliste darf angezeigt, aber nicht als vollständiger Modelleingang verwendet werden. Fehlende, verworfene und zu alte Details nicht als aktuelle Zahlen anzeigen.
 - QA: 670 betroffene Tests; 327 nochmals unter Produktionspreisregel. Roter Ersttest für Kaltstart, teilweise Detailpakete und irreführende Meldungen. Lokale Browservorschau (synthetisch, 1440/390/320 px, drei Spiele gewechselt). Die Vollsuite mit `-x` stoppte wie zuvor bei `test_native_conflicting_role_ids_fail_before_any_request` (99 bestanden). Kein neuer Scan, kein Backup.
-- Offen: Veröffentlichung und Abnahme mit einem regulär offenen Live-Tab. Bessere Wettqualität ist aus diesem Datenanschluss nicht abgeleitet.
+- Veröffentlicht (siehe oben). Ein echter neuer Tipp bei regulär offenem Tab ist im unmittelbaren Nachtest noch nicht belegt. Bessere Wettqualität ist aus diesem Datenanschluss nicht abgeleitet.
 
 ## 22.11.2026 – Live: Platzverweis bei der Mannschaft
 
