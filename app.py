@@ -3027,61 +3027,98 @@ def _analyze_ticker_fixture(fixture, analyzer):
     return analyze_detail(fixture, analyzer)
 
 
-def _best_live_analysis(fixture, ordinary, dismissal, *, age, freemode):
-    """Best existing, still-open outcome for this exact native game revision (no prices)."""
-    from live_tip_surface import live_snapshot_fields
+def _live_closed_window(fixture):
+    """A current scoreboard can establish a closed model window, even without xG."""
     from redcard_events import period_clock, score_pair
+    status = fixture["fixture"]["status"]
+    phase, minute = status.get("short"), status.get("elapsed")
+    extra = status.get("extra")
+    extra = 0 if extra is None else extra
+    if score_pair(fixture.get("goals")) is None:
+        return "Spieldaten fehlen"
+    if phase in ("ET", "BT", "P"):
+        if type(minute) is not int or not 90 <= minute <= 130 or type(extra) is not int or not 0 <= extra <= 40:
+            return "Spieldaten fehlen"
+        return "Elfmeterschießen – kein neuer Tipp" if phase == "P" else "Verlängerung – kein neuer Tipp"
+    if period_clock(phase, minute, extra) is None:
+        return "Spieldaten fehlen"
+    if minute == 0:
+        return "Anpfiff – noch kein Tipp"
+    if phase == "2H" and minute >= 90:
+        return "Keine neuen Tipps ab Minute 90"
+    return None
+
+
+def _assess_live_fixture(fixture, ordinary, dismissal, *, age, freemode):
+    """Best eligible pick, or why this exact scoreboard row has none. No new model or prices."""
+    from live_tip_surface import live_snapshot_fields
+    from redcard_events import score_pair
     source, teams = fixture["fixture"], fixture["teams"]
     status = source["status"]
     phase, minute, extra = status.get("short"), status.get("elapsed"), status.get("extra")
     score = score_pair(fixture.get("goals"))
-    if (score is None or period_clock(phase, minute, 0 if extra is None else extra) is None
-            or minute < 1 or (phase == "2H" and minute >= 90)):
-        return None
     native = dict(fixture_id=source["id"], minute=minute, phase=phase, extra=extra,
                   home_id=teams["home"]["id"], away_id=teams["away"]["id"],
                   home_goals=score[0], away_goals=score[1])
     options = []
 
-    def admit(candidate, item, red):
-        if not candidate.forecast_available or candidate.model_probability < 55:
-            return
-        if not isinstance(item.get("model_version"), str) or not item["model_version"].strip():
-            return
+    def admit(candidate, item, red, *, window_open=True):
+        if (not candidate.forecast_available
+                or not isinstance(item.get("model_version"), str) or not item["model_version"].strip()):
+            return False
         fields = live_snapshot_fields(candidate, item, red=red)
         if fields is None or any(type(fields[k]) is not type(v) or fields[k] != v for k, v in native.items()):
-            return
-        options.append((candidate, item, red))
+            return False
+        if window_open and candidate.model_probability >= 55:
+            options.append((candidate, item, red))
+        return True
 
+    ordinary_checked = False
     if (ordinary and ordinary.get("live_data_quality") == "MEDIUM"
             and (ordinary.get("red_cards") or {}).get("supported") is not False
             and ordinary.get("home_team") == teams["home"]["name"]
             and ordinary.get("away_team") == teams["away"]["name"]):
         # Tie: prefer a team-specific outcome over an equivalent broader statement.
+        ordinary_checked = True
         for market in ("Team trifft noch", "Noch ein Tor", "BTTS"):
-            if market == "BTTS" and (min(score) > 0 or ordinary.get("btts_confidence") != "MEDIUM"):
-                continue
+            if market == "BTTS":
+                if min(score) > 0:  # Already settled, so not an open market to evaluate.
+                    continue
+                if ordinary.get("btts_confidence") != "MEDIUM":
+                    ordinary_checked = False
+                    continue
             probability, selection = _live_market_signal(ordinary, market)
-            if probability is not None and probability >= 55:
+            if probability is not None:
                 candidate = live_football_candidate(
                     ordinary, market=market, selection=selection, probability=probability,
                     snapshot_age_seconds=age, freemode=freemode)
-                admit(candidate, ordinary, False)
+                if not admit(candidate, ordinary, False):
+                    ordinary_checked = False
+            elif selection != "Kein klarer Teamvorteil":
+                ordinary_checked = False
+    red_checked = dismissal is None
+    red_window = None
     if dismissal and not dismissal.get("error") and dismissal.get("fixture_red_card_count") == 1:
         prediction = dismissal.get("prediction") or {}
         red_side = dismissal.get("red_side")
         opponent_side = {"home": "away", "away": "home"}.get(red_side)
         probabilities = [_live_probability(prediction.get(k)) for k in
                          ("next_goal_by_opponent", "next_goal_by_red_team", "no_more_goals")]
-        if (prediction.get("data_quality") == "MEDIUM" and prediction.get("too_late_for_signal") is not True
+        quality = prediction.get("data_quality")
+        too_early = quality == "LIMITED" and minute < 15  # Existing red predictor's observation window.
+        too_late = prediction.get("too_late_for_signal") is True
+        if ((quality == "MEDIUM" or too_early)
                 and all(p is not None and p <= 1 for p in probabilities)
                 and math.isclose(sum(probabilities), 1.0, abs_tol=1e-6)
                 and opponent_side and (dismissal.get("card") or {}).get("team") == teams[red_side]["name"]
                 and dismissal.get("opponent") == teams[opponent_side]["name"]
                 and dismissal.get("home") == teams["home"]["name"] and dismissal.get("away") == teams["away"]["name"]):
             candidate = red_card_candidate(dismissal, snapshot_age_seconds=age, freemode=freemode)
-            admit(candidate, dismissal, True)
-    return max(options, key=lambda option: option[0].model_probability, default=None)
+            red_checked = admit(candidate, dismissal, True, window_open=not (too_early or too_late))
+            if red_checked and (too_early or too_late):
+                red_window = "Platzverweis: noch zu früh" if too_early else "Kein neuer Platzverweis-Tipp"
+    best = max(options, key=lambda option: option[0].model_probability, default=None)
+    return best, red_window or ("Geprüft – kein Tipp" if ordinary_checked and red_checked else "Spieldaten fehlen")
 
 
 def _render_live_football(analyzer, *, viewer_active):
@@ -3109,22 +3146,27 @@ def _render_live_football(analyzer, *, viewer_active):
     now = datetime.now(timezone.utc)
     for game in games:
         age = fresh_age(game.detailed_at, now)
-        if age is None:
-            continue
         try:
+            state = (_live_closed_window(game.fixture)
+                     if age is not None or fresh_age(game.observed_at, now) is not None else None)
+            if state or age is None:
+                reasons[game.id] = state or "Spieldaten fehlen"
+                continue
             ordinary, dismissal = _analyze_ticker_fixture(game.fixture, analyzer)
-            best = _best_live_analysis(game.fixture, ordinary, dismissal, age=age, freemode=config.freemode)
-        except (ArithmeticError, LookupError, TypeError, ValueError):
+            best, status = _assess_live_fixture(game.fixture, ordinary, dismissal, age=age, freemode=config.freemode)
+        except (ArithmeticError, AttributeError, LookupError, TypeError, ValueError):
             # Malformed data in one game cannot erase the rest of the scoreboard.
-            reasons[game.id] = "Die Datenbasis dieses Spiels ist nicht eindeutig."
+            reasons[game.id] = "Spieldaten fehlen"
             continue
         if best is not None:
             admitted[game.id] = best
-        elif dismissal and dismissal.get("error"):
-            reasons[game.id] = dismissal["error"]
+        else:
+            reasons[game.id] = status
     preferred_id = max(admitted, key=lambda fid: (admitted[fid][0].model_probability, -fid), default=None)
 
-    def render_tip(game, pair):
+    recorded = set()
+
+    def publish_pick(game, pair, emit):
         candidate, item, red = pair
         if not viewer_active():
             return False
@@ -3132,14 +3174,17 @@ def _render_live_football(analyzer, *, viewer_active):
             age = fresh_age(game.detailed_at, datetime.now(timezone.utc))
             if not current or age is None:
                 return False
-            render_model_selection(candidate, save_source="Live nach Platzverweis" if red else "Live", analysis_only=True)
-        # This receipt belongs to the exact revision just emitted. Never hold up publication on storage I/O.
-        record_visible_analysis(candidate, item, snapshot_at=game.detailed_at.isoformat(), age_seconds=age, red=red)
+            emit(candidate)
+        # One game, one model choice in this feed snapshot, even when visible in two places.
+        # Do not hold up feed publication during receipt I/O.
+        if game.id not in recorded:
+            recorded.add(game.id)
+            record_visible_analysis(candidate, item, snapshot_at=game.detailed_at.isoformat(), age_seconds=age, red=red)
         return True
 
     with board.container():
         render_board(st, games, admitted, preferred_id=preferred_id,
-                     format_time=_format_snapshot_time, render_tip=render_tip, reasons=reasons,
+                     format_time=_format_snapshot_time, publish_pick=publish_pick, reasons=reasons,
                      now=datetime.now(timezone.utc), refresh_issue=view.issue)
 
 
@@ -3537,16 +3582,33 @@ def render_live(analyzer) -> None:
         st.info("Live-Zugang nicht verfügbar.")
         return
 
+    from editorial_theme import live_pitch_css
+    st.markdown(live_pitch_css(), unsafe_allow_html=True)
+
     @st.fragment(run_every=15)
     def open_ticker():
-        if not viewer_active():
+        denied = False
+        def can_show():
+            nonlocal denied
+            if not denied:
+                denied = not viewer_active()
+            return not denied
+        if not can_show():
             st.info("Live-Zugang nicht verfügbar.")
             return
-        _render_live_football(analyzer, viewer_active=viewer_active)
+        today = zurich_today()
+        weekday = ("Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag")[today.weekday()]
+        st.markdown(
+            '<header class="bb-live-mast"><div class="bb-live-mast__brand">BetBoy <b>Live</b></div>'
+            '<h1>Live Wettfinder</h1>'
+            f'<time datetime="{today.isoformat()}">{weekday}, {today:%d.%m.%Y}</time></header>',
+            unsafe_allow_html=True,
+        )
+        _render_live_football(analyzer, viewer_active=can_show)
         # Age out any visible manual result on the same clock as the board.
         # A closed drawer never reads its snapshot; only the explicit button starts a scan.
         with st.expander("Manuelle weltweite Platzverweis-Suche", key="live_worldwide_research", on_change="rerun"):
-            if st.session_state.get("live_worldwide_research") is True and viewer_active():
+            if st.session_state.get("live_worldwide_research") is True and can_show():
                 _render_red_cards(analyzer)
 
     open_ticker()
@@ -5177,8 +5239,9 @@ def main() -> None:
     _render_editorial_header(workspace)
     require_feature(st, PAGE_FEATURES[workspace])
     title, caption = PAGE_INFO[workspace]
-    st.markdown(f'<div class="bb-context">BetBoy / {workspace}</div>', unsafe_allow_html=True)
-    if workspace != 'Wettfinder':
+    if workspace != "Live":
+        st.markdown(f'<div class="bb-context">BetBoy / {workspace}</div>', unsafe_allow_html=True)
+    if workspace not in {"Wettfinder", "Live"}:
         st.title(title)
         st.caption(caption)
 

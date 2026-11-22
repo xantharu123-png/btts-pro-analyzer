@@ -1,3 +1,15 @@
+# Design QA – Live-Wettfinder: „Spielfeldrand“, 22.11.2026
+
+Vergleich mit freigegebenem Entwurf 3: grüne Kopfzeile, Ligagruppen mit vier Spalten links, Spieldetails und Spielfeld rechts. Die Auswahl wird durch die markierte native Spielzeile angezeigt. Keine künstlichen Sterne, Länderflaggen, Favoritenfunktion oder Ballposition. Der Modellhinweis bleibt in den Details. Die Platzgrafik wird nur in Live eingebunden (6.486 Byte WebP).
+
+Interner Browser, lokaler Streamlit-Renderer mit neun synthetischen Spielen, ohne Sport-API oder produktive Datenbank: bei 1440 px keine überdeckten Ligatitel; Spiel, Stand, Minute und Tipp in den geprüften Reihen jeweils bei x=65/438/519/620 px. Auf 390 und 320 px kein horizontaler Überlauf, ausgewähltes Spiel oberhalb der Liste. Klick und Enter wechseln das Spiel; „Zur automatischen Auswahl“ kehrt zum Modellfavoriten zurück. Keine Fehler in der gelesenen Browserkonsole. Desktop-/Mobil-Aufnahmen im lokalen Vorschauordner `live-spielfeldrand-desktop.jpg` und `live-spielfeldrand-mobil.jpg`.
+
+Ergebnis: lokale visuelle und funktionale Abnahme bestanden; keine Aussage über die aktuelle Zahl echter Tipps oder eine Produktionsveröffentlichung.
+
+Platzverweis-Ergänzung: Mit fiktiven Daten auf Desktop „St. Gallen 🟥 52′“ in der Liste und „Rot 52′“ beim selben Team im Detail geprüft. Beim Wechsel auf Burnley ohne Karte verschwindet das Kartenmerkmal; bei Rückkehr ist es wieder sichtbar. Keine Konsolenfehler festgestellt. Lokales Bild: `live-platzverweis.jpg` im Vorschauordner.
+
+---
+
 # Design QA – freigegebene BetBoy-Landingpage
 
 Stand: 06.10.2026. Umfang: vorhandenes Django-Kundenportal, nicht der

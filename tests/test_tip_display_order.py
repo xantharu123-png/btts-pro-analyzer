@@ -422,21 +422,26 @@ def test_live_scoreboard_chronological_but_auto_focus_tracks_best_without_rescan
                                   if market == 'Team trifft noch' else {})
         analyses.append(row)
     before = deepcopy(analyses)
-    from test_live_football_board import feed_row, mount
+    from test_live_football_board import _last_panel, feed_row, mount
     ui = Screen({'workspace': 'Live'}, {'live_football_order': START_TIME})
-    rendered = []
-    mount(monkeypatch, ui, {r['fixture_id']: feed_row(r['fixture_id'], now, analysis=r) for r in analyses})
+    receipts = []
+    mount(monkeypatch, ui, {r['fixture_id']: feed_row(r['fixture_id'], now, analysis=r) for r in reversed(analyses)})
     monkeypatch.setattr(app, '_freemode_enabled', lambda: False)
     monkeypatch.setattr(app.scan_jobs, 'get_job', lambda _key: {'state': 'idle'})
     monkeypatch.setattr(app.scan_jobs, 'start_job', lambda *_a, **_k: pytest.fail('Sorting cannot scan'))
-    monkeypatch.setattr(app, 'render_model_selection', lambda c, **_k: rendered.append(c))
+    monkeypatch.setattr(app, 'record_visible_analysis', lambda c, _row, **_kw: receipts.append(c))
     app.render_live(object())
     buttons = [v for k, v in ui.messages if k == 'button' and (v[1] or '').startswith('live_fixture_')]
     assert [key for _, key in buttons] == ['live_fixture_1', 'live_fixture_2']
     assert all(label in button for label, (button, _) in zip(('Early – Opponent', 'Late – Opponent'), buttons, strict=True))
-    assert len(rendered) == 1 and rendered[0].event_key == '2' and rendered[0].market == market
-    assert rendered[0].model_probability == 90. and rendered[0].risk_adjusted_probability is None
-    assert rendered[0].probability_haircut == 12. and rendered[0].evidence_stage == 'RESEARCH'
+    assert [c.event_key for c in receipts] == ['1', '2']
+    labels = {'BTTS': 'Beide Teams treffen', 'Noch ein Tor': 'Noch ein Tor', 'Team trifft noch': 'Late trifft noch'}
+    assert 'Late' in _last_panel(ui, 'lv-scoreline') and 'Early' not in _last_panel(ui, 'lv-scoreline')
+    assert labels[market] in _last_panel(ui, 'lv-pick') and '90 %' in _last_panel(ui, 'lv-pick')
+    assert '70 %' in buttons[0][0] and '90 %' in buttons[1][0] and labels[market] in buttons[1][0]
+    assert receipts[1].market == market and receipts[1].model_probability == 90.
+    assert receipts[1].risk_adjusted_probability is None
+    assert receipts[1].probability_haircut == 12. and receipts[1].evidence_stage == 'RESEARCH'
     assert analyses == before
 
 
@@ -444,31 +449,36 @@ def test_redcard_real_candidate_selector_ignores_old_time_order_without_rescan(m
     import app
     from copy import deepcopy
     from types import SimpleNamespace
-    from test_workflow_integrity import _RecordingStreamlit
     now = datetime.now(timezone.utc)
-    from test_live_tip_surface import _red
+    from test_live_tip_surface import _red, Screen
     entries = []
     for i, p, hours in [(1, .70, 2), (2, .90, 1)]:
         row = _red(i, (p, .05, 1-p-.05))
         row['card']['match']['fixture']['date'] = (now-timedelta(hours=hours)).isoformat()
         row['prediction'].update(calibrated=True, actionable=True)
         entries.append(row)
-    from test_live_football_board import feed_row, mount
+    from test_live_football_board import _last_panel, feed_row, mount
     before = deepcopy(entries)
-    ui = _RecordingStreamlit({'workspace': 'Live'}, {'live_redcard_order': START_TIME})
+    ui = Screen({'workspace': 'Live'}, {'live_redcard_order': START_TIME})
     rows = {i: feed_row(i, now, red=row) for i, row in enumerate(entries, 1)}
     for i, row in rows.items():
         row['fixture']['fixture']['date'] = entries[i-1]['card']['match']['fixture']['date']
         row['fixture']['offline_analysis'] = None
     mount(monkeypatch, ui, rows)
-    rendered = []
+    receipts = []
     monkeypatch.setattr(app, 'st', ui)
     monkeypatch.setattr(app, '_freemode_enabled', lambda: False)
     monkeypatch.setattr(app.scan_jobs, 'get_job', lambda _key: {'state': 'idle'})
     monkeypatch.setattr(app.scan_jobs, 'start_job', lambda *_a, **_k: pytest.fail('Sorting cannot scan'))
     monkeypatch.setattr('redcard_signal_log.log_signal', lambda _entry: None)  # Existing writer boundary only.
-    monkeypatch.setattr(app, 'render_model_selection', lambda c, **_k: rendered.append(c))
+    monkeypatch.setattr(app, 'record_visible_analysis', lambda c, _row, **_kw: receipts.append(c))
     app.render_live(SimpleNamespace(engine=SimpleNamespace(LEAGUES_CONFIG={'league': 39})))
-    assert len(rendered) == 1 and rendered[0].event_key == 'card-2'
-    assert rendered[0].model_probability == 90. and rendered[0].risk_adjusted_probability == 75.
+    buttons = [v for k, v in ui.messages if k == 'button' and (v[1] or '').startswith('live_fixture_')]
+    assert [key for _, key in buttons] == ['live_fixture_1', 'live_fixture_2']
+    assert 'Nächstes Tor: Heim1' in buttons[0][0] and '70 %' in buttons[0][0]
+    assert 'Nächstes Tor: Heim2' in buttons[1][0] and '90 %' in buttons[1][0]
+    assert 'Heim2' in _last_panel(ui, 'lv-scoreline')
+    assert 'Nächstes Tor: Heim2' in _last_panel(ui, 'lv-pick') and '90 %' in _last_panel(ui, 'lv-pick')
+    assert [c.event_key for c in receipts] == ['card-1', 'card-2']
+    assert receipts[1].model_probability == 90. and receipts[1].risk_adjusted_probability == 75.
     assert entries == before

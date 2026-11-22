@@ -13,6 +13,7 @@ from typing import Dict, List, Optional
 
 from api_budget import APIBudgetPriority, api_football_get
 from league_catalog import ALTERNATIVE_MARKET_LEAGUES
+from redcard_events import denied_or_pending_dismissal, explicit_off_field_dismissal
 
 
 RED_CARD_MONITORED_LEAGUE_IDS = tuple(ALTERNATIVE_MARKET_LEAGUES)
@@ -424,6 +425,8 @@ class RedCardBotEnhanced:
                         # A confirmed dismissal with missing attribution still
                         # disproves a single-dismissal (11-v-10) model input.
                         source_dismissal_count += 1
+                        if explicit_off_field_dismissal(event) or denied_or_pending_dismissal(event):
+                            continue
                         player = event.get('player')
                         team = event.get('team')
                         event_time = event.get('time')
