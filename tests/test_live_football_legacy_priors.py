@@ -43,8 +43,13 @@ def test_read_legacy_edition_with_a_real_pre_kickoff_handle(tmp_path, monkeypatc
         pytest.skip("requires POSIX inode ctime")
     import ev_signal_sources
     import live_football_priors as reader
-    # The file is created now, and contains an actual later kickoff. Advance *only* the live reader's clock.
-    now = datetime.now(timezone.utc)
+    # An ext4 write timestamp can lag CLOCK_REALTIME. Set the fixture's publication
+    # clock from the already created inode, never from a guess about kernel granularity.
+    path = tmp_path / "wettfinder_latest.json"
+    path.touch()
+    created = path.stat()
+    now = datetime(1970, 1, 1, tzinfo=timezone.utc) + timedelta(
+        microseconds=min(created.st_mtime_ns, created.st_ctime_ns) // 1000)
     midnight = now.astimezone(ZoneInfo("Europe/Zurich")).replace(hour=0, minute=0, second=0, microsecond=0)
     start = min(now + timedelta(minutes=20), midnight + timedelta(days=1) - timedelta(microseconds=1))
     if start < now + timedelta(seconds=1):
@@ -53,7 +58,6 @@ def test_read_legacy_edition_with_a_real_pre_kickoff_handle(tmp_path, monkeypatc
     doc["football"]["last_attempt_at"] = max(midnight, now-timedelta(minutes=2)).isoformat()
     doc["football"]["football_recent_results"]["81"]["as_of"] = max(midnight, now-timedelta(minutes=1)).isoformat()
     doc["generated_at"] = now.isoformat()
-    path = tmp_path / "wettfinder_latest.json"
     path.write_text(json.dumps(doc), encoding="utf8")
     class Live(datetime):
         @classmethod
@@ -62,6 +66,10 @@ def test_read_legacy_edition_with_a_real_pre_kickoff_handle(tmp_path, monkeypatc
     monkeypatch.setattr(reader, "datetime", Live)
     monkeypatch.setattr(ev_signal_sources, "AUTOMATED_WETTFINDER_PATH", path)
     assert reader.stored_goal_priors(fixture) == (1.547, 1.717)
+    # The bytes are unchanged, but this edition no longer proves pre-kickoff availability.
+    kickoff_ns = (start - datetime(1970, 1, 1, tzinfo=timezone.utc)) // timedelta(microseconds=1) * 1000
+    os.utime(path, ns=(path.stat().st_atime_ns, kickoff_ns))
+    assert reader.stored_goal_priors(fixture) is None
 
 
 @pytest.mark.parametrize("damage", ["none", "win_creation_time", "stat_missing", "mtime_at_kickoff",
