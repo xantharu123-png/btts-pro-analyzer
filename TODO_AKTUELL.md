@@ -1,5 +1,17 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 22.11.2026 – Kommende Tipps, Liga-Abfragen und Live-Ticker
+
+- Arbeitsbranch `codex/live-spieltag-20261122`: wiederverwendete Liga-Metadaten
+  (nicht Spielaufstellungen, Verletzungen oder Quoten) und Zeitgrenze im offenen
+  Vorab-Wettfinder. Tageskombis werden nicht neu zusammengestellt. Ein Nachweis
+  der tatsächlichen Einsparung steht erst nach Veröffentlichung aus.
+- Fußball-Live: nur solange jemand den berechtigten Tab geöffnet hat. Fünf Minuten
+  für neue Spiele, eine Minute für bekannte; keine zusätzliche Hintergrundaufgabe.
+  [Design und Abnahme](docs/superpowers/specs/2026-11-22-live-spieltag-design.md).
+  Separat offen: Umsetzung und Nachweis der minutenaktuellen Gruppenantwort
+  während einer laufenden Partie; kein Tipp aus fehlenden Daten.
+
 ## 21.11.2026 – Fußball: Bilanz der Live-Analysen
 
 Klarstellung des Owners: Erfassung und Auswertung sind intern. Im Live-Tab keine Bilanztabelle, Trefferquoten-Erklärung oder Meldung zur Speicherung. Regulärer Ergebnislauf unverändert; kein Nachfüllen historischer Tipps.

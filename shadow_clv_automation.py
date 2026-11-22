@@ -58,6 +58,7 @@ from clv_tracker import CLVTracker, DuplicatePredictionError  # noqa: E402
 from config_loader import load_app_config  # noqa: E402
 from football_data_history import fetch_history as fetch_stat_history  # noqa: E402
 from football_data_history import merge_api_tail  # noqa: E402
+from football_coverage_cache import load_coverage, remember_coverage  # noqa: E402
 from league_catalog import LEAGUES  # noqa: E402
 from model_loss_statistics import paired_advantage_statistics  # noqa: E402
 from runtime_paths import atomic_write_bytes, open_trusted_pickle  # noqa: E402
@@ -502,7 +503,13 @@ class ShadowProvider:
         )
 
     def coverage(self, league_id: int, season: int) -> dict:
+        cached = load_coverage(league_id, season)
+        if cached is not None:
+            return cached
         data = self._get("leagues", {"id": league_id, "season": season}, f"Coverage Liga {league_id}")
+        verified = remember_coverage(league_id, season, data)
+        if verified is not None:
+            return verified
         if not data:
             return {"injuries": False, "lineups": False}
         seasons = [s for s in (data[0].get("seasons") or []) if isinstance(s, dict)]

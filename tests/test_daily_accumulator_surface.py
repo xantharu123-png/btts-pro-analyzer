@@ -173,6 +173,30 @@ def test_already_started_kept_as_original_not_a_new_suggestion_or_live_chance():
                           None, as_of=NOW + timedelta(hours=2), chance=None) == []
 
 
+def test_only_started_originals_move_into_one_closed_drawer_after_open_slips(monkeypatch):
+    from streamlit.testing.v1 import AppTest
+    from copy import deepcopy
+
+    closed = dict(example(), arm='daily-picks')
+    upcoming = dict(example(), arm='daily-picks', size=4, reference_probability=.7 ** 4)
+    upcoming['legs'] = [dict(upcoming['legs'][0], event_key=f'next:{i}', event_label=f'Nächstes {i}',
+                             starts_at=(NOW + timedelta(hours=i)).isoformat()) for i in (2, 3, 4, 5)]
+    slips = [closed, upcoming]
+    originals = deepcopy(slips)
+    monkeypatch.setattr('daily_accumulator_receipts.load_daily_picks', lambda *a, **k: slips)
+    ui = AppTest.from_string("""
+import streamlit as st
+from daily_accumulator_surface import render_daily_accumulators
+render_daily_accumulators(st, as_of='2030-01-07T13:00:00+00:00')
+""").run()
+    assert not ui.exception
+    assert [row.value for row in ui.markdown] == ['**4er-Kombi**', '**3er-Kombi**']
+    drawer, = ui.expander
+    assert drawer.label == 'Bereits begonnen (1)' and not drawer.proto.expanded
+    assert [row.value for row in drawer.markdown] == ['**3er-Kombi**']
+    assert len(drawer.text) == 3 and len(ui.text) == 7 and slips == originals
+
+
 @pytest.mark.parametrize('probability', [True, float('nan'), 1.2, 0, '0.7'])
 def test_model_estimate_never_substitutes_a_price_or_a_bad_leg(probability):
     slip = dict(example(), arm='daily-picks')

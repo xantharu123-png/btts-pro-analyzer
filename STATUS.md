@@ -6,6 +6,24 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 
 ## Stand: 22.11.2026
 
+Arbeitsbranch `codex/live-spieltag-20261122` (noch nicht auf dem VPS):
+Wettfinder und Shadow können die bestätigte Liga-/Saisonabdeckung für Ausfälle
+und Aufstellungen gemeinsam bis zu 24 Stunden nutzen; tatsächliche Aufstellungen,
+Ausfälle sowie Quoten werden davon nicht berührt. Im geöffneten Vorab-Wettfinder
+verschwinden gestartete Spiele; begonnene Originalkombis bleiben unter den
+offenen Scheinen eingeklappt. Im lokalen Browser mit simulierten Spielen am
+Anpfiff ohne Klick auf Desktop und Mobil geprüft. Ein inzwischen neuer Tageslauf
+schreibt normale Belege, die bloße Uhraktualisierung nicht. Pakettest:
+je 92 bestanden mit `floor` und `gate`;
+56 weitere Tests für Budget, Originalscheine und bisherige Liveanzeige bestanden.
+Der bekannte Hockeyfehler unten blockiert die Vollsuite.
+
+Fußball-Liveticker: Der Owner hat **nur bei offenem Live-Tab** gewählt, neue Spiele
+alle fünf Minuten, laufende jede Minute. Der [Entwurf](docs/superpowers/specs/2026-11-22-live-spieltag-design.md)
+ist getrennt von den beiden Vorab-Änderungen; der neue Feed ist noch nicht aktiv.
+Die vorhandenen Batch-Belege enthalten kein laufendes Spiel mit nachgewiesen
+vollständigen Ereignissen und Statistiken. Kein zusätzlicher API-Scan, kein Backup.
+
 „Kombis des Tages“: Der einzige Balken zeigt **Ø Modellchance je Einzeltipp**, den
 Durchschnitt der gespeicherten Einzelchancen (heutiger 3er: 83 %). Er ist keine
 Gewinnchance des gesamten Scheins. Fehlt eine gemeinsame Buchmacherquote, steht kein

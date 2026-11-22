@@ -4874,23 +4874,50 @@ def _wettfinder_min_chance_control() -> int:
     return value
 
 
+def _schedule_wettfinder_cutoff(deadline, source_run_id) -> None:
+    """Wake the open session at the next local display boundary; no market polling."""
+    from streamlit import fragment
+    # Float32 seconds on the wire, integer milliseconds in the browser. Round UP
+    # to one eighth-second (exact in both), so an early tick cannot wait a whole match interval again.
+    seconds = (deadline - datetime.now(timezone.utc)).total_seconds()
+    delay = timedelta(milliseconds=125 * max(1, math.ceil(8 * seconds)))
+
+    @fragment(run_every=delay)
+    def check_deadline():
+        if datetime.now(timezone.utc) >= deadline:
+            st.session_state['_wettfinder_clock_refresh'] = source_run_id
+            st.rerun()
+
+    check_deadline()
+
+
 def _render_automated_daily_selection() -> None:
+    from tip_display_order import _clock as event_start
     evaluation_now = datetime.now(timezone.utc)
     snapshot = automated_wettfinder_snapshot(now=evaluation_now)
     status = snapshot.status
+    source_run_id = status.generated_at.isoformat() if status else None
+    # A newer daily publication still takes its normal receipt path even when the clock woke the page.
+    clock_only = st.session_state.pop('_wettfinder_clock_refresh', False) == source_run_id
+    # Today's slips and next-day previews must also expire across Zurich midnight.
+    deadline = (evaluation_now.astimezone(ZURICH_TIMEZONE) + timedelta(days=1)).replace(
+        hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
 
     # Forecasts are the sole selection source; bookmaker prices cannot
     # replace their evidence stage or change their display order.
-    signals = list(snapshot.forecasts)
     rows = []
-    for signal in signals:
+    for signal in snapshot.forecasts:
+        start = event_start(signal.scheduled_start)
+        if start is None or start <= evaluation_now:
+            continue
+        deadline = min(deadline, start)
         card = build_wettfinder_card(signal, quote=signal.reference_quote, now=evaluation_now)
         rows.append((signal, card))
 
     target_label = _automatic_target_label(status.target_search_date) if status else 'Heute'
     # Only football lists the next day (Folgetag); the tennis box keeps the match day label.
     rail_label = target_label
-    if any(listed_next_day_signal(signal, now=evaluation_now) for signal in signals):
+    if any(listed_next_day_signal(signal, now=evaluation_now) for signal, _ in rows):
         target_label += ' und morgen'
     # Both columns exist even before the daily publication. No fictional
     # selection is added merely to fill the magazine layout.
@@ -4930,7 +4957,7 @@ def _render_automated_daily_selection() -> None:
             else:
                 shown_leads = _render_wettfinder_games(catalog, {card.key: (signal, card) for signal, card in rows},
                                         sport_filter=sport_filter, sort_mode=sort_mode)
-            if status is not None:
+            if status is not None and not clock_only:
                 from tip_publication import record_signal_catalog
                 selected_order = [card.key for card in (*full_catalog.featured, *full_catalog.additional)]
                 selected_signals = {card.key: signal for signal, card in rows}
@@ -4940,7 +4967,7 @@ def _render_automated_daily_selection() -> None:
                     event_lead_keys=(key for key in (shown_leads or ()) if not listed_next_day_signal(
                         selected_signals[key], now=evaluation_now, decided_at=status.generated_at)),
                     featured_keys=(card.key for card in full_catalog.featured),
-                    source_run_id=status.generated_at.isoformat())
+                    source_run_id=source_run_id)
             tennis_catalog = compose_wettfinder_catalog(cards, sport_filter='Tennis', min_probability=min_chance / 100)
             tennis_cards = tennis_catalog.featured + tennis_catalog.additional
         with rail:
@@ -4949,9 +4976,11 @@ def _render_automated_daily_selection() -> None:
                     if card.provider_event_id or card.fixture_id else None,
                 starts_at=lambda card: card.scheduled_start,
                 probability=lambda card: card.model_probability)
-            _render_editorial_rail(choices, ordered_tennis, daily3_allowed=daily3_allowed, target_label=rail_label,
-                as_of=evaluation_now, source_run_id=status.generated_at.isoformat() if status else None,
+            slip_deadline = _render_editorial_rail(choices, ordered_tennis, daily3_allowed=daily3_allowed, target_label=rail_label,
+                as_of=evaluation_now, source_run_id=None if clock_only else source_run_id,
                 preview_choices=preview_choices)
+    if status is not None or rows or slip_deadline is not None:
+        _schedule_wettfinder_cutoff(min(deadline, slip_deadline) if slip_deadline is not None else deadline, source_run_id)
 
 
 def _render_editorial_rail(choices, tennis_cards, *, daily3_allowed, target_label, as_of=None, source_run_id=None,
@@ -5019,7 +5048,7 @@ def _render_editorial_rail(choices, tennis_cards, *, daily3_allowed, target_labe
         st.button('Tennis-Auswahlen', key='editorial_tennis_open', on_click=_open_tennis, use_container_width=True)
     if daily3_allowed:
         from daily_accumulator_surface import render_daily_accumulators
-        render_daily_accumulators(st, as_of=as_of)
+        return render_daily_accumulators(st, as_of=as_of)
 
 
 def _render_selected_finder(
