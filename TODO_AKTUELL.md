@@ -1,5 +1,12 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 22.11.2026 – gewählter Live-Entwurf 3 „Spielfeldrand“
+
+- `codex/live-spielfeldrand` baut auf dem offenen Ladezustand-PR #159 (`93caf05`) auf. Nicht auf dem VPS.
+- Alle Spiele nach Liga, jede Zeile mit ihrem tatsächlich verfügbaren Vorschlag oder mit dem Grund, warum keiner angezeigt wird. Auswahl per Maus/Tastatur und Rückkehr zur automatischen Auswahl. Modell, Anbieter-Takt, Preisregeln und Budgets unverändert.
+- Lokaler interner Browser mit neun synthetischen Spielen; 1440, 390 und 320 px, inklusive Auswahlwechsel. 365 betroffene Tests; 121 Live-Tests zusätzlich unter `floor`. Gesamtlauf mit `-x` endet am bekannten separaten Eishockeytest nach 99 bestandenen Tests.
+- Offen: Integration/Produktionsfreigabe, anschließend prüfen, wie viele echte Spiele Voranpfiff-Daten und eine auswertbare Live-Analyse haben. Ein fehlender Tipp wurde nicht durch eine künstliche Empfehlung ersetzt. Kein Scan oder Backup.
+
 ## 22.11.2026 – Live-Tab: Laden ist nicht „kein Spiel“
 
 - Erster Abruf und erneute Suche nach Ablauf eines leeren Ergebnisses: Der

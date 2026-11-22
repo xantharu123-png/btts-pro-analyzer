@@ -1,0 +1,174 @@
+"""The same native snapshot owns the table row and the match inspector."""
+from datetime import datetime, timezone
+
+import pytest
+
+import app
+import live_football_board
+from test_live_football_board import feed_row, mount
+from test_live_tip_surface import Screen, _analysis
+
+
+@pytest.mark.parametrize("kind,status", [
+    ("below", "Geprüft – kein Tipp"), ("no-detail", "Spieldaten fehlen"),
+    ("clock", "Spieldaten fehlen"), ("version", "Spieldaten fehlen"),
+    ("no-prior", "Spieldaten fehlen"), ("absent-market", "Spieldaten fehlen"),
+    ("wrong-team", "Spieldaten fehlen"), ("late", "Keine neuen Tipps ab Minute 90"),
+])
+def test_result_text_distinguishes_completed_evaluation_from_missing_or_foreign_data(monkeypatch, kind, status):
+    data = _analysis(1)
+    data.update(btts_prob=32.0)
+    data["remaining_goals"].update(over_0_5_probability=52., home_scores_probability=42., away_scores_probability=30.)
+    if kind == "late":
+        data.update(minute=90, phase_data={"status": "2H", "extra": 1})
+    row = feed_row(1, datetime.now(timezone.utc), analysis=data)
+    if kind == "no-detail":
+        row["detailed_at"] = None
+    elif kind == "clock":
+        data["minute"] += 1
+    elif kind == "version":
+        data["model_version"] = ""
+    elif kind == "no-prior":
+        data["live_data_quality"] = "LOW"
+    elif kind == "wrong-team":
+        data["away_team_id"] += 1
+    elif kind == "absent-market":
+        data["remaining_goals"].pop("over_0_5_probability")
+    ui = Screen({"workspace": "Live"})
+    mount(monkeypatch, ui, {1: row})
+    seen = {}
+    def capture(ui, games, candidates, **options):
+        assert not candidates
+        seen.update(options["reasons"])
+    monkeypatch.setattr(live_football_board, "render_board", capture)
+    app._render_live_football(object(), viewer_active=lambda: True)
+    assert seen == {1: status}
+
+
+@pytest.mark.parametrize("change", ["none", "revoked", "revised"])
+def test_each_visible_pick_rechecks_snapshot_and_owner_but_row_and_inspector_share_receipt(monkeypatch, change):
+    ui = Screen({"workspace": "Live"})
+    rows = {1: feed_row(1, datetime.now(timezone.utc))}
+    mount(monkeypatch, ui, rows)
+    active, actual = [True], []
+    def capture(ui, games, candidates, **options):
+        publish = options.get("publish_pick")
+        assert callable(publish), "Rendering a pick needs the guarded publication callback"
+        emit = lambda c: actual.append(("display", c.selection))
+        game, = games
+        assert publish(game, candidates[game.id], emit)
+        if change == "revoked":
+            active[0] = False
+        elif change == "revised":
+            rows[1]["detailed_at"] = None
+        assert publish(game, candidates[game.id], emit) is (change == "none")
+    monkeypatch.setattr(live_football_board, "render_board", capture)
+    monkeypatch.setattr(app, "record_visible_analysis", lambda c, *_, **kw: actual.append(("record", c.selection)))
+    app._render_live_football(object(), viewer_active=lambda: active[0])
+    want = [("display", "Mindestens 1 weiteres Tor"), ("record", "Mindestens 1 weiteres Tor")]
+    assert actual == want + ([want[0]] if change == "none" else [])
+
+
+def test_masthead_uses_an_unambiguous_german_zurich_calendar_date(monkeypatch):
+    from datetime import date
+    monkeypatch.setattr(app, "zurich_today", lambda: date(2026, 11, 22))
+    ui = Screen({"workspace": "Live"})
+    mount(monkeypatch, ui, {})
+    app.render_live(object())
+    heads = [v for kind, v in ui.messages if kind == "markdown" and 'class="bb-live-mast"' in v]
+    assert len(heads) == 1 and "Sonntag, 22.11.2026" in heads[0] and "Live Wettfinder" in heads[0]
+
+
+@pytest.mark.parametrize("phase,minute,extra,home,label", [
+    ("1H", 0, None, 0, "Anpfiff"),
+    ("BT", 105, None, 1, "Verlängerung"),
+    ("ET", 111, None, 1, "Verlängerung"),
+    ("P", 120, None, 2, "Elfmeterschießen"),
+    ("P", 90, None, 2, "Elfmeterschießen"),  # Direct shoot-out, without extra time.
+    ("ET", 40, None, 0, "Spieldaten fehlen"),
+    ("ET", True, None, 0, "Spieldaten fehlen"),
+    ("P", 120, -1, 2, "Spieldaten fehlen"),
+    ("BT", 105, None, None, "Spieldaten fehlen"),
+    ("1H", 0, 3, 0, "Spieldaten fehlen"),
+])
+@pytest.mark.parametrize("details", [True, False])
+def test_scoreboard_phase_explains_nonapplicable_markets_without_inventing_a_pick(
+        monkeypatch, phase, minute, extra, home, label, details):
+    now = datetime.now(timezone.utc)
+    row = feed_row(1, now)
+    row["fixture"]["fixture"]["status"].update(short=phase, elapsed=minute, extra=extra)
+    row["fixture"]["goals"]["home"] = home
+    if not details:
+        row["detailed_at"] = None
+    ui = Screen({"workspace": "Live"})
+    mount(monkeypatch, ui, {1: row})
+    app._render_live_football(object(), viewer_active=lambda: True)
+    assert any(kind == "button" and label in msg[0] for kind, msg in ui.messages)
+    assert not any(kind == "button" and ":green[" in msg[0] for kind, msg in ui.messages)
+
+
+def test_open_board_masthead_follows_zurich_midnight_on_fragment_rerun(monkeypatch):
+    from datetime import date
+    today = [date(2026, 11, 22)]
+    monkeypatch.setattr(app, "zurich_today", lambda: today[0])
+    ui = Screen({"workspace": "Live"})
+    mount(monkeypatch, ui, {})
+    fragments = []
+    def fragment(**_kw):
+        def register(fn):
+            fragments.append(fn)
+            return fn
+        return register
+    ui.fragment = fragment
+    app.render_live(object())
+    assert sum('class="bb-live-mast"' in str(msg) for _, msg in ui.messages) == 1
+    ui.messages.clear()
+    today[0] = date(2026, 11, 23)
+    fragments[0]()
+    heads = [msg for kind, msg in ui.messages if kind == "markdown" and 'class="bb-live-mast"' in msg]
+    assert len(heads) == 1 and "Montag, 23.11.2026" in heads[0]
+
+
+def test_first_revocation_stops_access_checks_and_all_later_picks_in_same_fragment(monkeypatch):
+    ui = Screen({"workspace": "Live"})
+    now = datetime.now(timezone.utc)
+    mount(monkeypatch, ui, {i: feed_row(i, now) for i in range(1, 5)})
+    attempts_after_denial = []
+    def access(owner):
+        if any(kind == "button" and msg[1] == "live_fixture_1" for kind, msg in ui.messages):
+            attempts_after_denial.append(True)
+            return len(attempts_after_denial) > 1  # No retry/recovery halfway through this render.
+        return True
+    monkeypatch.setattr(app, "_live_viewer_active", access)
+    seen = []
+    monkeypatch.setattr(app, "record_visible_analysis", lambda c, item, **kw: seen.append(item["fixture_id"]))
+    app.render_live(object())
+    assert len(attempts_after_denial) == 1
+    assert seen == [1]
+
+
+@pytest.mark.parametrize("case,phrase", [
+    ("early", "Platzverweis: noch zu früh"),
+    ("closed", "Kein neuer Platzverweis-Tipp"),
+    ("foreign", "Spieldaten fehlen"),
+])
+def test_red_model_timing_explains_only_its_own_current_fixture(monkeypatch, case, phrase):
+    from test_live_tip_surface import _red
+    data = _analysis(1)
+    minute = 11 if case == "early" else 89
+    phase = "1H" if case == "early" else "2H"
+    data.update(minute=minute, phase_data={"status": phase, "extra": None}, btts_prob=31.)
+    data["remaining_goals"].update(home_scores_probability=35., away_scores_probability=32., over_0_5_probability=53.)
+    red = _red(1)
+    red["card"]["minute"] = min(minute, 32)
+    red["card"]["match"]["fixture"]["status"].update(short=phase, elapsed=minute, extra=None)
+    red.update(prediction_minute=minute)
+    red["prediction"].update(data_quality="LIMITED" if case == "early" else "MEDIUM",
+                             too_late_for_signal=case != "early")
+    if case == "foreign":
+        red["card"]["match"]["fixture"]["id"] = 2
+    ui = Screen({"workspace": "Live"})
+    mount(monkeypatch, ui, {1: feed_row(1, datetime.now(timezone.utc), analysis=data, red=red)})
+    monkeypatch.setattr(app, "record_visible_analysis", lambda *a, **kw: pytest.fail("Closed red model emitted a tip"))
+    app.render_live(object())
+    assert any(kind == "button" and phrase in msg[0] for kind, msg in ui.messages)

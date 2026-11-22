@@ -1,4 +1,4 @@
-"""The open page and the actual selected game, never a background scan, own the live tip."""
+"""Visible league rows and the inspector bind each pick to its current game revision."""
 from datetime import datetime, timedelta, timezone
 from contextlib import nullcontext
 from types import SimpleNamespace
@@ -8,6 +8,16 @@ import pytest
 import app
 import bet_finder_ui
 from test_live_tip_surface import Screen, _analysis
+
+
+def _last_panel(ui, name):
+    return next((v for kind, v in reversed(ui.messages)
+                 if kind == "markdown" and f'class="{name}"' in v), "")
+
+
+def _no_public_tip(ui):
+    return bool(_last_panel(ui, "lv-no-pick")) and not _last_panel(ui, "lv-pick") and not any(
+        kind == "button" and ":green[" in value[0] for kind, value in ui.messages)
 
 
 def feed_row(game, stamp, *, analysis=None, red=None):
@@ -49,6 +59,44 @@ def mount(monkeypatch, ui, rows, *, connected=lambda: True, unavailable=False):
     return ticks, checked
 
 
+def test_league_list_shows_each_games_actual_pick_or_data_state_without_clicking(monkeypatch):
+    now = datetime.now(timezone.utc)
+    rows = {n: feed_row(n, now) for n in (11, 12, 13)}
+    rows[11]["fixture"]["league"] = rows[13]["fixture"]["league"] = {
+        "id": 207, "name": "Super League", "country": "Switzerland",
+    }
+    rows[12]["fixture"]["league"] = {"id": 40, "name": "Championship", "country": "England"}
+    rows[12]["detailed_at"] = None
+    rows[13]["fixture"]["offline_analysis"]["remaining_goals"]["over_0_5_probability"] = 83.
+    ui = Screen({"workspace": "Live"})
+    mount(monkeypatch, ui, rows)
+    writes = []
+    monkeypatch.setattr(app, "record_visible_analysis", lambda c, *a, **kw: writes.append(c.event_key))
+    app.render_live(object())
+    entries = [(key, label) for kind, value in ui.messages if kind == "button"
+               for label, key in (value,) if key.startswith("live_fixture_")]
+    assert [key for key, _ in entries] == ["live_fixture_11", "live_fixture_13", "live_fixture_12"]
+    assert "71 %" in entries[0][1] and "83 %" in entries[1][1] and "Spieldaten fehlen" in entries[2][1]
+    assert set(writes) == {"11", "13"}
+    inspector = [value for kind, value in ui.messages if kind == "markdown" and 'class="lv-scoreline"' in value]
+    assert len(inspector) == 1 and "Heim13" in inspector[0] and "Gast13" in inspector[0]
+    assert any(kind == "markdown" and 'class="lv-league"' in v and "Schweiz" in v for kind, v in ui.messages)
+
+
+def test_malformed_score_only_text_cannot_break_the_inspector_or_insert_a_pick(monkeypatch):
+    row = feed_row(1, datetime.now(timezone.utc))
+    row["detailed_at"] = None
+    row["fixture"]["teams"]["home"]["name"] = 9
+    row["fixture"]["teams"]["away"]["name"] = "<b>Gast</b>"
+    row["fixture"]["fixture"]["status"]["elapsed"] = "`:green[Tipp]`"
+    ui = Screen({"workspace": "Live"})
+    mount(monkeypatch, ui, {1: row})
+    app.render_live(object())
+    panel = _last_panel(ui, "lv-scoreline")
+    assert "Heimteam" in panel and "&lt;b&gt;Gast&lt;/b&gt;" in panel and "<b>Gast</b>" not in panel
+    assert not any(":green[Tipp]" in str(v) for _, v in ui.messages)
+
+
 def test_inactive_disconnected_or_revoked_view_cannot_tick(monkeypatch):
     import customer_access
     analyzer = SimpleNamespace()
@@ -67,7 +115,8 @@ def test_inactive_disconnected_or_revoked_view_cannot_tick(monkeypatch):
     monkeypatch.setattr(customer_access, "fetch_access", lambda cookies: {"account_id":"a"*32, "features":["saved"]})
     app.render_live(analyzer)
     assert ticks == checked == []
-    assert not any("Modell:" in str(value) for _, value in ui.messages)
+    assert not _last_panel(ui, "lv-pick") and not any(
+        kind == "button" and ":green[" in value[0] for kind, value in ui.messages)
 
 
 @pytest.mark.parametrize("bad_detail", [None, -121, 60])
@@ -82,7 +131,8 @@ def test_stand_without_current_detail_has_no_model_or_receipt(monkeypatch, bad_d
     app.render_live(SimpleNamespace())
     assert len(ticks) == 1
     assert not writes and not checked
-    assert "Datenstand:" in str(ui.messages) and "Kein aktueller" in str(ui.messages)
+    assert "Datenstand:" in str(ui.messages) and "Spieldaten fehlen" in _last_panel(ui, "lv-no-pick")
+    assert _no_public_tip(ui)
 
 
 def test_selected_id_survives_reorder_then_loses_only_its_own_tip(monkeypatch):
@@ -92,23 +142,26 @@ def test_selected_id_survives_reorder_then_loses_only_its_own_tip(monkeypatch):
     keys = []
     def click(label, *, key, **kwargs):
         keys.append((label, key))
-        return key == "live_fixture_1" and len(writes) == 0
+        return key == "live_fixture_1" and "live_selected_fixture_id" not in ui.session_state
     ui.button = click
     mount(monkeypatch, ui, rows)
     writes = []
-    monkeypatch.setattr(app, "record_visible_analysis", lambda c, item, **kw: writes.append((c.event_key, list(ui.messages))))
+    monkeypatch.setattr(app, "record_visible_analysis", lambda c, item, **kw: writes.append(c.event_key))
     app.render_live(SimpleNamespace())
     assert [k for _, k in keys] == ["live_fixture_8", "live_fixture_1", "live_fixture_5", "live_fixture_2"]
     assert "45+3" in str(keys) and "1:0" in str(keys)
+    assert "Heim1" in _last_panel(ui, "lv-scoreline") and _last_panel(ui, "lv-pick")
+    assert writes == ["8", "1", "5", "2"]
     first = rows.pop(8)
     rows[8] = first
     app.render_live(SimpleNamespace())
-    assert [key for key, _ in writes] == ["1", "1"]
-    assert all("Heim1 vs Gast1" in str(messages) and "Modell:" in str(messages) for _, messages in writes)
+    assert writes[4:] == ["1", "5", "2", "8"]
+    assert "Heim1" in _last_panel(ui, "lv-scoreline") and _last_panel(ui, "lv-pick")
     ui.messages.clear()
     rows[1]["detailed_at"] = None
     app.render_live(SimpleNamespace())
-    assert len(writes) == 2 and "Kein aktueller" in str(ui.messages)
+    assert writes[8:] == ["5", "2", "8"]
+    assert "Spieldaten fehlen" in _last_panel(ui, "lv-no-pick") and not _last_panel(ui, "lv-pick")
 
 
 def test_highest_probability_opens_without_click_manual_selection_sticks_until_finished(monkeypatch):
@@ -126,20 +179,22 @@ def test_highest_probability_opens_without_click_manual_selection_sticks_until_f
     ui.button = lambda label, *, key, **kwargs: key == click[0]
     monkeypatch.setattr(app, "record_visible_analysis", lambda c, item, **kw: writes.append(c.event_key))
     app.render_live(object())
-    assert writes == ["3"]  # highest model probability, independent of kick-off
+    assert writes == ["1", "2", "3", "4"]
+    assert "Heim3" in _last_panel(ui, "lv-scoreline")  # highest model chance opens automatically
     click[0] = "live_fixture_1"
     app.render_live(object())
-    assert writes == ["3", "1"]
+    assert "Heim1" in _last_panel(ui, "lv-scoreline")
     click[0] = None
     rows[1]["fixture"]["fixture"]["date"] = now.isoformat()
     app.render_live(object())
-    assert writes[-1] == "1"
+    assert "Heim1" in _last_panel(ui, "lv-scoreline")
     rows[1]["fixture"]["offline_analysis"]["live_data_quality"] = "LOW"
     app.render_live(object())
-    assert writes == ["3", "1", "1"]
+    assert "Heim1" in _last_panel(ui, "lv-scoreline") and _last_panel(ui, "lv-no-pick")
+    assert writes[-3:] == ["2", "3", "4"]
     del rows[1]
     app.render_live(object())
-    assert writes == ["3", "1", "1", "3"] and "live_selected_fixture_id" not in ui.session_state
+    assert "Heim3" in _last_panel(ui, "lv-scoreline") and "live_selected_fixture_id" not in ui.session_state
 
 
 @pytest.mark.parametrize("quality,probs,shown", [
@@ -161,7 +216,8 @@ def test_click_outside_automatic_red_shortlist_requires_supported_probability_an
     writes = []
     monkeypatch.setattr(app, "record_visible_analysis", lambda c, item, **kw: writes.append(c.event_key))
     app.render_live(object())
-    assert writes == (["card-4"] if shown else [])
+    assert writes == ["card-1", "card-2", "card-3"] + (["card-4"] if shown else [])
+    assert bool(_last_panel(ui, "lv-pick")) == shown
 
 
 @pytest.mark.parametrize("bad", ["low", "late", "multiple", "foreign-game", "missing-side", "wrong-total",
@@ -191,12 +247,12 @@ def test_even_the_only_dismissal_cannot_bypass_eligibility(monkeypatch, bad):
     mount(monkeypatch, ui, {1:row})
     monkeypatch.setattr(app, "record_visible_analysis", lambda *a, **kw: pytest.fail("unqualified receipt"))
     app.render_live(object())
-    assert "Kein aktueller" in str(ui.messages) and "Modell:" not in str(ui.messages)
+    assert _no_public_tip(ui)
 
 
 @pytest.mark.parametrize("case,expected", [
-    ("warm", ("next_goal", "any", "Mindestens 1 weiteres Tor", .674)),
-    ("dismissal", ("red_next", "home", "Nächstes Tor · 1", .660621370588)),
+    ("warm", ("next_goal", "any", "Noch ein Tor", .674)),
+    ("dismissal", ("red_next", "home", "Nächstes Tor: 1", .660621370588)),
     ("late-no-card", None),
 ])
 def test_grouped_native_model_to_visible_market_and_frozen_receipt(monkeypatch, tmp_path, case, expected):
@@ -235,7 +291,7 @@ def test_grouped_native_model_to_visible_market_and_frozen_receipt(monkeypatch, 
     app.render_live(analyzer or object())
     assert calls == ["discover", (81,)]
     if expected is None:
-        assert "Kein aktueller" in str(ui.messages) and "4:0" in str(ui.messages)
+        assert _no_public_tip(ui) and "4:0" in _last_panel(ui, "lv-scoreline")
         assert not db.exists()
     else:
         market, side, label, probability = expected
@@ -269,7 +325,7 @@ def test_score_only_or_unbound_model_is_not_a_recommendation(monkeypatch, bad):
     mount(monkeypatch, ui, {9:row})
     monkeypatch.setattr(app, "record_visible_analysis", lambda *a, **kw: pytest.fail("invalid receipt"))
     app.render_live(object())
-    assert "Kein aktueller" in str(ui.messages) and "Modell:" not in str(ui.messages)
+    assert _no_public_tip(ui)
 
 
 @pytest.mark.parametrize("change", ["goal", "finish", "missing-detail"])
@@ -301,7 +357,7 @@ def test_another_viewer_revising_the_fixture_during_model_work_prevents_display(
     monkeypatch.setattr(app, "_analyze_ticker_fixture", analyze)
     monkeypatch.setattr(app, "record_visible_analysis", lambda *a, **kw: writes.append(True))
     app.render_live(object())
-    assert not writes and "Modell:" not in str(ui.messages)
+    assert not writes and _no_public_tip(ui)
 
 
 def test_discovery_failure_is_not_a_successful_empty_game_list(monkeypatch):
@@ -492,6 +548,18 @@ def _test_ticker_app():
     app.render_live(object())
 
 
+def test_only_selected_button_is_named_as_selected_and_inspector_preserves_model_context(monkeypatch):
+    stamp = datetime.now(timezone.utc)
+    ui = Screen({'workspace': 'Live', 'live_selected_fixture_id': 2})
+    mount(monkeypatch, ui, {n: feed_row(n, stamp) for n in (1, 2)})
+    monkeypatch.setattr(app, 'record_visible_analysis', lambda *a, **kw: None)
+    app.render_live(object())
+    labels = {key: label for kind, value in ui.messages if kind == 'button' for label, key in (value,)}
+    assert 'Ausgewählt' not in labels['live_fixture_1'] and 'Ausgewählt' in labels['live_fixture_2']
+    assert 'Modellschätzung ohne Preisprüfung' in str(ui.messages)
+    assert 'Daten- oder Modellprüfung noch offen' in str(ui.messages)
+
+
 def test_real_streamlit_picks_the_best_market_without_widgets_or_new_requests(monkeypatch):
     from streamlit.testing.v1 import AppTest
     from live_football_feed import LiveFootballFeed
@@ -517,8 +585,8 @@ def test_real_streamlit_picks_the_best_market_without_widgets_or_new_requests(mo
     screen = AppTest.from_function(_test_ticker_app).run(timeout=30)
     assert not screen.exception
     assert not screen.selectbox and not screen.slider
-    assert receipts == [("20", "Team trifft noch")]
+    assert receipts == [("10", "Noch ein Tor"), ("20", "Team trifft noch")]
     screen.button(key="live_fixture_10").click().run(timeout=30)
     assert not screen.exception and screen.session_state["live_selected_fixture_id"] == 10
-    assert receipts == [("20", "Team trifft noch"), ("10", "Noch ein Tor")]
+    assert receipts == [("10", "Noch ein Tor"), ("20", "Team trifft noch")] * 2
     assert calls == ["discover", (10, 20)]

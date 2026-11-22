@@ -10,6 +10,13 @@ def editorial_css():
     return '<style>@font-face{font-family:BB Sport;src:url(data:font/ttf;base64,' + font + ') format("truetype");font-weight:800;font-display:swap;}' + _CSS + '</style>'
 
 
+@lru_cache(maxsize=1)
+def live_pitch_css():
+    """Only the live page receives the small local field illustration; no image service."""
+    pitch = b64encode((Path(__file__).parent / 'assets/live_pitch.webp').read_bytes()).decode('ascii')
+    return '<style>.st-key-live_detail .lv-pitch{background-image:url(data:image/webp;base64,' + pitch + ')}</style>'
+
+
 _CSS = r'''
 :root { --bb-ink:#18201b; --bb-muted:#687269; --bb-line:#d9ddd3;
   --bb-surface:#fffefb; --bb-canvas:#faf9f5; --bb-green:#154d39; --bb-green-soft:#e8eee5;
@@ -211,34 +218,119 @@ details.wf-fact {padding:0 !important;}
 .st-key-riskobet_page .rb-probabilities strong {font-family:'BB Sport',sans-serif !important;font-size:2rem !important;}
 .st-key-riskobet_page .rb-reasons {background:transparent !important;border-color:var(--bb-line) !important;}
 .st-key-riskobet_page .rb-reasons h4 {font-family:'BB Sport',sans-serif !important;font-size:1.2rem !important;}
-/* Only Live lifts the editorial shell cap; the other workspaces keep their own rails. */
+/* Spielfeldrand. No styles outside the viewer-driven live canvas are changed. */
 .stApp [data-testid="stMainBlockContainer"]:has(.st-key-live_page) {max-width:none !important;}
-.st-key-live_page, .st-key-live_board {min-width:0;width:100%;max-width:100%;}
+.st-key-live_page {--lv-forest:#0d4733;--lv-tint:#e5f1e3;--lv-navy:#101d30;
+  --lv-line:#c6d1cf;--lv-clock:#914000;min-width:0;width:100%;max-width:100%;color:var(--lv-navy);}
+/* Streamlit subtracts one paragraph margin even when the markdown only contains
+   our HTML. Keep the complete mast, heading and league stripes in normal flow. */
+.st-key-live_page [data-testid="stMarkdownContainer"]:has(.bb-live-mast),
+.st-key-live_board [data-testid="stMarkdownContainer"]:has([class^="lv-"]) {margin-bottom:0 !important;}
+.st-key-live_page .bb-live-mast {display:flex;align-items:center;gap:clamp(.7rem,1.5vw,1.6rem);
+  padding:.7rem clamp(.85rem,1.6vw,1.65rem);min-width:0;color:#fff;background:var(--lv-forest);}
+.st-key-live_page .bb-live-mast__brand,.st-key-live_page .bb-live-mast h1 {
+  font:italic 800 clamp(1.55rem,3.1vw,3.4rem)/1.05 'BB Sport',sans-serif !important;
+  margin:0 !important;padding:0 !important;color:white !important;}
+.st-key-live_page .bb-live-mast__brand {display:flex;align-items:center;gap:.55rem;flex-shrink:0;}
+.st-key-live_page .bb-live-mast__brand b {background:#d0ecc9;color:#143e22;padding:.05em .25em;border-radius:4px;font-size:.64em;}
+.st-key-live_page .bb-live-mast h1 {border-left:1px solid #90ab9d;padding-left:clamp(.65rem,1.3vw,1.35rem) !important;}
+.st-key-live_page .bb-live-mast time {margin-left:auto;text-align:right;font-weight:650;font-size:clamp(.8rem,1.2vw,1.15rem);}
+.st-key-live_board {width:100%;max-width:100%;min-width:0;background:#fff;color:var(--lv-navy);}
 .st-key-live_board[data-testid="stVerticalBlock"], .st-key-live_board > [data-testid="stVerticalBlock"] {
-  display:grid;grid-template-columns:minmax(0,2fr) minmax(0,3fr);
-  align-items:start;gap:clamp(1rem,2vw,2rem);
+  display:grid;grid-template-columns:minmax(0,62fr) minmax(0,38fr);
+  align-items:start;gap:0;
 }
-.st-key-live_detail, .st-key-live_scoreboard {min-width:0;overflow-wrap:anywhere;}
-.st-key-live_detail {border:1px solid var(--bb-line);border-top:4px solid var(--bb-green);
-  border-radius:8px;background:var(--bb-surface);padding:clamp(.8rem,2vw,1.5rem);}
-.st-key-live_board h2 {line-height:1.1;padding:0;margin:0;}
-.st-key-live_scoreboard_matches[data-testid="stVerticalBlock"], .st-key-live_scoreboard_matches > [data-testid="stVerticalBlock"] {
-  display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,18rem),1fr));gap:.55rem;
-}
-.st-key-live_scoreboard_matches [data-testid="stButton"] button {text-align:left;justify-content:flex-start;
-  min-height:52px;height:100%;padding:.6rem .8rem;border:1px solid var(--bb-line);
-  background:var(--bb-surface);color:var(--bb-ink);white-space:normal;overflow-wrap:anywhere;}
-.st-key-live_scoreboard_matches [data-testid="stButton"] button:hover {border-color:var(--bb-green);}
+.st-key-live_scoreboard,.st-key-live_detail {box-sizing:border-box;min-width:0;overflow-wrap:anywhere;}
+.st-key-live_board > [data-testid="stLayoutWrapper"]:has(> :is(.st-key-live_detail,.st-key-live_scoreboard)) {display:contents;}
+.st-key-live_scoreboard {padding:clamp(.65rem,1.2vw,1.2rem);gap:.5rem !important;}
+.st-key-live_detail {border-left:1px solid var(--lv-line);padding:clamp(.9rem,1.6vw,1.8rem);
+  position:sticky;top:1.75rem;background:white;gap:clamp(.8rem,1.35vw,1.4rem) !important;}
+.st-key-live_board .lv-list-title {display:flex;align-items:baseline;flex-wrap:wrap;gap:.3rem .9rem;}
+.st-key-live_board .lv-list-title h2 {line-height:1.05 !important;margin:0 !important;padding:0 !important;font-size:clamp(1.8rem,2.65vw,2.7rem) !important;}
+.st-key-live_board .lv-list-title > span,.st-key-live_board .lv-meta small {color:#4b5b64;font-size:.88rem;}
+.st-key-live_scoreboard_matches[data-testid="stVerticalBlock"],.st-key-live_scoreboard_matches > [data-testid="stVerticalBlock"] {gap:0 !important;}
+.st-key-live_board .lv-head,.st-key-live_scoreboard_matches button p {
+  display:grid;grid-template-columns:minmax(0,2.3fr) minmax(3rem,.45fr) minmax(3.45rem,.58fr) minmax(0,1.45fr);
+  align-items:center;column-gap:clamp(.35rem,.65vw,.85rem);text-align:left;}
+.st-key-live_board .lv-head {font-size:.82rem;color:#344956;font-weight:600;border-block:1px solid var(--lv-line);padding:.5rem .7rem;}
+.st-key-live_board .lv-league {display:flex;align-items:center;gap:.55rem;background:#e4ece4;color:#172d25;border-radius:5px;
+  padding:.24rem .65rem;margin:.48rem 0 .1rem;font:800 clamp(1.03rem,1.4vw,1.35rem)/1.25 'BB Sport',sans-serif;}
+.st-key-live_board .lv-league img {height:1em;width:auto;max-width:1.65em;object-fit:contain;}
+.st-key-live_scoreboard_matches [data-testid="stButton"] button {
+  justify-content:flex-start;text-align:left;display:flex;width:100%;min-height:44px !important;height:auto;
+  box-sizing:border-box;padding:.26rem .65rem;border:1px solid transparent;border-bottom-color:var(--lv-line);
+  border-radius:0 !important;background:#fff;color:var(--lv-navy);white-space:normal;overflow-wrap:anywhere;}
+.st-key-live_scoreboard_matches [data-testid="stButton"] button:hover {background:#f2f6f2;}
 .st-key-live_scoreboard_matches [data-testid="stButton"] button[data-testid="stBaseButton-primary"] {
-  background:var(--bb-green);color:white;border-color:var(--bb-green);
-}
-.st-key-live_scoreboard_matches button p {font-size:.92rem;line-height:1.35;margin:0;}
-.st-key-live_scoreboard_matches button strong {font-variant-numeric:tabular-nums;font-size:1.11em;}
+  border:2px solid #286641;background:#eef8eb;color:#10291d;border-radius:5px !important;padding-inline:calc(.65rem - 1px);}
+.st-key-live_scoreboard_matches [data-testid="stButton"] button:focus-visible {
+  outline:3px solid #ae6300 !important;outline-offset:1px !important;z-index:1;}
+.st-key-live_scoreboard_matches button span[data-has-shortcut],
+.st-key-live_scoreboard_matches button [data-testid="stMarkdownContainer"] {display:block;flex:1 1 100%;min-width:0;width:100%;max-width:100%;}
+.st-key-live_scoreboard_matches button p {width:100%;min-width:0;font-size:.91rem;line-height:1.25;margin:0;font-variant-numeric:tabular-nums;}
+.st-key-live_scoreboard_matches button p > :is(strong,em) {font:800 clamp(1.07rem,1.5vw,1.42rem)/1.16 'BB Sport',sans-serif;color:inherit;min-width:0;}
+.st-key-live_scoreboard_matches button p > em {font-style:normal;font-size:clamp(1.18rem,1.8vw,1.6rem);}
+.st-key-live_scoreboard_matches button p > code {background:#ffecd6;color:var(--lv-clock);border-radius:4px;justify-self:start;
+  font:800 1.04rem/1.15 'BB Sport',sans-serif;padding:.15rem .34rem;}
+.st-key-live_scoreboard_matches button p > span {color:#40505b !important;overflow-wrap:anywhere;min-width:0;}
+.st-key-live_scoreboard_matches button p > span:has(strong) {color:#174f29 !important;}
+.st-key-live_detail .lv-inspector-kicker {display:flex;justify-content:space-between;align-items:center;gap:.55rem;color:#40505b;font-size:.93rem;}
+.st-key-live_detail .lv-inspector-kicker b {color:#234c2a;background:#e0f1da;padding:.16rem .48rem;border-radius:4px;}
+.st-key-live_detail .lv-scoreline {display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;
+  gap:clamp(.45rem,1vw,1rem);font:800 clamp(1.45rem,3.1vw,3.5rem)/1 'BB Sport',sans-serif;}
+.st-key-live_detail .lv-scoreline >span {min-width:0;overflow-wrap:anywhere;}
+.st-key-live_detail .lv-scoreline >span:last-child {text-align:right;}
+.st-key-live_detail .lv-scoreline >b {background:#0b3e27;border-radius:6px;color:#fff;text-align:center;
+  padding:.12em .24em;font-variant-numeric:tabular-nums;letter-spacing:.015em;}
+.st-key-live_detail .lv-clock {position:relative;display:grid;gap:.32rem;padding-bottom:1.75rem;}
+.st-key-live_detail .lv-clock-labels {display:flex;justify-content:space-between;font-size:.75rem;color:#435260;}
+.st-key-live_detail .lv-clock progress {width:100%;height:.6rem;appearance:none;border:0;border-radius:12px;
+  overflow:hidden;color:#22613b;background:#d9dfde;}
+.st-key-live_detail .lv-clock progress::-webkit-progress-bar {background:#d9dfde;}
+.st-key-live_detail .lv-clock progress::-webkit-progress-value {background:#22613b;}
+.st-key-live_detail .lv-clock progress::-moz-progress-bar {background:#22613b;}
+.st-key-live_detail .lv-clock-now {position:absolute;bottom:0;left:clamp(1.7rem,var(--lv-progress,50%),calc(100% - 1.7rem));
+  transform:translateX(-50%);color:white;background:#9e4700;border-radius:5px;padding:.1rem .42rem;
+  font:800 1.05rem/1.2 'BB Sport',sans-serif;}
+.st-key-live_detail .lv-pick,.st-key-live_detail .lv-no-pick {display:flex;align-items:center;justify-content:space-between;gap:.75rem;
+  padding:clamp(.75rem,1.2vw,1.2rem);border-radius:7px;background:#e2f0de;color:#103e23;}
+.st-key-live_detail .lv-no-pick {background:#f0f3f2;color:#40515a;}
+.st-key-live_detail .lv-pick small,.st-key-live_detail .lv-no-pick small,.st-key-live_detail .lv-meta small,.st-key-live_detail .lv-meta b {display:block;}
+.st-key-live_detail .lv-pick small,.st-key-live_detail .lv-no-pick small {font-size:.8rem;line-height:1.25;text-transform:uppercase;font-weight:650;}
+.st-key-live_detail .lv-pick strong,.st-key-live_detail .lv-percent b {display:block;
+  font:800 clamp(1.55rem,2.9vw,3.1rem)/1.1 'BB Sport',sans-serif;}
+.st-key-live_detail .lv-no-pick strong {font:800 1.45rem/1.15 'BB Sport',sans-serif;}
+.st-key-live_detail .lv-percent {flex:0 0 auto;border-left:1px solid #88a68a;padding-left:.85rem;color:#123d22;}
+.st-key-live_detail .lv-pitch {display:grid;place-items:center;width:100%;aspect-ratio:2.4;border-radius:6px;background-color:#265836;
+  background-size:100% 100%;background-repeat:no-repeat;}
+.st-key-live_detail .lv-pitch-minute {font:800 clamp(1.3rem,2vw,2rem)/1 'BB Sport',sans-serif;color:#fff;text-shadow:0 1px 3px #143a1e;}
+.st-key-live_detail .lv-meta {display:grid;grid-template-columns:.7fr .7fr minmax(0,1.6fr);border-top:1px solid var(--lv-line);padding:.8rem 0 .1rem;}
+.st-key-live_detail .lv-meta>div {padding-inline:.65rem;min-width:0;}
+.st-key-live_detail .lv-meta>div+div {border-left:1px solid var(--lv-line);}
+.st-key-live_detail .lv-meta b {font:800 clamp(1rem,1.4vw,1.3rem)/1.18 'BB Sport',sans-serif;}
 @media(max-width:820px) {
-  .st-key-live_board[data-testid="stVerticalBlock"], .st-key-live_board > [data-testid="stVerticalBlock"],
-  .st-key-live_scoreboard_matches[data-testid="stVerticalBlock"], .st-key-live_scoreboard_matches > [data-testid="stVerticalBlock"] {
-    grid-template-columns:minmax(0,1fr);
+  .st-key-live_board[data-testid="stVerticalBlock"], .st-key-live_board > [data-testid="stVerticalBlock"] {
+    grid-template-columns:minmax(0,1fr);gap:.65rem;
   }
+  .st-key-live_scoreboard {grid-row:2;}
+  .st-key-live_detail {grid-row:1;position:static;border-left:0;border-bottom:1px solid var(--lv-line);padding:.85rem;gap:.6rem !important;}
+  .st-key-live_detail .lv-pitch {display:none;}
+  .st-key-live_detail .lv-scoreline {font-size:clamp(1.45rem,5vw,2.6rem);}
+  .st-key-live_detail .lv-clock {padding-bottom:1.35rem;}
+}
+@media(max-width:580px) {
+  .st-key-live_page .bb-live-mast {flex-wrap:wrap;gap:.35rem .6rem;padding:.65rem .7rem;}
+  .st-key-live_page .bb-live-mast h1 {font-size:1.45rem !important;}
+  .st-key-live_page .bb-live-mast time {width:100%;font-size:.75rem;text-align:left;}
+  .st-key-live_scoreboard {padding:.55rem .4rem;}
+  .st-key-live_board .lv-head {display:none;}
+  .st-key-live_scoreboard_matches button p {grid-template-columns:minmax(0,1fr) auto auto;
+    grid-template-areas:"match score minute" "tip tip tip";gap:.22rem .42rem;}
+  .st-key-live_scoreboard_matches button p > strong {grid-area:match;}
+  .st-key-live_scoreboard_matches button p > em {grid-area:score;}
+  .st-key-live_scoreboard_matches button p > code {grid-area:minute;}
+  .st-key-live_scoreboard_matches button p >span {grid-area:tip;font-size:.82rem;}
+  .st-key-live_detail .lv-meta {padding:.5rem 0 0;}
 }
 @media(max-width:1100px) and (min-width:761px) {
   .se-card-top {grid-template-columns:1fr;} .se-match {max-width:420px;width:100%;margin:auto;}

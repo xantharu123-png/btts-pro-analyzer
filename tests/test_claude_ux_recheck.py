@@ -206,7 +206,7 @@ def test_empty_original_cohort_is_not_treated_as_unanchored_legacy_selection():
 def test_live_selection_does_not_claim_independent_model_confirmation(monkeypatch):
     import app
     from test_workflow_integrity import _RecordingStreamlit
-    from test_live_football_board import feed_row, mount
+    from test_live_football_board import _last_panel, feed_row, mount
     from test_live_tip_surface import _market_sample
     ui = _RecordingStreamlit(session_state={'workspace': 'Live'})
     analysis = _market_sample(100, "Beide treffen")
@@ -215,8 +215,12 @@ def test_live_selection_does_not_claim_independent_model_confirmation(monkeypatc
     # The candidate builder, filters and selection renderer remain real.
     app.render_live(object())
     text = str(ui.messages)
-    assert 'Alpha vs Beta' in text and 'Modell: 70' in text and 'Modellschätzung ohne Preisprüfung' in text
-    assert 'geprüft' not in text and 'bestätigt' not in text
+    score = _last_panel(ui, 'lv-scoreline')
+    assert score.index('Alpha') < score.index('Beta')
+    tip = _last_panel(ui, 'lv-pick')
+    assert 'Beide Teams treffen' in tip and 'Modell' in tip and '70 %' in tip
+    assert 'Modellschätzung ohne Preisprüfung' in text
+    assert 'geprüft' not in text.lower() and 'bestätigt' not in text.lower()
 
 
 def test_riskobet_customer_clocks_and_game_counts_use_zurich_german(monkeypatch):

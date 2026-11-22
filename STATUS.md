@@ -6,9 +6,13 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 
 ## Stand: 22.11.2026
 
-Letzter bestätigter Produktionsstand: [PR #156](https://github.com/xantharu123-png/btts-pro-analyzer/pull/156),
-`c7c6f23`, seit 22.11.2026 13:24 CET. Sechs CI-Prüfungen, isolierte Linux-Abnahme,
-beide Healthchecks und sieben aktive Timer im Release belegt. Enthält den Ticker
+Letzter dokumentierter Produktionsstand: [PR #157](https://github.com/xantharu123-png/btts-pro-analyzer/pull/157),
+`5a67a63`. Nicht Teil dieses Deployments: Ladezustand (#159) und der darauf aufbauende
+Live-Entwurf 3 (`codex/live-spielfeldrand`). Die Ligaübersicht mit konkretem Tipp je
+Spiel und Detailansicht ist lokal mit Beispieldaten auf Desktop und Mobil geprüft;
+keine neuen Sportabrufe, keine Modelländerung, kein neuer Produktionsnachweis. Siehe `design-qa.md`.
+
+Der vorherige Release #156 (`c7c6f23`) enthält den Ticker
 aus #155 sowie Liga-Cache und Anstoßanzeige aus #154. Die Ligaprüfung
 holt nur die Abdeckung je Saison; sie ersetzt keine Abfrage von Ausfällen,
 Aufstellungen oder Quoten. Im Betriebsjournal nach Füllen des Caches: 16

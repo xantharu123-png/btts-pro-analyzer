@@ -121,25 +121,31 @@ def _show(surface, label, *, age=0, items=None, selected=1):
 
 
 @pytest.mark.parametrize("label,key,side,prob,visible", [
-    ("Noch ein Tor", "next_goal", "any", .71, "Mindestens 1 weiteres Tor"),
-    ("Team trifft noch", "team_scores", "away", .65, "Gast2 trifft noch"),
+    ("Noch ein Tor", "next_goal", "any", .71, "Noch ein Tor"),
+    ("Team trifft noch", "team_scores", "away", .65, "Gast{n} trifft noch"),
     ("Beide treffen", "btts", "yes", .62, "Beide Teams treffen"),
-    ("Nach Platzverweis", "red_next", "away", .62, "Nächstes Tor · Gast2"),
+    ("Nach Platzverweis", "red_next", "away", .62, "Nächstes Tor: Gast{n}"),
 ])
-def test_only_selected_actual_card_binds_native_snapshot_and_visible_model(surface,label,key,side,prob,visible):
+def test_each_visible_row_binds_native_snapshot_once_including_the_selected_fixture(surface,label,key,side,prob,visible):
     stamp = _show(surface, label)
     text = str(surface.ui.messages)
-    assert visible in text and "Heim2 vs Gast2" in text and "Modell:" in text
+    messages = surface.ui.messages
+    pct = f"{prob:.0%}".replace("%", " %")
+    inspector, = [msg for kind, msg in messages if kind == "markdown" and 'class="lv-pick"' in msg]
+    assert visible.format(n=2) in inspector and f'<b>{pct}</b>' in inspector
+    scoreboard, = [msg for kind, msg in messages if kind == "markdown" and 'class="lv-scoreline"' in msg]
+    assert "Heim2" in scoreboard and "Gast2" in scoreboard
     assert surface.old == []
-    assert len(surface.writes) == 1
-    receipt, = surface.writes
-    assert receipt == dict(fixture_id=2, market=key, side=side, minute=45, phase="1H", extra=3,
-                           home_id=102, away_id=202, home_goals=1, away_goals=0,
-                           probability=prob, snapshot_at=stamp, model_version=(
-                               RED_CARD_MODEL_VERSION if key=="red_next" else "source-poisson-rev"))
+    assert len(surface.writes) == len(surface.details_at_write) == 4
+    for n, (receipt, already_rendered) in enumerate(zip(surface.writes, surface.details_at_write), 1):
+        assert receipt == dict(fixture_id=n, market=key, side=side, minute=45, phase="1H", extra=3,
+                               home_id=100+n, away_id=200+n, home_goals=1, away_goals=0,
+                               probability=prob, snapshot_at=stamp, model_version=(
+                                   RED_CARD_MODEL_VERSION if key=="red_next" else "source-poisson-rev"))
+        button, = [label for kind, value in already_rendered if kind == "button"
+                   for label, widget in [value] if widget == f"live_fixture_{n}"]
+        assert f"Heim{n} – Gast{n}" in button and visible.format(n=n) in button and f"Modell {pct}" in button
     assert "keine passende Live-Quote" not in text and "Deine Mindestquote" not in text
-    already_rendered, = surface.details_at_write
-    assert visible in str(already_rendered) and "Modell:" in str(already_rendered)
     assert [v[1] for kind, v in surface.ui.messages if kind == "button" and (v[1] or "").startswith("live_fixture_")] == [
         "live_fixture_1", "live_fixture_2", "live_fixture_3", "live_fixture_4"]
     _assert_no_audit_ui(surface)
@@ -182,7 +188,7 @@ def test_ledger_failure_does_not_change_customer_ui(surface, error_type, caplog)
         raise error_type("internal audit error detail")
     surface.ledger.record_displayed_live_tip = unavailable
     _show(surface, "Team trifft noch")
-    assert "Gast2 trifft noch" in str(surface.ui.messages) and "Modell:" in str(surface.ui.messages)
+    assert "Gast2 trifft noch" in str(surface.ui.messages) and "Modell 65 %" in str(surface.ui.messages)
     assert not any(kind in {"warning", "error"} for kind, _ in surface.ui.messages)
     _assert_no_audit_ui(surface)
     assert "internal audit error detail" not in caplog.text
@@ -297,8 +303,10 @@ def test_fresh_scan_preserves_separate_shadow_cohort_public_requires_actual_disp
         assert conn.execute("SELECT COUNT(*) FROM signals").fetchone() == (4,)
 
 
-def test_unsupported_red_snapshot_explains_the_missing_model_in_detail(surface):
+def test_unsupported_red_snapshot_does_not_publish_an_unverified_provider_reason(surface):
     row = _red(5)
     row.update(prediction=None, error="Nachspielzeit: Die verbleibende Spielzeit ist unbekannt; keine neue Prognose.")
     _show(surface, "Nach Platzverweis", items=[row], selected=0)
-    assert row["error"] in str(surface.ui.messages) and surface.writes == []
+    text = str(surface.ui.messages)
+    assert "Spieldaten fehlen" in text and row["error"] not in text
+    assert "Geprüft – kein Tipp" not in text and surface.writes == []
