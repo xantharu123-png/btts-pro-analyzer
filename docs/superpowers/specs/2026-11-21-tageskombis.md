@@ -2,11 +2,16 @@
 
 **Korrektur des Owners, 21.11.2026:** Gefordert sind sichtbare Modellscheine, keine Beobachtungsphase.
 Je Tag und Größe höchstens ein unveränderlicher Schein mit sportlich passenden, verschiedenen Spielen.
-Der Balken ist eine Vorab-Modellschätzung für *alle richtig*: Produkt der Einzelchancen unter der ausdrücklich
-angezeigten Annahme unabhängiger Spielausgänge. Ein fehlender gemeinsamer Buchmacherpreis ist kein Anzeigeverbot.
+Ein fehlender gemeinsamer Buchmacherpreis ist kein Anzeigeverbot.
 Die öffentliche Preis-Untergrenze bleibt bestehen. Der gemeinsame Preisbeleg und die Prüfung an späteren
 Ergebnissen sind davon getrennt. Begonnene Scheine bleiben als solche erkennbar, nicht als neue Empfehlung.
 Die gegenteiligen Bedingungen für die Kundenansicht im ursprünglichen Entwurf unten sind aufgehoben.
+
+**Anzeigeentscheidung des Owners, 22.11.2026:** Der einzige öffentliche Balken heißt
+„Ø Modellchance je Einzeltipp“. Er zeigt für 3er bis 6er den ungewichteten Durchschnitt
+der vor Spielbeginn gespeicherten Einzelchancen, gerundet auf ganze Prozent. Die zuvor
+gezeigte Schätzung „alle richtig“ entfällt. Weder die Scheinauswahl noch der intern
+gespeicherte Produktwert oder die spätere Ergebnisprüfung ändern sich dadurch.
 
 **Produktauftrag, 21.11.2026:** Rechts im automatischen Wettfinder bleiben Doublebet und die Tennisbox stehen. Dazu kommen höchstens ein 3er, ein 4er, ein 5er und der „Jackpot 6er“ pro Zürcher Spieltag. Kein Einsatz, keine Buchung, keine Änderung am vorhandenen Modell, an den bestehenden Produktregeln oder an der [Produktionsreferenz](https://github.com/xantharu123-png/btts-pro-analyzer/tree/betboy-referenz-2026-11-21). Vorgeschlagene technische Abnahme unten; das ist noch kein Releasebericht.
 
@@ -19,7 +24,11 @@ Die gegenteiligen Bedingungen für die Kundenansicht im ursprünglichen Entwurf 
 
 ## Chancenbalken und Qualitätsprüfung
 
-Der Balken läuft bei allen Größen von 0 bis 100 %; die Zahl daneben bezeichnet **alle Auswahlen richtig**, nicht den Mittelwert und nicht die Auszahlungsquote. Eine Rückzahlung/Annullierung ist kein gewonnener Originalschein. Bestehende 15K-Abschläge, Fréchet-Untergrenze und das Produkt unter Unabhängigkeit sind keine empirisch bestätigten Scheinwahrscheinlichkeiten. Den Balken nicht mit einer dieser Zahlen füllen. Keine Umdeutung von 12/14 Einzelgewinnern in erfolgreiche historische Scheine.
+Der Einzeltipp-Durchschnitt ist keine Gewinnwahrscheinlichkeit für den Schein. Die interne
+Qualitätsprüfung für „alle richtig“ bleibt getrennt: Eine Rückzahlung/Annullierung ist kein
+gewonnener Originalschein. Weder 15K-Abschläge noch Fréchet-Untergrenze oder das Produkt
+unter Unabhängigkeit sind empirisch bestätigte Scheinwahrscheinlichkeiten. Keine Umdeutung
+von 12/14 Einzelgewinnern in erfolgreiche historische Scheine.
 
 Vergleich vorab festlegen: deterministische Referenz „höchste zulässige Einzelwahrscheinlichkeiten“ unter exakt denselben Buchmacher-, Uhrzeit-, Qualitäts- und Überlappungsregeln. Eine Modellvariante darf vergleichbare Auswahlen mit gleichgerichteten historischen Modellfehlern (gleiche Liga/Marktfamilie) zurückstufen. Abhängigkeiten und Kalibrierung aus Trainingsspieltagen schätzen; nur frühere, exakt zugeordnete Ergebnisse. Danach Version und Parameter einfrieren. Ganze, spätere Zürcher Spieltage testen, keine zufällige Aufteilung von Einzelmärkten. Pro Größe Anzahl Scheine, Auslassungen, offen/annulliert, echte Treffer, erwartete Treffer, Kalibrierungsabweichung und Brier-Wert gegenüber der Referenz ausweisen. Bei gleichem Spiel in zwei Scheinen ganze Spieltage gemeinsam auswerten. Kein Prozentwert für nicht geprüfte Größen/Sport-Kombinationen.
 

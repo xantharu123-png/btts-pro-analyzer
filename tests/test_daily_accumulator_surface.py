@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from math import prod
 
 import pytest
 
@@ -95,6 +96,35 @@ def example():
     return dict(day='2030-01-07', size=3, policy='daily-accumulators-v1', arm='candidate',
                 legs=[leg(3), leg(1), leg(2)], price_status='confirmed', bookmaker_id='api:8',
                 captured_at=NOW.isoformat(), reference_probability=.7 ** 3)
+
+
+@pytest.mark.parametrize(('probabilities', 'fill', 'percent'), [
+    ((.880360, .806978, .804176), 83, '83'),
+    ((.60, .70, .80, .90), 75, '75'),
+    ((.59, .61, .66, .70, .72), 66, '66'),
+    ((.50, .60, .70, .80, .90, .94), 74, '74'),
+    ((.999, .999, .999), 99, '>99'),
+    ((.001, .001, .001), 1, '<1'),
+])
+def test_only_mean_leg_chance_on_public_bar(monkeypatch, probabilities, fill, percent):
+    from streamlit.testing.v1 import AppTest
+
+    slip = dict(example(), arm='daily-picks', size=len(probabilities),
+                reference_probability=prod(probabilities))
+    slip['legs'] = [dict(slip['legs'][0], event_key=f'football:{i}', probability=p)
+                    for i, p in enumerate(probabilities)]
+    monkeypatch.setattr('daily_accumulator_receipts.load_daily_picks', lambda *a, **kw: [slip])
+    app = AppTest.from_string("""
+import streamlit as st
+from daily_accumulator_surface import render_daily_accumulators
+render_daily_accumulators(st, as_of='2030-01-07T12:00:00+00:00')
+""").run()
+    assert not app.exception
+    bar, = app.get('progress')
+    assert (bar.proto.value, bar.proto.text) == (fill, f'Ø Modellchance je Einzeltipp: {percent} %')
+    other_text = ' '.join(el.value for el in [*app.caption, *app.markdown])
+    assert 'Alle ' + str(len(probabilities)) + ' richtig' not in other_text
+    assert 'multipliziert' not in other_text
 
 
 def test_uncalibrated_reference_is_never_a_customer_percentage():

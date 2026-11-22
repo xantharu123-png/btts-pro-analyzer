@@ -6,6 +6,10 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 
 ## Stand: 22.11.2026
 
+„Kombis des Tages“: Der einzige Balken zeigt **Ø Modellchance je Einzeltipp**, den
+Durchschnitt der gespeicherten Einzelchancen (heutiger 3er: 83 %). Er ist keine
+Gewinnchance des gesamten Scheins. Auswahlen und intern geprüfte Kombireferenz bleiben unverändert.
+
 Rechte Spalte „Deine Wetten“ ([PR #151](https://github.com/xantharu123-png/btts-pro-analyzer/pull/151)):
 Doublebet (heute und Vorschau), Tennis und Tageskombis zeigen den Markt mit Mannschaft,
 Spieler oder Spielbezug. Beispiel aus dem Originalschein: **FC Augsburg: Unter 2,5 Tore**;

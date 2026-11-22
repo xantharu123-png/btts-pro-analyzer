@@ -122,8 +122,9 @@ def render_daily_accumulators(st, *, as_of=None, directory=None):
             st.markdown("**Jackpot 6er**" if card["size"] == 6 else f"**{card['size']}er-Kombi**")
             if card["started"]:
                 st.caption("Bereits begonnen · kein neuer Wettschein")
-            label = f"Alle {card['size']} richtig · Modellschätzung vor Beginn: {card['chance']:.1%}".replace(".", ",")
-            st.progress(card["chance"], text=label)
+            percent = round(100 * math.fsum(leg["probability"] for leg in card["legs"]) / card["size"])
+            display = "<1" if percent == 0 else ">99" if percent == 100 else str(percent)
+            st.progress(max(1, min(99, percent)), text=f"Ø Modellchance je Einzeltipp: {display} %")
             for leg in card["legs"]:
                 start = _time(leg["starts_at"]).astimezone(ZURICH).strftime("%H:%M")
                 st.text(f"{start}  {leg['event_label']}\n{_selection_label(leg)}")
@@ -132,5 +133,3 @@ def render_daily_accumulators(st, *, as_of=None, directory=None):
             if not card["started"]:
                 st.caption("Einzelquoten beim selben Buchmacher beobachtet." if card["price_observed"]
                            else "Gemeinsame Buchmacherquote offen.")
-        if cards:
-            st.caption("Die Schätzung multipliziert die Einzelchancen und nimmt unabhängige Spielausgänge an.")
