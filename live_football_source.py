@@ -68,6 +68,10 @@ class LiveFootballSource:
         for row in rows:
             fixture_id = _mapping(_mapping(row).get("fixture")).get("id")
             if not _positive(fixture_id) or requested is not None and fixture_id not in requested:
+                if requested is not None:
+                    # The envelope is bound to this exact group. An extra
+                    # or unidentified row says nothing about its siblings.
+                    continue
                 raise LiveSourceError("unattributable live response")
             if requested is None and (fixture_id in grouped or not _positive(_mapping(row.get("league")).get("id"))):
                 # A complete discovery replaces the previous list. Withhold the
@@ -75,6 +79,8 @@ class LiveFootballSource:
                 raise LiveSourceError("ambiguous discovery")
             # Duplicate IDs are ambiguous, but do not discard other valid fixtures.
             grouped[fixture_id] = None if fixture_id in grouped else row
+        if requested is not None and rows and not grouped:
+            raise LiveSourceError("unattributable live response")
         return [row for row in grouped.values() if row is not None
                 and _positive(league_id := _mapping(row.get("league")).get("id")) and league_id in LEAGUE_BY_ID]
 

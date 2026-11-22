@@ -225,6 +225,17 @@ def test_duplicate_or_unidentified_discovery_must_not_delete_last_stand(monkeypa
         live.discover()
 
 
+@pytest.mark.parametrize("stray", [99, None, True])
+def test_partial_bound_details_keep_requested_end_not_foreign_missing_or_duplicate_ids(monkeypatch, stray):
+    import api_budget
+    row = native()
+    row["fixture"]["status"]["short"] = "FT"
+    duplicate = dict(row, fixture={"id": 82})
+    rows = [dict(row, fixture={"id": stray}), duplicate, row, duplicate]
+    monkeypatch.setattr(api_budget, "api_football_get", lambda *a, **kw: response(rows, kw["params"]))
+    assert source().LiveFootballSource("offline", ready=lambda: True).details([81, 82, 83]) == [row]
+
+
 def test_completed_var_confirmation_on_a_corroborated_goal_is_not_permanent_block():
     row = native()
     confirmation = {"type": "Var", "detail": "Goal confirmed", "time": {"elapsed": 32}, "team": {"id": 1}}
