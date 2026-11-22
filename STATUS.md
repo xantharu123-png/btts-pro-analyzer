@@ -8,7 +8,8 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 
 „Kombis des Tages“: Der einzige Balken zeigt **Ø Modellchance je Einzeltipp**, den
 Durchschnitt der gespeicherten Einzelchancen (heutiger 3er: 83 %). Er ist keine
-Gewinnchance des gesamten Scheins. Auswahlen und intern geprüfte Kombireferenz bleiben unverändert.
+Gewinnchance des gesamten Scheins. Fehlt eine gemeinsame Buchmacherquote, steht kein
+Platzhalter unter dem Schein. Auswahlen, Preisprüfung und intern geprüfte Kombireferenz bleiben unverändert.
 
 Rechte Spalte „Deine Wetten“ ([PR #151](https://github.com/xantharu123-png/btts-pro-analyzer/pull/151)):
 Doublebet (heute und Vorschau), Tennis und Tageskombis zeigen den Markt mit Mannschaft,
