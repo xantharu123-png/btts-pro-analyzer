@@ -2,8 +2,10 @@
 
 ## 22.11.2026 – Live-Fußball: Vorabwerte unabhängig von den 20 Detailspielen
 
+- **Release abgeschlossen:** #164 nach sechs grünen GitHub-Checks auf `main`; VPS identisch (`2fdc118`), App seit 19:23:03 CET neu gestartet. Produktive Leseprüfung: 37 eindeutige Vorabpaare um 19:23:23 CET; keine Zählung von Tipps.
+
 - Tagesmodell, Publikation und Live-Leser geändert; kein zweiter Scan, keine neue Datenbank, keine zusätzlichen Providerabrufe und keine geänderte Tippschwelle. Echte Tagesdatei am 22.11. 18:16 CET: 37 belegbare Spiele mit neuem Leser statt 20. Nicht 37 Tipps.
-- Offen: separater Merge und Release, dann im nächsten **regulären** Lauf die Zahl eindeutig gespeicherter Paare und ihre Übereinstimmung mit den laufenden Spielen abgleichen. Keine rückwirkenden Belege erstellen. [Details und Tests](docs/audits/2026-11-22-live-fussball-alle-modellierten-spiele.md).
+- Offen: Nach dem nächsten **regulären** Tageslauf die Zahl eindeutig gespeicherter Paare und die Übereinstimmung mit den laufenden Spielen abgleichen. Der letzte Wettfinder-Tagesdienst endete **vor** diesem Release um 04:05:59 CET mit Exit 1; kein Neustart des Tagesdienstes und kein Nachscan. [Details und Tests](docs/audits/2026-11-22-live-fussball-alle-modellierten-spiele.md).
 
 ## 22.11.2026 – Live: Vorabwerte ohne Sitzungscache und Statistik unter dem Platz
 

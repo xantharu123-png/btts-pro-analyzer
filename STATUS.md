@@ -6,12 +6,12 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 
 ## Stand: 22.11.2026
 
-Live: #162 (`48534ee`) liefert die Stadionstatistiken und bislang Vorabwerte für
-20 Fußballspiele. Folgekorrektur auf `codex/live-alle-modellierten-spiele`, nicht deployed:
-Der Tageslauf übergibt für jedes geeignete modellierte Ligaspiel ein Torpaar,
-unabhängig von den öffentlichen Marktkarten. Die letzte reine VPS-Dateiprobe
-um 18:16 CET ergab mit dem neuen Leser 37 statt 20 Spielgrundlagen, keine
-Zählung von Tipps. Grenzen, Teststand und ausstehende Produktionsabnahme:
+Produktion und GitHub-main: `2fdc118`, [PR #164](https://github.com/xantharu123-png/btts-pro-analyzer/pull/164).
+Live seit 22.11.2026, 19:23:03 CET. Der installierte Leser bestätigte um
+19:23:23 CET 37 eindeutige Fußball-Spielgrundlagen (20 bisherige + 17 weitere).
+Der Tageslauf friert künftig Vorabwerte unabhängig von den öffentlichen Marktkarten ein.
+Offen: Sichtkontrolle des ersten regulär geschriebenen neuen Tagesbestands nach
+dem Lauf am 23.11. ab 03:35 CET; kein Extra-Scan. Release und Teststand:
 [Prüfbeleg](docs/audits/2026-11-22-live-fussball-alle-modellierten-spiele.md).
 
 Vorheriger Produktionsstand am 22.11. um 16:35 CET: `9a3e5bd`, mit

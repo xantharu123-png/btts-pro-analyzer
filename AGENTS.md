@@ -202,6 +202,7 @@ Maximal 500 zusätzliche Abrufe je Konto und Anbieter-Tag, zusätzlich zur
 Hintergrundreserve; keine neue Timer-Einheit. Spielstand ohne ausreichend
 frische, eindeutig zugeordnete Daten ist kein Tipp. Weltweite Rotkartensuche
 bleibt manuell.
+Seit PR #164 (`2fdc118`, live am 22.11.2026 um 19:23 CET) sind die bei der Modellierung belegten Vorab-Torwerte im Live-Ticker unabhängig von den 20 Kontextplätzen; die API-Gruppierung und das 500er-Budget bleiben unverändert.
 
 ```powershell
 # aus dem jeweiligen Checkout (Worktree oder Hauptcheckout)
