@@ -88,3 +88,11 @@ Vor Aktivierung aus vorhandenen Belegen oder im autorisierten regulären Betrieb
 prüfen, welche Felder der echte Gruppenabruf liefert. Zusätzlich auf Desktop
 und Mobil prüfen, dass Auswahl und Leseposition erhalten bleiben. Einsparungen
 erst aus späteren vergleichbaren Betriebszahlen angeben.
+
+Vorliegender Anbieterbeleg (ohne neue Abfrage geprüft): Im
+[Gruppenabruf vom 7. September](../../../.superpowers/sdd/2026-09-07-kontextmodell-umsetzung/football-source-probe-20260907.json)
+waren die Feldnamen `events` und `statistics` vorhanden. Ein Spiel war beendet,
+eines noch nicht begonnen; die Arrays selbst wurden nicht konserviert. Auch die
+[zweite Stichprobe](../../../tests/fixtures/context/football/api-football-20260909.json)
+belegt keine laufende Partie mit zeitgleichen vollständigen Ereignissen und
+Teamstatistiken. Daraus folgt keine Freigabe für einen automatischen Live-Tipp.

@@ -103,6 +103,7 @@ def _selection_label(leg):
 
 
 def render_daily_accumulators(st, *, as_of=None, directory=None):
+    """Render immutable originals and return their next kickoff or day rollover."""
     from daily_accumulator_publication import DB_NAME
     from daily_accumulator_receipts import load_daily_picks
     from runtime_paths import RUNTIME_STATE_DIR
@@ -118,7 +119,7 @@ def render_daily_accumulators(st, *, as_of=None, directory=None):
         st.subheader("Kombis des Tages")
         if not cards:
             st.caption("Heute noch keine passende Tageskombi.")
-        for card in cards:
+        def render_card(card):
             st.markdown("**Jackpot 6er**" if card["size"] == 6 else f"**{card['size']}er-Kombi**")
             if card["started"]:
                 st.caption("Bereits begonnen · kein neuer Wettschein")
@@ -132,3 +133,17 @@ def render_daily_accumulators(st, *, as_of=None, directory=None):
                     st.caption(leg["reason"])
             if not card["started"] and card["price_observed"]:
                 st.caption("Einzelquoten beim selben Buchmacher beobachtet.")
+
+        upcoming = [card for card in cards if not card["started"]]
+        started = [card for card in cards if card["started"]]
+        for card in upcoming:
+            render_card(card)
+        if started:
+            with st.expander(f"Bereits begonnen ({len(started)})", expanded=False):
+                for card in started:
+                    render_card(card)
+    if upcoming:
+        return min(_time(card["legs"][0]["starts_at"]) for card in upcoming)
+    if started:
+        return (now.astimezone(ZURICH) + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    return None
