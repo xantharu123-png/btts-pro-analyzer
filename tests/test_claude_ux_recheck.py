@@ -203,14 +203,18 @@ def test_empty_original_cohort_is_not_treated_as_unanchored_legacy_selection():
     assert select_event_leads([offered], revision_anchors=[]) == []
 
 
-def test_live_selection_does_not_claim_independent_model_confirmation(monkeypatch):
+def test_live_selection_does_not_claim_independent_model_confirmation(monkeypatch, tmp_path):
     import app
+    import live_tip_ledger
     from test_workflow_integrity import _RecordingStreamlit
     from test_live_football_board import _last_panel, feed_row, mount
     from test_live_tip_surface import _market_sample
     ui = _RecordingStreamlit(session_state={'workspace': 'Live'})
-    analysis = _market_sample(100, "Beide treffen")
-    analysis.update(home_team='Alpha', away_team='Beta', btts_prob=70., model_calibrated=True)
+    analysis = _market_sample(100, "Teamtore")
+    analysis.update(home_team='Alpha', away_team='Beta', model_calibrated=True)
+    write = live_tip_ledger.record_displayed_live_tip
+    monkeypatch.setattr(live_tip_ledger, 'record_displayed_live_tip',
+                        lambda **row: write(**row, db_path=tmp_path / 'displayed.db'))
     mount(monkeypatch, ui, {100: feed_row(100, datetime.now(timezone.utc), analysis=analysis)})
     # The candidate builder, filters and selection renderer remain real.
     app.render_live(object())
@@ -218,7 +222,8 @@ def test_live_selection_does_not_claim_independent_model_confirmation(monkeypatc
     score = _last_panel(ui, 'lv-scoreline')
     assert score.index('Alpha') < score.index('Beta')
     tip = _last_panel(ui, 'lv-pick')
-    assert 'Beide Teams treffen' in tip and 'Modell' in tip and '70 %' in tip
+    assert 'Alpha: Über 1,5 Tore' in tip and 'Modell' in tip and '66,7 %' in tip
+    assert 'ohne Live-Signale' in text and '1:0' in score
     assert 'Modellschätzung ohne Preisprüfung' in text
     assert 'geprüft' not in text.lower() and 'bestätigt' not in text.lower()
 

@@ -16,7 +16,7 @@ from red_card_impact_predictor import RedCardImpactPredictor
 
 
 class UltraLiveScanner:
-    MODEL_VERSION = "live-restspiel-poisson-regulation-clock-v2"
+    MODEL_VERSION = "live-restspiel-poisson-regulation-clock-v3"
     REGULATION_MINUTES = 90
     MAX_LIVE_MINUTE = 130
     PRIOR_PSEUDO_MINUTES = 30
@@ -592,6 +592,9 @@ class UltraLiveScanner:
         red_card_state: Optional[Dict] = None,
         clock: Optional[Dict] = None,
     ) -> Dict:
+        remaining_home, remaining_away, quality = self._remaining_goal_means(
+            xg_home, xg_away, minute, prior_home, prior_away, red_card_state, clock
+        )
         if home_score > 0 and away_score > 0:
             return {
                 'probability': 100.0,
@@ -599,20 +602,12 @@ class UltraLiveScanner:
                 'p_home_scores': 100.0,
                 'p_away_scores': 100.0,
                 'base_prob': 100.0,
-                'remaining_home_mean': 0.0,
-                'remaining_away_mean': 0.0,
+                # Only BTTS is complete. The shared rest-of-game rates still describe future goals.
+                'remaining_home_mean': remaining_home,
+                'remaining_away_mean': remaining_away,
                 'is_complete': True,
             }
 
-        remaining_home, remaining_away, quality = self._remaining_goal_means(
-            xg_home,
-            xg_away,
-            minute,
-            prior_home,
-            prior_away,
-            red_card_state,
-            clock,
-        )
         if remaining_home is None or remaining_away is None:
             return {
                 'probability': None,

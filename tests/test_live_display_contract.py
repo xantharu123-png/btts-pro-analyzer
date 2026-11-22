@@ -11,14 +11,15 @@ from test_live_tip_surface import Screen, _analysis
 
 @pytest.mark.parametrize("kind,status", [
     ("below", "Geprüft – kein Tipp"), ("no-detail", "Nur Spielstand verfügbar"),
-    ("clock", "Kein verlässlicher Live-Tipp"), ("version", "Kein verlässlicher Live-Tipp"),
+    ("clock", "Live-Stand nicht eindeutig"), ("version", "Live-Stand nicht eindeutig"),
     ("unknown-quality", "Kein verlässlicher Live-Tipp"), ("absent-market", "Kein verlässlicher Live-Tipp"),
-    ("wrong-team", "Kein verlässlicher Live-Tipp"), ("late", "Keine neuen Tipps ab Minute 90"),
+    ("wrong-team", "Live-Stand nicht eindeutig"), ("late", "Keine neuen Tipps ab Minute 90"),
 ])
 def test_result_text_distinguishes_completed_evaluation_from_missing_or_foreign_data(monkeypatch, kind, status):
     data = _analysis(1)
-    data.update(btts_prob=32.0)
-    data["remaining_goals"].update(over_0_5_probability=52., home_scores_probability=42., away_scores_probability=30.)
+    if kind == "below":
+        # At 45 minutes the two rates equal 1/2 the pregame means: no uplift on any market.
+        data["breakdown"].update(remaining_home_mean=.75, remaining_away_mean=.5)
     if kind == "late":
         data.update(minute=90, phase_data={"status": "2H", "extra": 1})
     row = feed_row(1, datetime.now(timezone.utc), analysis=data)
@@ -33,7 +34,7 @@ def test_result_text_distinguishes_completed_evaluation_from_missing_or_foreign_
     elif kind == "wrong-team":
         data["away_team_id"] += 1
     elif kind == "absent-market":
-        data["remaining_goals"].pop("over_0_5_probability")
+        data["breakdown"].pop("remaining_home_mean")
     ui = Screen({"workspace": "Live"})
     mount(monkeypatch, ui, {1: row})
     seen = {}
@@ -65,7 +66,7 @@ def test_each_visible_pick_rechecks_snapshot_and_owner_but_row_and_inspector_sha
     monkeypatch.setattr(live_football_board, "render_board", capture)
     monkeypatch.setattr(app, "record_visible_analysis", lambda c, *_, **kw: actual.append(("record", c.selection)))
     app._render_live_football(object(), viewer_active=lambda: active[0])
-    want = [("display", "Mindestens 1 weiteres Tor"), ("record", "Mindestens 1 weiteres Tor")]
+    want = [("display", "Heim1: Über 1,5 Tore"), ("record", "Heim1: Über 1,5 Tore")]
     assert actual == want + ([want[0]] if change == "none" else [])
 
 
@@ -178,18 +179,14 @@ def test_first_revocation_stops_access_checks_and_all_later_picks_in_same_fragme
     assert seen == [1]
 
 
-@pytest.mark.parametrize("case,phrase", [
-    ("early", "Platzverweis: noch zu früh"),
-    ("closed", "Kein neuer Platzverweis-Tipp"),
-    ("foreign", "Kein verlässlicher Live-Tipp"),
-])
-def test_red_model_timing_explains_only_its_own_current_fixture(monkeypatch, case, phrase):
+@pytest.mark.parametrize("case", ["early", "closed", "foreign"])
+def test_early_closed_or_foreign_specialist_does_not_attest_an_automatic_market(monkeypatch, case):
     from test_live_tip_surface import _red
     data = _analysis(1)
     minute = 11 if case == "early" else 89
     phase = "1H" if case == "early" else "2H"
-    data.update(minute=minute, phase_data={"status": phase, "extra": None}, btts_prob=31.)
-    data["remaining_goals"].update(home_scores_probability=35., away_scores_probability=32., over_0_5_probability=53.)
+    data.update(minute=minute, phase_data={"status": phase, "extra": None, "remaining_minutes": 90-minute})
+    data["breakdown"].update(remaining_home_mean=1.5*(90-minute)/90, remaining_away_mean=(90-minute)/90)
     red = _red(1)
     red["card"]["minute"] = min(minute, 32)
     red["card"]["match"]["fixture"]["status"].update(short=phase, elapsed=minute, extra=None)
@@ -202,4 +199,5 @@ def test_red_model_timing_explains_only_its_own_current_fixture(monkeypatch, cas
     mount(monkeypatch, ui, {1: feed_row(1, datetime.now(timezone.utc), analysis=data, red=red)})
     monkeypatch.setattr(app, "record_visible_analysis", lambda *a, **kw: pytest.fail("Closed red model emitted a tip"))
     app.render_live(object())
-    assert any(kind == "button" and phrase in msg[0] for kind, msg in ui.messages)
+    assert any(kind == "button" and "Geprüft – kein Tipp" in msg[0] for kind, msg in ui.messages)
+    assert not any(kind == "markdown" and 'class="lv-pick"' in msg for kind, msg in ui.messages)

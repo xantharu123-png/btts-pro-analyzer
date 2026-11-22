@@ -14,9 +14,11 @@ from runtime_paths import RUNTIME_STATE_DIR
 
 DB_PATH = RUNTIME_STATE_DIR / "live_displayed_tips.db"
 POLICY_VERSION = "first-displayed-fixture-market-side-regulation-v1"
+COMPARISON_POLICY_VERSION = "first-displayed-live-market-uplift-regulation-v1"
 MAX_SNAPSHOT_AGE_SECONDS = 120
 SIDES = {"next_goal": ("any",), "team_scores": ("home", "away"), "btts": ("yes",),
          "red_next": ("home", "away", "none")}
+TIMELINE_MARKETS = frozenset({"next_goal", "team_scores", "red_next", "next_scorer"})
 VOID = {"CANC", "ABD", "AWD", "WO"}
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS live_tips (
@@ -55,13 +57,13 @@ def _id(value):
 
 def record_displayed_live_tip(*, fixture_id, market, side, minute, phase, extra,
                               home_goals, away_goals, home_id, away_id, probability,
-                              snapshot_at, model_version, db_path=DB_PATH, now=None) -> bool:
+                              snapshot_at, model_version, policy_version=None, db_path=DB_PATH, now=None) -> bool:
     """Freeze the first valid display only. False = existing receipt, never an error."""
     shown, snapshot = _now(now), _utc(snapshot_at)
     extra = 0 if extra is None else extra
     if not 0 <= (shown - snapshot).total_seconds() <= MAX_SNAPSHOT_AGE_SECONDS:
         raise ValueError("Snapshot is stale or in the future")
-    if (not isinstance(market, str) or side not in SIDES.get(market, ())
+    if (not isinstance(market, str) or not isinstance(side, str)
             or not all(_id(x) for x in (fixture_id, home_id, away_id)) or home_id == away_id
             or evidence.period_clock(phase, minute, extra) is None
             or evidence.score_pair({"home": home_goals, "away": away_goals}) is None
@@ -70,6 +72,16 @@ def record_displayed_live_tip(*, fixture_id, market, side, minute, phase, extra,
             or not 0 <= probability <= 1 or not isinstance(model_version, str)
             or not model_version.strip()):
         raise ValueError("Invalid or already decided live selection")
+    legacy = side in SIDES.get(market, ())
+    if policy_version is None:
+        policy_version = POLICY_VERSION if legacy else COMPARISON_POLICY_VERSION
+    if policy_version == COMPARISON_POLICY_VERSION:
+        from live_market_comparison import catalog_sides, market_open
+        if (side not in catalog_sides().get(market, ())
+                or not market_open(market, side, home_goals, away_goals)):
+            raise ValueError("Unknown or closed live comparison outcome")
+    elif policy_version != POLICY_VERSION or not legacy:
+        raise ValueError("Unknown live selection policy or outcome")
 
     path = Path(db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -88,7 +100,7 @@ def record_displayed_live_tip(*, fixture_id, market, side, minute, phase, extra,
              probability,snapshot_at,shown_at,model_version,policy_version)
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(fixture_id,market,side) DO NOTHING""",
             (fixture_id, market, side, minute, phase, extra, home_goals, away_goals, home_id, away_id,
-             probability, snapshot.isoformat(), shown.isoformat(), model_version.strip(), POLICY_VERSION),
+             probability, snapshot.isoformat(), shown.isoformat(), model_version.strip(), policy_version),
         )
         return cursor.rowcount == 1
 
@@ -102,7 +114,12 @@ def live_tip_stats(db_path=DB_PATH) -> dict[str, dict[str, int]]:
             for market, status, count in conn.execute(
                 "SELECT market,status,COUNT(*) FROM live_tips GROUP BY market,status"
             ):
-                if market not in counts or status not in counts[market]:
+                if market not in counts:
+                    from live_market_comparison import catalog_sides
+                    if market not in catalog_sides():
+                        raise sqlite3.DatabaseError("Unknown public live market or result status")
+                    counts[market] = dict(won=0, lost=0, open=0, void=0)
+                if status not in counts[market]:
                     raise sqlite3.DatabaseError("Unknown public live market or result status")
                 counts[market][status] = count
     return counts
@@ -131,12 +148,21 @@ def _resolve(row, status, final, timeline):
     if status in VOID:
         return "void", None, None
     baseline = row["home_goals"], row["away_goals"]
-    if final is None or any(f < b for f, b in zip(final, baseline)):
-        return None
     market, side = row["market"], row["side"]
+    if final is None:
+        return None
+    # A corrected score can be lower than the display after VAR. For new
+    # absolute outcomes the independently verified regulation result decides;
+    # relative outcomes and historical receipts still require their baseline.
+    if (any(f < b for f, b in zip(final, baseline))
+            and (market in TIMELINE_MARKETS or row["policy_version"] != COMPARISON_POLICY_VERSION)):
+        return None
     scorer, goal_minute = None, None
-    if market == "btts":
-        won = min(final) > 0
+    if market not in TIMELINE_MARKETS:
+        from live_market_comparison import final_verdict
+        won = final_verdict(market, side, *final)
+        if type(won) is not bool:
+            return None
     else:
         # A disallowed goal followed by a valid goal can leave the *same* final score.
         # Reconcile the entire goal timeline with this particular observation first.
@@ -152,7 +178,7 @@ def _resolve(row, status, final, timeline):
             won = bool(remaining)
         elif market == "team_scores":
             won = any(s == side for _, s in remaining)
-        elif market == "red_next":
+        elif market in {"red_next", "next_scorer"}:
             result = evidence.first_scorer(remaining)
             if result is None:
                 return None
@@ -206,7 +232,7 @@ def settle_displayed_live_tips(api, *, max_fixtures=25, db_path=DB_PATH, now=Non
                 continue
             final = evidence.regulation_result(fixture)
             timeline = None
-            if final is not None and any(r["market"] != "btts" for r in rows):
+            if final is not None and any(r["market"] in TIMELINE_MARKETS for r in rows):
                 events = _response(api, "fixtures/events", {"fixture": fixture_id}, sleep_seconds)
                 if events is None:
                     stats["provider_errors"] += 1

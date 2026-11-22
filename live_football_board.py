@@ -113,13 +113,23 @@ def _competition(game):
 def _pick_label(candidate):
     if candidate.market == "Noch ein Tor":
         return "Noch ein Tor"
-    if candidate.market == "Nächstes Tor" and candidate.selection != "Kein weiteres Tor":
+    if (candidate.market == "Nächstes Tor" and candidate.selection != "Kein weiteres Tor"
+            and not candidate.selection.startswith("Nächstes Tor: ")):
         return f"Nächstes Tor: {candidate.selection}"
     return candidate.selection
 
 
+def live_percent(percent):
+    display = f"{percent:.1f}"
+    if display == "100.0" and percent < 100:
+        return ">99,9 %"
+    if display == "0.0" and percent > 0:
+        return "<0,1 %"
+    return display.removesuffix(".0").replace(".", ",") + " %"
+
+
 def _percent(candidate):
-    return f"{candidate.model_probability:.1f}".removesuffix(".0").replace(".", ",") + " %"
+    return live_percent(candidate.model_probability)
 
 
 def _show_fixture(ui, game, selected, status, now, format_time, *, pick=False):
@@ -160,11 +170,13 @@ def _inspector_header(ui, game, now):
                     f'{escape(game.clock)}</span></div>', unsafe_allow_html=True)
 
 
-def _inspector_tip(ui, candidate):
+def _inspector_tip(ui, candidate, reason=None):
     ui.markdown('<div class="lv-pick"><div><small>Automatischer Live-Tipp</small>'
                 f'<strong>{escape(_pick_label(candidate))}</strong></div>'
-                f'<div class="lv-percent"><small>Modell</small><b>{_percent(candidate)}</b></div></div>',
+                f'<div class="lv-percent"><small>Modell</small><b>{escape(_percent(candidate))}</b></div></div>',
                 unsafe_allow_html=True)
+    if reason:
+        ui.markdown(f'<p class="lv-pick-reason">{escape(reason)}</p>', unsafe_allow_html=True)
     notice = "Modellschätzung ohne Preisprüfung."
     if candidate.blockers:
         notice += " Daten- oder Modellprüfung noch offen."
@@ -329,7 +341,9 @@ def render_board(ui, games, candidates, *, preferred_id, format_time, publish_pi
             game = by_id[selected]
             _inspector_header(ui, game, now)
             has_candidate = selected in candidates
-            revision_current = not has_candidate or publish_pick(game, candidates[selected], lambda c: _inspector_tip(ui, c))
+            revision_current = not has_candidate or publish_pick(
+                game, candidates[selected], lambda c: _inspector_tip(
+                    ui, c, (candidates[selected][1].get("live_comparison") or {}).get("reason")))
             if not has_candidate or not revision_current:
                 reason = no_pick_reason(selected)
                 ui.markdown(f'<div class="lv-no-pick"><small>Live-Tipp</small><strong>{escape(reason)}</strong></div>',

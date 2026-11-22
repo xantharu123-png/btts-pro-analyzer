@@ -1,5 +1,11 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 22.11.2026 – Live: Ergebnis-, Handicap- und Tormärkte gemeinsam vergleichen
+
+- Neuer Branch `codex/live-marktvergleich-20261122`: je Spielstand maximal ein Modellvorschlag aus 54 Selektionen; ab 55 %, höchste positive Veränderung zur Voraberwartung *bei identischer Uhr und identischem Stand*, danach höchste Modellwahrscheinlichkeit. Keine Quote im Modell, keine neuen Anbieteraufrufe der Auswahl. Ecken- und Kartenanzahl bleiben ohne geprüftes eigenes Modell ausgenommen.
+- [Tagesprüfung: alle tatsächlich gezeigten Auswahlen am 22.11.](docs/audits/2026-11-22-live-tagesbilanz.md) getrennt vom neuen Verfahren. 0/13 historische Anzeigestände sind vollständig für dieses neue Verfahren wiederherstellbar. Keine rückwirkenden Tipps oder Gewinne erzeugen.
+- Kein Produktionsrelease dieses Branches. Nach Veröffentlichung neue Erstbelege mit `first-displayed-live-market-uplift-regulation-v1` getrennt auswerten. Keine zusätzliche Kundenbilanz.
+
 ## 22.11.2026 – Live-Fußball: Vorabwerte unabhängig von den 20 Detailspielen
 
 - **Release abgeschlossen:** #164 nach sechs grünen GitHub-Checks auf `main`; VPS identisch (`2fdc118`), App seit 19:23:03 CET neu gestartet. Produktive Leseprüfung: 37 eindeutige Vorabpaare um 19:23:23 CET; keine Zählung von Tipps.

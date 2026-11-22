@@ -6,7 +6,16 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 
 ## Stand: 22.11.2026
 
-Produktion und GitHub-main: `2fdc118`, [PR #164](https://github.com/xantharu123-png/btts-pro-analyzer/pull/164).
+Entwicklung: `codex/live-marktvergleich-20261122` erweitert den automatischen Fußball-Liveticker auf 54 Selektionen.
+Vorrang hat der größte positive Zugewinn bei identischem Spielstand und gleicher Restzeit; erst danach die höhere
+Modellchance (mindestens 55 %). Keine zusätzlichen Abrufe im Ticker. Diese Änderung ist nicht produktiv aktiviert.
+Die [Tagesprüfung 22.11.](docs/audits/2026-11-22-live-tagesbilanz.md) trennt die alte Anzeige (13 Tipps aus
+12 Spielen, anhand der regulären Torfolgen 9 gewonnen / 4 verloren) vom neuen Verfahren (0/13 vollständig
+rekonstruierbare damalige Modellinputs). Softwaretests messen keine Trefferquote. Betroffene Regression: 717 bestanden,
+1 Skip; Teilmenge unter Produktionspreisregel: 176 bestanden. Gesamtversuch mit `-x` stoppte nach 99 bestandenen
+Tests am zuvor dokumentierten Eishockeyfall `test_native_conflicting_role_ids_fail_before_any_request`.
+
+Letzter bestätigter Produktionsstand und GitHub-main: `2fdc118`, [PR #164](https://github.com/xantharu123-png/btts-pro-analyzer/pull/164).
 Live seit 22.11.2026, 19:23:03 CET. Der installierte Leser bestätigte um
 19:23:23 CET 37 eindeutige Fußball-Spielgrundlagen (20 bisherige + 17 weitere).
 Der Tageslauf friert künftig Vorabwerte unabhängig von den öffentlichen Marktkarten ein.

@@ -406,26 +406,28 @@ def test_15k_actual_card_and_ticket_options_share_display_order_without_ledger_w
     assert not ledger.method_calls
 
 
-@pytest.mark.parametrize('market', ['BTTS', 'Noch ein Tor', 'Team trifft noch'])
-def test_live_scoreboard_chronological_but_auto_focus_tracks_best_without_rescan(monkeypatch, market):
+@pytest.mark.parametrize('market,early_rates,late_rates,early_pct,late_pct,late_p,label', [
+    ('Teamtore', (1., .5), (1.4, .5), '63,2 %', '75,3 %', 75.3403036058, 'Late: Über 1,5 Tore'),
+    ('Gesamttore', (.2, .2), (.1, .1), '67 %', '81,9 %', 81.8730753078, 'Unter 1,5 Tore im Spiel'),
+    ('Doppelte Chance', (.4, 1.2), (.4, 1.3), '56,6 %', '59,6 %', 59.5674016555, 'Opponent oder Unentschieden'),
+])
+def test_live_scoreboard_chronological_but_auto_focus_tracks_best_without_rescan(
+        monkeypatch, market, early_rates, late_rates, early_pct, late_pct, late_p, label):
     import app
     from copy import deepcopy
     now = datetime.now(timezone.utc)
     from test_live_tip_surface import _analysis, Screen
     analyses = []
-    for game, label, p, hours in [(1, 'Early', 70., 2), (2, 'Late', 90., 1)]:
+    for game, team, rates, hours in [(1, 'Early', early_rates, 2), (2, 'Late', late_rates, 1)]:
         row = _analysis(game)
-        row.update(home_team=label, away_team='Opponent', scheduled_start=(now-timedelta(hours=hours)).isoformat(),
-                   btts_prob=p if market == 'BTTS' else None,
-                   remaining_goals={'over_0_5_probability': p} if market == 'Noch ein Tor' else
-                                  {'home_scores_probability': p, 'away_scores_probability': 10.}
-                                  if market == 'Team trifft noch' else {})
+        row.update(home_team=team, away_team='Opponent', scheduled_start=(now-timedelta(hours=hours)).isoformat())
+        row['breakdown'].update(remaining_home_mean=rates[0], remaining_away_mean=rates[1])
         analyses.append(row)
     before = deepcopy(analyses)
     from test_live_football_board import _last_panel, feed_row, mount
     ui = Screen({'workspace': 'Live'}, {'live_football_order': START_TIME})
     receipts = []
-    mount(monkeypatch, ui, {r['fixture_id']: feed_row(r['fixture_id'], now, analysis=r) for r in reversed(analyses)})
+    ticks, checked = mount(monkeypatch, ui, {r['fixture_id']: feed_row(r['fixture_id'], now, analysis=r) for r in reversed(analyses)})
     monkeypatch.setattr(app, '_freemode_enabled', lambda: False)
     monkeypatch.setattr(app.scan_jobs, 'get_job', lambda _key: {'state': 'idle'})
     monkeypatch.setattr(app.scan_jobs, 'start_job', lambda *_a, **_k: pytest.fail('Sorting cannot scan'))
@@ -435,24 +437,24 @@ def test_live_scoreboard_chronological_but_auto_focus_tracks_best_without_rescan
     assert [key for _, key in buttons] == ['live_fixture_1', 'live_fixture_2']
     assert all(label in button for label, (button, _) in zip(('Early – Opponent', 'Late – Opponent'), buttons, strict=True))
     assert [c.event_key for c in receipts] == ['1', '2']
-    labels = {'BTTS': 'Beide Teams treffen', 'Noch ein Tor': 'Noch ein Tor', 'Team trifft noch': 'Late trifft noch'}
     assert 'Late' in _last_panel(ui, 'lv-scoreline') and 'Early' not in _last_panel(ui, 'lv-scoreline')
-    assert labels[market] in _last_panel(ui, 'lv-pick') and '90 %' in _last_panel(ui, 'lv-pick')
-    assert '70 %' in buttons[0][0] and '90 %' in buttons[1][0] and labels[market] in buttons[1][0]
-    assert receipts[1].market == market and receipts[1].model_probability == 90.
+    assert label in _last_panel(ui, 'lv-pick') and late_pct in _last_panel(ui, 'lv-pick')
+    assert early_pct in buttons[0][0] and late_pct in buttons[1][0] and label in buttons[1][0]
+    assert receipts[1].market == market and receipts[1].model_probability == pytest.approx(late_p)
+    assert len(ticks) == 1 and sorted(checked) == [1, 2]
     assert receipts[1].risk_adjusted_probability is None
     assert receipts[1].probability_haircut == 12. and receipts[1].evidence_stage == 'RESEARCH'
     assert analyses == before
 
 
-def test_redcard_real_candidate_selector_ignores_old_time_order_without_rescan(monkeypatch):
+def test_redcard_shortlist_remains_manual_and_chronological_without_another_worldwide_scan(monkeypatch):
     import app
     from copy import deepcopy
     from types import SimpleNamespace
     now = datetime.now(timezone.utc)
     from test_live_tip_surface import _red, Screen
     entries = []
-    for i, p, hours in [(1, .70, 2), (2, .90, 1)]:
+    for i, p, hours in [(1, .70, 3), (2, .90, 1), (3, .80, 2), (4, .60, 4)]:
         row = _red(i, (p, .05, 1-p-.05))
         row['card']['match']['fixture']['date'] = (now-timedelta(hours=hours)).isoformat()
         row['prediction'].update(calibrated=True, actionable=True)
@@ -474,11 +476,19 @@ def test_redcard_real_candidate_selector_ignores_old_time_order_without_rescan(m
     monkeypatch.setattr(app, 'record_visible_analysis', lambda c, _row, **_kw: receipts.append(c))
     app.render_live(SimpleNamespace(engine=SimpleNamespace(LEAGUES_CONFIG={'league': 39})))
     buttons = [v for k, v in ui.messages if k == 'button' and (v[1] or '').startswith('live_fixture_')]
-    assert [key for _, key in buttons] == ['live_fixture_1', 'live_fixture_2']
-    assert 'Nächstes Tor: Heim1' in buttons[0][0] and '70 %' in buttons[0][0]
-    assert 'Nächstes Tor: Heim2' in buttons[1][0] and '90 %' in buttons[1][0]
-    assert 'Heim2' in _last_panel(ui, 'lv-scoreline')
-    assert 'Nächstes Tor: Heim2' in _last_panel(ui, 'lv-pick') and '90 %' in _last_panel(ui, 'lv-pick')
+    assert [key for _, key in buttons] == ['live_fixture_4', 'live_fixture_1', 'live_fixture_3', 'live_fixture_2']
+    assert all('Kein verlässlicher Live-Tipp' in label for label, _ in buttons)
+    assert not receipts and not _last_panel(ui, 'lv-pick')  # No ordinary priors, no ticker pick.
+    ui.session_state.update(live_worldwide_research=True, red_card_snapshot={
+        'scope': 'Weltweit', 'version': app.RED_CARD_SNAPSHOT_VERSION, 'scanned_at': now.isoformat(), 'cards': entries})
+    app.render_live(object())
+    # Top three by supported model, then these three displayed in kickoff order; the earlier fourth is not eligible.
+    assert [options for _, options, _, key in ui.selectboxes if key == 'red_card_detail'] == [('card-1','card-3','card-2')]
+    assert [c.event_key for c in receipts] == ['card-1'] and receipts[0].model_probability == 70.
+    ui.widget_values['red_card_detail'] = 'card-2'
+    ui.messages.clear()
+    app.render_live(object())
     assert [c.event_key for c in receipts] == ['card-1', 'card-2']
+    assert '90' in str(ui.messages) and 'Heim2' in str(ui.messages)
     assert receipts[1].model_probability == 90. and receipts[1].risk_adjusted_probability == 75.
     assert entries == before
