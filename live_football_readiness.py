@@ -25,8 +25,10 @@ def jobs_idle() -> bool:
         pairs = [line.partition("=") for line in block.splitlines()]
         fields = {key: value for key, sep, value in pairs if sep}
         unit = fields.get("Id")
+        # A previous failed oneshot is not running; do not suppress the ticker
+        # until that worker's next scheduled day. Activating/deactivating still block.
         if (len(pairs) != 3 or len(fields) != 3 or unit not in _WORKERS or unit in seen
-                or fields.get("LoadState") != "loaded" or fields.get("ActiveState") != "inactive"):
+                or fields.get("LoadState") != "loaded" or fields.get("ActiveState") not in {"inactive", "failed"}):
             return False
         seen.add(unit)
     return seen == _WORKERS

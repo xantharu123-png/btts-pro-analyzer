@@ -23,6 +23,8 @@ DEFAULT_DAILY_LIMIT = 7_500
 DEFAULT_CRITICAL_FLOOR = 50
 DEFAULT_RECOMMENDATION_RESERVE = 750
 DEFAULT_BACKGROUND_RESERVE = 2_500
+LIVE_TICKER_DAILY_CAP = 500
+LIVE_TICKER_PREFIX = "live-ticker:"
 DEFAULT_DB_PATH = Path(__file__).resolve().parent / "runtime_state" / "api_budget.db"
 
 
@@ -274,7 +276,8 @@ class APIBudgetGovernor:
     ) -> APIBudgetReservation:
         if isinstance(cost, bool) or not isinstance(cost, int) or cost <= 0:
             raise APIBudgetUnavailable("Request cost must be a positive integer")
-        selected_priority = _priority(priority)
+        live_ticker = endpoint.startswith(LIVE_TICKER_PREFIX)
+        selected_priority = APIBudgetPriority.BACKGROUND if live_ticker else _priority(priority)
         account = _account_hash(api_key)
         current = (now or _utc_now()).astimezone(timezone.utc)
         day = self._quota_day(current)
@@ -316,8 +319,24 @@ class APIBudgetGovernor:
                         int(row["daily_limit"]),
                     )
 
+                blocked_reason = None
                 if remaining - cost < floor:
-                    cursor = connection.execute(
+                    blocked_reason = f"protected floor {floor}"
+                elif live_ticker:
+                    # Count spent and in-flight units together, under the same write lock as
+                    # this reservation. A failed request costs quota; a refused one does not.
+                    spent = connection.execute(
+                        "SELECT COALESCE(SUM(remaining_before - remaining_after), 0) "
+                        "FROM api_budget_events WHERE provider=? AND account_hash=? AND quota_day=? "
+                        "AND started_at >= ? AND started_at < ? AND endpoint GLOB ? AND decision != 'BLOCKED'",
+                        (provider, account, day, current.date().isoformat(),
+                         (current + timedelta(days=1)).date().isoformat(), LIVE_TICKER_PREFIX + "*"),
+                    ).fetchone()[0]
+                    if spent + cost > LIVE_TICKER_DAILY_CAP:
+                        blocked_reason = f"live ticker daily cap {LIVE_TICKER_DAILY_CAP}"
+
+                if blocked_reason:
+                    connection.execute(
                         """
                         INSERT INTO api_budget_events (
                             provider, account_hash, quota_day, started_at,
@@ -335,10 +354,12 @@ class APIBudgetGovernor:
                             str(endpoint)[:200],
                             remaining,
                             remaining,
-                            f"protected floor {floor}",
+                            blocked_reason,
                         ),
                     )
                     connection.commit()
+                    if blocked_reason.startswith("live ticker"):
+                        raise APIBudgetExceeded("Live-Tageskontingent ausgeschöpft.")
                     raise APIBudgetExceeded(
                         "API-Budget geschützt: "
                         f"{selected_priority.value} wurde bei geschätzten "
@@ -639,7 +660,11 @@ def api_football_get(
     # One retry after a connect/read timeout (06./07.11.2026: single provider timeouts failed
     # whole nightly runs). Each attempt holds its own quota reservation; any other error and a
     # second timeout are raised unchanged.
-    for attempt in range(1, TIMEOUT_ATTEMPTS + 1):
+    live_ticker = endpoint.startswith(LIVE_TICKER_PREFIX)
+    attempts = 1 if live_ticker else TIMEOUT_ATTEMPTS
+    if live_ticker:
+        request_kwargs["allow_redirects"] = False
+    for attempt in range(1, attempts + 1):
         reservation = governor.reserve(
             api_key=str(api_key or ""),
             endpoint=endpoint,
@@ -649,7 +674,7 @@ def api_football_get(
             response = requests.get(url, **request_kwargs)
         except requests.Timeout as exc:
             governor.complete(reservation, error=type(exc).__name__)
-            if attempt == TIMEOUT_ATTEMPTS:
+            if attempt == attempts:
                 raise
             time.sleep(TIMEOUT_RETRY_DELAY_SECONDS)
             continue

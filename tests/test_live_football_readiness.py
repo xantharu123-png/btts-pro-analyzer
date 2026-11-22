@@ -17,7 +17,8 @@ def rows(*, busy=None, missing=None, load="loaded"):
 
 
 @pytest.mark.parametrize("output,allowed", [
-    (rows(), True), (rows(busy="quotes"), False), (rows(busy="football-shadow"), False),
+    (rows(), True), (rows().replace("inactive", "failed", 1), True),
+    (rows(busy="quotes"), False), (rows(busy="football-shadow"), False),
     (rows(missing="quotes"), False), (rows(load="not-found"), False),
     (rows() + "\n\n" + rows().split("\n\n")[0], False), ("", False)])
 def test_all_regular_workers_must_be_known_and_idle(output, allowed):
