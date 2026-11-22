@@ -6,9 +6,11 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 
 ## Stand: 22.11.2026
 
-Letzter bestätigter Produktionsstand: [PR #156](https://github.com/xantharu123-png/btts-pro-analyzer/pull/156),
-`c7c6f23`, seit 22.11.2026 13:24 CET. Sechs CI-Prüfungen, isolierte Linux-Abnahme,
-beide Healthchecks und sieben aktive Timer im Release belegt. Enthält den Ticker
+Produktion und GitHub `main`: [PR #157](https://github.com/xantharu123-png/btts-pro-analyzer/pull/157),
+`5a67a63`, seit 22.11.2026 14:42:56 CET. Die App und Caddy sind aktiv,
+beide Healthchecks liefern `ok`; sieben Kerntimer waren beim Release aktiv.
+Der abgeschlossene Wettfinder-Tagesjob von 04:05:59 CET hatte bereits vorher Exit 1;
+kein Nachhollauf als Teil dieses Releases. Enthält Budgetkorrektur #156 und den Ticker
 aus #155 sowie Liga-Cache und Anstoßanzeige aus #154. Die Ligaprüfung
 holt nur die Abdeckung je Saison; sie ersetzt keine Abfrage von Ausfällen,
 Aufstellungen oder Quoten. Im Betriebsjournal nach Füllen des Caches: 16
@@ -27,12 +29,12 @@ Tageslimit und fehlende Daten.
 Kein grüner Gesamttest behauptet: der bekannte unabhängige Hockeyfehler
 steht unten. Aktueller Prüf- und Freigabestand: `TODO_AKTUELL.md`.
 
-Neuer Stand auf `codex/live-automatische-auswahl`: Die Live-Seite nutzt die
+Live seit PR #157: Die Live-Seite nutzt die
 Inhaltsbreite ohne Wettartwahl oder Prozentregler. Sie öffnet den wahrscheinlichsten
 unter den unterstützten aktuellen Modellvorschlägen. Die Spielstandliste bleibt
 chronologisch, ein angeklicktes Spiel bleibt im Fokus; Rückkehr zur Automatik per
 Knopfdruck. Kandidatenbildung und Anzeige nutzen denselben Spielstand. Kein
-zusätzlicher Anbieterabruf; Merge und Deployment separat nachweisen.
+zusätzlicher Anbieterabruf. [Deployment und Offline-Abnahme](docs/audits/2026-11-22-live-autowahl.md).
 
 Fußball-Liveticker: Nur ein
 geöffneter, berechtigter Live-Tab stößt die Spielsuche (5 Minuten) und gruppierte

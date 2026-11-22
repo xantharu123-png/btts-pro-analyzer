@@ -2,6 +2,11 @@
 
 ## 22.11.2026 – Automatischer Live-Vorschlag und breite Spielstandansicht
 
+- Live seit 14:42:56 CET als `5a67a63` (PR #157), GitHub und VPS identisch.
+  Serverseitige Offline-Marktprüfung bestanden; beide Healthchecks ok,
+  7 Kerntimer aktiv, kein neuer Sportscan und kein Backup.
+  [Releasebeleg](docs/audits/2026-11-22-live-autowahl.md).
+
 - Nur im Live-Tab: Wettartwahl, Prozentregler, rechte Pre-Match-Wettenspalte
   und feste Innen-Scrollbox entfallen. Desktop zeigt Tipp und laufende Spiele
   nebeneinander, am Handy steht die Auswahl vor der Liste.
