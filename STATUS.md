@@ -6,16 +6,17 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 
 ## Stand: 22.11.2026
 
-Letzter dokumentierter Produktionsstand: [PR #157](https://github.com/xantharu123-png/btts-pro-analyzer/pull/157),
-`5a67a63`. Nicht Teil dieses Deployments: Ladezustand (#159) und der darauf aufbauende
-Live-Entwurf 3 ([PR #160](https://github.com/xantharu123-png/btts-pro-analyzer/pull/160)).
+Produktion und GitHub-main, geprüft am 22.11. um 16:35 CET: `9a3e5bd`, mit
+Ladezustand (#159) und Live-Entwurf 3 ([PR #160](https://github.com/xantharu123-png/btts-pro-analyzer/pull/160)).
 Die Ligaübersicht und die Details zeigen bestätigte Platzverweise pro Team mit Minute,
 auch ohne Tipp. Explizite Bankkarten werden gekennzeichnet und begründen keine Überzahl.
 Der normale Scanner berücksichtigt auch die Gelb-Rot-Minute; Gruppendaten nutzen für
 beide Schätzer dieselbe Halbzeituhr. Auswahlmärkte und Schwellen bleiben unverändert.
-610 betroffene Tests grün, 230 zusätzlich unter `floor`; Browsernachweis mit synthetischen
-Spielen. Vollsuite am separaten Hockeytest gestoppt. Kein Anbieterabruf, kein neuer
-Produktionsnachweis. Siehe `design-qa.md` und `TODO_AKTUELL.md`.
+610 betroffene Tests grün, 235 zusätzlich unter `floor`; Browsernachweis mit synthetischen
+Spielen. Vollsuite am separaten Hockeytest gestoppt. Linux-Offlineprobe, App-Neustart,
+beide Healthchecks und sieben Timer bestätigt; kein Backup, kein zusätzlicher Sportscan.
+Der reguläre Wettfinderlauf von 03:35 hatte vor dem Deployment Exit 1 und wurde nicht neu gestartet.
+[Produktionsbeleg](docs/audits/2026-11-22-live-spielfeldrand-release.md).
 
 Der vorherige Release #156 (`c7c6f23`) enthält den Ticker
 aus #155 sowie Liga-Cache und Anstoßanzeige aus #154. Die Ligaprüfung
@@ -76,6 +77,8 @@ Fußball-Live: [interner Nachweis für tatsächlich angezeigte Auswahlen](docs/a
 
 Festgehaltene Referenz: `363ed54` ([Referenz-Tag](https://github.com/xantharu123-png/btts-pro-analyzer/tree/betboy-referenz-2026-11-21)); PR #144 und #145 sind enthalten. Der separate [Referenzbericht](https://github.com/xantharu123-png/btts-pro-analyzer/blob/4b43265897e816651d5221ca5c24c61be76ce033/docs/audits/2026-11-21-wettfinder-referenz.md) enthält die 14 Freitagsbelege und die Regeln für faire Vergleiche.
 PR #147 ist seit 12:16 CET als `6a8ab15` live. Die nachfolgende Korrektur macht die ursprünglich gewünschte Tagesauswahl direkt unter „Deine Wetten“ sichtbar: bis zu je ein 3er, 4er, 5er und Jackpot-6er samt Vorab-Modellschätzung. Keine versteckte Anlaufphase, kein Einsatz, keine zusätzlichen Anbieterabrufe. Ein begonnener Schein bleibt am Spieltag sichtbar, nicht als neuer Vorschlag. [Aktuelle Produktregel](docs/superpowers/specs/2026-11-21-tageskombis.md).
+
+Historischer Tabellenstand der Übergabe vom 19.11.; aktuell ist der Produktionsbeleg oben.
 
 | Bereich | Status |
 |---|---|
