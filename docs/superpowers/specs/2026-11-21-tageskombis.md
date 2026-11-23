@@ -1,5 +1,17 @@
 # Tageskombis in „Deine Wetten“
 
+**Korrektur des Owners, 23.11.2026:** Eine Partie wird nicht für mehrere öffentliche
+Tageskombis verwendet, auch nicht mit anderer Auswahl oder anderer Anbieterkennung
+für dasselbe Spiel. Gespeicherte Scheine bleiben unverändert und belegen ihre Spiele
+für spätere Veröffentlichungen desselben Tages. Je Marktgruppe sind höchstens
+2 Positionen im 3er, 4er und 5er und höchstens 3 im 6er zulässig. Torlinien,
+Torbereiche und „Beide treffen“ zählen zusammen; Sieger und Doppelte Chance zählen
+zusammen. Ecken, Karten und kombinierte Ergebnis-/Tormärkte sind getrennte Gruppen.
+Wenn kein vollständiger Schein passt, bleibt diese Größe frei. Für die öffentlichen
+Scheine ersetzt dies die ursprüngliche Überlappungsregel unten. Preisgrenze,
+Modellwerte, Auswahl nach Chancenprodukt und die historischen internen Vergleichsarme
+bleiben unverändert. Es gibt keinen rückwirkenden Austausch und keinen Zusatzscan.
+
 **Korrektur des Owners, 21.11.2026:** Gefordert sind sichtbare Modellscheine, keine Beobachtungsphase.
 Je Tag und Größe höchstens ein unveränderlicher Schein mit sportlich passenden, verschiedenen Spielen.
 Ein fehlender gemeinsamer Buchmacherpreis ist kein Anzeigeverbot.

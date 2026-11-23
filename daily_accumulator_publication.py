@@ -61,7 +61,7 @@ def record_worker_combos(signals, *, as_of, directory, evidence_path=None):
         signals = tuple(signals)
         if not signals:
             return {"status": "empty"}
-        from daily_accumulators import eligible_combo_legs, select_combo_set
+        from daily_accumulators import eligible_combo_legs, select_public_combo_set
         from daily_accumulator_receipts import PUBLIC_ARM, capture_day, load_daily_picks
         from tip_publication import compact_signal_row, bind_forecast_ids
         day = as_of.astimezone(ZoneInfo("Europe/Zurich")).date()
@@ -74,7 +74,7 @@ def record_worker_combos(signals, *, as_of, directory, evidence_path=None):
         if not pool:
             return {"status": "no_linked_legs"}
         sizes = {PUBLIC_ARM: [slip["size"] for slip in capture_day(
-            db, day=day, as_of=as_of, pool=pool, select=select_combo_set, arm=PUBLIC_ARM)]}
+            db, day=day, as_of=as_of, pool=pool, select=select_public_combo_set, arm=PUBLIC_ARM)]}
         LOG.info("Daily accumulator originals: day=%s linked_legs=%d sizes=%s", day, len(pool), sizes)
         return {"status": "processed", "linked_legs": len(pool), "sizes": sizes}
     except Exception:

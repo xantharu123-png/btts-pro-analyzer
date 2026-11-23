@@ -4,7 +4,20 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 „Stand“ ersetzen, nicht anhängen; Historie steht in `TODO_AKTUELL.md` und
 `PC_WECHSEL_UEBERGABE.md`. Regeln und Einstieg: `AGENTS.md`.
 
-## Stand: 22.11.2026
+## Stand: 23.11.2026
+
+Tageskombis: Neue öffentliche Scheine verwenden jede Partie nur einmal über
+alle Größen und begrenzen gleiche Marktgruppen auf 2/2/2/3 Positionen.
+Originalscheine sowie Modell, Preisregel und interne Vergleichssuche bleiben
+unverändert. Bereits alle vier Scheine für den 23.11. um 03:48 CET gespeichert;
+neue Spieltagsauswahl erst nach Release im nächsten regulären Tageslauf.
+Marktvielfalt der Hauptkarten: 68/87 Fußball-Haupttipps vs. 340/903
+verfügbare Fußballmärkte waren reine Torlinien (20.–22.11.).
+[Auswertung und Ursachen](docs/audits/2026-11-23-fussball-marktvielfalt.md).
+Unabhängig davon: erste produktive Tagesdatei für den Live-Vorabpfad #164
+und separater Live-Marktvergleich bleiben getrennte Abnahmen.
+
+### Voriger Stand: 22.11.2026
 
 Live: #162 (`48534ee`) liefert die Stadionstatistiken und bislang Vorabwerte für
 20 Fußballspiele. Folgekorrektur auf `codex/live-alle-modellierten-spiele`, nicht deployed:

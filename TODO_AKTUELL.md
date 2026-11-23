@@ -1,5 +1,17 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 23.11.2026 – Tageskombis und Marktvielfalt
+
+- Öffentliche Scheine: Partien über Größen hinweg trennen; breite Marktgruppen
+  je Schein begrenzen. Keine Änderung an Preisen, Modellen, Doublebet oder
+  abgeschlossenen bzw. bereits festgeschriebenen Scheinen.
+- Nach Freigabe und Fast-forward den ersten **regulären** neuen Spieltag
+  prüfen (kein zusätzlicher Scan); die vier Belege vom 23.11. sind bereits fixiert.
+- [Befund zum Über/Unter-Überhang](docs/audits/2026-11-23-fussball-marktvielfalt.md):
+  70-%-Anzeige und höchste Modellchance je Partie wirken nacheinander.
+  Keine Hauptkartenregel geändert. Eine dauerhaft zu niedrige Modellschätzung
+  für mindestens drei Teamtore braucht eine getrennte zeitliche Prüfung.
+
 ## 22.11.2026 – Live-Fußball: Vorabwerte unabhängig von den 20 Detailspielen
 
 - Tagesmodell, Publikation und Live-Leser geändert; kein zweiter Scan, keine neue Datenbank, keine zusätzlichen Providerabrufe und keine geänderte Tippschwelle. Echte Tagesdatei am 22.11. 18:16 CET: 37 belegbare Spiele mit neuem Leser statt 20. Nicht 37 Tipps.

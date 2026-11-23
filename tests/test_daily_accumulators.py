@@ -9,11 +9,15 @@ from test_daily3_selection import NOW, football
 from market_consensus import parse_fixture_consensus
 
 
-def model(i, p=.75, odds=1.20):
-    s = replace(football(i, probability=p), source="automated_wettfinder_forecast")
-    books = [dict(id=n, name=f"Book {n}", bets=[dict(name="Match Winner", values=[
-        dict(value="Home", odd=str(odds)), dict(value="Draw", odd="4.40"), dict(value="Away", odd="4.90")])])
-        for n in (1, 2, 3)]
+def model(i, p=.75, odds=1.20, *, key="RESULT_HOME"):
+    s = replace(football(i, key=key, probability=p), source="automated_wettfinder_forecast")
+    if key == "TOTAL_UNDER_2_5":
+        name, values = "Goals Over/Under", [("Under 2.5", str(odds)), ("Over 2.5", "4.60")]
+    else:
+        assert key == "RESULT_HOME"
+        name, values = "Match Winner", [("Home", str(odds)), ("Draw", "4.40"), ("Away", "4.90")]
+    books = [dict(id=n, name=f"Book {n}", bets=[dict(name=name, values=[
+        dict(value=value, odd=odd) for value, odd in values])]) for n in (1, 2, 3)]
     response = dict(response=[dict(fixture=dict(id=i, date=s.scheduled_start),
                                    update=NOW.isoformat(), bookmakers=books)])
     quote = parse_fixture_consensus(response, [s], fetched_at=NOW)[s.candidate_id]
@@ -70,6 +74,49 @@ def test_four_non_nested_tickets_no_padding_and_reordered_data_stable():
     assert all(len(a & b) <= 1 for a,b in combinations(sets, 2))
     assert max(Counter(event for group in sets for event in group).values()) <= 2
     assert not select_combo_set(legs[:2])
+
+
+def test_public_three_leg_slip_keeps_goal_lines_and_goal_ranges_in_one_family():
+    from daily_accumulators import select_public_combo_set
+
+    legs = pool(*(model(i, p) for i, p in enumerate([.87, .86, .85, .79], 1)))
+    for leg, market in zip(legs, ("HOME_UNDER_2_5", "TOTAL_OVER_2_5", "AWAY_RANGE_1_3", "DC_12")):
+        leg["market_key"] = market
+    slip, = select_public_combo_set(legs)
+    assert [leg["fixture_id"] for leg in slip["legs"]] == [1, 2, 4]
+    assert slip["reference_probability"] == pytest.approx(.87 * .86 * .79)
+
+
+def test_public_four_leg_slip_cannot_reuse_a_frozen_game_via_its_alias():
+    import daily_accumulators as combos
+
+    legs = pool(*(model(i, .85 - i / 100) for i in range(1, 8)))
+    for leg, market in zip(legs, ("RESULT_HOME", "TOTAL_OVER_2_5", "DC_X2",
+                                 "AWAY_RANGE_1_3", "TOTAL_UNDER_3_5", "RESULT_AWAY", "DC_12")):
+        leg["market_key"] = market
+    frozen = combos.select_combo_set(legs[:3])
+    alternative_id = dict(legs[0], event_key="football:999", aliases=[legs[0]["event_key"]])
+    select = combos.select_public_combo_set
+    new, = select([alternative_id, *legs[1:]], frozen=frozen)
+    assert new["size"] == 4
+    assert [leg["fixture_id"] for leg in new["legs"]] == [4, 5, 6, 7]
+    assert select(legs[:-1], frozen=frozen) == []
+
+
+def test_public_search_finds_diverse_slips_among_many_top_ranked_goal_markets():
+    from daily_accumulators import select_public_combo_set
+
+    base, = pool(model(1))
+    legs = [dict(base, fixture_id=i, event_key=f"football:{i}", aliases=[],
+                 participants=[f"home-{i}", f"away-{i}"], participant_names=[],
+                 probability=.90 if i <= 300 else .70,
+                 market_key="TOTAL_UNDER_2_5" if i <= 300 else "RESULT_HOME")
+            for i in range(1, 306)]
+    three, four = select_public_combo_set(legs)
+    assert [three["size"], four["size"]] == [3, 4]
+    assert three["reference_probability"] == pytest.approx(.90 * .90 * .70)
+    assert four["reference_probability"] == pytest.approx(.90 * .90 * .70 * .70)
+    assert not ({leg["event_key"] for leg in three["legs"]} & {leg["event_key"] for leg in four["legs"]})
 
 
 def test_competing_sides_not_reused_even_when_they_become_more_probable():
