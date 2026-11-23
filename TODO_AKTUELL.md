@@ -1,5 +1,15 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 23.11.2026 – Wettfinder: Bester je Wettart
+
+- Alternative Anzeige im automatischen Wettfinder: maximal ein Markt pro
+  Spiel und Kategorie aus dem bestehenden Angebot derselben Modellrevision.
+  Kategorie und Prozentanzeige sind eigene Filter; Hauptansicht und rechte
+  Spalte behalten die bisherige Modellchance. Ergebnis-, Ecken- und andere
+  Kategorien können bewusst ohne zusätzliche Anzeigehürde betrachtet werden.
+- Keine neue Marktfreigabe, kein Scan, kein Backup und keine geänderte
+  Haupttipp-Erfassung. Release als Fast-forward, technische Abnahme separat.
+
 ## 23.11.2026 – Tageskombis und Marktvielfalt
 
 - Öffentliche Scheine: Partien über Größen hinweg trennen; breite Marktgruppen

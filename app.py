@@ -92,6 +92,8 @@ from multi_sport_recommendations import (
 )
 from wettfinder_surface import (
     WettfinderReleaseOverlay,
+    WETTFINDER_MARKET_FAMILIES,
+    best_wettfinder_by_market,
     build_wettfinder_card,
     compose_wettfinder_catalog,
     ordered_wettfinder_games, page_event_lead_keys, WETTFINDER_GAMES_PER_PAGE, WETTFINDER_MIN_CHANCE_DEFAULT,
@@ -4814,7 +4816,7 @@ def _render_wettfinder_game_details(card, suffix: str) -> None:
                 st.markdown('\n\n'.join(plain_markdown(line) for line in lines))
 
 
-def _render_wettfinder_games(catalog, row_by_key, *, sport_filter: str, sort_mode=START_TIME):
+def _render_wettfinder_games(catalog, row_by_key, *, sport_filter: str, sort_mode=START_TIME, page_view=None):
     featured_keys = {card.key for card in catalog.featured}
     groups = ordered_wettfinder_games(catalog, sort_mode)
     # Highlight membership is independent of chronological game order.
@@ -4827,8 +4829,16 @@ def _render_wettfinder_games(catalog, row_by_key, *, sport_filter: str, sort_mod
             # Page complete games, never cut a game's markets across pages.
             page_size = WETTFINDER_GAMES_PER_PAGE
             pages = (len(groups) + page_size - 1) // page_size
-            page = st.selectbox('Spiele – Seite', list(range(1, pages + 1)),
-                                key=f'wettfinder_games_page_{sport_filter}_{pages}') if pages > 1 else 1
+            page_scope = sport_filter if page_view is None else f'{sport_filter}_{page_view}'
+            page = 1
+            if pages > 1:
+                page_key = f'wettfinder_games_page_{page_scope}_{pages}'
+                # Streamlit removes widget state when switching views. Retain
+                # the page separately without sharing a page between filters.
+                page_store = st.session_state.setdefault('_wettfinder_pages_saved', {})
+                page = st.selectbox('Spiele – Seite', list(range(1, pages + 1)),
+                                    index=page_store.get(page_key, 1) - 1, key=page_key)
+                page_store[page_key] = page
             first = (page - 1) * page_size
             if pages > 1:
                 st.caption(f'{first + 1}–{min(first + page_size, len(groups))} von {len(groups)} Spielen')
@@ -4849,17 +4859,23 @@ def _render_wettfinder_games(catalog, row_by_key, *, sport_filter: str, sort_mod
 # 70 % or more (07.10.–09.11.: 72,3 % hit, 1353 tips; docs/audits/2026-11-10-liste-ab-70.md).
 
 
-def _wettfinder_min_chance_control() -> int:
-    """Viewer-chosen minimum model chance in percent (owner 05.11.2026)."""
+def _wettfinder_min_chance_control(*, market_view=False) -> int:
+    """The opt-in market view keeps a separate extra display minimum."""
+    key = 'wettfinder_market_min_chance' if market_view else 'wettfinder_min_chance'
+    default = 0 if market_view else WETTFINDER_MIN_CHANCE_DEFAULT
+    saved_key = '_' + key + '_saved'
+    start = st.session_state.get(saved_key, default)
     with st.container(key='wettfinder_v2_min_chance'):
         value = st.slider(
-            'Mindest-Modellchance (%)', 0, 95, WETTFINDER_MIN_CHANCE_DEFAULT, step=5,
-            key='wettfinder_min_chance',
-            help='Zeigt nur Auswahlen, die laut Modell mindestens so wahrscheinlich eintreffen. '
-                 'Gilt für die Spiele und die Tennisbox; Doublebet hat eine eigene Regel.',
+            'Mindest-Modellchance (%)', 0, 95, start, step=5, key=key,
+            help=('0 %: keine zusätzliche Anzeigegrenze. Modell- und Preisprüfung bleiben unverändert.'
+                  if market_view else
+                  'Zeigt nur Auswahlen, die laut Modell mindestens so wahrscheinlich eintreffen. '
+                  'Gilt für die Spiele und die Tennisbox; Doublebet hat eine eigene Regel.'),
         )
     if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 95:
-        return WETTFINDER_MIN_CHANCE_DEFAULT
+        value = default
+    st.session_state[saved_key] = value
     return value
 
 
@@ -4928,16 +4944,32 @@ def _render_automated_daily_selection() -> None:
             with st.container(key='wettfinder_v2_sports'):
                 sport_filter = _segmented('Sportart', list(FINDER_SPORT_OPTIONS),
                     'wettfinder_automatic_sport_v2', 'Alle')
-            min_chance = _wettfinder_min_chance_control()
+            market_view = st.radio('Ansicht', ['Übersicht', 'Bester je Wettart'], horizontal=True,
+                                   key='wettfinder_market_view') == 'Bester je Wettart'
+            market_family = None
+            if market_view:
+                st.caption('Je Spiel die höchste Modellchance pro Wettart.')
+                saved_family = st.session_state.get('_wettfinder_market_family_saved')
+                market_family = st.selectbox('Wettart', WETTFINDER_MARKET_FAMILIES,
+                                             index=(WETTFINDER_MARKET_FAMILIES.index(saved_family)
+                                                    if saved_family in WETTFINDER_MARKET_FAMILIES else 0),
+                                             key='wettfinder_market_family')
+                st.session_state['_wettfinder_market_family_saved'] = market_family
+            min_chance = _wettfinder_min_chance_control(market_view=market_view)
             sort_mode = display_order_control(st, key='wettfinder_automatic_order')
             # The viewer's minimum chance only narrows the view; the record keeps
             # the unfiltered catalog so evaluations do not depend on a slider.
             full_catalog = compose_wettfinder_catalog(cards, sport_filter=sport_filter)
-            catalog = (full_catalog if min_chance == 0 else
-                       compose_wettfinder_catalog(cards, sport_filter=sport_filter, min_probability=min_chance / 100))
+            if market_view:
+                catalog = best_wettfinder_by_market(full_catalog, family=market_family,
+                                                    min_probability=min_chance / 100)
+            else:
+                catalog = (full_catalog if min_chance == 0 else
+                           compose_wettfinder_catalog(cards, sport_filter=sport_filter, min_probability=min_chance / 100))
             shown_leads = ()
             if not catalog.featured and not catalog.additional:
                 message = ('Aktuell ist noch kein automatisches Ergebnis verfügbar.' if status is None else
+                    'Keine passende Auswahl für diese Wettart und den gewählten Filter.' if market_view else
                     f'Keine Auswahl ab {min_chance} % Modellchance. Regler nach links schieben, um mehr zu sehen.'
                     if full_catalog.featured or full_catalog.additional else
                     'Für diesen Spieltag gibt es aktuell keine passende Auswahl.' if sport_filter == 'Alle' else
@@ -4945,8 +4977,9 @@ def _render_automated_daily_selection() -> None:
                 st.info(message)
             else:
                 shown_leads = _render_wettfinder_games(catalog, {card.key: (signal, card) for signal, card in rows},
-                                        sport_filter=sport_filter, sort_mode=sort_mode)
-            if status is not None and not clock_only:
+                                        sport_filter=sport_filter, sort_mode=sort_mode,
+                                        **({'page_view': market_family} if market_view else {}))
+            if status is not None and not clock_only and not market_view:
                 from tip_publication import record_signal_catalog
                 selected_order = [card.key for card in (*full_catalog.featured, *full_catalog.additional)]
                 selected_signals = {card.key: signal for signal, card in rows}
@@ -4957,7 +4990,9 @@ def _render_automated_daily_selection() -> None:
                         selected_signals[key], now=evaluation_now, decided_at=status.generated_at)),
                     featured_keys=(card.key for card in full_catalog.featured),
                     source_run_id=source_run_id)
-            tennis_catalog = compose_wettfinder_catalog(cards, sport_filter='Tennis', min_probability=min_chance / 100)
+            rail_min = (st.session_state.get('_wettfinder_min_chance_saved', WETTFINDER_MIN_CHANCE_DEFAULT)
+                        if market_view else min_chance)
+            tennis_catalog = compose_wettfinder_catalog(cards, sport_filter='Tennis', min_probability=rail_min / 100)
             tennis_cards = tennis_catalog.featured + tennis_catalog.additional
         with rail:
             ordered_tennis = ordered_event_rows(tennis_cards, mode=sort_mode,

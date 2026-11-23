@@ -65,8 +65,11 @@ def _render(monkeypatch, forecasts, widget_values=None):
     monkeypatch.setattr(app, 'datetime', Clock)
     _patch_automatic_snapshot(monkeypatch, status=_automatic_status(NOW), forecasts=forecasts)
     monkeypatch.setattr(app, '_render_wettfinder_games', lambda result, *a, **kw: catalogs.append(result))
-    monkeypatch.setattr(tip_publication, 'record_signal_catalog',
-                        lambda surface, signals, **kw: recorded.append([s.key for s in signals]))
+    def capture_catalog(surface, signals, **kwargs):
+        if surface == "wettfinder_automatic":
+            recorded.append([s.key for s in signals])
+
+    monkeypatch.setattr(tip_publication, 'record_signal_catalog', capture_catalog)
     app._render_automated_daily_selection()
     return recorder, catalogs, recorded
 
@@ -94,6 +97,19 @@ def test_empty_view_tells_the_viewer_to_move_the_slider(monkeypatch):
     assert any('Keine Auswahl ab 60 % Modellchance' in str(value) for value in infos)
 
 
+def test_market_view_lists_a_lower_probability_result_without_changing_the_standard(monkeypatch):
+    high = _signal(1, .79)
+    winner = _signal(2, .57, "RESULT_HOME")
+    corner = _signal(3, .61, "AWAY_CORNERS_OVER_3_5")
+    _recorder, catalogs, recorded = _render(monkeypatch, [high, winner, corner],
+        {"wettfinder_market_view": "Bester je Wettart", "wettfinder_market_family": "Sieger & Ergebnis"})
+    assert set(_shown(catalogs[0])) == {winner.key}
+    assert recorded == []
+    _recorder, catalogs, recorded = _render(monkeypatch, [high, winner, corner])
+    assert set(_shown(catalogs[0])) == {high.key}
+    assert set(recorded[0]) == {high.key, winner.key, corner.key}
+
+
 def test_actual_ui_page_receipt_uses_filter_page_and_never_archives_tomorrow(monkeypatch, tmp_path):
     from types import SimpleNamespace
     import consumer_tip_history as history
@@ -114,6 +130,11 @@ def test_actual_ui_page_receipt_uses_filter_page_and_never_archives_tomorrow(mon
     monkeypatch.setattr(tip_publication, 'DEFAULT_FORECAST_DB', tmp_path/'missing.db')
     monkeypatch.setattr(app, '_daily3_rail_allowed', lambda: False)
     monkeypatch.setattr(app, '_render_editorial_rail', lambda *a, **k: None)
+    ui = _RecordingStreamlit(widget_values={"wettfinder_market_view": "Bester je Wettart"})
+    monkeypatch.setattr(app, 'st', ui)
+    app._render_automated_daily_selection()
+    assert not history.read_tip_publications(tmp_path/'tips.db', surface='wettfinder_automatic_event_leads')
+    # The opt-in view cannot replace the first record of actually shown standard leads.
     ui = _RecordingStreamlit(widget_values={'wettfinder_min_chance': 60, 'wettfinder_games_page_Alle_2': 2})
     monkeypatch.setattr(app, 'st', ui)
     app._render_automated_daily_selection()
@@ -125,7 +146,7 @@ def test_actual_ui_page_receipt_uses_filter_page_and_never_archives_tomorrow(mon
     assert {t['fixture_id'] for t in inventory['tips']} == set(range(1, 23))
 
 
-def _render_page_for_test():
+def _render_page_for_test(many_games=False):
     """Run the real page renderer with Streamlit's own slider widget."""
     from datetime import datetime as real_datetime
     from types import SimpleNamespace
@@ -141,8 +162,9 @@ def _render_page_for_test():
             return NOW
 
     saved = (app.automated_wettfinder_snapshot, app.datetime, tip_publication.record_signal_catalog)
-    app.automated_wettfinder_snapshot = lambda **_: SimpleNamespace(
-        status=_automatic_status(NOW), forecasts=(_signal(1, .292), _signal(2, .766)))
+    forecasts = (tuple(_signal(i, .766) for i in range(1, 23)) if many_games else
+                 (_signal(1, .292), _signal(2, .766)))
+    app.automated_wettfinder_snapshot = lambda **_: SimpleNamespace(status=_automatic_status(NOW), forecasts=forecasts)
     app.datetime = Clock
     tip_publication.record_signal_catalog = lambda *a, **kw: None
     try:
@@ -162,6 +184,44 @@ def test_real_streamlit_slider_starts_at_seventy_and_moves_the_page():
     slider.set_value(25).run(timeout=60)
     assert not ui.exception
     assert sorted(_shown_games(ui)) == ['Heimteam 1', 'Heimteam 2']
+
+
+def test_real_streamlit_switch_preserves_independent_minimums():
+    from streamlit.testing.v1 import AppTest
+
+    ui = AppTest.from_function(_render_page_for_test).run(timeout=60)
+    assert not ui.exception
+    ui.slider(key="wettfinder_min_chance").set_value(80).run(timeout=60)
+    ui.radio(key="wettfinder_market_view").set_value("Bester je Wettart").run(timeout=60)
+    assert not ui.exception
+    assert ui.slider(key="wettfinder_market_min_chance").value == 0
+    assert sorted(_shown_games(ui)) == ["Heimteam 1", "Heimteam 2"]
+    ui.slider(key="wettfinder_market_min_chance").set_value(50).run(timeout=60)
+    assert _shown_games(ui) == ["Heimteam 2"]
+    ui.radio(key="wettfinder_market_view").set_value("Übersicht").run(timeout=60)
+    assert not ui.exception
+    assert ui.slider(key="wettfinder_min_chance").value == 80
+    assert _shown_games(ui) == []
+    ui.radio(key="wettfinder_market_view").set_value("Bester je Wettart").run(timeout=60)
+    assert ui.slider(key="wettfinder_market_min_chance").value == 50
+
+
+def test_real_streamlit_switch_remembers_category_and_pages_separately():
+    from streamlit.testing.v1 import AppTest
+
+    ui = AppTest.from_function(_render_page_for_test, args=(True,)).run(timeout=60)
+    ui.selectbox(key="wettfinder_games_page_Alle_2").select(2).run(timeout=60)
+    ui.radio(key="wettfinder_market_view").set_value("Bester je Wettart").run(timeout=60)
+    ui.selectbox(key="wettfinder_market_family").select("Tore Über/Unter").run(timeout=60)
+    alt_page_key = "wettfinder_games_page_Alle_Tore Über/Unter_2"
+    assert ui.selectbox(key=alt_page_key).value == 1
+    ui.selectbox(key=alt_page_key).select(2).run(timeout=60)
+    ui.radio(key="wettfinder_market_view").set_value("Übersicht").run(timeout=60)
+    assert not ui.exception
+    assert ui.selectbox(key="wettfinder_games_page_Alle_2").value == 2
+    ui.radio(key="wettfinder_market_view").set_value("Bester je Wettart").run(timeout=60)
+    assert ui.selectbox(key="wettfinder_market_family").value == "Tore Über/Unter"
+    assert ui.selectbox(key=alt_page_key).value == 2
 
 
 def _shown_games(ui):
