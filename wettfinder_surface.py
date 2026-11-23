@@ -24,6 +24,7 @@ from bet_finder_ui import (
     _consumer_market_identity,
     consumer_fixture_label,
 )
+from challenge_engine import MARKET_BY_KEY
 from ev_signal_sources import ModelSignal
 from daily3_comparison import Comparison, football_form_comparison
 from forecast_analysis import build_forecast_analysis, forecast_highlight_reason, format_model_clock
@@ -49,6 +50,24 @@ from selection_coherence import consumer_event_identity
 
 _ALL_SPORT_FILTERS = {"", "alle", "all"}
 _ZURICH_TZ = ZoneInfo("Europe/Zurich")
+_ALL_WETTFINDER_FAMILIES = "Alle Wettarten"
+_OTHER_WETTFINDER_FAMILIES = "Weitere Wettarten"
+_WETTFINDER_FAMILY_KINDS = {
+    "Sieger & Ergebnis": ("result", "H2H"),
+    "Doppelte Chance": ("double_chance",),
+    "Tore Über/Unter": ("total", "team_total"),
+    "Torbereiche": ("total_range", "team_range"),
+    "Beide treffen": ("btts",),
+    "Ecken": ("corner_total", "team_corners"),
+    "Karten": ("yellow_total", "team_yellow"),
+    "Kombimärkte": ("result_total", "mixed_or"),
+}
+WETTFINDER_MARKET_FAMILIES = (
+    _ALL_WETTFINDER_FAMILIES, *_WETTFINDER_FAMILY_KINDS, _OTHER_WETTFINDER_FAMILIES,
+)
+_WETTFINDER_KIND_FAMILY = {
+    kind: family for family, kinds in _WETTFINDER_FAMILY_KINDS.items() for kind in kinds
+}
 
 
 @dataclass(frozen=True)
@@ -712,6 +731,52 @@ def meets_min_probability(card: WettfinderCard, min_probability: float) -> bool:
             or not math.isfinite(value) or not 0 <= value <= 1):
         return False
     return round(value * 100, 1) >= round(min_probability * 100, 1)
+
+
+def _wettfinder_market_family(card: WettfinderCard) -> str:
+    key = str(card.market_key or "").strip().upper()
+    spec = MARKET_BY_KEY.get(key) if _token(card.sport) in {"fussball", "football"} else None
+    kind = spec.kind if spec is not None else key if key == "H2H" else ""
+    return _WETTFINDER_KIND_FAMILY.get(kind, _OTHER_WETTFINDER_FAMILIES)
+
+
+def best_wettfinder_by_market(
+    catalog: WettfinderCatalog,
+    *,
+    family: str = _ALL_WETTFINDER_FAMILIES,
+    min_probability: float = 0.0,
+) -> WettfinderCatalog:
+    """Keep the strongest offered card per family and event in its original revision.
+
+    Apply this only to the already coherent, price-approved catalog. No new
+    direction, revision, highlight or published tip is selected by this view.
+    """
+    if family not in WETTFINDER_MARKET_FAMILIES:
+        raise ValueError("unknown Wettfinder market family")
+    if (isinstance(min_probability, bool) or not isinstance(min_probability, (int, float))
+            or not 0 <= min_probability <= 1):
+        raise ValueError("min_probability must be a fraction between 0 and 1")
+
+    cards = catalog.featured + catalog.additional
+    candidates: dict[str, list[WettfinderCard]] = {}
+    for card in cards:
+        value = card.model_probability
+        if (card.quote_floor_excluded or isinstance(value, bool) or not isinstance(value, (int, float))
+                or not 0 <= value <= 1 or not meets_min_probability(card, min_probability)):
+            continue
+        card_family = _wettfinder_market_family(card)
+        if family == _ALL_WETTFINDER_FAMILIES or card_family == family:
+            candidates.setdefault(card_family, []).append(card)
+
+    selected_ids = {
+        id(card)
+        for pool in candidates.values()
+        for card in select_event_leads(pool, revision_anchors=catalog.event_leads)
+    }
+    groups = _group_additional(card for card in cards if id(card) in selected_ids)
+    visible_events = {group.fixture_identity for group in groups}
+    anchors = tuple(card for card in catalog.event_leads if _fixture_identity(card) in visible_events)
+    return WettfinderCatalog((), tuple(card for group in groups for card in group.cards), groups, anchors)
 
 
 def group_wettfinder_games(catalog: WettfinderCatalog) -> tuple[WettfinderFixtureGroup, ...]:

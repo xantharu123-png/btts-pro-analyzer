@@ -6,6 +6,13 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 
 ## Stand: 23.11.2026
 
+Wettfinder: optionale Ansicht „Bester je Wettart“, je Spiel und Marktgruppe
+höchste Modellchance aus dem bereits angebotenen, kohärenten Katalog. Eigener
+Anzeige-Regler (standardmäßig 0 %, keine zusätzliche Schwelle); Übersicht 70 %
+und Tennis-Seitenbox unverändert. Eigene Kategorieauswahl und Seitennummern.
+Keine neuen Haupttipp-Belege durch den alternativen Filter. Keine Änderung an
+Modell, Quotenprüfung, Scheinregeln, Joblauf oder Anbieterabruf.
+
 Tageskombis: Neue öffentliche Scheine verwenden jede Partie nur einmal über
 alle Größen und begrenzen gleiche Marktgruppen auf 2/2/2/3 Positionen.
 Originalscheine sowie Modell, Preisregel und interne Vergleichssuche bleiben
