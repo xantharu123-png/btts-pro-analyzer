@@ -48,13 +48,15 @@ def test_worker_publishes_playing_day_picks_without_a_common_book_or_fit(tmp_pat
     monkeypatch.setenv("BETBOY_PRICE_POLICY", "floor")
     monkeypatch.setattr(evidence, "_now", lambda: NOW)
     monkeypatch.setattr(receipts, "_now", lambda: NOW)
-    signals = [model(i, odds=1.4) for i in range(1, 6)]
+    signals = [model(i, odds=1.4) for i in (1, 2, 7, 8)]
+    signals.extend(model(i, odds=1.4, key="TOTAL_UNDER_2_5") for i in (3, 4))
     # Both unpriced but only the first passes the existing public model guard.
-    signals.extend(replace(model(i, p=p), reference_quote=None) for i,p in [(6,.62), (7,.81)])
+    signals.extend(replace(model(i, p=p, key="TOTAL_UNDER_2_5"), reference_quote=None)
+                   for i,p in [(6,.62), (9,.81)])
     # No shared book even for the three highest-ranked tips. Odds identify real
     # bookmaker offers, not a fictitious common booking venue.
     from copy import deepcopy
-    for index, s in enumerate(signals[:5]):
+    for index, s in enumerate(signals[:6]):
         quote = deepcopy(s.reference_quote)
         for point in quote["points"]:
             point["bookmaker_id"] += f"-{index}"
@@ -66,14 +68,19 @@ def test_worker_publishes_playing_day_picks_without_a_common_book_or_fit(tmp_pat
     stored = evidence.record_forecast_run(dict(generated_at=NOW.isoformat(), selection_policy_version="test-v1",
                                                model_candidates=rows), db, "test-model-v1")
     assert stored["recorded"] == len(signals)
-    report = record_worker_combos(signals, as_of=NOW, directory=tmp_path)
-    assert report["linked_legs"] == 6
-    assert report["sizes"] == {"daily-picks": [3,4]}
+    first = record_worker_combos([s for s in signals if s.fixture_id in (1, 2, 3)],
+                                as_of=NOW, directory=tmp_path)
+    assert first["sizes"] == {"daily-picks": [3]}
     slips_path = tmp_path / "daily_accumulators.db"
+    original, = receipts.load_daily_picks(slips_path, day=NOW.date())
+    report = record_worker_combos(signals, as_of=NOW, directory=tmp_path)
+    assert report["linked_legs"] == 7
+    assert report["sizes"] == {"daily-picks": [3,4]}
     saved = receipts.load_daily_picks(slips_path, day=NOW.date())
     assert [s["size"] for s in saved] == [3, 4]
     assert all(s["price_status"] == "unconfirmed" and s["bookmaker_id"] is None for s in saved)
     assert not receipts.load_day(slips_path, day=NOW.date(), arm="model-observation")
     assert not receipts.load_day(slips_path, day=NOW.date(), arm="reference")
-    assert 7 not in {leg["fixture_id"] for s in saved for leg in s["legs"]}
+    assert [sorted(leg["fixture_id"] for leg in s["legs"]) for s in saved] == [[1, 2, 3], [4, 6, 7, 8]]
+    assert saved[0] == original
     assert {leg["forecast_id"] for s in saved for leg in s["legs"]} <= set(stored["forecast_ids"])

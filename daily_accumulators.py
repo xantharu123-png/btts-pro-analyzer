@@ -1,4 +1,5 @@
 """Daily multi-event model selections. No API, persistence, prices in the score or stakes."""
+from collections import Counter
 from datetime import date, datetime, timezone
 from itertools import chain
 import logging
@@ -169,23 +170,66 @@ def _ticket(legs, books, reference_probability):
                 price_status='confirmed' if books else 'unconfirmed')
 
 
-def _best(pool, size, prior, confirmed, joint_score=None):
-    # Pre-compute conflicts against immutable earlier slips, including alias
-    # collisions. Refuse ambiguity instead of joining two differently keyed games.
+def _public_family(leg):
+    market = leg["market_key"]
+    if leg["sport"] != "football":
+        return "result" if market == "H2H" else "other"
+    from challenge_engine import MARKET_BY_KEY
+
+    spec = MARKET_BY_KEY.get(market)
+    kind = spec.kind if spec is not None else None
+    if kind in {"total", "team_total", "team_range", "total_range", "btts"} or market == "MIXED_BTTS_OR_OVER_2_5":
+        return "goals"
+    if kind in {"result", "double_chance"}:
+        return "result"
+    if kind in {"result_total", "mixed_or"}:
+        return "result_and_goals"
+    if kind in {"corner_total", "team_corners"}:
+        return "corners"
+    if kind in {"yellow_total", "team_yellow"}:
+        return "cards"
+    return "other"
+
+
+def _best(pool, size, prior, confirmed, joint_score=None, *, diversify=False):
+    # Public slips reserve all earlier fixtures. The research comparators keep
+    # their original overlap policy so the historical baseline does not change.
+    reserved = {event for s in prior for old in s["legs"] for event in _events(old)} if diversify else set()
     ranked = []
     for leg in pool:
         events = _events(leg)
-        hits = [(i,old) for i,s in enumerate(prior) for old in s['legs'] if events & _events(old)]
+        if events & reserved:
+            continue
+        hits = [] if diversify else [(i,old) for i,s in enumerate(prior) for old in s['legs'] if events & _events(old)]
         if len(hits) > 1 or any(not _same_side(old, leg) for _,old in hits):
             continue
         people = set(chain(leg['participants'], leg.get('participant_names', ())))
         books = frozenset(leg['offers'])
         if not confirmed or books:
-            ranked.append((leg, events, people, {i for i,_ in hits}, books))
+            ranked.append((leg, events, people, {i for i,_ in hits}, books,
+                           _public_family(leg) if diversify else None))
+    family_cap = max(2, size // 2)
+    if diversify and sum(min(n, family_cap) for n in Counter(r[-1] for r in ranked).values()) < size:
+        return None
+    used_families = Counter()
     best, score, nodes = None, -1., 0
 
     class Limit(Exception):
         pass
+
+    def diverse_upper(start, remaining, p):
+        # Best suffix under family caps alone. Ignoring event/person conflicts
+        # is optimistic, so this cannot prune a better feasible solution.
+        quotas = used_families.copy()
+        for i in range(start, len(ranked)):
+            leg, *_, family = ranked[i]
+            if quotas[family] < family_cap:
+                p *= leg["probability"]
+                quotas[family] += 1
+                remaining -= 1
+                if not remaining:
+                    return p
+        return 0.
 
     def visit(start, picked, p, used, people, overlaps, books):
         nonlocal best, score, nodes
@@ -201,22 +245,31 @@ def _best(pool, size, prior, confirmed, joint_score=None):
                 best, score = dict(slip, calibrated_probability=calibrated), calibrated
             return
         for i in range(start, len(ranked)-remaining+1):
+            leg, events, participants, shared, offered, family = ranked[i]
+            if diversify and used_families[family] >= family_cap:
+                continue
             nodes += 1
             if nodes > _NODE_LIMIT:
                 raise Limit
             # Full-precision optimistic product, with the identical sequence
             # of multiplications as a completed path (not a log-score).
             # A product bound is not an upper bound for a calibrated model.
-            if joint_score is None and prod((ranked[j][0]['probability'] for j in range(i,i+remaining)),start=p) <= score:
-                break
-            leg, events, participants, shared, offered = ranked[i]
+            if joint_score is None:
+                upper = (diverse_upper(i, remaining, p) if diversify else
+                         prod((ranked[j][0]['probability'] for j in range(i,i+remaining)), start=p))
+                if upper <= max(score, 0.):
+                    break
             if used & events or people & participants or overlaps & shared:
                 continue
             common = offered if books is None else books & offered
             if confirmed and not common:
                 continue
+            if diversify:
+                used_families[family] += 1
             visit(i+1, picked+[leg], p*leg['probability'], used|events, people|participants,
                   overlaps|shared, common)
+            if diversify:
+                used_families[family] -= 1
 
     try:
         visit(0, [], 1., set(), set(), set(), None)
@@ -226,14 +279,14 @@ def _best(pool, size, prior, confirmed, joint_score=None):
     return best
 
 
-def _select(legs, frozen, confirmed, joint_score=None):
+def _select(legs, frozen, confirmed, joint_score=None, *, diversify=False):
     pool = sorted(legs, key=_rank)
     prior = list(frozen)
     result = []
     for size in (3,4,5,6):
         if any(s['size'] == size for s in prior):
             continue
-        slip = _best(pool,size,prior,confirmed,joint_score)
+        slip = _best(pool,size,prior,confirmed,joint_score,diversify=diversify)
         if slip is not None:
             prior.append(slip)
             result.append(slip)
@@ -243,6 +296,11 @@ def _select(legs, frozen, confirmed, joint_score=None):
 def select_combo_set(legs, *, frozen=()):
     """Sports-only prospective arm. Even absent prices do not change its ranks."""
     return _select(legs, frozen, False)
+
+
+def select_public_combo_set(legs, *, frozen=()):
+    """Only new public slips diversify; already published plays and odds never change."""
+    return _select(legs, frozen, False, diversify=True)
 
 
 def select_confirmed_combo_set(legs, *, frozen=()):
