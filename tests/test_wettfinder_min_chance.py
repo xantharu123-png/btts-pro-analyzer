@@ -146,7 +146,7 @@ def test_actual_ui_page_receipt_uses_filter_page_and_never_archives_tomorrow(mon
     assert {t['fixture_id'] for t in inventory['tips']} == set(range(1, 23))
 
 
-def _render_page_for_test():
+def _render_page_for_test(many_games=False):
     """Run the real page renderer with Streamlit's own slider widget."""
     from datetime import datetime as real_datetime
     from types import SimpleNamespace
@@ -162,8 +162,9 @@ def _render_page_for_test():
             return NOW
 
     saved = (app.automated_wettfinder_snapshot, app.datetime, tip_publication.record_signal_catalog)
-    app.automated_wettfinder_snapshot = lambda **_: SimpleNamespace(
-        status=_automatic_status(NOW), forecasts=(_signal(1, .292), _signal(2, .766)))
+    forecasts = (tuple(_signal(i, .766) for i in range(1, 23)) if many_games else
+                 (_signal(1, .292), _signal(2, .766)))
+    app.automated_wettfinder_snapshot = lambda **_: SimpleNamespace(status=_automatic_status(NOW), forecasts=forecasts)
     app.datetime = Clock
     tip_publication.record_signal_catalog = lambda *a, **kw: None
     try:
@@ -203,6 +204,24 @@ def test_real_streamlit_switch_preserves_independent_minimums():
     assert _shown_games(ui) == []
     ui.radio(key="wettfinder_market_view").set_value("Bester je Wettart").run(timeout=60)
     assert ui.slider(key="wettfinder_market_min_chance").value == 50
+
+
+def test_real_streamlit_switch_remembers_category_and_pages_separately():
+    from streamlit.testing.v1 import AppTest
+
+    ui = AppTest.from_function(_render_page_for_test, args=(True,)).run(timeout=60)
+    ui.selectbox(key="wettfinder_games_page_Alle_2").select(2).run(timeout=60)
+    ui.radio(key="wettfinder_market_view").set_value("Bester je Wettart").run(timeout=60)
+    ui.selectbox(key="wettfinder_market_family").select("Tore Über/Unter").run(timeout=60)
+    alt_page_key = "wettfinder_games_page_Alle_Tore Über/Unter_2"
+    assert ui.selectbox(key=alt_page_key).value == 1
+    ui.selectbox(key=alt_page_key).select(2).run(timeout=60)
+    ui.radio(key="wettfinder_market_view").set_value("Übersicht").run(timeout=60)
+    assert not ui.exception
+    assert ui.selectbox(key="wettfinder_games_page_Alle_2").value == 2
+    ui.radio(key="wettfinder_market_view").set_value("Bester je Wettart").run(timeout=60)
+    assert ui.selectbox(key="wettfinder_market_family").value == "Tore Über/Unter"
+    assert ui.selectbox(key=alt_page_key).value == 2
 
 
 def _shown_games(ui):

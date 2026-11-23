@@ -4830,8 +4830,15 @@ def _render_wettfinder_games(catalog, row_by_key, *, sport_filter: str, sort_mod
             page_size = WETTFINDER_GAMES_PER_PAGE
             pages = (len(groups) + page_size - 1) // page_size
             page_scope = sport_filter if page_view is None else f'{sport_filter}_{page_view}'
-            page = st.selectbox('Spiele – Seite', list(range(1, pages + 1)),
-                                key=f'wettfinder_games_page_{page_scope}_{pages}') if pages > 1 else 1
+            page = 1
+            if pages > 1:
+                page_key = f'wettfinder_games_page_{page_scope}_{pages}'
+                # Streamlit removes widget state when switching views. Retain
+                # the page separately without sharing a page between filters.
+                page_store = st.session_state.setdefault('_wettfinder_pages_saved', {})
+                page = st.selectbox('Spiele – Seite', list(range(1, pages + 1)),
+                                    index=page_store.get(page_key, 1) - 1, key=page_key)
+                page_store[page_key] = page
             first = (page - 1) * page_size
             if pages > 1:
                 st.caption(f'{first + 1}–{min(first + page_size, len(groups))} von {len(groups)} Spielen')
@@ -4942,8 +4949,12 @@ def _render_automated_daily_selection() -> None:
             market_family = None
             if market_view:
                 st.caption('Je Spiel die höchste Modellchance pro Wettart.')
+                saved_family = st.session_state.get('_wettfinder_market_family_saved')
                 market_family = st.selectbox('Wettart', WETTFINDER_MARKET_FAMILIES,
+                                             index=(WETTFINDER_MARKET_FAMILIES.index(saved_family)
+                                                    if saved_family in WETTFINDER_MARKET_FAMILIES else 0),
                                              key='wettfinder_market_family')
+                st.session_state['_wettfinder_market_family_saved'] = market_family
             min_chance = _wettfinder_min_chance_control(market_view=market_view)
             sort_mode = display_order_control(st, key='wettfinder_automatic_order')
             # The viewer's minimum chance only narrows the view; the record keeps
