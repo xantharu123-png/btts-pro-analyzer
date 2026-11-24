@@ -1,5 +1,15 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 24.11.2026 – Live: nur bei klarem Signal
+
+- [Prüfprotokoll](docs/audits/2026-11-24-live-klare-signale.md): Cardiff in
+  Minute 2 als Regression; Auswahl und automatischer Spielfokus nach Zugewinn
+  gegenüber dem gleichen Spielstand und derselben Minute ohne Live-Beobachtungen.
+  15 Minuten Beobachtung, 55 % Modellchance und mindestens 5 Prozentpunkte Zugewinn.
+- Nach Release regulär angezeigte und abgerechnete Erstbelege der neuen Policy
+  getrennt auswerten; keine Rückrechnung aus späteren Endständen, kein neuer Scan.
+  Vergleichsschwelle und Modellnutzen sind nicht historisch kalibriert.
+
 ## 23.11.2026 – Wettfinder: Bester je Wettart
 
 - Alternative Anzeige im automatischen Wettfinder: maximal ein Markt pro

@@ -10,7 +10,23 @@ LOGGER = logging.getLogger(__name__)
 
 def _ordinary_fields(candidate, row):
     home, away = row.get("home_team"), row.get("away_team")
-    if candidate.market == "Noch ein Tor" and candidate.selection == "Mindestens 1 weiteres Tor":
+    if "live_comparison" in row:
+        from live_market_comparison import market_open, selection_labels
+        info = row["live_comparison"]
+        if not isinstance(info, dict):
+            return None
+        market, side = info.get("market"), info.get("side")
+        if (not all(isinstance(v, str) and v.strip() for v in (market, side, home, away, info.get("reason")))
+                or home == away):
+            return None
+        labels = selection_labels(market, side, home, away)
+        # Matching the two display strings to each other is not enough: both
+        # might describe a different side or line than the internal receipt.
+        if (labels != (candidate.market, candidate.selection)
+                or labels != (info.get("market_label"), info.get("label"))
+                or not market_open(market, side, row.get("home_score"), row.get("away_score"))):
+            return None
+    elif candidate.market == "Noch ein Tor" and candidate.selection == "Mindestens 1 weiteres Tor":
         market, side = "next_goal", "any"
     elif candidate.market == "BTTS" and candidate.selection == "Beide Teams treffen":
         market, side = "btts", "yes"
@@ -60,6 +76,8 @@ def _red_fields(candidate, row):
 
 def live_snapshot_fields(candidate, row, *, red):
     """Identify the outcome and baseline used both for display and its receipt."""
+    if red and "live_comparison" in row:
+        return None
     return (_red_fields if red else _ordinary_fields)(candidate, row)
 
 
@@ -73,6 +91,9 @@ def record_visible_analysis(candidate, row, *, snapshot_at, age_seconds, red=Fal
     if fields is None or not row.get("model_version"):
         return
     from live_tip_ledger import record_displayed_live_tip
+    if "live_comparison" in row:
+        from live_tip_ledger import COMPARISON_POLICY_VERSION
+        fields["policy_version"] = COMPARISON_POLICY_VERSION
     try:
         record_displayed_live_tip(**fields, probability=candidate.model_probability / 100.,
                                   snapshot_at=snapshot_at, model_version=row["model_version"])
