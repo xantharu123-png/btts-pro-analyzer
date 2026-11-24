@@ -3073,79 +3073,76 @@ def _live_analysis_gap(fixture, ordinary):
 
 
 def _assess_live_fixture(fixture, ordinary, dismissal, *, age, freemode):
-    """Best eligible pick, or why this exact scoreboard row has none. No new model or prices."""
+    """One automatic regulation market, ranked on the information in this live game.
+
+    The specialist's raw next-goal probability is not a comparable lift. Its
+    manual research view is unchanged; the ticker uses one joint distribution.
+    """
+    from live_football_source import confirmed_live_dismissals
+    from live_football_board import live_percent
+    from live_market_comparison import MIN_PUBLIC_LIVE_MINUTE, compare_live_markets, display_market
     from live_tip_surface import live_snapshot_fields
     from redcard_events import score_pair
-    source, teams = fixture["fixture"], fixture["teams"]
-    status = source["status"]
-    phase, minute, extra = status.get("short"), status.get("elapsed"), status.get("extra")
-    score = score_pair(fixture.get("goals"))
-    native = dict(fixture_id=source["id"], minute=minute, phase=phase, extra=extra,
-                  home_id=teams["home"]["id"], away_id=teams["away"]["id"],
+    from football_recommendations import LIVE_MAX_AGE_SECONDS
+
+    if type(age) not in (int, float) or not 0 <= age <= LIVE_MAX_AGE_SECONDS:
+        return None, "Kein aktueller Detailstand"
+    if closed := _live_closed_window(fixture):
+        return None, closed
+    if not ordinary:
+        return None, _live_analysis_gap(fixture, ordinary)
+    teams, source = fixture["teams"], fixture["fixture"]
+    phase = source["status"]
+    home, away = teams["home"], teams["away"]
+    score = score_pair(fixture["goals"])
+    native = dict(fixture_id=source["id"], minute=phase["elapsed"], phase=phase["short"],
+                  extra=phase.get("extra"), home_id=home["id"], away_id=away["id"],
                   home_goals=score[0], away_goals=score[1])
-    options = []
+    clock = ordinary.get("phase_data") or {}
+    model_identity = dict(fixture_id=ordinary.get("fixture_id"), minute=ordinary.get("minute"),
+                          phase=clock.get("status"), extra=clock.get("extra"),
+                          home_id=ordinary.get("home_team_id"), away_id=ordinary.get("away_team_id"),
+                          home_goals=ordinary.get("home_score"), away_goals=ordinary.get("away_score"))
+    if ("extra" not in clock or not isinstance(ordinary.get("model_version"), str)
+            or not ordinary["model_version"].strip()
+            or ordinary.get("home_team") != home["name"] or ordinary.get("away_team") != away["name"]
+            or any(type(model_identity[k]) is not type(v) or model_identity[k] != v for k, v in native.items())):
+        return None, "Live-Stand nicht eindeutig"
+    if native["minute"] < MIN_PUBLIC_LIVE_MINUTE:
+        return None, "Noch zu früh für einen Live-Tipp"
+    choices = compare_live_markets(ordinary)
+    if choices is None:
+        return None, _live_analysis_gap(fixture, ordinary)
+    cards = [(side, minute, extra) for side, minute, extra, off in confirmed_live_dismissals(fixture) if not off]
+    if any(sum(c[0] == side for c in cards) != ordinary["red_cards"].get(f"{side}_count")
+           for side in ("home", "away")):
+        return None, "Platzverweisstand nicht eindeutig"
+    if not choices or not choices[0].has_clear_lift:
+        return None, "Geprüft – kein Tipp"
+    pick = choices[0]
+    market_label = display_market(pick.market)
+    basis = ordinary["xg_data"]
 
-    def admit(candidate, item, red, *, window_open=True):
-        if (not candidate.forecast_available
-                or not isinstance(item.get("model_version"), str) or not item["model_version"].strip()):
-            return False
-        fields = live_snapshot_fields(candidate, item, red=red)
-        if fields is None or any(type(fields[k]) is not type(v) or fields[k] != v for k, v in native.items()):
-            return False
-        if window_open and candidate.model_probability >= 55:
-            options.append((candidate, item, red))
-        return True
+    def num(value, places):
+        return f"{value:.{places}f}".replace(".", ",")
 
-    ordinary_checked = False
-    if (ordinary and ordinary.get("live_data_quality") == "MEDIUM"
-            and (ordinary.get("red_cards") or {}).get("supported") is not False
-            and ordinary.get("home_team") == teams["home"]["name"]
-            and ordinary.get("away_team") == teams["away"]["name"]):
-        # Tie: prefer a team-specific outcome over an equivalent broader statement.
-        ordinary_checked = True
-        for market in ("Team trifft noch", "Noch ein Tor", "BTTS"):
-            if market == "BTTS":
-                if min(score) > 0:  # Already settled, so not an open market to evaluate.
-                    continue
-                if ordinary.get("btts_confidence") != "MEDIUM":
-                    ordinary_checked = False
-                    continue
-            probability, selection = _live_market_signal(ordinary, market)
-            if probability is not None:
-                candidate = live_football_candidate(
-                    ordinary, market=market, selection=selection, probability=probability,
-                    snapshot_age_seconds=age, freemode=freemode)
-                if not admit(candidate, ordinary, False):
-                    ordinary_checked = False
-            elif selection != "Kein klarer Teamvorteil":
-                ordinary_checked = False
-    red_checked = dismissal is None
-    red_window = None
-    if dismissal and not dismissal.get("error") and dismissal.get("fixture_red_card_count") == 1:
-        prediction = dismissal.get("prediction") or {}
-        red_side = dismissal.get("red_side")
-        opponent_side = {"home": "away", "away": "home"}.get(red_side)
-        probabilities = [_live_probability(prediction.get(k)) for k in
-                         ("next_goal_by_opponent", "next_goal_by_red_team", "no_more_goals")]
-        quality = prediction.get("data_quality")
-        too_early = quality == "LIMITED" and minute < 15  # Existing red predictor's observation window.
-        too_late = prediction.get("too_late_for_signal") is True
-        if ((quality == "MEDIUM" or too_early)
-                and all(p is not None and p <= 1 for p in probabilities)
-                and math.isclose(sum(probabilities), 1.0, abs_tol=1e-6)
-                and opponent_side and (dismissal.get("card") or {}).get("team") == teams[red_side]["name"]
-                and dismissal.get("opponent") == teams[opponent_side]["name"]
-                and dismissal.get("home") == teams["home"]["name"] and dismissal.get("away") == teams["away"]["name"]):
-            candidate = red_card_candidate(dismissal, snapshot_age_seconds=age, freemode=freemode)
-            red_checked = admit(candidate, dismissal, True, window_open=not (too_early or too_late))
-            if red_checked and (too_early or too_late):
-                red_window = "Platzverweis: noch zu früh" if too_early else "Kein neuer Platzverweis-Tipp"
-    best = max(options, key=lambda option: option[0].model_probability, default=None)
-    if best:
-        return best, "Live-Tipp"
-    if red_window or (ordinary_checked and red_checked):
-        return best, red_window or "Geprüft – kein Tipp"
-    return None, _live_analysis_gap(fixture, ordinary)
+    situation = f"{home['name']} – {away['name']}, {score[0]}:{score[1]}"
+    if len(cards) == 1:
+        side, minute, extra = cards[0]
+        when = f"{minute}+{extra}" if extra else str(minute)
+        situation += f", Rot für {teams[side]['name']} ({when}′)"
+    reason = (f"{situation}. Torchancen (xG): {num(basis['home_xg'], 2)} zu {num(basis['away_xg'], 2)}. "
+              f"Bei diesem Stand und dieser Restzeit: {live_percent(pick.reference * 100)} ohne Live-Signale, "
+              f"jetzt {live_percent(pick.probability * 100)}.")
+    item = dict(ordinary, live_comparison={"market": pick.market, "side": pick.side, "label": pick.label,
+                                            "market_label": market_label, "reason": reason, "lift": pick.lift})
+    candidate = live_football_candidate(item, market=market_label, selection=pick.label,
+                                       probability=100 * pick.probability, snapshot_age_seconds=age, freemode=freemode)
+    fields = live_snapshot_fields(candidate, item, red=False)
+    if not candidate.forecast_available or not fields or any(
+            type(fields[k]) is not type(v) or fields[k] != v for k, v in native.items()):
+        return None, "Live-Stand nicht eindeutig"
+    return (candidate, item, False), "Live-Tipp"
 
 
 def _render_live_football(analyzer, *, viewer_active):
@@ -3192,7 +3189,8 @@ def _render_live_football(analyzer, *, viewer_active):
             admitted[game.id] = best
         else:
             reasons[game.id] = status
-    preferred_id = max(admitted, key=lambda fid: (admitted[fid][0].model_probability, -fid), default=None)
+    preferred_id = max(admitted, key=lambda fid: (admitted[fid][1]["live_comparison"]["lift"],
+                                                  admitted[fid][0].model_probability, -fid), default=None)
 
     recorded = set()
 

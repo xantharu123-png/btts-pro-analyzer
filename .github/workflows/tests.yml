@@ -56,6 +56,11 @@ jobs:
           tests/test_live_tip_settlement_job.py
           tests/test_live_tip_ledger.py
           tests/test_live_tip_surface.py
+          tests/test_live_market_comparison.py
+          tests/test_live_market_choice.py
+          tests/test_live_comparison_ledger.py
+          tests/test_live_display_contract.py
+          tests/test_tip_display_order.py
           tests/test_live_all_priors_capture.py
           tests/test_live_all_priors_publication.py
           tests/test_live_all_priors_reader.py

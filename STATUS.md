@@ -4,7 +4,17 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 „Stand“ ersetzen, nicht anhängen; Historie steht in `TODO_AKTUELL.md` und
 `PC_WECHSEL_UEBERGABE.md`. Regeln und Einstieg: `AGENTS.md`.
 
-## Stand: 23.11.2026
+## Stand: 24.11.2026
+
+Live-Fußball: Der Ticker vergleicht 54 Auswahlen aus Tor-, Ergebnis- und
+Handicap-Märkten. Vor Minute 15 kein Tipp; danach mindestens 55 % Modellchance
+und 5 Prozentpunkte Zugewinn gegenüber demselben Spielstand zur selben Minute
+ohne Live-Beobachtungen. Automatischer Fokus nach diesem Zugewinn. Das ist
+eine Anzeigeregel, kein Nachweis für Wettvorteil. Vormatch-Berechnungen,
+Anbietertakt und manuelle Rotkarten-Suche unverändert.
+[Prüfbedingungen und Release-Abnahme](docs/audits/2026-11-24-live-klare-signale.md).
+
+### Voriger Stand: 23.11.2026
 
 Wettfinder: optionale Ansicht „Bester je Wettart“, je Spiel und Marktgruppe
 höchste Modellchance aus dem bereits angebotenen, kohärenten Katalog. Eigener
@@ -22,7 +32,7 @@ Marktvielfalt der Hauptkarten: 68/87 Fußball-Haupttipps vs. 340/903
 verfügbare Fußballmärkte waren reine Torlinien (20.–22.11.).
 [Auswertung und Ursachen](docs/audits/2026-11-23-fussball-marktvielfalt.md).
 Unabhängig davon: erste produktive Tagesdatei für den Live-Vorabpfad #164
-und separater Live-Marktvergleich bleiben getrennte Abnahmen.
+bleibt eine getrennte Abnahme.
 
 ### Voriger Stand: 22.11.2026
 

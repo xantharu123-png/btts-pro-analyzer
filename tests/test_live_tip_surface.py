@@ -33,10 +33,15 @@ def _assert_no_audit_ui(surface):
 
 
 def _analysis(game):
+    from live_football_priors import PRIOR_MODEL, PRIOR_REVISION
     return dict(fixture_id=game, home_team=f"Heim{game}", away_team=f"Gast{game}",
                 home_team_id=game+100, away_team_id=game+200, home_score=1, away_score=0,
                 scheduled_start="2026-11-21T22:00:00Z", minute=45, score="1-0",
-                phase_data={"status": "1H", "extra": 3}, model_version="source-poisson-rev",
+                phase_data={"status": "1H", "extra": 3, "remaining_minutes": 45},
+                model_version=UltraLiveScanner.MODEL_VERSION + PRIOR_REVISION, prematch_prior_source=PRIOR_MODEL,
+                red_cards={"supported": True, "status": "VERIFIED_NONE", "home_count": 0, "away_count": 0, "applied": False},
+                xg_data={"home_prior": 1.5, "away_prior": 1., "home_xg": 1.8, "away_xg": .4},
+                breakdown={"remaining_home_mean": 1.1, "remaining_away_mean": .5},
                 btts_prob=62., btts_confidence="MEDIUM", live_data_quality="MEDIUM",
                 remaining_goals={"over_0_5_probability": 71., "home_scores_probability": 57.,
                                  "away_scores_probability": 65.})
@@ -57,12 +62,11 @@ def _red(game, probs=(.21, .62, .17)):
 
 
 def _market_sample(game, market):
-    """A real render chooses from the model outputs present, never a mocked market widget."""
+    """Deterministic scanner outputs; actual paired market selection and display stay real."""
     analysis = _analysis(game)
-    if market == "Team trifft noch":
-        analysis["remaining_goals"].pop("over_0_5_probability")
-    elif market == "Beide treffen":
-        analysis.pop("remaining_goals")
+    h, a = {"Teamtore": (1.1, .5), "Gesamttore": (.1, .1), "Doppelte Chance": (.4, 1.3),
+            "Handicap": (.7, .7)}.get(market, (1.1, .5))
+    analysis["breakdown"].update(remaining_home_mean=h, remaining_away_mean=a)
     return analysis
 
 
@@ -74,17 +78,16 @@ def surface(monkeypatch):
     from test_live_football_board import mount
     feed = {}
     mount(monkeypatch, ui, feed)
-    counts = {market: dict(won=0, lost=0, open=0, void=0) for market in
-              ("next_goal", "team_scores", "btts", "red_next")}
+    from live_tip_ledger import COMPARISON_POLICY_VERSION
     def record(**row):
         writes.append(row)
         details_at_write.append(list(ui.messages))
-        counts[row["market"]]["open"] += 1
         return True
     def stats():
         reads.append(True)
-        return counts
-    ledger = SimpleNamespace(record_displayed_live_tip=record, live_tip_stats=stats)
+        return {}
+    ledger = SimpleNamespace(record_displayed_live_tip=record, live_tip_stats=stats,
+                             COMPARISON_POLICY_VERSION=COMPARISON_POLICY_VERSION)
     monkeypatch.setitem(sys.modules, "live_tip_ledger", ledger)
     import redcard_signal_log
     shadow_writer = redcard_signal_log.log_signal
@@ -120,17 +123,16 @@ def _show(surface, label, *, age=0, items=None, selected=1):
     return now.isoformat()
 
 
-@pytest.mark.parametrize("label,key,side,prob,visible", [
-    ("Noch ein Tor", "next_goal", "any", .71, "Noch ein Tor"),
-    ("Team trifft noch", "team_scores", "away", .65, "Gast{n} trifft noch"),
-    ("Beide treffen", "btts", "yes", .62, "Beide Teams treffen"),
-    ("Nach Platzverweis", "red_next", "away", .62, "Nächstes Tor: Gast{n}"),
+@pytest.mark.parametrize("label,key,side,prob,pct,visible", [
+    ("Teamtore", "ft_team_total", "home_over_1_5", .667128916302, "66,7 %", "Heim{n}: Über 1,5 Tore"),
+    ("Gesamttore", "ft_total", "under_1_5", .818730753078, "81,9 %", "Unter 1,5 Tore im Spiel"),
+    ("Doppelte Chance", "ft_dc", "x2", .595674016555, "59,6 %", "Gast{n} oder Unentschieden"),
+    ("Handicap", "ft_handicap", "away_plus_1_5", .691531257698, "69,2 %", "Gast{n} Handicap +1,5"),
 ])
-def test_each_visible_row_binds_native_snapshot_once_including_the_selected_fixture(surface,label,key,side,prob,visible):
+def test_each_visible_row_binds_native_snapshot_once_including_the_selected_fixture(surface,label,key,side,prob,pct,visible):
     stamp = _show(surface, label)
     text = str(surface.ui.messages)
     messages = surface.ui.messages
-    pct = f"{prob:.0%}".replace("%", " %")
     inspector, = [msg for kind, msg in messages if kind == "markdown" and 'class="lv-pick"' in msg]
     assert visible.format(n=2) in inspector and f'<b>{pct}</b>' in inspector
     scoreboard, = [msg for kind, msg in messages if kind == "markdown" and 'class="lv-scoreline"' in msg]
@@ -140,21 +142,31 @@ def test_each_visible_row_binds_native_snapshot_once_including_the_selected_fixt
     for n, (receipt, already_rendered) in enumerate(zip(surface.writes, surface.details_at_write), 1):
         assert receipt == dict(fixture_id=n, market=key, side=side, minute=45, phase="1H", extra=3,
                                home_id=100+n, away_id=200+n, home_goals=1, away_goals=0,
-                               probability=prob, snapshot_at=stamp, model_version=(
-                                   RED_CARD_MODEL_VERSION if key=="red_next" else "source-poisson-rev"))
+                               probability=pytest.approx(prob), snapshot_at=stamp, model_version=_analysis(n)["model_version"],
+                               policy_version=surface.ledger.COMPARISON_POLICY_VERSION)
         button, = [label for kind, value in already_rendered if kind == "button"
                    for label, widget in [value] if widget == f"live_fixture_{n}"]
-        assert f"Heim{n} – Gast{n}" in button and visible.format(n=n) in button and f"Modell {pct}" in button
+        from live_football_board import plain_markdown
+        assert f"Heim{n} – Gast{n}" in button and plain_markdown(visible.format(n=n)) in button and f"Modell {pct}" in button
+    assert any(kind == "markdown" and 'class="lv-pick-reason"' in value and "Heim2 – Gast2, 1:0" in value and "Torchancen" in value
+               and "ohne Live-Signale" in value for kind, value in messages)
     assert "keine passende Live-Quote" not in text and "Deine Mindestquote" not in text
     assert [v[1] for kind, v in surface.ui.messages if kind == "button" and (v[1] or "").startswith("live_fixture_")] == [
         "live_fixture_1", "live_fixture_2", "live_fixture_3", "live_fixture_4"]
     _assert_no_audit_ui(surface)
 
 
-@pytest.mark.parametrize("probs,side", [((.65, .18, .17), "home"), ((.15, .20, .65), "none")])
-def test_red_side_can_be_opponent_or_no_goal(surface,probs,side):
-    _show(surface, "Nach Platzverweis", items=[_red(5, probs)], selected=0)
+@pytest.mark.parametrize("probs,side", [((.65, .18, .17), "home"), ((.18, .65, .17), "away"), ((.15, .20, .65), "none")])
+def test_manual_red_side_remains_separate_after_automatic_market_change(surface,probs,side):
+    row = _red(5, probs)
+    _show(surface, "Nach Platzverweis", items=[row], selected=0)
+    assert not surface.writes  # The scoreboard cannot substitute the specialist for missing paired rates.
+    surface.ui.session_state.update(live_worldwide_research=True, red_card_snapshot={
+        "scope": "Weltweit", "version": app.RED_CARD_SNAPSHOT_VERSION,
+        "scanned_at": datetime.now(timezone.utc).isoformat(), "cards": [row]})
+    app.render_live(object())
     assert [(r["fixture_id"], r["side"], r["probability"]) for r in surface.writes] == [(5, side, .65)]
+    assert surface.writes[0]["market"] == "red_next" and surface.writes[0]["model_version"] == RED_CARD_MODEL_VERSION
 
 
 @pytest.mark.parametrize("label", ["Noch ein Tor", "Nach Platzverweis"])
@@ -166,12 +178,24 @@ def test_old_snapshot_stays_recognizable_as_history_without_a_new_receipt(surfac
 
 
 def test_no_receipt_without_visible_probability_or_source_version(surface):
-    rows = [_red(4), _red(8)]
-    rows[0]["prediction"] = {}
-    _show(surface, "Nach Platzverweis", items=rows[:1], selected=0)
+    rows = [_analysis(4), _analysis(8)]
+    rows[0]["breakdown"].pop("remaining_home_mean")
+    _show(surface, "Teamtore", items=rows[:1], selected=0)
     rows[1].pop("model_version")
-    _show(surface, "Nach Platzverweis", items=rows[1:], selected=0)
+    _show(surface, "Teamtore", items=rows[1:], selected=0)
     assert surface.writes == surface.old == []
+    _assert_no_audit_ui(surface)
+
+
+@pytest.mark.parametrize("damage", ["prediction", "model_version"])
+def test_manual_red_receipt_still_needs_a_probability_and_source_version(surface, damage):
+    row = _red(4)
+    row.pop(damage)
+    surface.ui.session_state.update(live_worldwide_research=True, red_card_snapshot={
+        "scope": "Weltweit", "version": app.RED_CARD_SNAPSHOT_VERSION,
+        "scanned_at": datetime.now(timezone.utc).isoformat(), "cards": [row]})
+    app.render_live(object())
+    assert not surface.writes
     _assert_no_audit_ui(surface)
 
 
@@ -187,8 +211,8 @@ def test_ledger_failure_does_not_change_customer_ui(surface, error_type, caplog)
     def unavailable(*args, **kwargs):
         raise error_type("internal audit error detail")
     surface.ledger.record_displayed_live_tip = unavailable
-    _show(surface, "Team trifft noch")
-    assert "Gast2 trifft noch" in str(surface.ui.messages) and "Modell 65 %" in str(surface.ui.messages)
+    _show(surface, "Teamtore")
+    assert "Heim2: Über 1,5 Tore" in str(surface.ui.messages) and "Modell 66,7 %" in str(surface.ui.messages)
     assert not any(kind in {"warning", "error"} for kind, _ in surface.ui.messages)
     _assert_no_audit_ui(surface)
     assert "internal audit error detail" not in caplog.text
@@ -219,15 +243,15 @@ def test_repeat_display_of_new_scan_keeps_first_visible_baseline_internally(surf
     write = ledger.record_displayed_live_tip
     monkeypatch.setattr(ledger, "record_displayed_live_tip", lambda **fields: write(**fields, db_path=db))
     monkeypatch.setattr(ledger, "live_tip_stats", surface.ledger.live_tip_stats)
-    row = _market_sample(8, "Team trifft noch")
-    _show(surface, "Team trifft noch", items=[row], selected=0)
-    row.update(minute=61, score="2-0", home_score=2, phase_data={"status": "2H", "extra": None})
+    row = _market_sample(8, "Teamtore")
+    _show(surface, "Teamtore", items=[row], selected=0)
+    row.update(minute=61, score="1-1", away_score=1, phase_data={"status": "2H", "extra": None, "remaining_minutes": 29})
     surface.ui.messages.clear()
-    _show(surface, "Team trifft noch", items=[row], selected=0)
+    _show(surface, "Teamtore", items=[row], selected=0)
     with sqlite3.connect(db) as conn:
-        assert conn.execute("SELECT fixture_id,side,minute,extra,home_goals FROM live_tips").fetchall() == [
-            (8, "away", 45, 3, 1)]
-    assert "Gast8 trifft noch" in str(surface.ui.messages)
+        assert conn.execute("SELECT fixture_id,side,minute,extra,home_goals,away_goals FROM live_tips").fetchall() == [
+            (8, "home_over_1_5", 45, 3, 1, 0)]
+    assert "Heim8: Über 1,5 Tore" in str(surface.ui.messages)
     _assert_no_audit_ui(surface)
 
 

@@ -67,7 +67,7 @@ def test_league_list_shows_each_games_actual_pick_or_data_state_without_clicking
     }
     rows[12]["fixture"]["league"] = {"id": 40, "name": "Championship", "country": "England"}
     rows[12]["detailed_at"] = None
-    rows[13]["fixture"]["offline_analysis"]["remaining_goals"]["over_0_5_probability"] = 83.
+    rows[13]["fixture"]["offline_analysis"]["breakdown"]["remaining_home_mean"] = 1.4
     ui = Screen({"workspace": "Live"})
     mount(monkeypatch, ui, rows)
     writes = []
@@ -76,7 +76,7 @@ def test_league_list_shows_each_games_actual_pick_or_data_state_without_clicking
     entries = [(key, label) for kind, value in ui.messages if kind == "button"
                for label, key in (value,) if key.startswith("live_fixture_")]
     assert [key for key, _ in entries] == ["live_fixture_11", "live_fixture_13", "live_fixture_12"]
-    assert "71 %" in entries[0][1] and "83 %" in entries[1][1] and "Nur Spielstand verfügbar" in entries[2][1]
+    assert "66,7 %" in entries[0][1] and "75,3 %" in entries[1][1] and "Nur Spielstand verfügbar" in entries[2][1]
     assert set(writes) == {"11", "13"}
     inspector = [value for kind, value in ui.messages if kind == "markdown" and 'class="lv-scoreline"' in value]
     assert len(inspector) == 1 and "Heim13" in inspector[0] and "Gast13" in inspector[0]
@@ -203,7 +203,7 @@ def test_highest_probability_opens_without_click_manual_selection_sticks_until_f
     rows = {}
     for game in (1, 2, 3, 4):
         data = _analysis(game)
-        data["remaining_goals"]["over_0_5_probability"] = {1:61., 2:81., 3:85., 4:70.}[game]
+        data["breakdown"]["remaining_home_mean"] = {1:.9, 2:1.2, 3:1.4, 4:1.1}[game]
         data["scheduled_start"] = (now - timedelta(minutes=100-game)).isoformat()
         rows[game] = feed_row(game, now, analysis=data)
     ui = Screen({"workspace": "Live"})
@@ -231,26 +231,22 @@ def test_highest_probability_opens_without_click_manual_selection_sticks_until_f
     assert "Heim3" in _last_panel(ui, "lv-scoreline") and "live_selected_fixture_id" not in ui.session_state
 
 
-@pytest.mark.parametrize("quality,probs,shown", [
-    ("MEDIUM", (.18, .65, .17), True),
-    ("LOW", (.18, .65, .17), False),
-    ("MEDIUM", (.25, .45, .30), False),
+@pytest.mark.parametrize("quality,rate,shown", [
+    ("MEDIUM", 1.1, True), ("LOW", 1.1, False), ("MEDIUM", .75, False),
 ])
-def test_click_outside_automatic_red_shortlist_requires_supported_probability_and_quality(monkeypatch, quality, probs, shown):
+def test_click_outside_automatic_focus_requires_distinct_supported_market_even_with_red_model(monkeypatch, quality, rate, shown):
     from test_live_tip_surface import _red
     now = datetime.now(timezone.utc)
     rows = {n:feed_row(n, now, red=_red(n)) for n in (1, 2, 3, 4)}
-    rows[4] = feed_row(4, now, red=_red(4, probs))
-    rows[4]["fixture"]["offline_red"]["prediction"]["data_quality"] = quality
-    for row in rows.values():
-        row["fixture"]["offline_analysis"]["live_data_quality"] = "LOW"
+    rows[4]["fixture"]["offline_analysis"]["breakdown"]["remaining_home_mean"] = rate
+    rows[4]["fixture"]["offline_analysis"]["live_data_quality"] = quality
     ui = Screen({"workspace":"Live"})
     mount(monkeypatch, ui, rows)
     ui.button = lambda label, *, key, **kwargs: key == "live_fixture_4"
     writes = []
     monkeypatch.setattr(app, "record_visible_analysis", lambda c, item, **kw: writes.append(c.event_key))
     app.render_live(object())
-    assert writes == ["card-1", "card-2", "card-3"] + (["card-4"] if shown else [])
+    assert writes == ["1", "2", "3"] + (["4"] if shown else [])
     assert bool(_last_panel(ui, "lv-pick")) == shown
 
 
@@ -285,9 +281,9 @@ def test_even_the_only_dismissal_cannot_bypass_eligibility(monkeypatch, bad):
 
 
 @pytest.mark.parametrize("case,expected", [
-    ("warm", ("next_goal", "any", "Noch ein Tor", .674)),
-    ("stored-cold", ("next_goal", "any", "Noch ein Tor", .674)),
-    ("dismissal", ("red_next", "home", "Nächstes Tor: 1", .660621370588)),
+    ("warm", None),  # Viewer-only rates do not prove a model-pinned pregame reference.
+    ("stored-cold", ("ft_handicap", "home_minus_1_5", "1 Handicap −1,5", .622608603106)),
+    ("dismissal", None),  # The specialist alone cannot stand in for a missing pregame reference.
     ("late-no-card", None),
 ])
 def test_grouped_native_model_to_visible_market_and_frozen_receipt(monkeypatch, tmp_path, case, expected):
@@ -310,7 +306,7 @@ def test_grouped_native_model_to_visible_market_and_frozen_receipt(monkeypatch, 
     analyzer = None
     analyze = app._analyze_ticker_fixture
     if case == "warm":
-        # Historical caller/receipt contract for the existing venue rates.
+        # A genuine warm analyzer is not the published, model-pinned prior.
         from live_football_source import analyze_detail
         analyzer = warm(fixture, monkeypatch)
         analyze = analyze_detail
@@ -341,11 +337,13 @@ def test_grouped_native_model_to_visible_market_and_frozen_receipt(monkeypatch, 
     app.render_live(None if case == "stored-cold" else analyzer or object())
     assert calls == ["discover", (81,)]
     if expected is None:
-        assert _no_public_tip(ui) and "4:0" in _last_panel(ui, "lv-scoreline")
+        assert _no_public_tip(ui) and ("4:0" if case == "late-no-card" else "1:0") in _last_panel(ui, "lv-scoreline")
         assert not db.exists()
     else:
         market, side, label, probability = expected
         assert label in str(ui.messages)
+        assert any(kind == "markdown" and 'class="lv-pick-reason"' in value and "Rot für 2 (52′)" in value and "Torchancen" in value
+                   and "ohne Live-Signale" in value for kind, value in ui.messages)
         with sqlite3.connect(db) as connection:
             rows = connection.execute("SELECT fixture_id, home_id, away_id, minute, home_goals, away_goals, "
                                       "market, side, probability FROM live_tips").fetchall()
@@ -358,7 +356,11 @@ def test_grouped_native_model_to_visible_market_and_frozen_receipt(monkeypatch, 
                                  "unsupported-reds", "decided-btts"])
 def test_score_only_or_unbound_model_is_not_a_recommendation(monkeypatch, bad):
     data = _analysis(9)
-    data.update(minute=86, home_score=4, score="4-0", btts_prob=6., phase_data={"status":"2H", "extra":None})
+    data.update(minute=86, home_score=4, score="4-0", btts_prob=6.,
+                phase_data={"status":"2H", "extra":None, "remaining_minutes":4})
+    # Weak and already-decided options do not turn into advice just from clock or score.
+    if bad in ("weak-at-86", "decided-btts"):
+        data["breakdown"].update(remaining_home_mean=1.5*4/90, remaining_away_mean=4/90)
     data["remaining_goals"].update(over_0_5_probability=13., home_scores_probability=8., away_scores_probability=6.)
     if bad != "weak-at-86":
         data["btts_prob"] = 80.
@@ -619,7 +621,7 @@ def test_real_streamlit_picks_the_best_market_without_widgets_or_new_requests(mo
     fixtures = [feed_row(n, stamp)["fixture"] for n in (10, 20)]
     for fixture in fixtures:
         fixture.update(events=[], statistics=[])
-    fixtures[1]["offline_analysis"]["remaining_goals"]["away_scores_probability"] = 82.
+    fixtures[1]["offline_analysis"]["breakdown"].update(remaining_home_mean=.4, remaining_away_mean=1.3)
     calls, receipts = [], []
     class Source:
         def discover(self):
@@ -637,8 +639,8 @@ def test_real_streamlit_picks_the_best_market_without_widgets_or_new_requests(mo
     screen = AppTest.from_function(_test_ticker_app).run(timeout=30)
     assert not screen.exception
     assert not screen.selectbox and not screen.slider
-    assert receipts == [("10", "Noch ein Tor"), ("20", "Team trifft noch")]
+    assert receipts == [("10", "Teamtore"), ("20", "Doppelte Chance")]
     screen.button(key="live_fixture_10").click().run(timeout=30)
     assert not screen.exception and screen.session_state["live_selected_fixture_id"] == 10
-    assert receipts == [("10", "Noch ein Tor"), ("20", "Team trifft noch")] * 2
+    assert receipts == [("10", "Teamtore"), ("20", "Doppelte Chance")] * 2
     assert calls == ["discover", (10, 20)]
