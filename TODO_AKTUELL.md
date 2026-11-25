@@ -5,21 +5,22 @@
 - [Rücktest und Anbieterprüfung](docs/audits/2026-11-25-handball-europa.md): fünf
   Ligen getrennt; 834 Prognosen auf echten historischen Ergebnissen. Remis im
   dänischen Modell unterschätzt. Ohne Vorabquoten kein Renditenachweis.
-- Offen: tatsächliche aktuelle 1X2-Trefferabdeckung vom Anbieter je Liga.
-  Für DE zuerst vorhandene kostenlose Quelle prüfen; für fünf Ligen erst
-  Gratis-/Anbieterprobe, allenfalls ein Monat Handball-PRO. Kein Abo gekauft,
-  Pilot ausgeschaltet, VPS unverändert. 364/217 gezielte Tests grün.
+- Aktuelle Saison in allen fünf Ligen bestätigt. API-SPORTS allein:
+  ein Katalog, fünf Spielpläne, fünf Quoten-Sammelabfragen, kein weiterer
+  Anbieter und kein zusätzlicher Timer. Lokale Echtprobe: 450 Endstände,
+  drei Prognosen, eine passende 1X2-Quote. Kein 429.
+- Offen: Aktivierung auf dem VPS und Produktionsabnahme; danach aus
+  regulären Läufen Preisabdeckung und gepaarte Endstände beobachten.
+  Ohne belegten Vergleich kein öffentliches Tipp-Ranking.
 
 ## 25.11.2026 – Handball-Bundesliga
 
 - [Getrennter Pilot](docs/superpowers/specs/2026-11-25-handball-pilot-design.md):
   Spielplan, reguläre Endstände, preisblindes 1X2 und Vergleich auf gepaarten
   Spielen. 344 gezielte Standardtests und 197 im Produktions-Preisvertrag grün.
-- Offen: Nutzer aktiviert den API‑SPORTS-Handballzugang. Eigenen Handballwert
-  als `API_HANDBALL_KEY` nur in der Serverumgebung setzen; kein Rückgriff auf
-  Altwerte. Erst nach Freigabe einschalten und im regulären Tageslauf Spielplan,
-  Ergebnisse sowie echte vollständige 1X2-Quoten prüfen. Kein neuer Timer,
-  keine Veröffentlichung als Tipp und bisher kein Handball-Deploy.
+- Ersetzt durch Handball-Europa. Eigenen Handballwert nur als
+  `API_HANDBALL_KEY` in der Serverumgebung setzen; kein Rückgriff auf
+  Altwerte. Keine Veröffentlichung als Tipp.
 
 ## 25.11.2026 – Preisbindung und Sportdaten
 

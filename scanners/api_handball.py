@@ -1,7 +1,7 @@
 """Exact, budgeted API-Handball league inputs for the private 1X2 pilot.
 
-Coverage: https://api-sports.io/sports/handball. The response contract is
-covered offline; confirm it with the actual account before enabling the pilot.
+Coverage: https://api-sports.io/sports/handball. League odds use the provider's
+native game ID and update timestamp, bound to a previously verified schedule.
 """
 from __future__ import annotations
 
@@ -20,6 +20,8 @@ PROVIDER = 'api-sports-handball'
 BUNDESLIGA_ID = 39
 REGULATION_1X2_ID = 1
 MAX_PRICE_AGE = timedelta(hours=36)
+DEFAULT_REQUESTS_PER_MINUTE = 9
+PAID_REQUESTS_PER_MINUTE = 11
 _SIDES = ('Home', 'Draw', 'Away')
 
 
@@ -80,6 +82,12 @@ class HandballGame:
     status: str
     home_score: int | None
     away_score: int | None
+
+
+@dataclass(frozen=True)
+class HandballMarket:
+    updated_at: datetime
+    bookmakers: dict[str, tuple[float, float, float]]
 
 
 def _positive_id(value) -> bool:
@@ -213,28 +221,54 @@ def _triplet(book) -> tuple[float, float, float] | None:
     return odds['Home'], odds['Draw'], odds['Away']
 
 
-def _prices(row, game: HandballGame, now: datetime, league: _LeagueSeason) -> dict[str, tuple[float, float, float]]:
-    if (type(row.get('game_id')) is not int or row['game_id'] != game.game_id
+def _odds_game_ids(row) -> list:
+    ids = [row['game_id']] if 'game_id' in row else []
+    if 'game' in row:
+        native = row['game']
+        ids.append(native.get('id') if isinstance(native, dict) else None)
+    return ids
+
+
+def _odds_game_details(row, game: HandballGame) -> bool:
+    if not _matches_kickoff(row, game.starts_at):
+        return False
+    if 'teams' not in row:
+        return True
+    teams = row['teams']
+    return isinstance(teams, dict) and all(
+        isinstance(team, dict) and _positive_id(team.get('id')) and team['id'] == expected
+        for team, expected in ((teams.get('home'), game.home_id), (teams.get('away'), game.away_id))
+    )
+
+
+def _market(row, game: HandballGame, now: datetime, league: _LeagueSeason) -> HandballMarket | None:
+    ids = _odds_game_ids(row)
+    if (not ids or any(not _positive_id(value) or value != game.game_id for value in ids)
             or not league.matches(row.get('league'), row.get('country'))
-            or not _matches_kickoff(row, game.starts_at)):
-        return {}
-    if 'teams' in row:
-        teams = row['teams']
-        if not isinstance(teams, dict) or not all(
-            isinstance(team, dict) and _positive_id(team.get('id')) and team['id'] == expected
-            for team, expected in ((teams.get('home'), game.home_id), (teams.get('away'), game.away_id))
-        ):
-            return {}
-    updated, books = _clock(row.get('updated')), row.get('bookmakers')
-    if updated is None or not now - MAX_PRICE_AGE <= updated <= now or not isinstance(books, list):
-        return {}
+            or not _odds_game_details(row, game) or not _odds_game_details(row.get('game', {}), game)):
+        return None
+    times = [_clock(row[key]) for key in ('update', 'updated') if key in row]
+    updated = times[0] if times else None
+    books = row.get('bookmakers')
+    if (updated is None or any(value != updated for value in times) or not now - MAX_PRICE_AGE <= updated <= now
+            or not isinstance(books, list)):
+        return None
     known = [book for book in books if isinstance(book, dict)
              and _positive_id(book.get('id')) and _name(book.get('name'))]
     seen_ids = {book['id'] for book in known}
     seen_names = {book['name'].casefold() for book in known}
     if len(known) != len(seen_ids) or len(known) != len(seen_names):
-        return {}  # Ambiguous bookmaker identities cannot supply a benchmark.
-    return {book['name']: odds for book in known if (odds := _triplet(book)) is not None}
+        return None  # Ambiguous bookmaker identities cannot supply a benchmark.
+    bookmakers = {book['name']: odds for book in known if (odds := _triplet(book)) is not None}
+    return HandballMarket(updated, bookmakers) if bookmakers else None
+
+
+def _paid_rate_confirmed(headers) -> bool:
+    normalized = {str(name).casefold(): str(value).strip() for name, value in (headers or {}).items()}
+    day_limit = normalized.get('x-ratelimit-requests-limit', '')
+    minute_limit = normalized.get('x-ratelimit-limit', '')
+    return (re.fullmatch(r'[0-9]{1,9}', day_limit) is not None and int(day_limit) >= 7500
+            and re.fullmatch(r'[0-9]{1,9}', minute_limit) is not None and int(minute_limit) >= 60)
 
 
 class APIHandballClient:
@@ -245,13 +279,14 @@ class APIHandballClient:
         self._catalogue: list[dict] | None = None
         self._catalogue_error: str | None = None
         self._confirmed: dict[tuple[int, int], tuple[_LeagueSeason, dict[int, HandballGame]]] = {}
+        self._minute_limit = DEFAULT_REQUESTS_PER_MINUTE
 
     def _request(self, endpoint: str, params: dict) -> list[dict]:
         try:
             if self._governor is None:
                 self._governor = APIBudgetGovernor(DEFAULT_DB_PATH, daily_limit=100, critical_floor=5,
                                                     recommendation_reserve=10, background_reserve=15)
-            if self._governor.recent_request_count(api_key=self._key, provider=PROVIDER, seconds=60) >= 9:
+            if self._governor.recent_request_count(api_key=self._key, provider=PROVIDER, seconds=60) >= self._minute_limit:
                 raise HandballSourceError('api_rate_limit_deferred')
             reservation = self._governor.reserve(api_key=self._key, provider=PROVIDER, endpoint=endpoint,
                                                  priority=APIBudgetPriority.BACKGROUND)
@@ -283,6 +318,8 @@ class APIHandballClient:
             if (not isinstance(paging, dict) or type(paging.get('total')) is not int or paging['total'] != 1
                     or type(paging.get('current', 1)) is not int or paging.get('current', 1) != 1):
                 raise HandballSourceError('api_incomplete_page')
+            self._minute_limit = (PAID_REQUESTS_PER_MINUTE if _paid_rate_confirmed(getattr(response, 'headers', None))
+                                  else DEFAULT_REQUESTS_PER_MINUTE)
             return rows
         except HandballSourceError as exc:
             error = exc.code
@@ -327,6 +364,28 @@ class APIHandballClient:
         self._confirmed[key] = (league, {row.game_id: row for row in games if row.status == 'NS'})
         return sorted(games, key=lambda row: (row.starts_at, row.game_id))
 
+    def league_prices(self, league: HandballLeague, season: int, *, now: datetime) -> dict[int, HandballMarket]:
+        """Read one league odds page and retain only exact upcoming game markets."""
+        if now.utcoffset() is None or league not in HANDBALL_LEAGUES or type(season) is not int:
+            return {}
+        context = next((item for item in self._confirmed.values()
+                        if item[0].profile == league and item[0].season == season), None)
+        if context is None:
+            return {}
+        confirmed, games = context
+        now = now.astimezone(timezone.utc)
+        upcoming = {game_id: game for game_id, game in games.items() if now < game.starts_at}
+        if not upcoming:
+            return {}
+        rows = self._request('odds', {'league': confirmed.league_id, 'season': season, 'bet': REGULATION_1X2_ID})
+        candidates: dict[int, dict | None] = {}
+        for row in rows:
+            for game_id in {value for value in _odds_game_ids(row) if _positive_id(value)} & upcoming.keys():
+                # Only identical rows can repeat; compare before reducing payloads to bookmaker names.
+                candidates[game_id] = None if game_id in candidates and candidates[game_id] != row else row
+        return {game_id: market for game_id, row in candidates.items() if row is not None
+                and (market := _market(row, upcoming[game_id], now, confirmed)) is not None}
+
     def prices(self, game: HandballGame, *, now: datetime) -> dict[str, tuple[float, float, float]]:
         """Return complete per-book regulation 1X2 observations, not offers."""
         if (now.utcoffset() is None or game.status != 'NS' or now >= game.starts_at
@@ -339,4 +398,5 @@ class APIHandballClient:
         if games.get(game.game_id) != game:
             return {}
         rows = self._request('odds', {'game': game.game_id, 'bet': REGULATION_1X2_ID})
-        return _prices(rows[0], game, now.astimezone(timezone.utc), league) if len(rows) == 1 else {}
+        market = _market(rows[0], game, now.astimezone(timezone.utc), league) if len(rows) == 1 else None
+        return market.bookmakers if market is not None else {}

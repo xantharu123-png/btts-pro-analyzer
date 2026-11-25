@@ -26,11 +26,14 @@ Keine neuen Modell- oder Tippgrenzen; Cricket bleibt ausgenommen.
 
 [Handball-Europa](docs/audits/2026-11-25-handball-europa.md) auf
 `codex/handball-pilot-20261125`: fünf getrennte Herrenligen (ES, DE, DK, FR, HU),
-standardmässig aus, höchstens neun Abrufe je Zürcher Tag. Saison 2024/25:
-1.150 Endstände, 834 Vorhersagen. Das Modell schlägt die einfache Basis im
-Mittel je Liga; Dänemark unterschätzt Remis. Kein Markt-/Renditenachweis. Vor Mehrmonats-
-abo echte 1X2-Abdeckung je Liga prüfen. Kein Kauf, kein VPS-Deploy. Gezielte QA:
-364 Tests im Standardvertrag, 217 unter der Produktions-Preisregel bestanden.
+API-SPORTS als einzige Quelle. Der Sammelabruf liest je Liga Spielplan,
+Endstände und vollständige aktuelle 1X2-Sätze mit Anbieter- und Abrufzeit.
+Lokale Echtprobe: elf erfolgreiche Abrufe, 450 Endstände, eine gebundene
+Vorabquote in Dänemark. Fehlende Preise bleiben ohne Ersatz. Deaktivierter
+Code-Standard; VPS-Aktivierung und Abnahme sind getrennte Schritte.
+834 historische Prognosen: Vorteil gegenüber Ligahäufigkeiten, kein
+nachgewiesener Markt- oder Renditevorteil. Keine öffentlichen Tipps.
+Gezielte Regression: 383 Standard- und 236 Produktionspreis-Tests grün.
 
 ### Voriger Stand: 24.11.2026
 

@@ -1,5 +1,6 @@
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+import json
 import sqlite3
 from zoneinfo import ZoneInfo
 
@@ -381,3 +382,158 @@ def test_prices_do_not_treat_a_relabelled_game_as_a_second_leagues_match(api):
     # An odds relay without optional time and team metadata must not hide a cross-league mix-up.
     assert client.prices(replace(match, league_id=39), now=NOW) == {}
     assert len(calls) == 3
+
+
+def native_price(game_id=106, *, updated='2026-11-25T07:04:12+00:00'):
+    return {
+        'game': {'id': game_id},
+        'league': {**LEAGUE, 'season': 2026, 'logo': 'https://example.test/league.png'},
+        'country': {**COUNTRY, 'flag': 'https://example.test/country.png'},
+        'update': updated,
+        'bookmakers': [bookmaker()],
+    }
+
+
+def test_native_league_odds_are_matched_to_the_confirmed_upcoming_games_in_one_request(api):
+    client, replies, calls, _ = api
+    replies['games'] = Response(response('games', [
+        game(), game(105, start='2026-11-24T19:00:00+00:00', status='FT'),
+        game(104, start='2026-11-25T11:30:00+00:00'),
+    ]))
+    partial = bookmaker(5, 'partial')
+    partial['bets'][0]['values'].pop()
+    native = native_price()
+    native['bookmakers'].append(partial)
+    replies['odds'] = Response(response('odds', [native, native_price(105), native_price(104), native_price(999)]))
+    assert client.league_prices(europa_profile('DE'), 2026, now=NOW) == {}
+    assert calls == []
+    client.league_games(europa_profile('DE'), 2026)
+    markets = client.league_prices(europa_profile('DE'), 2026, now=NOW)
+    assert set(markets) == {106}
+    assert markets[106].updated_at == datetime(2026, 11, 25, 7, 4, 12, tzinfo=UTC)
+    assert markets[106].bookmakers == {'Bet365': (1.55, 9.0, 3.5)}
+    assert [(url.rsplit('/', 1)[-1], args['params']) for url, args in calls] == [
+        ('leagues', {}), ('games', {'league': 39, 'season': 2026}),
+        ('odds', {'league': 39, 'season': 2026, 'bet': 1}),
+    ]
+
+
+@pytest.mark.parametrize('patch', [
+    {'game_id': 105},
+    {'game_id': '106'},
+    {'updated': '2026-11-25T07:04:13+00:00'},
+    {'updated': '2026-11-25T07:04:12'},
+    {'update': '2026-11-23T23:59:00+00:00'},
+    {'update': '2026-11-25T12:00:01+00:00'},
+    {'game': {'id': 106, 'date': '2026-11-25T18:00:00+00:00'}},
+    {'country': {**COUNTRY, 'id': 99}},
+    {'league': {**LEAGUE, 'season': 2025}},
+])
+def test_native_odds_reject_conflicting_aliases_or_invalid_identity_and_clock(api, patch):
+    client, replies, _, _ = api
+    client.league_games(europa_profile('DE'), 2026)
+    replies['odds'] = Response(response('odds', [native_price() | patch]))
+    assert client.league_prices(europa_profile('DE'), 2026, now=NOW) == {}
+
+
+def test_matching_aliases_are_accepted_but_conflicting_duplicate_prices_are_not(api):
+    client, replies, _, _ = api
+    replies['games'] = Response(response('games', [game(), game(107)]))
+    client.league_games(europa_profile('DE'), 2026)
+    valid = native_price() | {'game_id': 106, 'updated': '2026-11-25T08:04:12+01:00'}
+    first = native_price(107)
+    contradictory = native_price(107, updated='2026-11-25T07:05:01+00:00')
+    replies['odds'] = Response(response('odds', [valid, valid.copy(), first, contradictory, first]))
+    markets = client.league_prices(europa_profile('DE'), 2026, now=NOW)
+    assert set(markets) == {106}
+
+
+def test_duplicate_markets_with_different_bookmaker_ids_are_not_identical(api):
+    client, replies, _, _ = api
+    client.league_games(europa_profile('DE'), 2026)
+    first, contradictory = native_price(), native_price() | {'bookmakers': [bookmaker(99)]}
+    replies['odds'] = Response(response('odds', [first, contradictory]))
+    assert client.league_prices(europa_profile('DE'), 2026, now=NOW) == {}
+
+
+def test_verified_paid_handball_caps_the_worker_at_eleven_requests(api):
+    client, replies, calls, _ = api
+    for reply in replies.values():
+        reply.headers = {'X-RateLimit-Limit': '300', 'X-Ratelimit-Requests-Limit': '7500'}
+    [match] = client.bundesliga_games(2026)
+    for _ in range(9):
+        assert client.prices(match, now=NOW)
+    with pytest.raises(HandballSourceError, match='^api_rate_limit_deferred$'):
+        client.prices(match, now=NOW)
+    assert len(calls) == 11
+
+
+@pytest.mark.parametrize('headers', [
+    {'x-ratelimit-requests-limit': '7500'},
+    {'x-ratelimit-requests-limit': '7500', 'x-ratelimit-limit': '10'},
+    {'x-ratelimit-requests-limit': '100', 'x-ratelimit-limit': '300'},
+])
+def test_unverified_paid_rate_stays_at_nine_requests(api, headers):
+    client, replies, calls, _ = api
+    for reply in replies.values():
+        reply.headers = headers
+    [match] = client.bundesliga_games(2026)
+    for _ in range(7):
+        assert client.prices(match, now=NOW)
+    with pytest.raises(HandballSourceError, match='^api_rate_limit_deferred$'):
+        client.prices(match, now=NOW)
+    assert len(calls) == 9
+
+
+def test_paid_europe_worker_executes_eleven_native_requests_and_binds_each_price(tmp_path):
+    from handball_pilot import run_europe
+
+    db_path = tmp_path / 'budget.db'
+    catalogue_rows = [european_catalogue(entry) for entry in EUROPE]
+    rows_by_id = {row['id']: row for row in catalogue_rows}
+    expected_home_prices = {801: 1.8, 39: 1.9, 803: 2.0, 804: 2.1, 805: 2.2}
+    history = [game(number, start=(NOW - timedelta(days=number)).isoformat(), status='FT')
+               for number in range(1, 41)]
+    calls = []
+
+    def get(url, *, params, **kwargs):
+        endpoint = url.rsplit('/', 1)[-1]
+        calls.append((endpoint, params))
+        if endpoint == 'leagues':
+            rows = catalogue_rows
+        else:
+            league_id = params['league']
+            league_identity = identity(rows_by_id[league_id])
+            if endpoint == 'games':
+                rows = [row | league_identity for row in [*history, game(), game(107)]]
+            else:
+                assert endpoint == 'odds'
+                good = native_price() | league_identity
+                good['bookmakers'][0]['bets'][0]['values'][1]['odd'] = str(expected_home_prices[league_id])
+                wrong_country = native_price(107) | league_identity | {
+                    'country': {'id': 555, 'name': 'Austria', 'code': 'AT'},
+                }
+                rows = [good, wrong_country]
+        reply = Response(response(endpoint, rows))
+        reply.headers = {'X-RateLimit-Limit': '300', 'X-RateLimit-Requests-Limit': '7500',
+                         'X-RateLimit-Requests-Remaining': '7490'}
+        return reply
+
+    client = APIHandballClient('dummy-test-key', governor=APIBudgetGovernor(db_path), get=get)
+    report = run_europe(client, directory=tmp_path, clock=lambda: NOW)
+
+    assert calls[0] == ('leagues', {})
+    assert len(calls) == 11
+    assert len({params['league'] for endpoint, params in calls if endpoint == 'odds'}) == 5
+    for code, _, _, _, native_id in EUROPE:
+        assert calls.count(('games', {'league': native_id, 'season': 2026})) == 1
+        assert calls.count(('odds', {'league': native_id, 'season': 2026, 'bet': 1})) == 1
+        lane = report['leagues'][code]
+        assert (lane['price_checks'], lane['quote_fixtures'], lane['priced'], lane['modelled']) == (1, 1, 1, 2)
+        suffix = '' if code == 'DE' else f'_{code.lower()}'
+        forecasts = json.loads((tmp_path / f'handball_pilot{suffix}_2026.json').read_text(encoding='utf-8'))['forecasts']
+        assert forecasts['106']['fixture'][0] == native_id
+        assert forecasts['106']['odds'] == {'Bet365': [expected_home_prices[native_id], 9.0, 3.5]}
+        assert forecasts['106']['price_source_at'] == '2026-11-25T07:04:12+00:00'
+        assert forecasts['106']['price_observed_at'] == NOW.isoformat()
+        assert 'odds' not in forecasts['107']

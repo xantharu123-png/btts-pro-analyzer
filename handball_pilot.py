@@ -21,9 +21,9 @@ from scanners.api_handball import APIHandballClient, HANDBALL_LEAGUES, HandballS
 _ZONE = ZoneInfo('Europe/Zurich')
 _OUTCOMES = ('home', 'draw', 'away')
 _MAX_PRICE_CALLS = 4
-_EU_PRICE_SLOTS = 3
 _PROVIDER_STOP = {'api_rate_limit', 'api_rate_limit_deferred', 'api_budget_unavailable', 'api_access_denied'}
 _HORIZON = timedelta(hours=36)
+_ODDS_HORIZON = timedelta(days=7)
 
 
 def _utcnow():
@@ -44,15 +44,24 @@ def _path(now, country='DE', directory=None):
 
 def _load(path):
     if not path.exists():
-        return {'version': 1, 'forecasts': {}, 'run': {}}
+        return {'version': 2, 'forecasts': {}, 'run': {}}
     data = json.loads(path.read_text(encoding='utf-8'))
-    if (not isinstance(data, dict) or data.get('version') != 1
+    if (not isinstance(data, dict) or type(data.get('version')) is not int or data['version'] not in {1, 2}
             or not isinstance(data.get('forecasts'), dict) or not isinstance(data.get('run'), dict)):
         raise ValueError('unknown_handball_pilot_state')
+    for row in data['forecasts'].values():
+        if not isinstance(row, dict):
+            raise ValueError('invalid_handball_forecast')
+        if 'price_source_at' in row:
+            source = datetime.fromisoformat(row['price_source_at'])
+            observed = datetime.fromisoformat(row['price_observed_at'])
+            if source.utcoffset() is None or observed.utcoffset() is None or source > observed:
+                raise ValueError('invalid_handball_price_clock')
     return data
 
 
 def _write(path, data):
+    data['version'] = 2
     atomic_write_text(path, json.dumps(data, allow_nan=False, sort_keys=True))
 
 
@@ -97,7 +106,41 @@ def read_report(path=None):
     return _report(_load(Path(path) if path is not None else _path(_utcnow())))
 
 
-def run_pilot(client, *, path=None, clock=_utcnow, league=None, started=None, max_price_calls=_MAX_PRICE_CALLS):
+def _collect_league_prices(client, league, season, *, games, pending, run, clock):
+    requested = clock()
+    run['unpriced_pending'] = len(pending)
+    eligible = {game.game_id: game for game in games
+                if game.status == 'NS' and requested < game.starts_at <= requested + _ODDS_HORIZON}
+    if not eligible:
+        return {}
+
+    run['price_checks'] = 1
+    try:
+        offers = client.league_prices(league, season, now=requested)
+    except HandballSourceError as exc:
+        return {exc.code: 1}
+    fetched = clock()
+    matched = {game_id: offer for game_id, offer in offers.items()
+               if game_id in eligible and requested <= fetched < eligible[game_id].starts_at
+               and offer.updated_at <= fetched and offer.bookmakers}
+    run['quote_fixtures'] = len(matched)
+    for game, row in pending:
+        offer = matched.get(game.game_id)
+        if offer is not None:
+            row.update(odds=offer.bookmakers, price_source_at=offer.updated_at.isoformat(),
+                       price_observed_at=fetched.isoformat())
+            run['newly_priced'] += 1
+            run['unpriced_pending'] -= 1
+    if matched:
+        return ({'no_complete_1x2_for_pending': run['unpriced_pending']}
+                if run['unpriced_pending'] else {})
+    if fetched < requested or any(game_id in eligible and fetched >= eligible[game_id].starts_at
+                                    for game_id in offers):
+        return {'outside_prematch_window': 1}
+    return {'no_complete_1x2': 1}
+
+
+def run_pilot(client, *, path=None, clock=_utcnow, league=None, started=None):
     """One attempted collection per Zurich day; the worker owns a separate lock."""
     started = clock() if started is None else started
     path = prepare_trusted_runtime_database_path(Path(path) if path is not None else
@@ -109,7 +152,8 @@ def run_pilot(client, *, path=None, clock=_utcnow, league=None, started=None, ma
 
     run = {'day': day, 'status': 'started', 'scheduled': 0, 'training_games': 0,
            'unconfirmed_finals': 0, 'changed_fixture': 0, 'result_revisions': 0,
-           'price_checks': 0, 'diagnostics': {}}
+           'price_checks': 0, 'quote_fixtures': 0, 'newly_priced': 0,
+           'unpriced_pending': 0, 'diagnostics': {}}
     data['run'] = run
     # A failed or interrupted run also spends part of the request budget.
     _write(path, data)
@@ -165,9 +209,17 @@ def run_pilot(client, *, path=None, clock=_utcnow, league=None, started=None, ma
     # Persist the independent prediction before any offered price is known.
     _write(path, data)
 
+    if league is not None:
+        diagnostics = _collect_league_prices(client, league, season, games=games, pending=pending, run=run,
+                                             clock=clock)
+        run.update(status=('partial_prices' if diagnostics else 'completed') if games else 'empty_schedule',
+                   diagnostics=diagnostics)
+        _write(path, data)
+        return _report(data)
+
     diagnostics = Counter()
     pending.sort(key=lambda pair: (bool(pair[1].get('last_price_attempt')), pair[0].starts_at))
-    for game, row in pending[:max_price_calls]:
+    for game, row in pending[:_MAX_PRICE_CALLS]:
         requested = clock()
         if requested >= game.starts_at:
             continue
@@ -207,19 +259,20 @@ def read_europe_report(*, directory=None, now=None):
 
 
 def run_europe(client, *, directory=None, clock=_utcnow, started=None):
-    """One schedule per league and at most three total price calls per day."""
+    """One catalogue, one schedule and at most one odds batch per league/day."""
     started = clock() if started is None else started
     existing = read_europe_report(directory=directory, now=started)
     # Each league stamps the date before its first provider request. Any current
     # stamp also guards the shared catalogue and all leagues after interruption.
     if any(r.get('day') == existing['day'] for r in existing['leagues'].values()):
         return existing
-    # Rotate which leagues get a price request, including under a slow worker.
+    # Rotate processing order so a provider-wide interruption cannot always
+    # cost the same league its first daily attempt.
     offset = started.astimezone(_ZONE).date().toordinal() % len(HANDBALL_LEAGUES)
     rotation = HANDBALL_LEAGUES[offset:] + HANDBALL_LEAGUES[:offset]
-    for index, league in enumerate(rotation):
+    for league in rotation:
         report = run_pilot(client, league=league, path=_path(started, league.code, directory), clock=clock,
-                           started=started, max_price_calls=int(index < _EU_PRICE_SLOTS))
+                           started=started)
         if _PROVIDER_STOP.intersection(report.get('diagnostics', {})):
             break
     return read_europe_report(directory=directory, now=started)

@@ -161,8 +161,9 @@ def test_odds_transport_reads_already_frozen_model(tmp_path):
     assert report['priced'] == 1
 
 
-def test_europe_keeps_five_leagues_separate_and_caps_rotating_price_attempts(tmp_path):
+def test_europe_keeps_five_leagues_separate_with_one_batch_each(tmp_path):
     from dataclasses import replace
+    from types import SimpleNamespace
 
     from handball_pilot import read_europe_report, run_europe
 
@@ -177,9 +178,10 @@ def test_europe_keeps_five_leagues_separate_and_caps_rotating_price_attempts(tmp
             future = [_game(101, NOW + timedelta(hours=30))]
             return [replace(game, league_id=league_ids[league.code]) for game in history + future]
 
-        def prices(self, game, *, now):
-            self.odds_calls.append(game.league_id)
-            return {'Book': (2., 4., 4.)}
+        def league_prices(self, league, season, *, now):
+            assert season == 2026
+            self.odds_calls.append(league.code)
+            return {101: SimpleNamespace(updated_at=NOW - timedelta(hours=1), bookmakers={'Book': (2., 4., 4.)})}
 
     client = Europe([])
     report = run_europe(client, directory=tmp_path, clock=lambda: NOW)
@@ -188,8 +190,14 @@ def test_europe_keeps_five_leagues_separate_and_caps_rotating_price_attempts(tmp
     assert report['leagues']['FR']['status'] == 'unavailable'
     assert report['leagues']['HU']['modelled'] == 0  # other leagues never feed training
     assert all(report['leagues'][code]['modelled'] == 1 for code in ('DE', 'ES', 'DK'))
-    assert len(client.odds_calls) <= 3
-    assert len(client.odds_calls) == len(set(client.odds_calls))
+    assert sorted(client.odds_calls) == ['DE', 'DK', 'ES', 'HU']
+    assert report['leagues']['HU']['quote_fixtures'] == 1
+    assert report['leagues']['HU']['priced'] == 0  # no unmodelled receipts
+    assert report['leagues']['DE']['priced'] == 1
+    assert report['leagues']['DE']['newly_priced'] == 1
+    saved = json.loads((tmp_path / 'handball_pilot_2026.json').read_text(encoding='utf-8'))
+    assert saved['forecasts']['101']['price_source_at'] == '2026-11-25T02:00:00+00:00'
+    assert saved['forecasts']['101']['price_observed_at'] == '2026-11-25T03:00:00+00:00'
     assert len(client.game_calls) == 5
     assert report == read_europe_report(directory=tmp_path, now=NOW)
     assert run_europe(client, directory=tmp_path, clock=lambda: NOW) == report
@@ -197,7 +205,29 @@ def test_europe_keeps_five_leagues_separate_and_caps_rotating_price_attempts(tmp
     assert len(list(tmp_path.glob('*.json'))) == 5
 
 
-def test_europe_price_slots_move_between_leagues_without_double_charging(tmp_path):
+def test_europe_market_coverage_does_not_hide_unpriced_prognoses(tmp_path):
+    from types import SimpleNamespace
+
+    game = _game(101, NOW + timedelta(hours=5))
+    later_game = _game(102, NOW + timedelta(days=2))
+
+    class Europe(Provider):
+        def league_games(self, league, season):
+            return self.games
+
+        def league_prices(self, league, season, *, now):
+            return {102: SimpleNamespace(updated_at=NOW, bookmakers={'Book': (2., 4., 4.)})}
+
+    result = run_pilot(Europe(_history() + [game, later_game]), path=tmp_path / 'pilot.json',
+                       league=SimpleNamespace(code='DE'), clock=lambda: NOW)
+    assert result['status'] == 'partial_prices'
+    assert result['quote_fixtures'] == 1
+    assert result['newly_priced'] == 0
+    assert result['unpriced_pending'] == 1
+    assert result['diagnostics'] == {'no_complete_1x2_for_pending': 1}
+
+
+def test_europe_fetches_every_batch_once_without_same_day_retry_on_empty_feed(tmp_path):
     from dataclasses import replace
 
     from handball_pilot import run_europe
@@ -209,18 +239,42 @@ def test_europe_price_slots_move_between_leagues_without_double_charging(tmp_pat
             return [replace(game, league_id=league_ids[league.code])
                     for game in _history() + [_game(101, NOW + timedelta(hours=30))]]
 
-        def prices(self, game, *, now):
-            self.odds_calls.append(game.league_id)
-            return {}  # a price miss still consumes the slot
+        def league_prices(self, league, season, *, now):
+            self.odds_calls.append(league.code)
+            return {}
 
     client = Europe([])
     run_europe(client, directory=tmp_path, clock=lambda: NOW)
     first = list(client.odds_calls)
-    assert len(first) == 3
+    assert sorted(first) == ['DE', 'DK', 'ES', 'FR', 'HU']
+    run_europe(client, directory=tmp_path, clock=lambda: NOW + timedelta(hours=2))
+    assert client.odds_calls == first
     run_europe(client, directory=tmp_path, clock=lambda: NOW + timedelta(days=1))
     second = client.odds_calls[len(first):]
-    assert len(second) == 3
-    assert set(first) != set(second)
+    assert sorted(second) == sorted(first)
+
+
+def test_europe_batch_crossing_kickoff_cannot_create_price_receipt(tmp_path):
+    from types import SimpleNamespace
+
+    game = _game(101, NOW + timedelta(minutes=1))
+    path = tmp_path / 'ok.json'
+
+    class ProviderWithLateQuote(Provider):
+        def league_games(self, league, season):
+            return self.games
+
+        def league_prices(self, league, season, *, now):
+            row = json.loads(path.read_text(encoding='utf-8'))['forecasts']['101']
+            assert row.get('odds') is None
+            return {101: SimpleNamespace(updated_at=NOW, bookmakers={'Book': (2., 4., 4.)})}
+
+    client = ProviderWithLateQuote(_history() + [game])
+    times = iter([NOW, NOW, NOW, NOW, game.starts_at])
+    result = run_pilot(client, path=path, league=SimpleNamespace(code='DE'), clock=lambda: next(times))
+    assert result['modelled'] == 1
+    assert result['priced'] == result['quote_fixtures'] == 0
+    assert result['diagnostics'] == {'outside_prematch_window': 1}
 
 
 def test_europe_stops_provider_wide_throttle_and_does_not_resume_that_day(tmp_path):

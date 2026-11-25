@@ -48,29 +48,26 @@ Brier 0,409 gegen 0,523, Vorteil 0,114, illustratives 95%-Tagesblockintervall
 [-0,139; 0,250]. Neun Heim-, sieben Auswärtssiege, kein Remis. Die enge
 Stichprobe bestätigt keinen aktuellen Vorteil. Keine Modellformel geändert.
 
-## Anbieter und Entscheidung
+## Anbieterabnahme: API-SPORTS
 
-- [API-Sports Handball](https://api-sports.io/sports/handball) listet die fünf
-  Ligen mit Quoten. Offen: aktueller Saisonzugriff im konkreten Tarif und Anteil
-  von Spielen mit gültigen, zeitgestempelten Heim/Remis/Auswärts-Quoten je Liga.
+- [API-Sports Handball](https://api-sports.io/sports/handball) ist für diesen
+  Pilot die einzige Quelle. Der echte Zugang gibt für 2026 alle fünf Saisons
+  frei. Elf HTTP 200, kein 429; Anbieterheader 7.500/Tag und 300/Minute.
+- Der Ligaabruf `/odds?league=…&season=2026&bet=1` liefert Rohzeilen für
+  alle fünf Ligen. Die native Spiel-ID steht in `game.id`, der Anbieterzeitpunkt
+  in `update`. Fremde Liga, falscher Spielbezug, ältere bzw. bereits begonnene
+  Spiele und unvollständige Buchmacher-1X2-Sätze zählen nicht als Preisbeleg.
+- Isolierter Echtlauf am 25.11.2026: 450 FT-Ergebnisse, drei Prognosen
+  innerhalb von 36 Stunden, ein passender Vorab-1X2-Satz (Dänemark).
+  Bundesliga: eine Prognose ohne passendes Angebot. In Spanien, Frankreich
+  und Ungarn lag kein Spiel im 36-Stunden-Modellfenster.
+- Der Bericht unterscheidet bestätigte Quoten-Spiele über sieben Tage,
+  neu bepreiste Modellprognosen, noch offene Modellpreise und Anbieterfehler.
 - Null vollständige zeitgebundene Markt-/Ergebnispaare stammen aus diesem Test.
   Die Verbesserung gegenüber Ligahäufigkeiten ist kein Nachweis gegen den
   Buchmachermarkt. Dänemark unterschätzt Remis besonders; zuerst in einem
   separaten Zeitraum prüfen, keine Anpassung auf diese Testspiele.
-- [The Odds API](https://the-odds-api.com/sports/handball-bundesliga-odds.html)
-  dokumentiert aktuelle deutsche Bundesliga-Quoten im freien Tarif; nur für
-  Deutschland verifiziertes Angebot auf der Produktseite, keine gemessene
-  Abdeckung mit dem BetBoy-Schlüssel. Für einen reinen Bundesliga-Test führt
-  diese Quelle zuerst zum Ziel. Historische Quoten dort nur im Bezahlplan.
-- Für fünf Ligen erst API-Sports-Gratiszugang oder Anbieterprobe mit aktuellen
-  Endständen und vollständigen 1X2-Preisen prüfen. Falls die aktuelle Saison
-  im Gratisplan gesperrt ist: höchstens ein Monat Handball-PRO zum Datencheck,
-  kein Mehrmonats- oder All-Sports-Paket allein wegen Handball. Zu Beginn pro Liga
-  verfügbare aktuelle Spiele, exakt bindenbare Preise, Buchmacher und Zeitstempel
-  dokumentieren. Erst nach dem gepaarten Marktvergleich eine Tippfreigabe prüfen.
-
-Pilot standardmässig aus, neun Abrufe je Zürcher Tag maximal, kein neuer Timer,
-keine Nutzung eines Kontos, kein Kauf und keine Produktionsänderung.
-Gezielte Regression: 364 Tests unter `gate`, 217 unter `floor` bestanden;
-Ruff und unabhängige Prüfung des Tageslimits und der Ligabindung grün. Die
-Vollsuite wurde nicht ausgeführt.
+Pilot im Code standardmässig aus, maximal elf Abrufe je Zürcher Tag. Kein
+neuer Timer, keine Buchung, kein weiterer Datenanbieter. Vergleich und
+öffentliche Tippfreigabe erst nach echten gepaarten Vorabpreisen und
+Endständen prüfen. Die Vollsuite wurde für diese Änderung nicht ausgeführt.

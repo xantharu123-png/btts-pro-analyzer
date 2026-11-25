@@ -18,11 +18,13 @@ Liga gebunden. Eine nicht verfügbare Liga verhindert die anderen nicht, sofern
 der Anbieter insgesamt erreichbar ist. Die bisherigen deutschen Belege bleiben
 lesbar; die neuen Ligen erhalten jeweils eigene kleine Saisondateien.
 
-Maximal neun Abrufe je Zürcher Tag: ein Katalog, bis zu fünf Saisonabrufe,
-drei über die Ligen rotierende Quotenplätze. Nach einem Abbruch kein zweiter
-Versuch am selben Tag; bei anbieterweiter Limit- oder Zugriffssperre stoppen.
-Der 75-Sekunden-Worker und das 9/min-Limit bleiben erhalten. Kein neuer Scan auf
-dem VPS und kein Kauf. `python -m handball_pilot` liest alle fünf Ligen ohne Abruf.
+Maximal elf Abrufe je Zürcher Tag: ein Katalog, bis zu fünf Saisonabrufe und ein
+1X2-Quotenabruf je Liga mit anstehendem Spiel. 9/min bleibt die Grenze ohne
+belegte Tarif-Header; der bestätigte Handball-PRO-Tarif erlaubt den begrenzten
+11er-Lauf. Nach einem Abbruch kein zweiter Versuch am selben Tag; bei
+anbieterweiter Limit- oder Zugriffssperre stoppen. 75 Sekunden Laufzeitlimit,
+kein neuer Timer und kein zusätzlicher Anbieter. `python -m handball_pilot`
+liest alle fünf Ligen ohne Abruf.
 Historische Endstände erlauben einen Rücktest ohne API-Kauf. Markt- oder ROI-
 Nachweis erfordert echte zeitgebundene vollständige 1X2-Preise und exakte
 Ergebnisse derselben Spiele; kein Ersatz durch heutige oder unzeitgestempelte
