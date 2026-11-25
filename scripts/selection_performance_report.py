@@ -24,6 +24,8 @@ def main(argv=None) -> int:
     parser.add_argument("--as-of", help="Timezone-aware reporting cutoff")
     parser.add_argument("--history-db", type=Path, help="Use prospectively archived UI selections, not the internal pool")
     parser.add_argument("--surface", help="Optional publication surface; requires --history-db")
+    parser.add_argument("--market-review", action="store_true",
+                        help="Compare archived Wettfinder markets and first cards for up to 31 completed Zurich days")
     args = parser.parse_args(argv)
     try:
         if args.matchday:
@@ -40,7 +42,12 @@ def main(argv=None) -> int:
             parser.error('--surface requires --history-db')
         options = dict(from_day=args.from_day, through_day=args.through_day,
             timezone_name=args.timezone, unit_stake=args.unit_stake, as_of=args.as_of)
-        if args.history_db:
+        if args.market_review:
+            from consumer_tip_market_review import build_market_review
+            if not args.history_db or args.timezone != "Europe/Zurich":
+                parser.error("--market-review requires --history-db and Zurich calendar days")
+            report = build_market_review(args.history_db, args.db, surface=args.surface, **options)
+        elif args.history_db:
             from consumer_tip_performance import build_consumer_tip_performance_report
             report = build_consumer_tip_performance_report(args.history_db, args.db, surface=args.surface, **options)
             if args.matchday:

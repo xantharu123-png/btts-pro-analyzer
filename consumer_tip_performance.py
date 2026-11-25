@@ -66,7 +66,8 @@ def _first_card(tips):
     return None
 
 
-def _matchday(publications, first, selections, gap_index, in_window, *, confirmed=None, lead_surface=False):
+def _matchday(publications, first, selections, gap_index, in_window, *, confirmed=None, lead_surface=False,
+              include_market_metrics=False):
     scored = {(row["publication_id"], row["tip_id"]): row for row in selections}
 
     def row_for(pub, tip, reason=None, *, unknown_card=False):
@@ -75,7 +76,7 @@ def _matchday(publications, first, selections, gap_index, in_window, *, confirme
         reason = reason or gap_index.get(key) or (row["clock_exclusion"] if row else "not_exactly_bound")
         if not reason and row["invalid_result_evidence"]:
             reason = "invalid_result_evidence"
-        return dict(sport=tip["sport"], event_key=tip["event_key"], surface=pub["surface"],
+        data = dict(sport=tip["sport"], event_key=tip["event_key"], surface=pub["surface"],
                     publication_id=key[0], first_observed_at=pub["first_observed_at"],
                     tip_id=None if unknown_card else key[1], forecast_id=None if unknown_card or not row else row["forecast_id"],
                     market_key=None if unknown_card else tip["market_key"], selection=None if unknown_card else tip["selection"],
@@ -86,6 +87,10 @@ def _matchday(publications, first, selections, gap_index, in_window, *, confirme
                     input_cutoff_at=None if unknown_card else tip["input_cutoff_at"],
                     status="UNMATCHED" if reason else row["outcome"], reason=reason,
                     quote_status=None if unknown_card or not row else row["quote_status"])
+        if include_market_metrics:
+            data.update(stale_quote_reason=None if reason else row["stale_quote_reason"],
+                        hypothetical_return_units=None if reason else row["hypothetical_return_units"])
+        return data
 
     markets = [row_for(pub, tip) for pub, tip in first.values() if in_window(tip)]
     by_event = defaultdict(list)
@@ -227,9 +232,22 @@ def _published_quote(tip, capture, effective_start):
         return "invalid", None
 
 
+def _stale_quote_reason(quote, capture):
+    try:
+        provider, fetched = _utc(quote["observed_at"]), _utc(quote["fetched_at"])
+        if not provider <= fetched <= capture:
+            return "unknown"
+        provider_old = capture - provider > WETTFINDER_QUOTE_MAX_AGE
+        fetch_old = capture - fetched > WETTFINDER_FETCH_MAX_AGE
+    except (KeyError, ValueError, TypeError, OverflowError):
+        return "unknown"
+    return {(True, True): "both", (True, False): "provider", (False, True): "fetch"}.get(
+        (provider_old, fetch_old), "unknown")
+
+
 def build_consumer_tip_performance_report(
     history_db, forecast_db, *, from_day, through_day, as_of=None,
-    surface=None, timezone_name="Europe/Zurich", unit_stake=1.0,
+    surface=None, timezone_name="Europe/Zurich", unit_stake=1.0, include_market_metrics=False,
 ):
     """Count the first real capture per event/market/side, without pool fallback.
 
@@ -338,6 +356,8 @@ def build_consumer_tip_performance_report(
                         featured_role=tip.get("featured_role"), quote_status=status,
                         entry_odds=odds, entry_quote_id=None,
                         hypothetical_return_units=None)
+        if include_market_metrics:
+            selected["stale_quote_reason"] = _stale_quote_reason(tip.get("quote"), capture) if status == "stale" else None
         if selected["causal"] and status == "fresh" and selected["outcome"] in {"WIN", "LOSS"}:
             selected["hypothetical_return_units"] = odds-1 if selected["outcome"] == "WIN" else -1.0
         selections.append(selected)
@@ -355,10 +375,11 @@ def build_consumer_tip_performance_report(
     report["linkage_gaps"] = gaps
     if surface in EVENT_LEAD_SURFACES.values():
         report["first_visible_cards"] = _matchday(publications, first, selections, gap_index, in_window,
-                                                 lead_surface=True)["first_main_card"]["rows"]
+                        lead_surface=True, include_market_metrics=include_market_metrics)["first_main_card"]["rows"]
     elif surface in WETTFINDER_SURFACES:
         lead_report = build_consumer_tip_performance_report(history_db, forecast_db,
-            surface=EVENT_LEAD_SURFACES[surface], **args)
+            surface=EVENT_LEAD_SURFACES[surface], include_market_metrics=include_market_metrics, **args)
         confirmed = {(r["sport"], r["event_key"]): r for r in lead_report["first_visible_cards"]}
-        report["matchday"] = _matchday(publications, first, selections, gap_index, in_window, confirmed=confirmed)
+        report["matchday"] = _matchday(publications, first, selections, gap_index, in_window, confirmed=confirmed,
+                                       include_market_metrics=include_market_metrics)
     return report

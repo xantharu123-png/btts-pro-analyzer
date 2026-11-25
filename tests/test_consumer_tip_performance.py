@@ -277,6 +277,63 @@ def matchday(paths):
     return data["matchday"]
 
 
+def test_market_review_uses_original_leads_and_only_settled_exact_fresh_prices(paths, monkeypatch, capsys):
+    import json
+    from scripts.selection_performance_report import main
+
+    items = [card(i) for i in range(1, 5)]
+    items[0]["reference_quote"] = quote(items[0], odds=1.5)
+    items[1]["reference_quote"] = quote(items[1], odds=4.0, clock=NOW-timedelta(hours=2))
+    items[2]["reference_quote"] = quote(items[2], odds=2.0)
+    for item in items:
+        freeze(paths[1], item)
+    history.record_tip_publication(paths[0], surface=SURFACE, rows=items, as_of=NOW,
+                                   event_lead_candidates=[item["candidate_id"] for item in items[:3]])
+    settle(paths[1], monkeypatch, fixture=1, outcome="WIN")
+    settle(paths[1], monkeypatch, fixture=2, outcome="LOSS")
+    settle(paths[1], monkeypatch, fixture=4, outcome="WIN")
+    before = [p.read_bytes() for p in paths]
+    assert main(["--db", str(paths[1]), "--history-db", str(paths[0]), "--from-day", "2029-12-31",
+                 "--through-day", "2030-01-01", "--as-of", AS_OF.isoformat(), "--market-review"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    empty, day = result["daily"]
+    assert empty["first_main_card"]["summary"]["decided"] == 0
+    cohort = day["first_main_card"]["summary"]
+    assert (cohort["wins"], cohort["losses"], cohort["open"], cohort["unmatched"]) == (1, 1, 1, 1)
+    assert cohort["mean_model_probability"] == pytest.approx(.72)
+    assert cohort["priced_decisions"] == 1 and cohort["hypothetical_roi"] == .5
+    assert cohort["quote_statuses"] == {"fresh": 2, "stale": 1, "unverified": 1}
+    assert cohort["stale_quote_reasons"] == {"both": 1}
+    assert day["first_main_card"]["by_sport_and_market"]["football"]["btts"]["wins"] == 1
+    assert day["all_distinct_markets"]["summary"]["wins"] == 2
+    assert result["overall"]["first_main_card"]["summary"] == cohort
+    assert [p.read_bytes() for p in paths] == before
+    standard = matchday(paths)["first_main_card"]["rows"][0]
+    assert "stale_quote_reason" not in standard and "hypothetical_return_units" not in standard
+
+
+def test_market_review_rejects_excessive_completed_day_window(paths, capsys):
+    from scripts.selection_performance_report import main
+
+    with pytest.raises(SystemExit) as error:
+        main(["--db", str(paths[1]), "--history-db", str(paths[0]), "--from-day", "2029-11-01",
+              "--through-day", "2030-01-01", "--as-of", AS_OF.isoformat(), "--market-review"])
+    assert error.value.code == 2
+    assert "31" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(("provider_minutes", "fetch_minutes", "expected"), [
+    (150, 3, "provider"), (40, 36, "fetch"), (150, 36, "both"), (40, 30, "unknown"),
+    (None, 3, "unknown"), (150, None, "unknown"), (30, 35, "unknown"), (0, -1, "unknown"),
+])
+def test_stale_quote_diagnostics_keep_both_clocks_and_do_not_invent_a_reason(provider_minutes, fetch_minutes, expected):
+    from consumer_tip_performance import _stale_quote_reason
+
+    clocks = {key: (NOW-timedelta(minutes=age)).isoformat()
+              for key, age in [("observed_at", provider_minutes), ("fetched_at", fetch_minutes)] if age is not None}
+    assert _stale_quote_reason(clocks, NOW) == expected
+
+
 def test_matchday_keeps_first_card_despite_later_better_market(paths, monkeypatch):
     first, side, late = card(), card(market="TOTAL_OVER_25", p=.64), card(market="TOTAL_OVER_15", p=.88)
     other = dict(card(2), featured_role="primary")
