@@ -1191,7 +1191,7 @@ def test_automatic_surface_offers_all_configured_sports_and_short_empty_state(
         if control[3] == "wettfinder_automatic_sport_v2"
     )
     public_text = " ".join(str(value) for _kind, value in recording_st.messages)
-    assert sport_control[1] == tuple(app.FINDER_SPORT_OPTIONS)
+    assert sport_control[1] == (*app.FINDER_SPORT_OPTIONS, "Handball")
     assert [value for kind, value in recording_st.messages if kind == "info"] == [
         "Für Cricket gibt es aktuell keine passende Auswahl."
     ]
