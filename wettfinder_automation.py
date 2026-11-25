@@ -6056,6 +6056,7 @@ def _report_disk_headroom() -> bool:
 
 
 def main(argv: Optional[list[str]] = None) -> int:
+    process_started = monotonic()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--force-football", action="store_true")
     parser.add_argument('--quotes-only', action='store_true')
@@ -6087,6 +6088,20 @@ def main(argv: Optional[list[str]] = None) -> int:
             )
         )
         return 1
+    handball = None
+    if (os.getenv('BETBOY_HANDBALL_PILOT') == '1' and not args.force_football
+            and _same_artifact_path(Path(args.state_path), STATE_PATH)
+            and not int(document.get('operational_error_count') or 0)):
+        # The normal service has a 60-minute wall budget; leave ample margin.
+        if monotonic() - process_started > 55 * 60:
+            handball = {'status': 'skipped_service_deadline'}
+        else:
+            try:
+                from handball_pilot import scheduled_handball_pilot
+
+                handball = scheduled_handball_pilot(canonical=True, forced=False)
+            except Exception as exc:
+                handball = {'status': 'unavailable', 'error_type': type(exc).__name__}
     print(
         json.dumps(
             {
@@ -6103,6 +6118,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                     "discovery_scope"
                 ],
                 "bookmaker_data_used": document["bookmaker_data_used"],
+                **({"handball_pilot": handball} if handball is not None else {}),
             },
             ensure_ascii=True,
         )

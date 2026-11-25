@@ -6,7 +6,7 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 
 ## Stand: 25.11.2026
 
-Produktion: NHL-Preisarchiv aus #170 auf `d2d574b`, ohne Änderung der
+Produktion nach letzter Release-Prüfung: `310b6e2` (#171), ohne Änderung der
 Top-Tipp-Regel. [NHL-Prüfung](docs/audits/2026-11-25-nhl-top-messung.md):
 84 archivierte Spiele vom 12.–24.11., davon 8 Modellfavoriten ab 70 %,
 noch kein passender Preisbeleg zur ersten Prognose. Abnahme der neuen
@@ -23,6 +23,17 @@ Europäische Hockey-Saisonhistorie fehlt weiterhin: vier bestätigte
 Tarifablehnungen für 2026, null Resultate. Liga-Diagnose am bestehenden
 Pfad ergänzt. Abnahme von NBA-/E-Sport-Daten im regulären Lauf offen.
 Keine neuen Modell- oder Tippgrenzen; Cricket bleibt ausgenommen.
+
+[Handball-Europa](docs/audits/2026-11-25-handball-europa.md) auf
+`codex/handball-pilot-20261125`: fünf getrennte Herrenligen (ES, DE, DK, FR, HU),
+API-SPORTS als einzige Quelle. Der Sammelabruf liest je Liga Spielplan,
+Endstände und vollständige aktuelle 1X2-Sätze mit Anbieter- und Abrufzeit.
+Lokale Echtprobe: elf erfolgreiche Abrufe, 450 Endstände, eine gebundene
+Vorabquote in Dänemark. Fehlende Preise bleiben ohne Ersatz. Deaktivierter
+Code-Standard; VPS-Aktivierung und Abnahme sind getrennte Schritte.
+834 historische Prognosen: Vorteil gegenüber Ligahäufigkeiten, kein
+nachgewiesener Markt- oder Renditevorteil. Keine öffentlichen Tipps.
+Gezielte Regression: 383 Standard- und 236 Produktionspreis-Tests grün.
 
 ### Voriger Stand: 24.11.2026
 
