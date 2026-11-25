@@ -301,7 +301,8 @@ def _summary(rows: list[dict], stake: float) -> dict:
         "log_loss": sum(logs) / len(logs) if logs else None,
         "quote_coverage": dict(Counter(row["quote_status"] for row in rows)),
         "hypothetical_resolved_quote_samples": len(returns),
-        "hypothetical_void_quote_samples": sum(row["causal"] and row["quote_status"] == "fresh" and row["outcome"] == "VOID" for row in rows),
+        "hypothetical_void_quote_samples": sum(row["causal"] and row["quote_status"] == "fresh"
+            and row["outcome"] == "VOID" and row["native_event"][:2] != ["ice_hockey", "nhl"] for row in rows),
         "hypothetical_turnover_units": len(returns),
         "hypothetical_net_units": sum(returns),
         "hypothetical_net_amount": sum(returns) * stake,
@@ -353,6 +354,7 @@ def build_selection_performance_report(
             "Internal forecasts are not proof of customer-visible tips or placed wagers.",
             "Different markets from one event are correlated, not independent samples.",
             "Returns use only exact fresh pre-decision quotes at or above 1.20, irrespective of the old value/executable gate.",
+            "NHL team-price retrieval has no bookmaker update clock; those observations are benchmarks, not return samples.",
             "Missing, stale or unresolved prices are not assigned synthetic odds or losses.",
             "Hashes detect inconsistent stored records; public hashes do not authenticate against an attacker who can rewrite all evidence.",
             "No baseline or claim of improved betting quality is inferred from this retrospective.",
@@ -499,7 +501,8 @@ def build_selection_performance_report(
         quote = entries[0] if entries else None
         status = "invalid" if quote_invalid else "missing" if quote is None else "stale" if not quote["fresh"] else "below_floor" if quote["odds"] < MINIMUM_RECOMMENDED_DECIMAL_ODDS else "fresh"
         units = None
-        if reason is None and status == "fresh" and outcome in {"WIN", "LOSS"}:
+        retrieval_only_nhl = chosen["native_event"][:2] == ("ice_hockey", "nhl")
+        if reason is None and status == "fresh" and not retrieval_only_nhl and outcome in {"WIN", "LOSS"}:
             units = quote["odds"] - 1 if outcome == "WIN" else -1.0
         selected.append({
             "forecast_id": chosen["forecast_id"], "event_key": chosen["event_key"], "native_event": list(identity[:3]),

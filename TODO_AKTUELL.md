@@ -1,5 +1,15 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 25.11.2026 – NHL gegen zeitgleich archivierte Buchmacherpreise prüfen
+
+- [Pilot und Vorab-Regel](docs/audits/2026-11-25-nhl-top-messung.md):
+  84 vollständige Modellpartien, 0 vollständige Original-Einstiegspreise;
+  25 Spiele mit späteren Preiszeilen sind getrennt. Kein Ergebnis geöffnet.
+- Künftige Abrufpreise aus dem vorhandenen Tageslauf exakt archivieren und
+  mit `nhl_top_review.py --phase forward-coverage --db PFAD` prüfen.
+  **Noch offen:** reguläre Produktionsabnahme der Preisaufnahme nach Release;
+  formaler Marktvergleich frühestens am 03.04.2027. Bis dahin keine Top-Freigabe.
+
 ## 24.11.2026 – Live: nur bei klarem Signal
 
 - [Prüfprotokoll](docs/audits/2026-11-24-live-klare-signale.md): Cardiff in

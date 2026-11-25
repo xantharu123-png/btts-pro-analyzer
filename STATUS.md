@@ -4,7 +4,15 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 „Stand“ ersetzen, nicht anhängen; Historie steht in `TODO_AKTUELL.md` und
 `PC_WECHSEL_UEBERGABE.md`. Regeln und Einstieg: `AGENTS.md`.
 
-## Stand: 24.11.2026
+## Stand: 25.11.2026
+
+[NHL-Top-Prüfung](docs/audits/2026-11-25-nhl-top-messung.md): 84 archivierte
+Spiele vom 12.–24.11., davon 8 Favoriten ab 70 %, aber kein passender
+Preisbeleg zur ersten Prognose. Kein Hochstufen auf Top. Preisaufnahme im
+bestehenden Tageslauf für die künftige Prüfung vorbereitet; keine neuen
+Abrufe, keine Modelländerung. Automatik und Doublebet behalten ihre Rollen.
+
+### Voriger Stand: 24.11.2026
 
 Live-Fußball: Der Ticker vergleicht 54 Auswahlen aus Tor-, Ergebnis- und
 Handicap-Märkten. Vor Minute 15 kein Tipp; danach mindestens 55 % Modellchance

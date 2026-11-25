@@ -3897,6 +3897,82 @@ def _research_attempt_summary(
     return summary
 
 
+def _record_wettfinder_evidence(document, path, *, model_version, team_price_cache, nhl_entry_at):
+    """Archive exact NHL retrievals from the existing nightly cache, not the UI.
+
+    Team prices are retrieved after the normal document clock. Model/source
+    clocks remain frozen; only a priced NHL evidence run gets the later real
+    decision clock. Quote-only jobs never call this entry path.
+    """
+    from forecast_evidence import record_forecast_run
+    from market_consensus import WETTFINDER_FETCH_MAX_AGE
+    from sports_prematch import MODEL_VERSION as NHL_MODEL_VERSION
+    from team_sport_forecasts import POLICY, SOURCE
+    from team_sport_prices import _read as read_team_price_cache, load_cached_quote
+
+    groups = {}
+    original = document['model_candidates']
+    for index, row in enumerate(original):
+        if (row.get('source'), row.get('fixture_source'), row.get('market_key'),
+                row.get('model_version'), row.get('policy_version')) != (SOURCE, 'NHL', 'H2H', NHL_MODEL_VERSION, POLICY):
+            continue
+        identity = row.get('event_identity')
+        if isinstance(identity, str) and identity:
+            groups.setdefault(identity, []).append((index, row))
+    cache = read_team_price_cache(team_price_cache) if groups else {}
+    priced = {}
+    if cache:
+        same = ('provider_event_id', 'scheduled_start', 'competitor_a', 'competitor_b',
+                'competitor_a_id', 'competitor_b_id', 'modeled_at', 'input_cutoff_at')
+        for group in groups.values():
+            if len(group) != 2:
+                continue
+            (i, a), (j, b) = group
+            if (any(a.get(key) != b.get(key) for key in same)
+                    or {a.get('selected_competitor'), b.get('selected_competitor')} != {a.get('competitor_a'), a.get('competitor_b')}):
+                continue
+            first = load_cached_quote(a, now=nhl_entry_at, document=cache)
+            second = load_cached_quote(b, now=nhl_entry_at, document=cache)
+            if (first is None or second is None or not first.native_market_partitions
+                    or first.native_market_partitions != second.native_market_partitions
+                    or first.provider_event_id != second.provider_event_id
+                    or first.fetched_at != second.fetched_at):
+                continue
+            fetched = _parse_iso(first.fetched_at)
+            if fetched is None or not timedelta(0) <= nhl_entry_at - fetched <= WETTFINDER_FETCH_MAX_AGE:
+                continue
+            priced[i] = {**a, 'reference_quote': first}
+            priced[j] = {**b, 'reference_quote': second}
+    if not priced:
+        return record_forecast_run(document, path, model_version=model_version)
+
+    others = [row for index, row in enumerate(original) if index not in priced]
+    priced_document = {**document, 'decision_at': nhl_entry_at.isoformat(), 'model_candidates': list(priced.values())}
+    ordinary = (record_forecast_run({**document, 'model_candidates': others}, path, model_version=model_version)
+                if others else None)
+    try:
+        nhl = record_forecast_run(priced_document, path, model_version=model_version)
+    except Exception as exc:
+        # Keep unrelated evidence and settlement intact. Do not retry with the
+        # earlier clock: failure does not prove this recorder wrote nothing.
+        return {**(ordinary if ordinary is not None else {
+            'run_id': None, 'recorded': 0, 'forecast_ids': [], 'rejected': [],
+            'quotes_rejected': [], 'closing_quotes_recorded': 0,
+        }), 'nhl_entry': {'status': 'failed', 'failure_type': type(exc).__name__}}
+    nhl_status = {
+        'status': 'partial' if nhl['rejected'] or nhl['quotes_rejected'] else 'recorded',
+        'run_id': nhl['run_id'], 'recorded': nhl['recorded'],
+    }
+    if ordinary is None:
+        return {**nhl, 'nhl_entry': nhl_status}
+    return {**ordinary, 'recorded': ordinary['recorded'] + nhl['recorded'],
+            'forecast_ids': ordinary['forecast_ids'] + nhl['forecast_ids'],
+            'rejected': ordinary['rejected'] + nhl['rejected'],
+            'quotes_rejected': ordinary['quotes_rejected'] + nhl['quotes_rejected'],
+            'closing_quotes_recorded': ordinary['closing_quotes_recorded'] + nhl['closing_quotes_recorded'],
+            'nhl_entry': nhl_status}
+
+
 def run_wettfinder(
     *,
     now: Optional[datetime] = None,
@@ -5077,22 +5153,27 @@ def run_wettfinder(
             document['run_status'] = 'degraded'
             document['operational_error_count'] += 1
     if production_state or evidence_db_path is not None:
-        from forecast_evidence import record_forecast_run
         evidence_path = evidence_db_path or ROOT / "runtime_state" / "forecast_evidence.db"
         try:
-            evidence = stage('forecast_recording', record_forecast_run,
+            evidence = stage('forecast_recording', _record_wettfinder_evidence,
                 document,
                 evidence_path,
                 model_version=CHALLENGE_PREDICTION_VERSION,
+                team_price_cache=Path(state_path).parent / 'team_sport_quotes.json',
+                nhl_entry_at=current if fixed_now else _utc(runtime_clock()),
             )
+            nhl_entry = evidence.get('nhl_entry')
             document["forecast_evidence"] = {
                 "run_id": evidence["run_id"],
                 "recorded": evidence["recorded"],
                 "rejected_count": len(evidence["rejected"]),
                 "quote_rejected_count": len(evidence["quotes_rejected"]),
                 "closing_quotes_recorded": evidence.get("closing_quotes_recorded", 0),
-                "status": "completed" if not evidence["rejected"] else "partial",
+                "status": "partial" if evidence["rejected"] or (
+                    nhl_entry is not None and nhl_entry['status'] != 'recorded') else "completed",
             }
+            if nhl_entry is not None:
+                document["forecast_evidence"]['nhl_entry'] = nhl_entry
             if production_state or evidence_settlement_runner is not None:
                 document["forecast_evidence"]["settlement"] = stage('forecast_results', _settle_forecast_evidence,
                     evidence_path, config=config, now=current if fixed_now else None,

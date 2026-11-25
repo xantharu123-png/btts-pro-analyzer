@@ -248,6 +248,8 @@ def _quote_records(forecast_id: str, forecast: dict, raw: object, kind: str,
             "fetched_at": fetched.isoformat(), "odds": point.odds,
             "executable": (
                 status.code == "PLAYABLE"
+                # NHL/API-Sports has a retrieval clock, not native book recency.
+                and not (forecast["sport"] == "ice_hockey" and quote.origin_provider == "NHL")
                 and status.bookmaker_id == point.bookmaker_id
                 and status.usable_odds == point.odds
                 and status.observed_at == point.observed_at

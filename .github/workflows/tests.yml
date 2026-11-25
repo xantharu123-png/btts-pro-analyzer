@@ -52,6 +52,9 @@ jobs:
           tests/test_football_dixon_coles.py
           tests/test_football_joint_calibration.py
           tests/test_forecast_evidence.py
+          tests/test_nhl_top_review.py
+          tests/test_nhl_top_statistics.py
+          tests/test_nhl_entry_capture.py
           tests/test_model_loss_statistics.py
           tests/test_live_tip_settlement_job.py
           tests/test_live_tip_ledger.py
