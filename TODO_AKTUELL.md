@@ -1,5 +1,19 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 25.11.2026 – Handball im Wettfinder
+
+- [Diagnose](docs/audits/2026-11-25-handball-europa.md): 37 Rohzeilen, davon
+  genau eine zu einem anstehenden Spiel. Die beiden anderen Modellspiele
+  lieferten auch im Direktabruf keine Quote. Keine Absenkung der Frische-
+  oder Identitätsprüfung, kein anderer Anbieter.
+- [Anzeigevertrag](docs/superpowers/specs/2026-11-25-handball-wettfinder-design.md):
+  automatische Wettfinder-Karten, eigener Handballfilter. Private V1/V2-Daten
+  bleiben lesbar; öffentliche Bindung entsteht erst mit der V3-Publikation aus
+  dem regulären Lauf. NO-Backup-Release, kein zusätzlicher Produktionsscan.
+- Offen: Nach dem regulären Lauf am 26.11. ab 03:35 die aktuellen V3-Belege
+  lesen, ohne einen zweiten Job zu starten; tatsächliche Handballkarten und
+  Buchmachermarktvergleich getrennt dokumentieren.
+
 ## 25.11.2026 – Handball-Europa und API-Abnahme
 
 - [Rücktest und Anbieterprüfung](docs/audits/2026-11-25-handball-europa.md): fünf
@@ -9,9 +23,9 @@
   ein Katalog, fünf Spielpläne, fünf Quoten-Sammelabfragen, kein weiterer
   Anbieter und kein zusätzlicher Timer. Lokale Echtprobe: 450 Endstände,
   drei Prognosen, eine passende 1X2-Quote. Kein 429.
-- Offen: Aktivierung auf dem VPS und Produktionsabnahme; danach aus
-  regulären Läufen Preisabdeckung und gepaarte Endstände beobachten.
-  Ohne belegten Vergleich kein öffentliches Tipp-Ranking.
+- Aktiviert und abgenommen auf `8dfa800` (#172). In regulären Läufen
+  Preisabdeckung und gepaarte Endstände beobachten. Ohne belegten Vergleich
+  kein öffentliches TOP-Ranking.
 
 ## 25.11.2026 – Handball-Bundesliga
 

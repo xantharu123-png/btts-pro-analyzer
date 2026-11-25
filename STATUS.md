@@ -6,7 +6,7 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 
 ## Stand: 25.11.2026
 
-Produktion nach letzter Release-Prüfung: `310b6e2` (#171), ohne Änderung der
+Produktion nach letzter Release-Prüfung: `8dfa800` (#172), ohne Änderung der
 Top-Tipp-Regel. [NHL-Prüfung](docs/audits/2026-11-25-nhl-top-messung.md):
 84 archivierte Spiele vom 12.–24.11., davon 8 Modellfavoriten ab 70 %,
 noch kein passender Preisbeleg zur ersten Prognose. Abnahme der neuen
@@ -24,16 +24,18 @@ Tarifablehnungen für 2026, null Resultate. Liga-Diagnose am bestehenden
 Pfad ergänzt. Abnahme von NBA-/E-Sport-Daten im regulären Lauf offen.
 Keine neuen Modell- oder Tippgrenzen; Cricket bleibt ausgenommen.
 
-[Handball-Europa](docs/audits/2026-11-25-handball-europa.md) auf
-`codex/handball-pilot-20261125`: fünf getrennte Herrenligen (ES, DE, DK, FR, HU),
-API-SPORTS als einzige Quelle. Der Sammelabruf liest je Liga Spielplan,
-Endstände und vollständige aktuelle 1X2-Sätze mit Anbieter- und Abrufzeit.
-Lokale Echtprobe: elf erfolgreiche Abrufe, 450 Endstände, eine gebundene
-Vorabquote in Dänemark. Fehlende Preise bleiben ohne Ersatz. Deaktivierter
-Code-Standard; VPS-Aktivierung und Abnahme sind getrennte Schritte.
-834 historische Prognosen: Vorteil gegenüber Ligahäufigkeiten, kein
-nachgewiesener Markt- oder Renditevorteil. Keine öffentlichen Tipps.
-Gezielte Regression: 383 Standard- und 236 Produktionspreis-Tests grün.
+[Handball-Europa](docs/audits/2026-11-25-handball-europa.md):
+fünf Herrenligen (ES, DE, DK, FR, HU) über API-SPORTS auf dem VPS aktiviert;
+450 Endstände, drei Prognosen, ein gebundener Vorabmarkt. Für 39 von 40
+anstehenden Spielen im Siebentagefenster liefert die Anbieterprobe keine
+Quotenzeile. Auf `codex/handball-wettfinder-20261125`: automatischer Handballfilter,
+1X2-Modellauswahl erst mit aktuellem, exakt passendem Preisbeleg und Median ab
+1,20. Kein TOP, kein Schein, keine Änderung der anderen Sportarten. Die vorhandenen
+privaten V2-Belege liefern keine Karte; der nächste reguläre Lauf erzeugt V3.
+Marktvorteil weiterhin nicht nachgewiesen.
+Gezielte Regression: 549 Standardtests grün. Unter Produktions-Preisregel
+547 grün; zwei alte Karten-Tests verlangen dort sichtbare Quoten und scheitern
+identisch auf dem unveränderten Produktionsstand.
 
 ### Voriger Stand: 24.11.2026
 

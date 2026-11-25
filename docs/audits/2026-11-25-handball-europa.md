@@ -69,5 +69,29 @@ Stichprobe bestätigt keinen aktuellen Vorteil. Keine Modellformel geändert.
   separaten Zeitraum prüfen, keine Anpassung auf diese Testspiele.
 Pilot im Code standardmässig aus, maximal elf Abrufe je Zürcher Tag. Kein
 neuer Timer, keine Buchung, kein weiterer Datenanbieter. Vergleich und
-öffentliche Tippfreigabe erst nach echten gepaarten Vorabpreisen und
-Endständen prüfen. Die Vollsuite wurde für diese Änderung nicht ausgeführt.
+TOP-Aufnahme erst nach echten gepaarten Vorabpreisen und Endständen prüfen.
+Die Vollsuite wurde für diese Änderung nicht ausgeführt.
+
+## Warum im Wettfinder nichts erschien
+
+Die Produktion auf `8dfa800` speichert nur die internen Handball-Belege.
+Die App hatte weder einen Handballfilter noch einen lesenden Anzeigepfad.
+Die Anschlussprüfung am 25.11. gegen den bestehenden Schlüssel klärt,
+welche der Rohquoten zu den bestätigten anstehenden Spielen passte:
+
+| Liga | 1X2-Rohzeilen | Anstehend in 7 Tagen | Passende aktuelle Zeile |
+| --- | ---: | ---: | ---: |
+| Bundesliga | 9 | 9 | 0 |
+| ASOBAL | 7 | 8 | 0 |
+| Herreligaen | 8 | 7 | 1 |
+| Starligue | 7 | 8 | 0 |
+| NB I | 6 | 8 | 0 |
+
+36 Zeilen gehörten nicht zum anstehenden Spielplan; eine zu
+Nordsjælland–Kolding. Weder für Balingen–Lemgo noch für Ribe-Esbjerg–Ringsted
+gab es im Direktabruf nach Spiel-ID einen 1X2-Satz. Das ist kein 429,
+Saisonfehler oder vom Parser aussortiertes aktuelles Angebot.
+
+Der [neue Anzeigepfad](../superpowers/specs/2026-11-25-handball-wettfinder-design.md)
+nutzt nur den jeweiligen Lauf, liefert bei passender Datenlage eine
+Modell-Auswahl je Spiel und liest sie ohne weiteren Anbieterzugriff.

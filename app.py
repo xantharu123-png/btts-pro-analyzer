@@ -94,6 +94,7 @@ from wettfinder_surface import (
     WettfinderReleaseOverlay,
     WETTFINDER_MARKET_FAMILIES,
     best_wettfinder_by_market,
+    build_handball_wettfinder_card,
     build_wettfinder_card,
     compose_wettfinder_catalog,
     ordered_wettfinder_games, page_event_lead_keys, WETTFINDER_GAMES_PER_PAGE, WETTFINDER_MIN_CHANCE_DEFAULT,
@@ -196,6 +197,7 @@ FINDER_SINGLE_SPORT_OPTIONS = (
     "E-Sport",
 )
 FINDER_SPORT_OPTIONS = ("Alle", *FINDER_SINGLE_SPORT_OPTIONS)
+FINDER_AUTOMATIC_SPORT_OPTIONS = (*FINDER_SPORT_OPTIONS, "Handball")
 FINDER_SPORT_CAPABILITIES = {
     "Fußball": "Pre-Match-Modell mit Markt- und Kontextprüfung.",
     "Tennis": "Pre-Match-Modell mit Belag- und Formdaten.",
@@ -4773,10 +4775,10 @@ def _render_wettfinder_game(group, row_by_key, featured_keys) -> None:
             signal, card = row_by_key[card.key]
             with st.container(key=f'wettfinder_v2_game_market_{card.manual_quote_key}'):
                 st.markdown(render_wettfinder_row_html(
-                    card, competition=getattr(signal, 'competition', None),
+                    card, competition=getattr(signal, 'competition', None) or card.competition,
                     featured=card.key in featured_keys, show_context=position == 0,
                 ), unsafe_allow_html=True)
-                if signal is not None:
+                if signal is not None and not card.display_only:
                     render_tip_bookmark(
                         _automated_signal_candidate(signal),
                         key=f"wettfinder_v2_{card.manual_quote_key}",
@@ -4857,16 +4859,18 @@ def _render_wettfinder_games(catalog, row_by_key, *, sport_filter: str, sort_mod
 # 70 % or more (07.10.–09.11.: 72,3 % hit, 1353 tips; docs/audits/2026-11-10-liste-ab-70.md).
 
 
-def _wettfinder_min_chance_control(*, market_view=False) -> int:
+def _wettfinder_min_chance_control(*, market_view=False, handball=False) -> int:
     """The opt-in market view keeps a separate extra display minimum."""
-    key = 'wettfinder_market_min_chance' if market_view else 'wettfinder_min_chance'
-    default = 0 if market_view else WETTFINDER_MIN_CHANCE_DEFAULT
+    key = ('wettfinder_handball_min_chance' if handball else
+           'wettfinder_market_min_chance' if market_view else 'wettfinder_min_chance')
+    default = 0 if handball or market_view else WETTFINDER_MIN_CHANCE_DEFAULT
     saved_key = '_' + key + '_saved'
     start = st.session_state.get(saved_key, default)
     with st.container(key='wettfinder_v2_min_chance'):
         value = st.slider(
             'Mindest-Modellchance (%)', 0, 95, start, step=5, key=key,
-            help=('0 %: keine zusätzliche Anzeigegrenze. Modell- und Preisprüfung bleiben unverändert.'
+            help=('Gilt nur für Handball. 0 % zeigt alle verfügbaren Modell-Auswahlen.'
+                  if handball else '0 %: keine zusätzliche Anzeigegrenze. Modell- und Preisprüfung bleiben unverändert.'
                   if market_view else
                   'Zeigt nur Auswahlen, die laut Modell mindestens so wahrscheinlich eintreffen. '
                   'Gilt für die Spiele und die Tennisbox; Doublebet hat eine eigene Regel.'),
@@ -4895,6 +4899,7 @@ def _schedule_wettfinder_cutoff(deadline, source_run_id) -> None:
 
 
 def _render_automated_daily_selection() -> None:
+    from handball_publication import read_handball_selections
     from tip_display_order import _clock as event_start
     evaluation_now = datetime.now(timezone.utc)
     snapshot = automated_wettfinder_snapshot(now=evaluation_now)
@@ -4903,8 +4908,9 @@ def _render_automated_daily_selection() -> None:
     # A newer daily publication still takes its normal receipt path even when the clock woke the page.
     clock_only = st.session_state.pop('_wettfinder_clock_refresh', False) == source_run_id
     # Today's slips and next-day previews must also expire across Zurich midnight.
-    deadline = (evaluation_now.astimezone(ZURICH_TIMEZONE) + timedelta(days=1)).replace(
-        hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+    local_tomorrow = (evaluation_now.astimezone(ZURICH_TIMEZONE) + timedelta(days=1)).replace(
+        hour=0, minute=0, second=0, microsecond=0)
+    deadline = local_tomorrow.astimezone(timezone.utc)
 
     # Forecasts are the sole selection source; bookmaker prices cannot
     # replace their evidence stage or change their display order.
@@ -4917,10 +4923,21 @@ def _render_automated_daily_selection() -> None:
         card = build_wettfinder_card(signal, quote=signal.reference_quote, now=evaluation_now)
         rows.append((signal, card))
 
+    # Handball is a display-only projection, never a recommendation signal.
+    handball = []
+    handball_tomorrow = False
+    for selection in read_handball_selections(now=evaluation_now):
+        visibility_end = min(selection.starts_at, selection.expires_at)
+        if visibility_end <= evaluation_now:
+            continue
+        deadline = min(deadline, visibility_end)
+        handball.append(build_handball_wettfinder_card(selection))
+        handball_tomorrow |= selection.starts_at.astimezone(ZURICH_TIMEZONE).date() == local_tomorrow.date()
+
     target_label = _automatic_target_label(status.target_search_date) if status else 'Heute'
-    # Only football lists the next day (Folgetag); the tennis box keeps the match day label.
+    # The tennis box keeps the match-day label even when the list includes previews.
     rail_label = target_label
-    if any(listed_next_day_signal(signal, now=evaluation_now) for signal, _ in rows):
+    if handball_tomorrow or any(listed_next_day_signal(signal, now=evaluation_now) for signal, _ in rows):
         target_label += ' und morgen'
     # Both columns exist even before the daily publication. No fictional
     # selection is added merely to fill the magazine layout.
@@ -4929,7 +4946,8 @@ def _render_automated_daily_selection() -> None:
     choices = daily3_choices(snapshot.forecasts, now=evaluation_now) if daily3_allowed else ()
     # Owner 11.11.2026: tomorrow's Doublebet only as a read-only preview, never recorded.
     preview_choices = doublebet_preview_choices(snapshot.forecasts, now=evaluation_now) if daily3_allowed else ()
-    cards = [card for _signal, card in rows]
+    regular_cards = [card for _signal, card in rows]
+    cards = regular_cards + handball
     with st.container(key='editorial_auto_layout'):
         main_column, rail = st.columns([2.45, 1], gap='large')
         with main_column:
@@ -4940,8 +4958,9 @@ def _render_automated_daily_selection() -> None:
                 time_parts.append('Ergebnisstand: ' + _format_stand(status.generated_at))
             st.caption(' · '.join(time_parts))
             with st.container(key='wettfinder_v2_sports'):
-                sport_filter = _segmented('Sportart', list(FINDER_SPORT_OPTIONS),
+                sport_filter = _segmented('Sportart', list(FINDER_AUTOMATIC_SPORT_OPTIONS),
                     'wettfinder_automatic_sport_v2', 'Alle')
+            handball_view = sport_filter == 'Handball'
             market_view = st.radio('Ansicht', ['Übersicht', 'Bester je Wettart'], horizontal=True,
                                    key='wettfinder_market_view') == 'Bester je Wettart'
             market_family = None
@@ -4953,7 +4972,7 @@ def _render_automated_daily_selection() -> None:
                                                     if saved_family in WETTFINDER_MARKET_FAMILIES else 0),
                                              key='wettfinder_market_family')
                 st.session_state['_wettfinder_market_family_saved'] = market_family
-            min_chance = _wettfinder_min_chance_control(market_view=market_view)
+            min_chance = _wettfinder_min_chance_control(market_view=market_view, handball=handball_view)
             sort_mode = display_order_control(st, key='wettfinder_automatic_order')
             # The viewer's minimum chance only narrows the view; the record keeps
             # the unfiltered catalog so evaluations do not depend on a slider.
@@ -4966,7 +4985,9 @@ def _render_automated_daily_selection() -> None:
                            compose_wettfinder_catalog(cards, sport_filter=sport_filter, min_probability=min_chance / 100))
             shown_leads = ()
             if not catalog.featured and not catalog.additional:
-                message = ('Aktuell ist noch kein automatisches Ergebnis verfügbar.' if status is None else
+                message = ('Für Handball gibt es aktuell keine Modell-Auswahl.' if handball_view and not handball else
+                    'Aktuell ist noch kein automatisches Ergebnis verfügbar.'
+                    if status is None and (not handball or sport_filter not in ('Alle', 'Handball')) else
                     'Keine passende Auswahl für diese Wettart und den gewählten Filter.' if market_view else
                     f'Keine Auswahl ab {min_chance} % Modellchance. Regler nach links schieben, um mehr zu sehen.'
                     if full_catalog.featured or full_catalog.additional else
@@ -4974,23 +4995,26 @@ def _render_automated_daily_selection() -> None:
                     f'Für {sport_filter} gibt es aktuell keine passende Auswahl.')
                 st.info(message)
             else:
-                shown_leads = _render_wettfinder_games(catalog, {card.key: (signal, card) for signal, card in rows},
-                                        sport_filter=sport_filter, sort_mode=sort_mode,
-                                        **({'page_view': market_family} if market_view else {}))
-            if status is not None and not clock_only and not market_view:
+                row_by_key = {card.key: (signal, card) for signal, card in rows}
+                row_by_key.update((card.key, (None, card)) for card in handball)
+                shown_leads = _render_wettfinder_games(catalog, row_by_key, sport_filter=sport_filter, sort_mode=sort_mode,
+                                                      **({'page_view': market_family} if market_view else {}))
+            if status is not None and not clock_only and not market_view and not handball_view:
                 from tip_publication import record_signal_catalog
-                selected_order = [card.key for card in (*full_catalog.featured, *full_catalog.additional)]
                 selected_signals = {card.key: signal for signal, card in rows}
+                selected_order = [card.key for card in (*full_catalog.featured, *full_catalog.additional)
+                                  if card.key in selected_signals]
+                ordinary_leads = (key for key in (shown_leads or ()) if key in selected_signals)
                 record_signal_catalog("wettfinder_automatic",
                     (selected_signals[key] for key in selected_order),
                     as_of=evaluation_now,
-                    event_lead_keys=(key for key in (shown_leads or ()) if not listed_next_day_signal(
+                    event_lead_keys=(key for key in ordinary_leads if not listed_next_day_signal(
                         selected_signals[key], now=evaluation_now, decided_at=status.generated_at)),
-                    featured_keys=(card.key for card in full_catalog.featured),
+                    featured_keys=(card.key for card in full_catalog.featured if card.key in selected_signals),
                     source_run_id=source_run_id)
             rail_min = (st.session_state.get('_wettfinder_min_chance_saved', WETTFINDER_MIN_CHANCE_DEFAULT)
-                        if market_view else min_chance)
-            tennis_catalog = compose_wettfinder_catalog(cards, sport_filter='Tennis', min_probability=rail_min / 100)
+                        if market_view or handball_view else min_chance)
+            tennis_catalog = compose_wettfinder_catalog(regular_cards, sport_filter='Tennis', min_probability=rail_min / 100)
             tennis_cards = tennis_catalog.featured + tennis_catalog.additional
         with rail:
             ordered_tennis = ordered_event_rows(tennis_cards, mode=sort_mode,
@@ -5001,7 +5025,7 @@ def _render_automated_daily_selection() -> None:
             slip_deadline = _render_editorial_rail(choices, ordered_tennis, daily3_allowed=daily3_allowed, target_label=rail_label,
                 as_of=evaluation_now, source_run_id=None if clock_only else source_run_id,
                 preview_choices=preview_choices)
-    if status is not None or rows or slip_deadline is not None:
+    if status is not None or rows or handball or slip_deadline is not None:
         _schedule_wettfinder_cutoff(min(deadline, slip_deadline) if slip_deadline is not None else deadline, source_run_id)
 
 

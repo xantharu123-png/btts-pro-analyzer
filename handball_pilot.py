@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 
 from config_loader import load_handball_api_key
 from handball_pilot_model import predict_1x2
+from handball_publication import build_handball_publication
 from runtime_paths import PROJECT_ROOT, RUNTIME_STATE_DIR, atomic_write_text, prepare_trusted_runtime_database_path
 from scanners.api_handball import APIHandballClient, HANDBALL_LEAGUES, HandballSourceError
 
@@ -46,7 +47,7 @@ def _load(path):
     if not path.exists():
         return {'version': 2, 'forecasts': {}, 'run': {}}
     data = json.loads(path.read_text(encoding='utf-8'))
-    if (not isinstance(data, dict) or type(data.get('version')) is not int or data['version'] not in {1, 2}
+    if (not isinstance(data, dict) or type(data.get('version')) is not int or data['version'] not in {1, 2, 3}
             or not isinstance(data.get('forecasts'), dict) or not isinstance(data.get('run'), dict)):
         raise ValueError('unknown_handball_pilot_state')
     for row in data['forecasts'].values():
@@ -61,7 +62,7 @@ def _load(path):
 
 
 def _write(path, data):
-    data['version'] = 2
+    data['version'] = 3 if 'publication' in data else 2
     atomic_write_text(path, json.dumps(data, allow_nan=False, sort_keys=True))
 
 
@@ -112,13 +113,13 @@ def _collect_league_prices(client, league, season, *, games, pending, run, clock
     eligible = {game.game_id: game for game in games
                 if game.status == 'NS' and requested < game.starts_at <= requested + _ODDS_HORIZON}
     if not eligible:
-        return {}
+        return {}, {}, requested
 
     run['price_checks'] = 1
     try:
         offers = client.league_prices(league, season, now=requested)
     except HandballSourceError as exc:
-        return {exc.code: 1}
+        return {exc.code: 1}, {}, requested
     fetched = clock()
     matched = {game_id: offer for game_id, offer in offers.items()
                if game_id in eligible and requested <= fetched < eligible[game_id].starts_at
@@ -132,12 +133,13 @@ def _collect_league_prices(client, league, season, *, games, pending, run, clock
             run['newly_priced'] += 1
             run['unpriced_pending'] -= 1
     if matched:
-        return ({'no_complete_1x2_for_pending': run['unpriced_pending']}
-                if run['unpriced_pending'] else {})
+        diagnostics = ({'no_complete_1x2_for_pending': run['unpriced_pending']}
+                       if run['unpriced_pending'] else {})
+        return diagnostics, matched, fetched
     if fetched < requested or any(game_id in eligible and fetched >= eligible[game_id].starts_at
                                     for game_id in offers):
-        return {'outside_prematch_window': 1}
-    return {'no_complete_1x2': 1}
+        return {'outside_prematch_window': 1}, {}, fetched
+    return {'no_complete_1x2': 1}, {}, fetched
 
 
 def run_pilot(client, *, path=None, clock=_utcnow, league=None, started=None):
@@ -155,6 +157,8 @@ def run_pilot(client, *, path=None, clock=_utcnow, league=None, started=None):
            'price_checks': 0, 'quote_fixtures': 0, 'newly_priced': 0,
            'unpriced_pending': 0, 'diagnostics': {}}
     data['run'] = run
+    if league is not None:
+        data['publication'] = {'league_code': league.code, 'rows': {}}
     # A failed or interrupted run also spends part of the request budget.
     _write(path, data)
     try:
@@ -210,8 +214,12 @@ def run_pilot(client, *, path=None, clock=_utcnow, league=None, started=None):
     _write(path, data)
 
     if league is not None:
-        diagnostics = _collect_league_prices(client, league, season, games=games, pending=pending, run=run,
-                                             clock=clock)
+        diagnostics, matches, fetched = _collect_league_prices(
+            client, league, season, games=games, pending=pending, run=run, clock=clock,
+        )
+        data['publication'] = build_handball_publication(
+            league, games=upcoming, forecasts=forecasts, markets=matches, observed_at=fetched,
+        )
         run.update(status=('partial_prices' if diagnostics else 'completed') if games else 'empty_schedule',
                    diagnostics=diagnostics)
         _write(path, data)

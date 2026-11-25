@@ -147,6 +147,8 @@ class WettfinderCard:
     display_away_name: Optional[str] = None
     display_selection: Optional[str] = None
     selection_rank: Optional[tuple[float, ...]] = None
+    competition: Optional[str] = None
+    display_only: bool = False
 
     def __post_init__(self):
         object.__setattr__(self, 'selection_rank', validated_selection_rank(self.selection_rank))
@@ -446,6 +448,25 @@ def _evidence_copy(signal: ModelSignal, confirmed_tip: bool) -> tuple[str, str]:
     return "Modellprüfung", "muted"
 
 
+def build_handball_wettfinder_card(selection) -> WettfinderCard:
+    """Present one admitted 1X2 selection without creating a recommendation signal."""
+    key = f"handball:{selection.event_id}"
+    side = {"home": selection.home, "draw": "Unentschieden", "away": selection.away}[selection.side]
+    return WettfinderCard(
+        key=key, sport="Handball", competition=selection.league,
+        scheduled_start_label=format_scheduled_start(selection.starts_at.isoformat()),
+        scheduled_start=selection.starts_at.isoformat(),
+        event_label=f"{selection.home} – {selection.away}", home_team=selection.home, away_team=selection.away,
+        fixture_source="API-Handball", provider_event_id=selection.event_id,
+        market="1X2", market_key="HANDBALL_1X2", selection=side,
+        model_probability=selection.probability, cautious_probability=None, value_threshold=None,
+        observed_odds=None, bookmaker=None, reference_quote=None, price_code="", price_label="", price_tone="",
+        evidence_label="Modell-Auswahl", evidence_tone="muted", context_label="", detail="",
+        analysis_basis="Modell-Auswahl für die reguläre Spielzeit.",
+        confirmed_tip=False, manual_quote_key=key, can_check_manual_quote=False, display_only=True,
+    )
+
+
 def build_wettfinder_card(
     signal: ModelSignal,
     quote: object = None,
@@ -609,7 +630,7 @@ def _round_robin_by_sport(cards: Iterable[WettfinderCard]) -> list[WettfinderCar
 
 
 def _can_feature(card: WettfinderCard) -> bool:
-    if not card.highlight_eligible:
+    if card.display_only or not card.highlight_eligible:
         return False
     if not card.price_check_completed and not floor_only_pricing():
         return False
@@ -735,6 +756,8 @@ def meets_min_probability(card: WettfinderCard, min_probability: float) -> bool:
 
 def _wettfinder_market_family(card: WettfinderCard) -> str:
     key = str(card.market_key or "").strip().upper()
+    if key == "HANDBALL_1X2" and _token(card.sport) == "handball":
+        return "Sieger & Ergebnis"
     spec = MARKET_BY_KEY.get(key) if _token(card.sport) in {"fussball", "football"} else None
     kind = spec.kind if spec is not None else key if key == "H2H" else ""
     return _WETTFINDER_KIND_FAMILY.get(kind, _OTHER_WETTFINDER_FAMILIES)
@@ -773,6 +796,9 @@ def best_wettfinder_by_market(
         for pool in candidates.values()
         for card in select_event_leads(pool, revision_anchors=catalog.event_leads)
     }
+    # Display-only selections have already been chosen by the producer and
+    # intentionally carry no comparable revision in the betting catalog.
+    selected_ids.update(id(card) for pool in candidates.values() for card in pool if card.display_only)
     groups = _group_additional(card for card in cards if id(card) in selected_ids)
     visible_events = {group.fixture_identity for group in groups}
     anchors = tuple(card for card in catalog.event_leads if _fixture_identity(card) in visible_events)
@@ -1233,6 +1259,7 @@ __all__ = [
     "WettfinderFixtureGroup",
     "WettfinderReleaseOverlay",
     "build_wettfinder_card",
+    "build_handball_wettfinder_card",
     "compose_wettfinder_catalog",
     "group_wettfinder_games",
     "wettfinder_game_label",
