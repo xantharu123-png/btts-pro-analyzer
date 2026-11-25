@@ -1,5 +1,15 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 25.11.2026 – Referenztag und wiederholbarer Marktvergleich
+
+- [Festgehaltener 24.11. mit Morgenabrechnung und Vergleich 21.–23.11.](docs/audits/2026-11-25-spieltag-24-lernstand.md).
+  Regelmässige Vergleiche über `--market-review` bei bestehenden Daten;
+  getrennte Stichproben für Hauptkarten, Katalog, Live und Kombis.
+- Offen: später regulär belegte Echtbeispiele unter der neuen Live-Policy
+  und eine belastbare Preiskohorte für Ecken. Für einen getrennten Preisfix
+  nur bereits angeforderte Fixture-Seiten auf exakt passende Märkte prüfen;
+  Originalbelege, Abfragelimit und 35/45-Minuten-Frische beibehalten.
+
 ## 24.11.2026 – Live: nur bei klarem Signal
 
 - [Prüfprotokoll](docs/audits/2026-11-24-live-klare-signale.md): Cardiff in

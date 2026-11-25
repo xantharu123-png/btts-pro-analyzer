@@ -4,7 +4,16 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 „Stand“ ersetzen, nicht anhängen; Historie steht in `TODO_AKTUELL.md` und
 `PC_WECHSEL_UEBERGABE.md`. Regeln und Einstieg: `AGENTS.md`.
 
-## Stand: 24.11.2026
+## Stand: 25.11.2026
+
+Der 24.11. ist als [Referenztag](docs/audits/2026-11-25-spieltag-24-lernstand.md)
+festgehalten: 15/21 Standard-Fußball-Haupttipps, 0/3 Kombis, 15/17 alte
+Live-Tipps. Das interne `--market-review` liest spätere abgeschlossene
+Tage ohne Sportabrufe. Fehlende frische Fußballpreise sind als veraltete
+Anbieterstempel statt fehlender HTTP-Abrufe belegt. Keine Gewichte geändert;
+die Untersuchung bereits gelieferter Nebenmärkte im Quotenlauf bleibt separat.
+
+### Voriger Stand: 24.11.2026
 
 Live-Fußball: Der Ticker vergleicht 54 Auswahlen aus Tor-, Ergebnis- und
 Handicap-Märkten. Vor Minute 15 kein Tipp; danach mindestens 55 % Modellchance
