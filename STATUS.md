@@ -6,7 +6,7 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 
 ## Stand: 25.11.2026
 
-Produktion: NHL-Preisarchiv aus #170 auf `d2d574b`, ohne Änderung der
+Produktion nach letzter Release-Prüfung: `310b6e2` (#171), ohne Änderung der
 Top-Tipp-Regel. [NHL-Prüfung](docs/audits/2026-11-25-nhl-top-messung.md):
 84 archivierte Spiele vom 12.–24.11., davon 8 Modellfavoriten ab 70 %,
 noch kein passender Preisbeleg zur ersten Prognose. Abnahme der neuen
@@ -23,6 +23,14 @@ Europäische Hockey-Saisonhistorie fehlt weiterhin: vier bestätigte
 Tarifablehnungen für 2026, null Resultate. Liga-Diagnose am bestehenden
 Pfad ergänzt. Abnahme von NBA-/E-Sport-Daten im regulären Lauf offen.
 Keine neuen Modell- oder Tippgrenzen; Cricket bleibt ausgenommen.
+
+[Handball-Bundesliga-Pilot](docs/superpowers/specs/2026-11-25-handball-pilot-design.md)
+auf `codex/handball-pilot-20261125`: isolierter, standardmässig ausgeschalteter
+Schritt des bestehenden Tageslaufs. Spielplan, reguläre Endstände, preisblindes
+1X2 und Vergleich mit vollständigen Vorabquoten auf derselben Teilstichprobe.
+Kein neuer Timer, keine öffentlichen Tipps. Handball-Zugang, reale Anbieterantwort
+und Freigabe der Aktivierung noch offen; keine Änderung auf dem VPS. Gezielte QA:
+344 Tests im Standardvertrag, 197 unter der Produktions-Preisregel bestanden.
 
 ### Voriger Stand: 24.11.2026
 

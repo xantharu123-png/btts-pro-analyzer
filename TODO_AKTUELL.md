@@ -1,5 +1,16 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 25.11.2026 – Handball-Bundesliga
+
+- [Getrennter Pilot](docs/superpowers/specs/2026-11-25-handball-pilot-design.md):
+  Spielplan, reguläre Endstände, preisblindes 1X2 und Vergleich auf gepaarten
+  Spielen. 344 gezielte Standardtests und 197 im Produktions-Preisvertrag grün.
+- Offen: Nutzer aktiviert den API‑SPORTS-Handballzugang. Eigenen Handballwert
+  als `API_HANDBALL_KEY` nur in der Serverumgebung setzen; kein Rückgriff auf
+  Altwerte. Erst nach Freigabe einschalten und im regulären Tageslauf Spielplan,
+  Ergebnisse sowie echte vollständige 1X2-Quoten prüfen. Kein neuer Timer,
+  keine Veröffentlichung als Tipp und bisher kein Handball-Deploy.
+
 ## 25.11.2026 – Preisbindung und Sportdaten
 
 - [Audit](docs/audits/2026-11-25-sportarten-ausserhalb-nhl.md) und

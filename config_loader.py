@@ -49,6 +49,11 @@ def _clean(value: Any) -> Optional[str]:
     return text
 
 
+def load_handball_api_key() -> Optional[str]:
+    """The opt-in pilot never reads a football key or a legacy secrets file."""
+    return _clean(os.environ.get('API_HANDBALL_KEY'))
+
+
 def _secret_get(secrets: Any, *path: str) -> Optional[str]:
     current = secrets
     try:
