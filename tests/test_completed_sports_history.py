@@ -238,3 +238,117 @@ def test_basketball_month_history_request_limit_starts_with_current_month(tmp_pa
     assert len(requested) == 4
     assert requested[0] == "20260901-20260930"
     assert scanner.history_coverage["status"] == "partial"
+
+
+def test_espn_month_http_400_backfills_distinct_eastern_days_on_existing_budget(tmp_path, monkeypatch):
+    clock = [NOW]
+    cache = store(tmp_path, lambda: clock[0])
+    calls = []
+    month_rejected = [True]
+    final = nba_payload()
+    event = final["events"][0]
+    event["date"] = event["competitions"][0]["date"] = "2026-09-05T00:30:00Z"
+
+    def get(url, *, params, **_):
+        calls.append(params)
+        if params["limit"] == 1000 and month_rejected[0]:
+            return SimpleNamespace(status_code=400)
+        clock[0] += timedelta(seconds=1)
+        return SimpleNamespace(status_code=200, json=lambda: final if params["dates"] == "20260904" else {"events": []})
+
+    monkeypatch.setattr(h.requests, "get", get)
+    scanner = SimpleNamespace(espn_nba_url="https://site.api.espn.com/scoreboard", nba_headers={"User-Agent": "test"}, errors={})
+    first, last = date(2026, 8, 29), NOW.date()
+    assert h.completed_basketball(scanner, "NBA", first, last, as_of=NOW, store=cache) == []
+    assert calls == [{"dates": "20260901-20260930", "limit": 1000},
+                     *[{"dates": value, "limit": 100} for value in ("20260904", "20260903", "20260902")]]
+    assert cache.request_error("ESPN", "nba:2026-09-01") == "HTTP 400"
+    assert cache.request_error("ESPN", "nba:day:2026-09-04") is None
+    assert scanner.history_coverage["status"] == "partial"
+    assert scanner.history_coverage["pending_observations"] == 1
+
+    clock[0] += timedelta(minutes=31)
+    calls.clear()
+    rows = h.completed_basketball(scanner, "NBA", first, last, store=cache)
+    assert calls == [{"dates": value, "limit": 100} for value in ("20260901", "20260831", "20260830", "20260829")]
+    assert [(row["event_id"], row["result_observed_at"]) for row in rows] == [
+        ("401810101", "2026-09-05T12:00:01+00:00"),
+    ]
+    assert scanner.history_coverage["status"] == "partial"
+
+    clock[0] = NOW + timedelta(hours=6)
+    month_rejected[0] = False
+    calls.clear()
+    assert h.completed_basketball(scanner, "NBA", first, last, store=cache) == rows
+    assert calls == [{"dates": value, "limit": 1000} for value in ("20260901-20260930", "20260801-20260831")]
+    assert scanner.history_coverage["status"] == "complete"
+
+
+@pytest.mark.parametrize("status, error", [(401, "HTTP 401"), (429, "HTTP 429"), (503, "HTTP 503"),
+                                             (200, "ValueError")])
+def test_espn_does_not_fallback_for_unconfirmed_month_route_rejection(tmp_path, monkeypatch, status, error):
+    calls = []
+
+    def decode():
+        raise ValueError("HTTP 400")  # Malformed data is not a transport HTTP 400.
+
+    def get(url, *, params, **_):
+        calls.append(params)
+        return SimpleNamespace(status_code=status, json=decode)
+
+    monkeypatch.setattr(h.requests, "get", get)
+    scanner = SimpleNamespace(espn_nba_url="https://site.api.espn.com/scoreboard", nba_headers={"User-Agent": "test"}, errors={})
+    h.completed_basketball(scanner, "NBA", date(2026, 9, 1), NOW.date(), store=store(tmp_path))
+    assert calls == [{"dates": "20260901-20260930", "limit": 1000}]
+    assert scanner.history_coverage["errors"] == (f"NBA history: {error}",)
+
+
+def test_espn_fallback_shares_provider_daily_limit(tmp_path, monkeypatch):
+    cache = store(tmp_path)
+    for i in range(47):
+        assert cache.reserve("ESPN", f"prior:{i}", ttl=timedelta(days=1), daily_limit=48)
+    calls = []
+    monkeypatch.setattr(h.requests, "get", lambda url, **kw: calls.append(kw["params"]) or SimpleNamespace(status_code=400))
+    scanner = SimpleNamespace(espn_nba_url="https://site.api.espn.com/scoreboard", nba_headers={"User-Agent": "test"}, errors={})
+    h.completed_basketball(scanner, "NBA", date(2026, 9, 1), NOW.date(), store=cache)
+    assert calls == [{"dates": "20260901-20260930", "limit": 1000}]
+    assert scanner.history_coverage["status"] == "partial"
+    assert "Daily history request budget reached" in scanner.errors["basketball_history"]
+
+
+def test_espn_day_backfill_skips_newer_month_after_successful_range(tmp_path, monkeypatch):
+    calls = []
+
+    def get(url, *, params, **_):
+        calls.append(params)
+        if params["dates"] == "20260801-20260831":
+            return SimpleNamespace(status_code=400)
+        return SimpleNamespace(status_code=200, json=lambda: {"events": []})
+
+    monkeypatch.setattr(h.requests, "get", get)
+    scanner = SimpleNamespace(espn_nba_url="https://site.api.espn.com/scoreboard", nba_headers={"User-Agent": "test"}, errors={})
+    h.completed_basketball(scanner, "NBA", date(2026, 8, 29), NOW.date(), store=store(tmp_path))
+    assert calls == [{"dates": "20260901-20260930", "limit": 1000},
+                     {"dates": "20260801-20260831", "limit": 1000},
+                     {"dates": "20260831", "limit": 100},
+                     {"dates": "20260830", "limit": 100}]
+
+
+def test_successful_espn_months_include_previous_eastern_month_for_zurich_month_start(tmp_path, monkeypatch):
+    calls = []
+    final = nba_payload()
+    event = final["events"][0]
+    event["date"] = event["competitions"][0]["date"] = "2026-09-01T02:30:00Z"
+
+    def get(_url, *, params, **_):
+        calls.append(params["dates"])
+        return SimpleNamespace(status_code=200, json=lambda:
+            final if params["dates"]=="20260801-20260831" else {"events":[]})
+
+    monkeypatch.setattr(h.requests, "get", get)
+    scanner = SimpleNamespace(espn_nba_url="https://site.api.espn.com/scoreboard",
+                              nba_headers={"User-Agent":"test"}, errors={})
+    rows = h.completed_basketball(scanner, "NBA", date(2026,9,1), NOW.date(), store=store(tmp_path))
+    assert [r["event_id"] for r in rows] == ["401810101"]
+    assert calls == ["20260901-20260930", "20260801-20260831"]
+    assert scanner.history_coverage["status"] == "complete"

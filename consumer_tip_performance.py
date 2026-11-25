@@ -20,7 +20,9 @@ from market_consensus import (
     TEAM_PRICE_SOURCES, WETTFINDER_FETCH_MAX_AGE, WETTFINDER_QUOTE_MAX_AGE,
     exact_market_target,
 )
-from selection_performance import _summary, _utc, _verified_actual_start, build_selection_performance_report
+from selection_performance import (
+    _esports_quote_clock_status, _summary, _utc, _verified_actual_start, build_selection_performance_report,
+)
 from tip_publication import bind_forecast_ids
 
 
@@ -222,6 +224,11 @@ def _published_quote(tip, capture, effective_start):
                 bound = bound and str(quote.get("provider_event_id")) == str(expected_quote_event)
         if not bound:
             return "invalid", None
+        if sport == 'esports':
+            clock_status = _esports_quote_clock_status(quote, assessed_at=capture, observed=observed, fetched=fetched)
+            if clock_status == 'provider_clocked' and odds < MINIMUM_RECOMMENDED_DECIMAL_ODDS:
+                return 'below_floor', float(odds)
+            return clock_status, float(odds) if clock_status in {'provider_clocked', 'retrieval_only'} else None
         return ("below_floor", float(odds)) if odds < MINIMUM_RECOMMENDED_DECIMAL_ODDS else ("fresh", float(odds))
     except (ValueError, TypeError, KeyError, OverflowError):
         return "invalid", None
@@ -251,6 +258,7 @@ def build_consumer_tip_performance_report(
         "A publication receipt proves availability in the surface, not a customer's view or an actual wager.",
         "Repeated publication revisions use their first real capture, never the best later price or probability.",
         "Returns use the publication's exact fresh bookmaker point at or above 1.20, not the earlier model-run quote.",
+        "E-sport prices are descriptive even when the exact provider last-change clock is known.",
         "Unlinked frozen RiskBet snapshots, missing prices, and unresolved results remain gaps; none are guessed.",
         "Different selections of one event are correlated, and this report does not prove improved betting quality.",
     ]

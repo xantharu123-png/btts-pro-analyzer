@@ -6,11 +6,23 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 
 ## Stand: 25.11.2026
 
-[NHL-Top-Prüfung](docs/audits/2026-11-25-nhl-top-messung.md): 84 archivierte
-Spiele vom 12.–24.11., davon 8 Favoriten ab 70 %, aber kein passender
-Preisbeleg zur ersten Prognose. Kein Hochstufen auf Top. Preisaufnahme im
-bestehenden Tageslauf für die künftige Prüfung vorbereitet; keine neuen
-Abrufe, keine Modelländerung. Automatik und Doublebet behalten ihre Rollen.
+Produktion: NHL-Preisarchiv aus #170 auf `d2d574b`, ohne Änderung der
+Top-Tipp-Regel. [NHL-Prüfung](docs/audits/2026-11-25-nhl-top-messung.md):
+84 archivierte Spiele vom 12.–24.11., davon 8 Modellfavoriten ab 70 %,
+noch kein passender Preisbeleg zur ersten Prognose. Abnahme der neuen
+Preisaufnahme im planmäßigen Lauf offen.
+
+[Sportarten-Audit außerhalb NHL](docs/audits/2026-11-25-sportarten-ausserhalb-nhl.md)
+und Reparaturbranch `codex/sportdaten-reparatur-20261125`: Native
+Hockeyquoten sperren widersprüchliche Team-/Liga-Bindungen auch im Cache,
+in alten Zeilen und bei Abrufpause. E-Sport speichert Anbieterzeit und
+Abruf getrennt; reine Abrufbelege zählen nicht als Ausführung.
+NBA berücksichtigt beide lokalen Datumsbereiche und verwendet bei
+bestätigtem Monats-HTTP-400 einen begrenzten Tagesabruf im selben Job.
+Europäische Hockey-Saisonhistorie fehlt weiterhin: vier bestätigte
+Tarifablehnungen für 2026, null Resultate. Liga-Diagnose am bestehenden
+Pfad ergänzt. Abnahme von NBA-/E-Sport-Daten im regulären Lauf offen.
+Keine neuen Modell- oder Tippgrenzen; Cricket bleibt ausgenommen.
 
 ### Voriger Stand: 24.11.2026
 

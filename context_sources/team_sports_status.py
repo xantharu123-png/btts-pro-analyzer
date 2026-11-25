@@ -6,12 +6,13 @@ Neither a current schedule nor a result proves a season's regulation rules,
 an actual end instant, an injury, a confirmed starter or complete history.
 """
 from copy import deepcopy
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 import math
 import os
 import re
 from urllib.parse import parse_qsl, urlsplit
+from zoneinfo import ZoneInfo
 
 from context_models.contracts import (
     ContextContractError, ContextIntegrityError, OBSERVATION_FIELDS,
@@ -62,6 +63,19 @@ def _day(value):
     return value
 
 
+def espn_nba_schedule_days(start: date, end: date) -> tuple[date, ...]:
+    """ESPN scoreboard days overlapping an inclusive Zürich date window."""
+    zurich, eastern = ZoneInfo("Europe/Zurich"), ZoneInfo("America/New_York")
+    lower = datetime.combine(start, datetime.min.time(), tzinfo=zurich).astimezone(eastern).date()
+    upper = datetime.combine(end, datetime.max.time(), tzinfo=zurich).astimezone(eastern).date()
+    return tuple(lower + timedelta(days=i) for i in range((upper-lower).days+1))
+
+
+def espn_nba_schedule_params(start: date, end: date) -> dict:
+    days = espn_nba_schedule_days(start, end)
+    return {"dates": f"{days[0]:%Y%m%d}-{days[-1]:%Y%m%d}", "limit": 1000}
+
+
 def _request(provider, url, params, *, phase, window, request_key):
     _need(type(provider) is str and provider in _SOURCES, "unsupported team-sport provider")
     _need(type(phase) is str and phase in {"schedule", "history"}, "unsupported response phase")
@@ -73,16 +87,17 @@ def _request(provider, url, params, *, phase, window, request_key):
     if provider == "ESPN":
         _need(url == "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard", "unreviewed ESPN endpoint")
         _need(set(query) == {"dates", "limit"} and type(query["limit"]) is int
-              and query["limit"] == (100 if phase == "schedule" else 1000), "unreviewed ESPN request")
+              and query["limit"] in (100, 1000), "unreviewed ESPN request")
         dates = query["dates"]
         _need(type(dates) is str and re.fullmatch(r"[0-9]{8}(?:-[0-9]{8})?", dates), "invalid ESPN request window")
         pieces = dates.split("-")
-        _need(len(pieces) == (1 if phase == "schedule" else 2), "ESPN phase/window mismatch")
+        _need((len(pieces), query["limit"]) in ((1, 100), (2, 1000)), "ESPN phase/window mismatch")
         parsed = [_day(value[:4] + "-" + value[4:6] + "-" + value[6:]) for value in pieces]
         requested = {"start": parsed[0], "end": parsed[-1]}
         _need(parsed[0] <= parsed[-1], "reversed ESPN request window")
         if phase == "history":
-            _need(request_key == "nba:" + parsed[0], "ESPN native request key differs")
+            prefix = "nba:day:" if len(pieces) == 1 else "nba:"
+            _need(request_key == prefix + parsed[0], "ESPN native request key differs")
     elif provider == "EuroLeague":
         matched = re.fullmatch(r"https://api-live\.euroleague\.net/v2/competitions/E/seasons/(E[0-9]{4})/games", url)
         _need(matched is not None and set(query) == {"limit"} and type(query["limit"]) is int
@@ -104,6 +119,12 @@ def _request(provider, url, params, *, phase, window, request_key):
         _need(request_key is None and type(window) is tuple and len(window) == 2
               and all(type(value) is date for value in window), "schedule needs its actual search window")
         _need(0 <= (window[1] - window[0]).days <= 14, "unsupported schedule search window")
+        if provider == "ESPN":
+            if query["limit"] == 1000:
+                _need(query == espn_nba_schedule_params(*window), "ESPN range differs from Zürich window")
+            else:
+                _need(date.fromisoformat(parsed[0]) in espn_nba_schedule_days(*window),
+                      "ESPN day differs from Zürich window")
         search = {"start": window[0].isoformat(), "end": window[1].isoformat()}
     else:
         _need(window is None and type(request_key) is str, "history must retain its actual request key")

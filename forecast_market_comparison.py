@@ -15,10 +15,11 @@ import re
 import sqlite3
 
 from betting_math import BettingMathError, proportional_no_vig_market
-from forecast_evidence import _TABLES, _utc
+from forecast_evidence import _TABLES, _hash, _utc
 from model_loss_statistics import paired_advantage_statistics
 from market_consensus import (REFERENCE_SOURCE, ODDS_API_REFERENCE_SOURCE,
-    ESPORTS_PRICE_SOURCE, TEAM_PRICE_SOURCES)
+    ESPORTS_PRICE_SOURCE, TEAM_PRICE_SOURCES, WETTFINDER_FETCH_MAX_AGE, WETTFINDER_QUOTE_MAX_AGE,
+    esports_provider_price_updates)
 
 
 def _contract(row, identity):
@@ -88,6 +89,18 @@ def _native_selection_prices(quote, forecast, expected, side, observed, fetched)
         return None
     if not key.startswith('DC_') and prices.get(side) != quote['odds']:
         return None
+    if sport == 'esports':
+        updates = esports_provider_price_updates(part, expected, observed_at=observed)
+        if (set(updates) != set(expected) or updates[side] != quote.get('provider_updated_at')
+                or observed != fetched):
+            return None
+        clocks = tuple(_utc(clock) for clock in updates.values())
+        if quote['kind'] == 'entry':
+            decision = forecast['decision']
+            if decision-fetched > WETTFINDER_FETCH_MAX_AGE or decision-min(clocks) > WETTFINDER_QUOTE_MAX_AGE:
+                return None
+        elif min(clocks) <= forecast['decision'] or forecast['start']-min(clocks) > timedelta(hours=1):
+            return None
     fair = proportional_no_vig_market(prices[name] for name in expected).no_vig_probabilities
     return dict(zip(expected, fair))
 
@@ -144,6 +157,7 @@ def build_market_comparison(db_path: str | Path, *, as_of=None) -> dict:
         "policy": "First causal forecast per event/selection/model/policy; complete same-revision market; same native event, bookmaker, observation and fetch time; entry and closing separate; one averaged loss per event.",
         "limitations": ["Proportional margin removal is a market benchmark, not a true probability.",
             "Entry prices and closing prices are separate benchmarks, not interchangeable cohorts.",
+            "E-sport benchmarks require causal provider last-change clocks for both sides; this does not establish execution.",
             "Different bookmakers and markets from one event are not independent observations.",
             "Unsupported, incomplete, contradictory or unpriced outcome sets are excluded, never synthesized.",
             "Paired intervals and p-values are exploratory and unadjusted for model/policy cohort selection, not approval statistics.",
@@ -236,7 +250,7 @@ def build_market_comparison(db_path: str | Path, *, as_of=None) -> dict:
             record.update(result=result, identity=identity, start=start, decision=decision)
             market["rows"][side] = record
             forecast_lookup[row["forecast_id"]] = (key, side)
-        for row in conn.execute("SELECT forecast_id,kind,bookmaker_id,observed_at,fetched_at,odds,payload_json "
+        for row in conn.execute("SELECT quote_id,forecast_id,kind,bookmaker_id,observed_at,fetched_at,odds,payload_json "
                 "FROM forecast_quotes WHERE fetched_at<=? ORDER BY observed_at,quote_id", (cutoff.isoformat(),)):
             if row["kind"] in {"entry", "closing"}:
                 coverage[row["kind"]+"_quotes"] += 1
@@ -250,6 +264,8 @@ def build_market_comparison(db_path: str | Path, *, as_of=None) -> dict:
                 continue
             try:
                 quote = json.loads(row["payload_json"])
+                if forecast['sport'] == 'esports' and _hash(quote) != row['quote_id']:
+                    continue
                 observed, fetched = _utc(row["observed_at"]), _utc(row["fetched_at"])
                 if not (observed <= fetched < forecast["start"] and row["bookmaker_id"]):
                     continue
@@ -272,6 +288,14 @@ def build_market_comparison(db_path: str | Path, *, as_of=None) -> dict:
                     continue
             except (ValueError, TypeError, KeyError, json.JSONDecodeError):
                 continue
+            try:
+                fair = _native_selection_prices(quote, forecast, market['expected'], side, observed, fetched)
+            except (ValueError, TypeError, KeyError, BettingMathError):
+                fair = None
+            # A late retrieval is not a late native price update. Do not let
+            # legacy E-Sport rows leak into either benchmark path.
+            if forecast['sport'] == 'esports' and fair is None:
+                continue
             snapshot = (row["kind"], row["bookmaker_id"], quote["source"], quote.get("fixture_id"),
                 quote.get("provider_event_id"), row["observed_at"], row["fetched_at"])
             points = market["snapshots"].setdefault(snapshot, {})
@@ -279,10 +303,6 @@ def build_market_comparison(db_path: str | Path, *, as_of=None) -> dict:
                 points[side] = None
             else:
                 points.setdefault(side, row["odds"])
-            try:
-                fair = _native_selection_prices(quote, forecast, market['expected'], side, observed, fetched)
-            except (ValueError, TypeError, KeyError, BettingMathError):
-                fair = None
             if fair is not None:
                 selection_points = market['selection_snapshots'].setdefault(side, {})
                 if snapshot in selection_points and selection_points[snapshot] != fair:

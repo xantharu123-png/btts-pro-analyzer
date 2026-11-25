@@ -76,7 +76,7 @@ def _binding(row):
         # Only new native API rows extend the cache identity. Old provider
         # binding bytes/keys remain unchanged; replacement role IDs do not
         # inherit an older quote even if the display names happen to match.
-        return (*binding, *ids)
+        return (*binding, *ids, _identity_name(row['competition']))
     if _identity_name(row.get('competition')) not in LEAGUES[sport]:
         return None
     return binding
@@ -85,6 +85,31 @@ def _binding(row):
 def _key(row):
     binding = _binding(row)
     return hashlib.sha256(json.dumps(binding, ensure_ascii=True).encode()).hexdigest() if binding else None
+
+
+def _native_hockey_group_key(binding):
+    if (isinstance(binding, (list, tuple)) and len(binding) >= 4
+            and tuple(binding[:2]) == ('ice_hockey', 'API-Hockey')
+            and all(isinstance(item, str) for item in binding[:4])):
+        return '|'.join(binding[:4])
+    return None
+
+
+def _group_role_identity(row):
+    binding = _binding(row)
+    competition = row.get('competition')
+    return binding[4:6], binding[7:], (_identity_name(competition)
+        if _native_hockey_group_key(binding) is not None else competition)
+
+
+def _native_role_conflict_keys(rows, current):
+    roles = {}
+    for row in rows:
+        binding = _binding(row) if isinstance(row, Mapping) else None
+        key = _native_hockey_group_key(binding)
+        if key is not None and current < _parse_utc(binding[3]) <= current + timedelta(days=3):
+            roles.setdefault(key, set()).add(_group_role_identity(row))
+    return {key for key, identities in roles.items() if len(identities) > 1}
 
 
 def snapshot_price_rows(snapshots):
@@ -111,7 +136,8 @@ def _read(path):
         if path.is_symlink() or path.stat().st_size > MAX_CACHE_BYTES:
             return {}
         doc = json.loads(path.read_text(encoding='utf-8'))
-        if doc.get('schema') != 1 or not isinstance(doc.get('quotes'), dict) or not isinstance(doc.get('attempts'), dict):
+        if (doc.get('schema') != 1 or not isinstance(doc.get('quotes'), dict)
+                or not isinstance(doc.get('attempts'), dict) or not isinstance(doc.get('identity_conflicts', {}), dict)):
             return {}
         return doc
     except (OSError, ValueError, TypeError, AttributeError):
@@ -138,15 +164,22 @@ def _writer_lock(path):
 def load_cached_quote(row, *, now=None, path=CACHE_PATH, document=None):
     """Read-only exact origin/start/side lookup; no provider request on page load."""
     current = now or datetime.now(timezone.utc)
-    if not isinstance(row, Mapping) or _binding(row) is None:
+    binding = _binding(row) if isinstance(row, Mapping) else None
+    if binding is None:
         return None
     doc = document if document is not None else _read(Path(path))
     entry = doc.get('quotes', {}).get(_key(row))
-    if not isinstance(entry, dict) or entry.get('binding') != list(_binding(row)):
+    if not isinstance(entry, dict) or entry.get('binding') != list(binding):
         return None
     quote = MarketConsensus.from_dict(entry.get('quote'))
     if quote is None or quote.candidate_id != _key(row):
         return None
+    conflicts = doc.get('identity_conflicts', {})
+    group_key = _native_hockey_group_key(binding)
+    if group_key in conflicts:
+        cutoff, fetched = _parse_utc(conflicts[group_key]), _parse_utc(quote.fetched_at)
+        if cutoff is None or fetched is None or fetched <= cutoff:
+            return None
     quote = replace(quote, candidate_id=str(row.get('candidate_id') or row.get('key') or ''))
     # Pre-match observations are not live prices and disappear at kickoff.
     start = _parse_utc(row.get('scheduled_start'))
@@ -279,7 +312,7 @@ def match_game(row, games, names):
                     or any(not isinstance(teams.get(side), dict)
                            or type(teams[side].get('id')) is not int
                            or str(teams[side]['id']) != expected
-                           for side, expected in zip(('home', 'away'), binding[7:]))
+                           for side, expected in zip(('home', 'away'), binding[7:9]))
                     or tuple(names) != (row['competitor_a'], row['competitor_b'])
                     or tuple(teams[side].get('name') for side in ('home', 'away')) != tuple(names)):
                 continue
@@ -392,13 +425,31 @@ def refresh_team_sport_prices(rows, *, api_key, now=None, path=CACHE_PATH, gover
     try:
         with _writer_lock(target):
             doc = _read(target) or {'schema': 1, 'quotes': {}, 'attempts': {}}
+            # Validate all native groups before the cooldown, per-sport cap, or
+            # deadline can leave an old quote attached to a conflicting side.
+            conflicts = {}
+            for key, stamp in doc.get('identity_conflicts', {}).items():
+                parts = key.split('|')
+                start = _parse_utc(parts[-1]) if len(parts) == 4 and parts[:2] == ['ice_hockey', 'API-Hockey'] else None
+                cutoff = _parse_utc(stamp)
+                if start is not None and cutoff is not None and cutoff < start and current < start:
+                    conflicts[key] = cutoff.isoformat()
+            conflict_groups = {group_id for group_id, group in grouped.items()
+                if group_id[:2] == ('ice_hockey', 'API-Hockey') and
+                len({_group_role_identity(row) for row in group}) != 1}
+            attempts = {}
+            for group_id in sorted(conflict_groups):
+                key = '|'.join(group_id)
+                conflicts[key] = max(current, _parse_utc(conflicts.get(key)) or current).isoformat()
+                buckets['identity_gaps'].append('ice_hockey:conflicting_origin_identity')
+                if (last := _parse_utc(doc['attempts'].get(key))) is not None:
+                    attempts[key] = last.isoformat()
             # Current events only, one price per event/side; no accumulating history.
-            wanted = {_key(r) for group in grouped.values() for r in group}
+            wanted = {_key(r) for group_id, group in grouped.items() if group_id not in conflict_groups for r in group}
             doc['quotes'] = {k: v for k, v in doc['quotes'].items() if k in wanted}
             governor = governor or APIBudgetGovernor(DEFAULT_DB_PATH, daily_limit=100,
                 critical_floor=5, recommendation_reserve=10, background_reserve=15)
             games_cache, nhl_cache, used = {}, {}, {}
-            attempts = {}
             # Events the minute limit left out before go first within their class (18.11.2026): the timer and
             # REFRESH_AFTER are both three hours, so the earlier games are often due again and would take the
             # minute in every run while the same late game waits. The stored order is the waiting order:
@@ -416,6 +467,8 @@ def refresh_team_sport_prices(rows, *, api_key, now=None, path=CACHE_PATH, gover
                 return (not any(r.get('source') == 'team_sport_research' for r in item[1]),
                         order.get('|'.join(item[0]), len(order)), item[0][3])
             for group_id, group in sorted(grouped.items(), key=priority):
+                if group_id in conflict_groups:
+                    continue
                 if monotonic() >= deadline:
                     break
                 sport, origin, event, start = group_id
@@ -433,7 +486,7 @@ def refresh_team_sport_prices(rows, *, api_key, now=None, path=CACHE_PATH, gover
                         for r in group:
                             doc['quotes'].pop(_key(r), None)
                         raise ValueError('ambiguous_origin_events')
-                    if len({(*_binding(r)[4:6], *_binding(r)[7:], r.get('competition')) for r in group}) != 1:
+                    if len({_group_role_identity(row) for row in group}) != 1:
                         raise ValueError('conflicting_origin_identity')
                     names = (group[0]['competitor_a'], group[0]['competitor_b'])
                     if sport == 'ice_hockey' and origin == 'NHL':
@@ -490,12 +543,16 @@ def refresh_team_sport_prices(rows, *, api_key, now=None, path=CACHE_PATH, gover
                 attempts[attempt_key] = current.isoformat()
             # Still waiting, oldest first: left out before and again or not reached this time, then the
             # games left out in this run for the first time.
-            due_keys = {'|'.join(group_id) for group_id in grouped}
+            due_keys = {'|'.join(group_id) for group_id in grouped if group_id not in conflict_groups}
             kept = [key for key in order if key in due_keys and key not in attempts]
             left_out = kept + [key for key in left_out if key not in order]
             doc.update(attempts=attempts, updated_at=current.isoformat(), errors=errors,
                        identity_gaps=buckets['identity_gaps'], budget_deferred=buckets['budget_deferred'],
                        minute_deferred=left_out)
+            if conflicts:
+                doc['identity_conflicts'] = conflicts
+            else:
+                doc.pop('identity_conflicts', None)
             text = json.dumps(doc, ensure_ascii=False, separators=(',', ':'))
             if len(text.encode('utf-8')) > MAX_CACHE_BYTES:
                 raise ValueError('bounded_quote_cache_exceeded')
@@ -514,12 +571,49 @@ def refresh_team_sport_prices(rows, *, api_key, now=None, path=CACHE_PATH, gover
 
 
 def attach_cached_team_prices(rows, *, now=None, path=CACHE_PATH):
+    current = now or datetime.now(timezone.utc)
+    rows = tuple(rows)
     doc = _read(Path(path))
+    conflicts = _native_role_conflict_keys(rows, current)
     result = []
     for row in rows:
-        quote = load_cached_quote(row, now=now, document=doc)
-        result.append(dict(row, reference_quote=quote.to_dict()) if quote is not None else row)
+        native = (isinstance(row, Mapping) and _sport(row) == 'ice_hockey'
+                  and str(row.get('fixture_source') or '').casefold() == 'api-hockey')
+        group = _native_hockey_group_key(_binding(row)) if native else None
+        quote = None if group in conflicts else load_cached_quote(row, now=current, document=doc)
+        if quote is not None:
+            result.append(dict(row, reference_quote=quote.to_dict()))
+        elif native:
+            # Native cached receipts own the roles and league. A legacy
+            # embedded MarketConsensus alone cannot prove either participant ID.
+            result.append(dict({k: v for k, v in row.items() if not k.startswith('reference_quote_')
+                and k != 'reference_price_evaluated_at'}, reference_quote=None, reference_price_status='UNAVAILABLE'))
+        else:
+            result.append(row)
     return result
+
+
+def quarantine_native_hockey_price_conflicts(rows, *, now=None, path=CACHE_PATH):
+    """Keep the local identity decision even on a price-worker cooldown."""
+    current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    keys = _native_role_conflict_keys(rows, current)
+    if not keys:
+        return 0
+    target = Path(path)
+    with _writer_lock(target):
+        doc = _read(target) or {'schema': 1, 'quotes': {}, 'attempts': {}}
+        cutoffs = doc.setdefault('identity_conflicts', {})
+        for key in keys:
+            cutoffs[key] = max(current, _parse_utc(cutoffs.get(key)) or current).isoformat()
+        # Store only short-lived native scope keys and remove cached prices
+        # for both sides, while leaving unrelated quotas/attempt clocks alone.
+        doc['quotes'] = {k: v for k, v in doc['quotes'].items() if not isinstance(v, dict)
+            or _native_hockey_group_key(v.get('binding')) not in keys}
+        packed = json.dumps(doc, ensure_ascii=False, separators=(',', ':'))
+        if len(packed.encode('utf-8')) > MAX_CACHE_BYTES:
+            raise OSError('bounded_quote_cache_exceeded')
+        atomic_write_text(target, packed)
+    return len(keys)
 
 
 if __name__ == '__main__':

@@ -42,13 +42,13 @@ class _Capture:
             self.refs.add(append_observation(path, row, observed_at=observed))
 
 
-def observe_espn_basketball_schedule(url, league, day, start, end, payload, response):
+def observe_espn_basketball_schedule(url, league, params, start, end, payload, response):
     current = _CURRENT.get()
     if current is not None:
         if league != "NBA":
             current.issues.add("native-request-unavailable")
             return
-        current.record("ESPN", url, {"dates": day.strftime("%Y%m%d"), "limit": 100},
+        current.record("ESPN", url, params,
                        "schedule", (start, end), None, payload, response)
 
 

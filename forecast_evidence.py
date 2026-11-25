@@ -19,7 +19,7 @@ import sqlite3
 from typing import Mapping
 
 from market_consensus import (
-    MarketConsensus, WETTFINDER_FETCH_MAX_AGE, quote_matches_candidate,
+    MarketConsensus, WETTFINDER_FETCH_MAX_AGE, esports_provider_update_at, quote_matches_candidate,
     wettfinder_reference_price_status, bounded_tennis_price_observations,
 )
 
@@ -242,6 +242,12 @@ def _quote_records(forecast_id: str, forecast: dict, raw: object, kind: str,
             continue
         if not point.bookmaker_id:
             continue
+        provider_updated_at = esports_provider_update_at(quote, point)
+        if forecast['sport'] == 'esports' and kind == 'closing':
+            changed = _utc(provider_updated_at) if provider_updated_at is not None else None
+            if (changed is None or not decision < changed <= observed
+                    or start-changed > timedelta(hours=1)):
+                continue
         payload = {
             "forecast_id": forecast_id, "kind": kind, "bookmaker_id": point.bookmaker_id,
             "bookmaker": point.bookmaker, "observed_at": observed.isoformat(),
@@ -250,6 +256,8 @@ def _quote_records(forecast_id: str, forecast: dict, raw: object, kind: str,
                 status.code == "PLAYABLE"
                 # NHL/API-Sports has a retrieval clock, not native book recency.
                 and not (forecast["sport"] == "ice_hockey" and quote.origin_provider == "NHL")
+                # OddsPapi's last price change is not evidence the bet was executable.
+                and forecast['sport'] != 'esports'
                 and status.bookmaker_id == point.bookmaker_id
                 and status.usable_odds == point.odds
                 and status.observed_at == point.observed_at
@@ -258,6 +266,8 @@ def _quote_records(forecast_id: str, forecast: dict, raw: object, kind: str,
             "fixture_id": quote.fixture_id, "market_key": quote.market_key,
             "selection": quote.value_name, "starts_at": start.isoformat(),
         }
+        if provider_updated_at is not None:
+            payload['provider_updated_at'] = provider_updated_at
         complete_market = _complete_tennis_market(forecast, quote, point, market_observations)
         if complete_market is not None:
             payload["complete_market"] = complete_market
@@ -308,7 +318,7 @@ def _capture_current_closing_quotes(conn, normalized: list, recorded_at: datetim
             break
         earlier = conn.execute(
             "WITH eligible AS (SELECT f.*, EXISTS (SELECT 1 FROM forecast_quotes q "
-            "WHERE q.forecast_id=f.forecast_id AND q.kind='entry' AND q.executable=1) AS has_entry "
+            "WHERE f.sport!='esports' AND q.forecast_id=f.forecast_id AND q.kind='entry' AND q.executable=1) AS has_entry "
             "FROM forecast_rows f "
             "WHERE f.event_key=? AND f.sport=? AND f.market_key=? AND f.selection=? "
             "AND f.starts_at=? AND f.decision_at<? "
@@ -622,7 +632,9 @@ def build_quality_report(db_path: str | Path, *, as_of: datetime | str | None = 
             observed_quotes = quotes.get(record["forecast_id"], ())
             entries = [q for q in observed_quotes if q["kind"] == "entry"
                        and _utc(q['observed_at']) < effective_start and _utc(q['fetched_at']) < effective_start]
-            executable = [q for q in entries if q["executable"]]
+            # Historical floor-policy records also used the display freshness
+            # flag for retrieval-only E-Sport prices. Keep the rows immutable.
+            executable = [q for q in entries if q["executable"] and record['sport'] != 'esports']
             summary["entry_quote_coverage"] += bool(entries)
             summary["executable_entry_coverage"] += bool(executable)
             outcome = result["outcome"] if result else None

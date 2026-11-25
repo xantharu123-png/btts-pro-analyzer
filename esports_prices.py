@@ -80,7 +80,7 @@ def _pairs(event, now):
                         or point.get('exchangeMeta') not in (None, {}) or changed is None
                         or changed > now + timedelta(minutes=1)):
                     raise ValueError('inactive or malformed point')
-                pair.append(validate_decimal_odds(point['price']))
+                pair.append((validate_decimal_odds(point['price']), changed))
             pairs[slug] = pair
         except (KeyError, TypeError, ValueError, AttributeError):
             continue
@@ -124,20 +124,27 @@ def load_cached_quote(row, *, now=None, path=CACHE_PATH, document=None):
     event = matches[0]
     position = 0 if _identity_name(selected) == _identity_name(event['participant1Name']) else 1
     pairs = _pairs(event, fetched)
-    points = tuple(QuotePoint(slug, pair[position], 'oddspapi:'+slug, fetched.isoformat())
+    points = tuple(QuotePoint(slug, pair[position][0], 'oddspapi:'+slug, fetched.isoformat())
                    for slug, pair in sorted(pairs.items()))
     if not points:
         return None
     lowest, conservative, median, best = _summary_prices(sorted(p.odds for p in points))
+    partitions = []
+    same_order = _identity_name(a) == _identity_name(event['participant1Name'])
+    for slug, pair in sorted(pairs.items()):
+        bound_pair = pair if same_order else pair[::-1]
+        part = native_partition('H2H', 'esports_series', 'oddspapi:'+slug,
+            fetched.isoformat(), fetched.isoformat(),
+            [(name, value) for name, (value, _) in zip((a, b), bound_pair)])
+        updates = {name: changed.isoformat() for name, (_, changed) in zip((a, b), bound_pair) if changed <= fetched}
+        if updates:
+            part['provider_price_updates'] = updates
+        partitions.append(part)
     quote = MarketConsensus(None, str(row.get('candidate_id') or row.get('key') or ''),
         'H2H', 'Series Winner', selected, median, conservative, lowest, best, len(points),
         fetched.isoformat(), fetched.isoformat(), ESPORTS_PRICE_SOURCE, points,
         event['fixtureId'], event['startTime'], a, b, 'pandascore', row['provider_event_id'], discipline,
-        native_market_partitions=tuple(native_partition('H2H', 'esports_series', 'oddspapi:'+slug,
-            fetched.isoformat(), fetched.isoformat(),
-            [(a, pair[0] if _identity_name(a) == _identity_name(event['participant1Name']) else pair[1]),
-             (b, pair[0] if _identity_name(b) == _identity_name(event['participant1Name']) else pair[1])])
-            for slug, pair in sorted(pairs.items())))
+        native_market_partitions=tuple(partitions))
     return observed_consensus(quote, candidate=row, now=current)
 
 

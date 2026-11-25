@@ -11,6 +11,7 @@ from contextlib import closing
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 import json
+import logging
 import re
 
 import requests
@@ -27,6 +28,7 @@ MAX_CACHE_BYTES = 2_000_000
 TERMINAL = {"FT": "REG", "AOT": "OT", "AP": "SO"}
 STATUSES = frozenset((*TERMINAL, "NS", "P1", "P2", "P3", "OT", "PT", "BT", "AW", "POST", "CANC", "INTR", "ABD"))
 HISTORY_TTL = timedelta(hours=20)
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -471,6 +473,7 @@ class APIHockeyScanner:
         store = self._store()
         store.validate_asof(as_of)
         calls, errors, complete, blocked, leagues, pending = 0, [], True, set(), (), 0
+        league_reports = {}
         try:
             scope = _event_scope(events) if events is not None else None
             # An explicitly empty scope is a no-op, not standalone discovery.
@@ -488,12 +491,18 @@ class APIHockeyScanner:
                     complete = False
             for league in self._history_order(store, leagues):
                 key = f"league:{league.league_id}:season:{league.season}"
+                pair = (league.league_id, league.season)
+                report = league_reports[pair] = dict(competition=league.name, league_id=league.league_id,
+                    season=league.season, status="no_results_as_of", reason=None,
+                    returned_results=0, pending_observations=0)
                 if store.due(PROVIDER, key, ttl=HISTORY_TTL):
                     if calls >= self.max_history_requests:
+                        report.update(status="deferred", reason="history_request_limit")
                         complete = False
                         continue
                     if not store.reserve(PROVIDER, key, ttl=HISTORY_TTL, daily_limit=48):
                         errors.append("history_budget_exhausted")
+                        report.update(status="deferred", reason="history_budget_exhausted")
                         complete = False
                         continue
                     calls += 1
@@ -509,18 +518,33 @@ class APIHockeyScanner:
                         store.record(PROVIDER, key, withdrawn, error=error)
                         errors.append(error)
                         complete = False
-                        blocked.add((league.league_id, league.season))
-                elif store.request_error(PROVIDER, key):
-                    errors.append(store.request_error(PROVIDER, key))
+                        blocked.add(pair)
+                        report.update(status="blocked", reason=error)
+                        if error == "api_plan_error":
+                            logger.warning("API-Hockey history blocked: competition=%s league_id=%d season=%d "
+                                "reason=%s; verify API-Hockey season entitlement",
+                                league.name, league.league_id, league.season, error)
+                elif error := store.request_error(PROVIDER, key):
+                    errors.append(error)
                     complete = False
-                    blocked.add((league.league_id, league.season))
+                    blocked.add(pair)
+                    report.update(status="blocked", reason=error)
             rows = store.read((PROVIDER,), start, end, as_of=as_of)
-            allowed = {(row.league_id, row.season) for row in leagues}
-            rows = [row for row in rows if (row.get("league_id"), row.get("season")) in allowed - blocked]
+            allowed = set(league_reports) - blocked
+            rows = [row for row in rows if (row.get("league_id"), row.get("season")) in allowed]
+            for row in rows:
+                report = league_reports[row.get("league_id"), row.get("season")]
+                report["returned_results"] += 1
+                if report["status"] == "no_results_as_of":
+                    report["status"] = "results_available"
             if as_of is not None:
                 current_rows = store.read((PROVIDER,), start, end)
-                pending = sum((row.get("league_id"), row.get("season")) in allowed - blocked
-                              and _clock(row["result_observed_at"]) >= _clock(as_of) for row in current_rows)
+                cutoff = _clock(as_of)
+                for row in current_rows:
+                    pair = (row.get("league_id"), row.get("season"))
+                    if pair in allowed and _clock(row["result_observed_at"]) >= cutoff:
+                        league_reports[pair]["pending_observations"] += 1
+                        pending += 1
         except Exception as exc:
             errors.append(safe_provider_error(exc))
             rows, complete = [], False
@@ -531,7 +555,8 @@ class APIHockeyScanner:
                                     "returned_results": len(rows), "errors": tuple(errors),
                                     "pending_observations": pending,
                                     "resolved_league_seasons": len(leagues),
-                                    "reviewed_candidates": len(self.candidates)}
+                                    "reviewed_candidates": len(self.candidates),
+                                    "leagues": tuple(league_reports.values())}
         return rows
 
     @property
