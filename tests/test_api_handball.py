@@ -418,6 +418,42 @@ def test_native_league_odds_are_matched_to_the_confirmed_upcoming_games_in_one_r
     ]
 
 
+@pytest.mark.parametrize('legacy', [False, True], ids=['league-batch', 'individual-game'])
+@pytest.mark.parametrize(('source', 'received', 'kickoff', 'accepted'), [
+    ('2026-11-25T12:00:01Z', '2026-11-25T12:00:02Z', '2026-11-25T18:30:00Z', True),
+    ('2026-11-24T00:00:00Z', '2026-11-25T12:00:02Z', '2026-11-25T18:30:00Z', False),
+    ('2026-11-24T00:00:02Z', '2026-11-25T12:00:02Z', '2026-11-25T18:30:00Z', True),
+    ('2026-11-25T11:59:59Z', '2026-11-25T12:00:02Z', '2026-11-25T12:00:02Z', False),
+    ('2026-11-25T11:59:59Z', '2026-11-25T12:00:02Z', '2026-11-25T12:00:01Z', False),
+    ('2026-11-25T11:59:58Z', '2026-11-25T11:59:59Z', '2026-11-25T18:30:00Z', False),
+    ('2026-11-25T11:59:59Z', '2026-11-25T12:00:02', '2026-11-25T18:30:00Z', False),
+], ids=['in-flight-update', 'expired-in-flight', 'exact-36h-at-receipt', 'kickoff', 'after-kickoff',
+        'clock-reversed', 'naive-receipt-clock'])
+def test_odds_validate_provider_time_and_kickoff_at_receipt(tmp_path, legacy, source, received, kickoff, accepted):
+    profile = europa_profile('DE')
+    current = NOW
+    payloads = {'leagues': [catalogue()], 'games': [game(start=kickoff)], 'odds': [native_price(updated=source)]}
+
+    def get(url, **_):
+        nonlocal current
+        endpoint = url.rsplit('/', 1)[-1]
+        if endpoint == 'odds':
+            current = datetime.fromisoformat(received)
+        return Response(response(endpoint, payloads[endpoint]))
+
+    governor = APIBudgetGovernor(tmp_path / 'budget.db', daily_limit=100, critical_floor=5,
+                                 recommendation_reserve=10, background_reserve=15)
+    client = APIHandballClient('dummy-test-key', governor=governor, get=get, clock=lambda: current)
+    [match] = client.league_games(profile, 2026)
+    if legacy:
+        books = client.prices(match, now=NOW)
+    else:
+        market = client.league_prices(profile, 2026, now=NOW).get(match.game_id)
+        books = market.bookmakers if market else {}
+
+    assert books == ({'Bet365': (1.55, 9.0, 3.5)} if accepted else {})
+
+
 @pytest.mark.parametrize('patch', [
     {'game_id': 105},
     {'game_id': '106'},

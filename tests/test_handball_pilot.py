@@ -60,11 +60,11 @@ def test_pilot_freezes_predictions_caps_prices_and_pairs_only_exact_final(tmp_pa
         _game(105, upcoming[4].starts_at, scores=(24, 25)),
     ]
     report = run_pilot(client, path=path, clock=lambda: NOW + timedelta(days=1))
-    assert (report['settled'], report['paired'], report['changed_fixture']) == (2, 1, 2)
-    assert report['market_brier'] == pytest.approx(.875)
-    assert report['model_brier'] == pytest.approx(original['home'] ** 2
-                                                  + (original['draw'] - 1) ** 2
-                                                  + original['away'] ** 2)
+    # The legacy exchange does not carry an independent provider clock.
+    assert (report['settled'], report['paired'], report['changed_fixture']) == (2, 0, 2)
+    assert report['exclusions'] == {'missing_clock': 1, 'missing_price': 1}
+    assert report['market_brier'] is None and report['model_brier'] is None
+    assert json.loads(path.read_text(encoding='utf-8'))['forecasts']['101']['p'] == original
     assert read_report(path) == report
 
 
@@ -132,17 +132,32 @@ def test_pilot_uses_explicit_handball_access_and_cancels_a_slow_worker(monkeypat
 def test_new_verified_final_replaces_or_retracts_only_the_result(tmp_path):
     from dataclasses import replace
 
+    from scanners.api_handball import HANDBALL_LEAGUES, HandballMarket
+
     path = tmp_path / 'pilot.json'
     starts = NOW + timedelta(hours=8)
-    client = Provider(_history() + [_game(101, starts)])
-    run_pilot(client, path=path, clock=lambda: NOW)
+
+    class CurrentPriceFeed(Provider):
+        def league_games(self, league, season):
+            return self.games
+
+        def league_prices(self, league, season, *, now):
+            return {101: HandballMarket(now, {'Book': (2., 4., 4.)})}
+
+    client = CurrentPriceFeed(_history() + [_game(101, starts)])
+    league = next(profile for profile in HANDBALL_LEAGUES if profile.code == 'DE')
+
+    def run(then):
+        return run_pilot(client, path=path, league=league, clock=lambda: then)
+
+    run(NOW)
     first = json.loads(path.read_text(encoding='utf-8'))['forecasts']['101']
     client.games[-1] = _game(101, starts, scores=(30, 30))
-    assert run_pilot(client, path=path, clock=lambda: NOW + timedelta(days=1))['market_brier'] == .875
+    assert run(NOW + timedelta(days=1))['market_brier'] == .875
     client.games[-1] = _game(101, starts, scores=(31, 30))
-    assert run_pilot(client, path=path, clock=lambda: NOW + timedelta(days=2))['market_brier'] == .375
+    assert run(NOW + timedelta(days=2))['market_brier'] == .375
     client.games[-1] = replace(client.games[-1], status='AW')
-    assert run_pilot(client, path=path, clock=lambda: NOW + timedelta(days=3))['paired'] == 0
+    assert run(NOW + timedelta(days=3))['paired'] == 0
     assert json.loads(path.read_text(encoding='utf-8'))['forecasts']['101'] == first
 
 

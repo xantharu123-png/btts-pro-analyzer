@@ -1,5 +1,21 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 25.11.2026 – Handball-Auditreparatur
+
+- [Vertrag](docs/superpowers/specs/2026-11-25-handball-audit-fixes-design.md):
+  Empfang statt Anfrage als Quotenuhr; verlegte Spiele als frische
+  Modellbelege, Originale unverändert. Alter Preis ohne Nachweis für den
+  neuen Anwurf bleibt ausgeschlossen.
+- Marktvergleich: nach Anbieterstand und Abruf höchstens je eine Stunde
+  von der Modellentscheidung entfernt; regulärer Endstand und vollständiger
+  1X2-Satz. Brier und Log Loss auf identischen Fällen. Keine Quote als
+  Modellinput oder Tiebreak.
+- Offline-Studie: `python -m handball_model_study`. Der vorhandene Tageslauf
+  speichert kompakte Endstand-Zeilen; ältere Produktionsdateien enthalten
+  diese nicht. Nach dem nächsten regulären Lauf die Anbindung lesend prüfen,
+  spätere getrennte Testperiode auswerten. Keine Form-/Remis-Variante ohne
+  Qualitätsnachweis für Kunden aktivieren; kein Zusatzscan oder Backup.
+
 ## 25.11.2026 – Handball im Wettfinder
 
 - [Diagnose](docs/audits/2026-11-25-handball-europa.md): 37 Rohzeilen, davon
