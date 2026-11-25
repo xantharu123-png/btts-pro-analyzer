@@ -1,5 +1,24 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 25.11.2026 – Preisbindung und Sportdaten
+
+- [Audit](docs/audits/2026-11-25-sportarten-ausserhalb-nhl.md) und
+  [Reparaturplan](docs/superpowers/plans/2026-11-25-sportdaten-reparatur.md).
+- Native API-Hockey-Preise: Vergleich der Rollen und Liga vor Wiederverwendung,
+  auch bei einem nicht fälligen Quotenlauf. Kein Rückgriff auf eingebettete
+  Preise ohne exakten Cache. Ältere europäische Cache-Bindungen werden nicht
+  übernommen; normaler Quotenlauf kann sie neu bestätigen. NHL-Kern unverändert.
+- OddsPapi: zwei Uhren, echte Anbieterzeit vor dem Abruf und Abrufzeit;
+  beidseitiger Zeitbeleg für Marktvergleich, keine Ausführungsbehauptung aus
+  dem Aggregator. Abweichende Spielzeiten bleiben im Evidenzpfad ausgeschlossen.
+- NBA: Zürich/ESPN-Datumsgrenze und ESPN-Monats-HTTP-400 im Archiv nachgewiesen.
+  Tagesersatz nutzt den bestehenden Historienrahmen, nicht einen zweiten Job.
+  Nächster regulärer Lauf: Historien-Resultate und NBA-Modellabdeckung prüfen.
+- Europäische Ligen (DEL, Liiga, SHL, National League): 25.11. um 03:39 CET
+  jeweils bestätigter Tariffehler für Saison 2026; null archivierte Ergebnisse.
+  Liga-Diagnose ergänzt. Offen: erlaubte Saisonhistorie und deren Modellabnahme;
+  keine synthetischen Daten, kein Abo oder zusätzlicher Scan.
+
 ## 25.11.2026 – NHL gegen zeitgleich archivierte Buchmacherpreise prüfen
 
 - [Pilot und Vorab-Regel](docs/audits/2026-11-25-nhl-top-messung.md):

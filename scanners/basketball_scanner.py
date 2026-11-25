@@ -26,6 +26,7 @@ import math
 from context_sources.team_sports_capture import (
     observe_espn_basketball_schedule, observe_euroleague_schedule, observe_nhl_schedule,
 )
+from context_sources.team_sports_status import espn_nba_schedule_days, espn_nba_schedule_params
 
 logger = logging.getLogger(__name__)
 SEARCH_TIMEZONE = ZoneInfo("Europe/Zurich")
@@ -239,62 +240,51 @@ class BasketballScanner:
         end_date: date,
     ) -> List[Dict]:
         error_key = f"{league.casefold()}_schedule"
-        errors = []
+        params = espn_nba_schedule_params(start_date, end_date)
+        headers = {'User-Agent': self.nba_headers['User-Agent'], 'Accept': 'application/json'}
+
+        def schedule_page(query):
+            try:
+                response = requests.get(url, headers=headers, params=query, timeout=10)
+                if response.status_code != 200:
+                    return [], f"HTTP {response.status_code}"
+                payload = response.json()
+                observe_espn_basketball_schedule(url, league, query, start_date, end_date, payload, response)
+            except (requests.RequestException, ValueError) as exc:
+                return [], type(exc).__name__
+            events = payload.get('events') if isinstance(payload, dict) else None
+            return (events, None) if isinstance(events, list) else ([], "invalid payload")
+
+        # Normally one call, not a second job. If a range is rejected, use
+        # ESPN's existing day query shape. Do not retry a provider throttle.
+        events, error = schedule_page(params)
+        errors = [error] if error else []
+        if error == "HTTP 400":
+            errors = []
+            for day in espn_nba_schedule_days(start_date, end_date):
+                page, error = schedule_page({"dates": f"{day:%Y%m%d}", "limit": 100})
+                events.extend(page)
+                if error:
+                    errors.append(error)
+                    if error in {"HTTP 401", "HTTP 403", "HTTP 429"}:
+                        break
         games = []
         seen = set()
-        total_days = (end_date - start_date).days + 1
-        for offset in range(total_days):
-            target_date = start_date + timedelta(days=offset)
-            try:
-                response = requests.get(
-                    url,
-                    headers={
-                        'User-Agent': self.nba_headers['User-Agent'],
-                        'Accept': 'application/json',
-                    },
-                    params={
-                        'dates': target_date.strftime('%Y%m%d'),
-                        'limit': 100,
-                    },
-                    timeout=10,
-                )
-                if response.status_code != 200:
-                    errors.append(f"{target_date}: HTTP {response.status_code}")
-                    continue
-                payload = response.json()
-                observe_espn_basketball_schedule(url, league, target_date,
-                                               start_date, end_date, payload, response)
-            except (requests.RequestException, ValueError) as exc:
-                errors.append(f"{target_date}: {type(exc).__name__}")
+        for event in events:
+            competitions = event.get('competitions', []) if isinstance(event, dict) else []
+            if not isinstance(competitions, list):
                 continue
-            events = payload.get('events', []) if isinstance(payload, dict) else None
-            if not isinstance(events, list):
-                errors.append(f"{target_date}: invalid payload")
-                continue
-            for event in events:
-                competitions = event.get('competitions', []) if isinstance(event, dict) else []
-                if not isinstance(competitions, list):
+            for competition in competitions:
+                parsed = self._parse_espn_upcoming_basketball_game(event, competition, league)
+                if not parsed or parsed['game_id'] in seen:
                     continue
-                for competition in competitions:
-                    parsed = self._parse_espn_upcoming_basketball_game(
-                        event,
-                        competition,
-                        league,
-                    )
-                    if not parsed or parsed['game_id'] in seen:
-                        continue
-                    start = self._event_start(parsed.get('start_time'))
-                    if (
-                        start is None
-                        or not start_date
-                        <= start.astimezone(SEARCH_TIMEZONE).date()
-                        <= end_date
-                    ):
-                        continue
-                    seen.add(parsed['game_id'])
-                    games.append(parsed)
+                start = self._event_start(parsed.get('start_time'))
+                if start is None or not start_date <= start.astimezone(SEARCH_TIMEZONE).date() <= end_date:
+                    continue
+                seen.add(parsed['game_id'])
+                games.append(parsed)
         if errors:
-            self.errors[error_key] = '; '.join(errors[:4])
+            self.errors[error_key] = "; ".join(errors[:4])
         else:
             self.errors.pop(error_key, None)
         return games

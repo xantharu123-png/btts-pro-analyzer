@@ -280,6 +280,43 @@ def test_history_and_budget_keep_safe_specific_failure_no_retry(tmp_path, body, 
     assert len(governor.reservations) == 2
 
 
+def test_history_identifies_denied_league_without_hiding_another_league(tmp_path, caplog):
+    national = LeagueCandidate("National League", "Switzerland")
+    del_league = LeagueCandidate("DEL", "Germany")
+    valid = Transport(catalog=[catalogue(), catalogue(identity=8002, name="DEL", country="Germany")],
+                      games=[game(identity=80020, league=8002, name="DEL", country="Germany")])
+    requests = []
+
+    def transport(url, **kwargs):
+        params = kwargs["params"]
+        requests.append(params)
+        if params.get("league") == 8001:
+            return SimpleNamespace(status_code=200, headers={}, json=lambda: {
+                "errors": {"plan": "do not log the raw response"}, "response": [],
+            })
+        return valid(url, **kwargs)
+
+    adapter = scanner(tmp_path, transport=transport, candidates=(national, del_league))
+    start = DAY - timedelta(days=30)
+    assert [row["league_id"] for row in adapter.get_completed_games(start, DAY)] == [8002]
+    report = {row["league_id"]: row for row in adapter.history_coverage.get("leagues", ())}
+    assert report == {
+        8001: {"competition": "National League", "league_id": 8001, "season": 2026,
+               "status": "blocked", "reason": "api_plan_error", "returned_results": 0, "pending_observations": 0},
+        8002: {"competition": "DEL", "league_id": 8002, "season": 2026,
+               "status": "results_available", "reason": None, "returned_results": 1, "pending_observations": 0},
+    }
+    assert "league_id=8001 season=2026 reason=api_plan_error" in caplog.text
+    assert "verify API-Hockey season entitlement" in caplog.text
+    assert "do not log the raw response" not in caplog.text
+
+    caplog.clear()
+    assert [row["league_id"] for row in adapter.get_completed_games(start, DAY)] == [8002]
+    assert {row["league_id"]: row for row in adapter.history_coverage["leagues"]} == report
+    assert requests == [{}, {"league": 8001, "season": 2026}, {"league": 8002, "season": 2026}]
+    assert not caplog.records  # the cached refusal is reported but not logged twice
+
+
 def test_shared_date_and_catalogue_cache_preserves_observation_and_uses_two_calls(tmp_path):
     clock = [NOW]
     transport = Transport(catalog=[catalogue(), catalogue(identity=8002, name="Swiss League")],
@@ -305,6 +342,10 @@ def test_completed_history_uses_one_season_batch_cache_and_real_asof(tmp_path):
     start, end = DAY - timedelta(days=30), DAY
     result = adapter.get_completed_games(start, end, as_of=NOW - timedelta(seconds=1))
     assert result == []  # cold history is NOT backdated to past game time
+    assert adapter.history_coverage.get("leagues") == ({
+        "competition": "National League", "league_id": 8001, "season": 2026,
+        "status": "no_results_as_of", "reason": None, "returned_results": 0, "pending_observations": 1,
+    },)
     assert transport.calls[1][1]["params"] == {"league": 8001, "season": 2026}
     result = adapter.get_completed_games(start, end, as_of=NOW)
     assert len(result) == 1 and len(transport.calls) == 2
@@ -327,6 +368,11 @@ def test_cold_history_request_limit_is_reported_not_fake_twenty_leagues_ready(tm
     assert adapter.history_coverage["status"] == "partial"
     assert adapter.history_coverage["requests"] == 1
     assert not adapter.history_coverage["windows_complete"]
+    report = {row["league_id"]: row for row in adapter.history_coverage.get("leagues", ())}
+    assert set(report) == {8001, 8002}
+    assert report[8001]["status"] == "no_results_as_of"
+    assert report[8002]["status"] == "deferred"
+    assert report[8002]["reason"] == "history_request_limit"
 
 
 def test_native_withdrawal_retains_asof_old_result_but_not_current_result(tmp_path):

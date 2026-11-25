@@ -47,15 +47,251 @@ def quote(r=None, e=None):
     return prices.load_cached_quote(r or row(), now=NOW, document=document(e or event()))
 
 
+def test_exact_native_market_keeps_each_provider_clock_separate_from_retrieval():
+    raw = event(first=2.0)
+    home_change = (NOW - timedelta(minutes=7)).isoformat()
+    away_change = (NOW - timedelta(hours=2)).isoformat()
+    first_book = raw['bookmakerOdds']['pinnacle']['markets']['171']['outcomes']
+    first_book['171']['players']['0']['changedAt'] = home_change
+    first_book['172']['players']['0']['changedAt'] = away_change
+    # Existing tolerant display may keep this point, but it is not causal proof.
+    second_book = raw['bookmakerOdds']['1xbet']['markets']['171']['outcomes']
+    second_book['172']['players']['0']['changedAt'] = (NOW + timedelta(seconds=30)).isoformat()
+    q = MarketConsensus.from_dict(quote(e=raw).to_dict())
+    parts = {p['bookmaker_id']: p for p in q.native_market_partitions}
+
+    assert q.fetched_at == NOW.isoformat()
+    assert [p.observed_at for p in q.points] == [NOW.isoformat(), NOW.isoformat()]
+    assert parts['oddspapi:pinnacle']['provider_price_updates'] == {
+        'Sparta eSports': home_change, 'Inox Division': away_change,
+    }
+    assert parts['oddspapi:1xbet']['provider_price_updates'] == {'Sparta eSports': NOW.isoformat()}
+
+
+def test_unbound_provider_clock_is_ignored_without_changing_the_price():
+    q = quote()
+    payload = q.to_dict()
+    part = payload['native_market_partitions'][0]
+    part['provider_price_updates'] = {
+        'Inox Division': '2030-01-15T09:55:00+00:00',
+        'Sparta eSports': '2030-01-15T10:00:01+00:00',
+        'Foreign': '2030-01-15T09:54:00+00:00',
+    }
+
+    parsed = MarketConsensus.from_dict(payload)
+
+    assert parsed.best_odds == 2.50
+    assert parsed.native_market_partitions[0]['provider_price_updates'] == {
+        'Inox Division': '2030-01-15T09:55:00+00:00',
+    }
+
+
+@pytest.mark.parametrize('policy', ['gate', 'floor'])
+def test_esports_evidence_records_provider_change_but_not_live_execution(tmp_path, monkeypatch, policy):
+    import sqlite3
+    import forecast_evidence as evidence
+
+    monkeypatch.setenv('BETBOY_PRICE_POLICY', policy)
+    monkeypatch.setattr(evidence, '_now', lambda: NOW)
+    change = (NOW - timedelta(minutes=7)).isoformat()
+    raw = event(first=2.0)
+    raw['bookmakerOdds']['pinnacle']['markets']['171']['outcomes']['171']['players']['0']['changedAt'] = change
+    r = row(event_identity='esports:pandascore:123', modeled_at=(NOW-timedelta(minutes=5)).isoformat(),
+            input_cutoff_at=(NOW-timedelta(minutes=10)).isoformat(), policy_version='selection-v1')
+    doc = dict(generated_at=NOW.isoformat(), selection_policy_version='catalog-v1',
+               model_candidates=[r | {'reference_quote': quote(r, raw).to_dict()}])
+    db = tmp_path / 'evidence.db'
+
+    saved = evidence.record_forecast_run(doc, db, 'esports-model-v1')
+
+    assert not saved['quotes_rejected']
+    with sqlite3.connect(db) as conn:
+        stamp, fetch, executable, payload = conn.execute(
+            'SELECT observed_at,fetched_at,executable,payload_json FROM forecast_quotes WHERE bookmaker_id=?',
+            ('oddspapi:pinnacle',),
+        ).fetchone()
+        assert conn.execute('SELECT DISTINCT executable FROM forecast_quotes').fetchall() == [(0,)]
+    assert (stamp, fetch, executable) == (NOW.isoformat(), NOW.isoformat(), 0)
+    assert json.loads(payload)['provider_updated_at'] == change
+
+
+def test_legacy_retrieval_only_execution_flags_do_not_count_in_quality_report(tmp_path, monkeypatch):
+    import sqlite3
+    import forecast_evidence as evidence
+
+    monkeypatch.setattr(evidence, '_now', lambda: NOW)
+    r = row(event_identity='esports:pandascore:123', modeled_at=(NOW-timedelta(minutes=5)).isoformat(),
+            input_cutoff_at=(NOW-timedelta(minutes=10)).isoformat(), policy_version='selection-v1')
+    legacy = quote(r).to_dict()
+    for part in legacy['native_market_partitions']:
+        part.pop('provider_price_updates', None)
+    doc = dict(generated_at=NOW.isoformat(), selection_policy_version='catalog-v1',
+               model_candidates=[r | {'reference_quote': legacy}])
+    db = tmp_path / 'evidence.db'
+    evidence.record_forecast_run(doc, db, 'esports-model-v1')
+    with sqlite3.connect(db) as conn:
+        # Simulate the former floor writer classifying an OddsPapi sample as executable.
+        values = list(conn.execute('SELECT * FROM forecast_quotes LIMIT 1').fetchone())
+        old = json.loads(values[-1]) | {'executable': True, 'odds': 2.12}
+        values[0], values[6], values[7], values[8] = evidence._hash(old), 2.12, 1, evidence._json(old)
+        conn.execute('INSERT INTO forecast_quotes VALUES (?,?,?,?,?,?,?,?,?)', values)
+
+    group, = evidence.build_quality_report(db, as_of=NOW)['groups']
+
+    assert group['entry_quote_coverage'] == 1
+    assert group['executable_entry_coverage'] == 0
+    with sqlite3.connect(db) as conn:
+        assert conn.execute('SELECT COUNT(*) FROM forecast_quotes WHERE executable=1').fetchone() == (1,)
+
+
+@pytest.mark.parametrize('change,status', [
+    (None, 'retrieval_only'),
+    ('2030-01-15T09:53:00+00:00', 'provider_clocked'),
+    ('2030-01-15T08:00:00+00:00', 'stale'),
+    ('2030-01-15T10:00:01+00:00', 'invalid'),
+])
+def test_published_esports_price_does_not_count_as_executed_return(change, status):
+    from consumer_tip_performance import _published_quote
+
+    native = dict(
+        status='observed', odds=2.0, bookmaker_id='oddspapi:pinnacle',
+        observed_at=NOW.isoformat(), fetched_at=NOW.isoformat(), source=prices.ESPORTS_PRICE_SOURCE,
+        provider_event_id='native123', market_key='H2H', bet_name='Series Winner',
+        selection='Sparta eSports', starts_at=(NOW+timedelta(hours=6)).isoformat(),
+    )
+    if change is not None:
+        native['provider_updated_at'] = change
+    tip = dict(sport='esports', market_key='H2H', selection='Sparta eSports',
+               starts_at=native['starts_at'], quote=native)
+
+    result, _odds = _published_quote(tip, NOW, NOW+timedelta(hours=6))
+
+    assert result == status
+
+
+def test_tip_receipt_copies_correct_book_and_selected_provider_clock():
+    from consumer_tip_history import _quote as public_receipt
+
+    raw = event(first=2.0)
+    for book, changed in (('pinnacle', '2030-01-15T09:52:00+00:00'),
+                          ('1xbet', '2030-01-15T09:58:00+00:00')):
+        raw['bookmakerOdds'][book]['markets']['171']['outcomes']['171']['players']['0']['changedAt'] = changed
+    r = row()
+    receipt = public_receipt(r | {'reference_quote': quote(r, raw)}, r, NOW, NOW+timedelta(hours=6))
+
+    assert receipt['bookmaker_id'] == 'oddspapi:pinnacle'
+    assert receipt['observed_at'] == NOW.isoformat()
+    assert receipt['provider_updated_at'] == '2030-01-15T09:52:00+00:00'
+
+
+@pytest.mark.parametrize('change,kept', [
+    (None, 0),
+    ('2030-01-15T09:55:00+00:00', 0),
+    ('2030-01-15T15:00:00+00:00', 2),
+    ('2030-01-15T15:29:00+00:00', 2),
+    ('2030-01-15T15:30:01+00:00', 0),
+])
+def test_esports_closing_needs_a_causal_provider_update_not_only_a_late_fetch(tmp_path, monkeypatch, change, kept):
+    import forecast_evidence as evidence
+
+    r = row(event_identity='esports:pandascore:123', modeled_at=(NOW-timedelta(minutes=5)).isoformat(),
+            input_cutoff_at=(NOW-timedelta(minutes=10)).isoformat(), policy_version='selection-v1')
+    db = tmp_path / 'evidence.db'
+    monkeypatch.setattr(evidence, '_now', lambda: NOW)
+    frozen = evidence.record_forecast_run(dict(generated_at=NOW.isoformat(), selection_policy_version='catalog-v1',
+                                          model_candidates=[r]), db, 'esports-model-v1')
+    close = NOW + timedelta(hours=5, minutes=30)
+    raw = event()
+    for book in raw['bookmakerOdds'].values():
+        book['markets']['171']['outcomes']['171']['players']['0']['changedAt'] = change or NOW.isoformat()
+    cache = dict(schema='esports-prices-v1', fetched_at=close.isoformat(), events=[raw])
+    q = prices.load_cached_quote(r, now=close, document=cache).to_dict()
+    if change is None:
+        for part in q['native_market_partitions']:
+            part.pop('provider_price_updates', None)
+    monkeypatch.setattr(evidence, '_now', lambda: close)
+
+    assert evidence.append_quote_observation(frozen['forecast_ids'][0], q, kind='closing', db_path=db) == kept
+
+
+def test_start_tolerance_for_display_is_not_evidence_of_exact_kickoff(tmp_path, monkeypatch):
+    import forecast_evidence as evidence
+
+    monkeypatch.setattr(evidence, '_now', lambda: NOW)
+    raw = event()
+    raw['startTime'] = (NOW + timedelta(hours=6, minutes=2)).isoformat()
+    r = row(event_identity='esports:pandascore:123', modeled_at=(NOW-timedelta(minutes=5)).isoformat(),
+            input_cutoff_at=(NOW-timedelta(minutes=10)).isoformat(), policy_version='selection-v1')
+    q = quote(r, raw)
+    assert q is not None
+    doc = dict(generated_at=NOW.isoformat(), selection_policy_version='catalog-v1',
+               model_candidates=[r | {'reference_quote': q.to_dict()}])
+
+    saved = evidence.record_forecast_run(doc, tmp_path / 'evidence.db', 'esports-model-v1')
+
+    assert saved['recorded'] == 1
+    assert len(saved['quotes_rejected']) == 1
+
+
+@pytest.mark.parametrize('provider_age,expected', [(None, 0), (120, 0), (5, 1)])
+def test_esports_no_vig_benchmark_needs_both_native_clocks(tmp_path, monkeypatch, provider_age, expected):
+    import forecast_evidence as evidence
+    from forecast_market_comparison import build_market_comparison
+    from selection_performance import build_selection_performance_report
+
+    r = row(event_identity='esports:pandascore:123', selection='Sparta eSports',
+            competitor_a_id='505', competitor_b_id='506', modeled_at=(NOW-timedelta(minutes=5)).isoformat(),
+            input_cutoff_at=(NOW-timedelta(minutes=10)).isoformat(), policy_version='selection-v1')
+    raw = event(first=2.0)
+    for book in raw['bookmakerOdds'].values():
+        other_stamp = NOW - timedelta(minutes=provider_age or 5)
+        book['markets']['171']['outcomes']['172']['players']['0']['changedAt'] = other_stamp.isoformat()
+    q = quote(r, raw).to_dict()
+    if provider_age is None:
+        for part in q['native_market_partitions']:
+            part.pop('provider_price_updates', None)
+    doc = dict(generated_at=NOW.isoformat(), selection_policy_version='catalog-v1',
+               model_candidates=[r | {'reference_quote': q}])
+    db = tmp_path / 'evidence.db'
+    monkeypatch.setattr(evidence, '_now', lambda: NOW)
+    evidence.record_forecast_run(doc, db, 'esports-model-v1')
+    terminal = NOW + timedelta(days=1)
+    monkeypatch.setattr(evidence, '_now', lambda: terminal)
+    evidence.append_result('esports:pandascore:123', 'H2H', 'Sparta eSports', 'WIN',
+        observed_at=terminal, provenance=dict(provider='pandascore', provider_event_id='123',
+            source_record_id='fixture:123', payload_sha256='a'*64, settlement_rule='native-series-v1'), db_path=db)
+
+    result = build_market_comparison(db, as_of=terminal)
+    selections = build_selection_performance_report(db, from_day='2030-01-15', through_day='2030-01-15',
+                                                    as_of=terminal)['selections']
+
+    assert result['sport_coverage']['esports']['resolved_selections'] == 1
+    assert result['sport_coverage']['esports']['matched_selections'] == expected
+    selected, = selections
+    assert selected['quote_status'] == ('retrieval_only' if provider_age is None else 'provider_clocked')
+    assert selected['hypothetical_return_units'] is None
+    if expected:
+        import sqlite3
+        with sqlite3.connect(db) as conn:
+            # An otherwise admissible clock cannot be edited on a frozen receipt.
+            conn.execute("DROP TRIGGER forecast_quotes_no_update")  # synthetic damaged archive only
+            conn.execute("UPDATE forecast_quotes SET payload_json=json_set(payload_json, "
+                         "'$.audit_mutation', 'not-in-the-original')")
+        altered = build_market_comparison(db, as_of=terminal)
+        assert altered['sport_coverage']['esports']['matched_selections'] == 0
+
+
 @pytest.mark.parametrize('sport,game', [(16,'DOTA2'),(17,'CS2'),(18,'LoL'),(61,'Valorant')])
-def test_exact_series_for_each_supported_game(sport, game):
+@pytest.mark.parametrize('policy,status', [('gate', 'OBSERVED'), ('floor', 'PLAYABLE')])
+def test_exact_series_for_each_supported_game(sport, game, policy, status, monkeypatch):
+    monkeypatch.setenv('BETBOY_PRICE_POLICY', policy)
     r = row(competition=game)
     q = quote(r, event(sport=sport))
     assert q.best_odds == 2.5 and q.bookmaker_count == 2
     assert q.event_discipline == sport and quote_matches_candidate(q, r)
     assert MarketConsensus.from_dict(q.to_dict()) == q
     assert wettfinder_consensus(q, now=NOW) is None
-    assert wettfinder_reference_price_status(q, 1.5, candidate=r, now=NOW).code == 'OBSERVED'
+    assert wettfinder_reference_price_status(q, 1.5, candidate=r, now=NOW).code == status
     assert not q.is_fresh(NOW) and not q.is_wettfinder_fresh(NOW)
 
 

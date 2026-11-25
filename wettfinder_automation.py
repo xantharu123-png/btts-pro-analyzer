@@ -5849,7 +5849,10 @@ def _refresh_scheduled_prices(document, *, path, config, now):
     document['candidates'] = []
     document['challenge_release_candidates'] = []
     document['riskobet_price_observations'] = extras
-    from team_sport_prices import refresh_team_sport_prices, snapshot_price_rows, attach_cached_team_prices
+    from team_sport_prices import (
+        attach_cached_team_prices, quarantine_native_hockey_price_conflicts,
+        refresh_team_sport_prices, snapshot_price_rows,
+    )
     from esports_prices import refresh_esports_prices, snapshot_price_rows as esports_rows, attach_cached_esports_prices
     team_rows = [r for r in document.get('model_candidates', [])
                  if str(r.get('sport') or '').casefold() in {'basketball', 'eishockey', 'ice_hockey'}]
@@ -5869,7 +5872,8 @@ def _refresh_scheduled_prices(document, *, path, config, now):
         if target_rows:
             attempt_key = 'prices:'+sport
             previous_attempt = _parse_iso(document.get('price_check_attempts', {}).get(attempt_key))
-            if previous_attempt is not None and current-previous_attempt < SCHEDULED_PRICE_DUE_GAP:
+            cooldown = previous_attempt is not None and current-previous_attempt < SCHEDULED_PRICE_DUE_GAP
+            if cooldown:
                 summary = {'status': 'not_due' if key else 'missing_key', 'quotes': 0}
             elif key:
                 try:
@@ -5884,6 +5888,16 @@ def _refresh_scheduled_prices(document, *, path, config, now):
             else:
                 summary = {'status': 'missing_key', 'quotes': 0}
                 document.setdefault('price_check_attempts', {})[attempt_key] = current.isoformat()
+            if sport == 'team_sports' and (cooldown or not key):
+                # Fixture identity changes are not rate-limited provider work.
+                try:
+                    n = quarantine_native_hockey_price_conflicts(target_rows, now=provider_now,
+                        path=path.parent/cache_name)
+                    if n:
+                        summary['identity_gaps'] = ['ice_hockey:conflicting_origin_identity'] * n
+                except OSError as exc:
+                    summary['status'] = 'unavailable'
+                    summary['error_type'] = type(exc).__name__
             completed = _utc(now or datetime.now(timezone.utc))
             for row, priced in zip(target_rows, attach(target_rows, now=completed, path=path.parent/cache_name)):
                 for field in tuple(row):

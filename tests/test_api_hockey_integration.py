@@ -101,6 +101,75 @@ def test_real_frozen_research_can_be_published_without_nhl_scope_alias():
     assert small["snapshot_id"] == snapshot.snapshot_id
 
 
+@pytest.mark.price_policy("floor")
+def test_native_role_conflict_withholds_embedded_quote_until_verified_refresh(tmp_path):
+    from daily3_selection import daily3_choices
+    from ev_signal_sources import automated_wettfinder_forecasts
+    from test_team_sport_prices import Governor
+    from team_sport_prices import attach_cached_team_prices, refresh_team_sport_prices
+
+    scenario = api_event(starts_at=(NOW+timedelta(hours=7)).isoformat())
+    modeled = adapt_ice_hockey_research(scenario, api_history(), modeled_at=NOW)
+    snapshot = modeled.snapshot
+    rows = team_sport_forecast_rows(SimpleNamespace(snapshots=(snapshot,)), now=NOW, target_date=NOW.date())
+    home, away = rows
+    assert home['probability'] >= .70 and away['probability'] < .50
+    game = {'id': 9000, 'date': home['scheduled_start'], 'status': {'short': 'NS'},
+        'league': {'name': 'National League'}, 'teams': {
+            'home': {'id': int(home['competitor_a_id']), 'name': home['competitor_a']},
+            'away': {'id': int(home['competitor_b_id']), 'name': home['competitor_b']}}}
+    games, markets, calls = [game], [{'game': game, 'bookmakers': [{'id': 1, 'name': 'Book 1',
+        'bets': [{'id': 2, 'name': 'Home/Away', 'values': [
+            {'value': 'Home', 'odd': '1.90'}, {'value': 'Away', 'odd': '1.95'}]}]}]}], []
+
+    def get(url, **kwargs):
+        endpoint = url.rsplit('/', 1)[-1]
+        calls.append(endpoint)
+        return SimpleNamespace(status_code=200, headers={}, json=lambda:
+            {'errors': [], 'response': games if endpoint == 'games' else markets})
+
+    path, fetched = tmp_path/'team_sport_quotes.json', NOW+timedelta(minutes=30)
+    def refresh(chosen, when):
+        return refresh_team_sport_prices(chosen, api_key='fixture', now=when,
+            path=path, governor=Governor(), get=get)
+
+    def publish(chosen, when):
+        document = {'model_candidates': chosen, 'target_search_date': NOW.date().isoformat()}
+        return automated_wettfinder_forecasts(tmp_path/'wettfinder_latest.json', now=when,
+            _loaded=(document, NOW, []))
+
+    assert refresh(rows, fetched)['quotes'] == 2
+    embedded = attach_cached_team_prices(rows, now=fetched, path=path)
+    assert [c.signal.provider_event_id for c in daily3_choices(publish(embedded, fetched), now=fetched)] == ['9000']
+
+    from riskobet_prices import load_shared_price_overlays
+    state = tmp_path/'wettfinder_latest.json'
+    state.write_text(json.dumps({'model_candidates': rows}), encoding='utf-8')
+    assert load_shared_price_overlays(modeled.candidates, (snapshot,), now=fetched, path=state)
+    state.write_text(json.dumps({'model_candidates': [dict(home, competitor_a_id='999'), away]}), encoding='utf-8')
+    assert not load_shared_price_overlays(modeled.candidates, (snapshot,), now=fetched, path=state)
+
+    conflict_clock = fetched+timedelta(hours=1)
+    refresh([home, dict(away, competitor_a_id='999')], conflict_clock)
+    projected = publish(embedded, conflict_clock)
+    assert len(projected) == 2 and all(signal.reference_quote is None for signal in projected)
+    assert daily3_choices(projected, now=conflict_clock) == ()
+    assert calls == ['games', 'odds']
+
+    # A later coherent input is not proof of a fresh bookmaker result. Only a
+    # new exact response, not an empty price page, can replace the blocked quote.
+    empty_clock = fetched+timedelta(hours=3, seconds=1)
+    good_markets = markets[:]
+    markets.clear()
+    assert refresh(rows, empty_clock)['quotes'] == 0
+    assert all(signal.reference_quote is None for signal in publish(embedded, empty_clock))
+
+    markets[:] = good_markets
+    recovery_clock = empty_clock+timedelta(hours=3, seconds=1)
+    assert refresh(rows, recovery_clock)['quotes'] == 2
+    assert [c.signal.provider_event_id for c in daily3_choices(publish(embedded, recovery_clock), now=recovery_clock)] == ['9000']
+
+
 def test_shared_scanner_keeps_native_providers_and_reuses_one_history_batch():
     calls = []
     nhl_event = event("ice_hockey")

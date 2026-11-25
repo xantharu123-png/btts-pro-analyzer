@@ -229,7 +229,26 @@ def _quote(row: dict, forecast: dict, start: datetime) -> dict:
         raise ValueError("quote was not available before decision and kickoff")
     value["quote_id"] = row["quote_id"]
     value["fresh"] = decision - fetched <= WETTFINDER_FETCH_MAX_AGE and decision - observed <= WETTFINDER_QUOTE_MAX_AGE
+    if sport == 'esports':
+        value['provider_clock_status'] = _esports_quote_clock_status(
+            value, assessed_at=decision, observed=observed, fetched=fetched)
     return value
+
+
+def _esports_quote_clock_status(quote, *, assessed_at, observed, fetched):
+    """Distinguish OddsPapi time evidence from actionable offers in reports."""
+    raw = quote.get('provider_updated_at')
+    if raw is None:
+        return 'retrieval_only'
+    try:
+        changed = _utc(raw)
+    except (ValueError, TypeError, OverflowError):
+        return 'invalid'
+    if not changed <= observed == fetched <= assessed_at:
+        return 'invalid'
+    if assessed_at-fetched > WETTFINDER_FETCH_MAX_AGE or assessed_at-changed > WETTFINDER_QUOTE_MAX_AGE:
+        return 'stale'
+    return 'provider_clocked'
 
 
 def _fetch_related(conn: sqlite3.Connection, table: str, column: str, values: list[str]) -> list[dict]:
@@ -354,6 +373,7 @@ def build_selection_performance_report(
             "Internal forecasts are not proof of customer-visible tips or placed wagers.",
             "Different markets from one event are correlated, not independent samples.",
             "Returns use only exact fresh pre-decision quotes at or above 1.20, irrespective of the old value/executable gate.",
+            "E-sport retrieval and provider last-change clocks are reported separately; neither authorizes a return sample.",
             "NHL team-price retrieval has no bookmaker update clock; those observations are benchmarks, not return samples.",
             "Missing, stale or unresolved prices are not assigned synthetic odds or losses.",
             "Hashes detect inconsistent stored records; public hashes do not authenticate against an attacker who can rewrite all evidence.",
@@ -500,6 +520,10 @@ def build_selection_performance_report(
         entries.sort(key=lambda q: (-_utc(q["observed_at"]).timestamp(), -_utc(q["fetched_at"]).timestamp(), q["bookmaker_id"], q["quote_id"]))
         quote = entries[0] if entries else None
         status = "invalid" if quote_invalid else "missing" if quote is None else "stale" if not quote["fresh"] else "below_floor" if quote["odds"] < MINIMUM_RECOMMENDED_DECIMAL_ODDS else "fresh"
+        if quote is not None and not quote_invalid and chosen['sport'] == 'esports':
+            status = quote['provider_clock_status']
+            if status == 'provider_clocked' and quote['odds'] < MINIMUM_RECOMMENDED_DECIMAL_ODDS:
+                status = 'below_floor'
         units = None
         retrieval_only_nhl = chosen["native_event"][:2] == ("ice_hockey", "nhl")
         if reason is None and status == "fresh" and not retrieval_only_nhl and outcome in {"WIN", "LOSS"}:

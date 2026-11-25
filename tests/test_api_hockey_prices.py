@@ -1,6 +1,7 @@
 """Native API-Hockey prices never borrow NHL/name-only identities."""
 from copy import deepcopy
 from dataclasses import replace
+from datetime import timedelta
 import hashlib
 from types import SimpleNamespace
 
@@ -38,7 +39,7 @@ def test_native_price_requires_own_game_and_bilateral_team_ids(side, competition
     assert MarketConsensus.from_dict(quote.to_dict()) == quote
     assert observed_consensus(quote, candidate=candidate, now=NOW) == quote
     assert not quote.is_fresh(NOW)
-    assert prices._binding(candidate)[7:] == ('11', '22')
+    assert prices._binding(candidate)[7:] == ('11', '22', competition.casefold())
 
 
 @pytest.mark.parametrize('mutation', [
@@ -106,14 +107,108 @@ def test_native_cache_is_role_bound_and_shared_across_same_model_revisions(tmp_p
 
 
 def test_native_conflicting_role_ids_fail_before_any_request(tmp_path):
+    calls = []
     def unexpected(*args, **kwargs):
+        calls.append(1)
         raise AssertionError('No provider permitted for ambiguous native roles')
     candidate = native_row()
     other = dict(native_row('away'), competitor_a_id='33')
     summary = prices.refresh_team_sport_prices([candidate, other], api_key='fixture', now=NOW,
         path=tmp_path/'prices.json', governor=Governor(), get=unexpected)
     assert summary['checked'] == summary['quotes'] == 0
-    assert summary['errors'] == ['ice_hockey:ValueError']
+    assert not calls and summary['errors'] == []
+    assert summary['identity_gaps'] == ['ice_hockey:conflicting_origin_identity']
+
+
+@pytest.mark.parametrize('hours', [1, 4])
+def test_native_role_conflict_withholds_both_previously_cached_sides(tmp_path, hours):
+    native, path = native_game(), tmp_path/'prices.json'
+    calls = []
+    def get(url, **kwargs):
+        calls.append(url.rsplit('/', 1)[-1])
+        return SimpleNamespace(status_code=200, headers={}, json=lambda:
+            {'errors': [], 'response': [native] if url.endswith('/games') else odds(native)})
+
+    rows = [native_row(), native_row('away')]
+    prices.refresh_team_sport_prices(rows, api_key='fixture', now=NOW-timedelta(hours=hours),
+        path=path, governor=Governor(), get=get)
+    assert all(prices.load_cached_quote(row, now=NOW, path=path) is not None for row in rows)
+
+    conflicting = [rows[0], dict(rows[1], competitor_a_id='33')]
+    summary = prices.refresh_team_sport_prices(conflicting, api_key='fixture', now=NOW,
+        path=path, governor=Governor(), get=get)
+    assert all(prices.load_cached_quote(row, now=NOW, path=path) is None for row in rows)
+    assert calls == ['games', 'odds']
+    assert summary['checked'] == summary['quotes'] == 0
+    assert summary['identity_gaps'] == ['ice_hockey:conflicting_origin_identity']
+
+
+def test_native_quote_for_corrected_role_does_not_reinstate_old_embedded_receipt(tmp_path):
+    native, path = native_game(), tmp_path/'prices.json'
+    def get(url, **kwargs):
+        return SimpleNamespace(status_code=200, headers={}, json=lambda:
+            {'errors': [], 'response': [native] if url.endswith('/games') else odds(native)})
+
+    old_rows = [native_row(), native_row('away')]
+    new_rows = [dict(row, competitor_a_id='33') for row in old_rows]
+    first = NOW-timedelta(hours=4)
+    def refresh(rows, when):
+        return prices.refresh_team_sport_prices(rows, api_key='fixture', now=when,
+            path=path, governor=Governor(), get=get)
+
+    assert refresh(old_rows, first)['quotes'] == 2
+    embedded = prices.attach_cached_team_prices(old_rows, now=first, path=path)
+    assert all(row.get('reference_quote') for row in embedded)
+    refresh([old_rows[0], new_rows[1]], first+timedelta(hours=1))
+
+    native['teams']['home']['id'] = 33
+    assert refresh(new_rows, NOW)['quotes'] == 2
+    assert all(prices.load_cached_quote(row, now=NOW, path=path) is not None for row in new_rows)
+    assert all(row.get('reference_quote') is None for row in
+        prices.attach_cached_team_prices(embedded, now=NOW, path=path))
+
+
+def test_native_price_requires_authoritative_cache_even_without_conflict_marker(tmp_path):
+    native, path = native_game(), tmp_path/'prices.json'
+    def get(url, **kwargs):
+        return SimpleNamespace(status_code=200, headers={}, json=lambda:
+            {'errors': [], 'response': [native] if url.endswith('/games') else odds(native)})
+    rows = [native_row(), native_row('away')]
+    updated = dict(rows[1], competitor_a_id='33')
+    prices.refresh_team_sport_prices(rows, api_key='fixture', now=NOW-timedelta(hours=1),
+        path=path, governor=Governor(), get=get)
+    embedded = prices.attach_cached_team_prices(rows, now=NOW, path=path)
+    assert all(r.get('reference_quote') for r in embedded)
+    assert all(r.get('reference_quote') is None for r in
+        prices.attach_cached_team_prices([embedded[0], updated], now=NOW, path=path))
+    assert all(r.get('reference_quote') is None for r in
+        prices.attach_cached_team_prices(embedded, now=NOW, path=tmp_path/'absent.json'))
+
+
+def test_local_quarantine_works_without_an_api_key_or_price_refresh(tmp_path):
+    native, path = native_game(), tmp_path/'prices.json'
+    def get(url, **kwargs):
+        return SimpleNamespace(status_code=200, headers={}, json=lambda:
+            {'errors': [], 'response': [native] if url.endswith('/games') else odds(native)})
+    rows = [native_row(), native_row('away')]
+    prices.refresh_team_sport_prices(rows, api_key='fixture', now=NOW-timedelta(hours=1),
+        path=path, governor=Governor(), get=get)
+    assert all(prices.load_cached_quote(r, now=NOW, path=path) for r in rows)
+    assert prices.quarantine_native_hockey_price_conflicts(
+        [rows[0], dict(rows[1], competitor_a_id='33')], now=NOW, path=path) == 1
+    assert all(prices.load_cached_quote(r, now=NOW, path=path) is None for r in rows)
+
+
+def test_native_cache_does_not_share_price_with_another_supported_league(tmp_path):
+    native, path = native_game(), tmp_path/'prices.json'
+    def get(url, **kwargs):
+        return SimpleNamespace(status_code=200, headers={}, json=lambda:
+            {'errors': [], 'response': [native] if url.endswith('/games') else odds(native)})
+    selection = native_row()
+    assert prices.refresh_team_sport_prices([selection], api_key='fixture', now=NOW,
+        path=path, governor=Governor(), get=get)['quotes'] == 1
+    assert prices.load_cached_quote(selection, now=NOW, path=path)
+    assert prices.load_cached_quote(dict(selection, competition='DEL'), now=NOW, path=path) is None
 
 
 def test_snapshot_transport_adds_native_ids_only_to_api_hockey():

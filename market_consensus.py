@@ -401,6 +401,34 @@ def native_partition(market_key, period, bookmaker_id, observed_at, fetched_at, 
         outcomes=[dict(selection=selection, odds=odds) for selection, odds in outcomes])
 
 
+def esports_provider_price_updates(partition, selections, *, observed_at):
+    """Optional exact OddsPapi outcome last-change clocks, not execution proof."""
+    raw = partition.get('provider_price_updates') if isinstance(partition, Mapping) else None
+    if not isinstance(raw, Mapping):
+        return {}
+    updates = {}
+    for selection in selections:
+        value = raw.get(selection)
+        try:
+            changed = _parse_utc(value) if isinstance(value, str) else None
+        except OverflowError:
+            continue
+        if changed is not None and changed <= observed_at:
+            updates[selection] = changed.isoformat()
+    return updates
+
+
+def esports_provider_update_at(quote: MarketConsensus, point: QuotePoint) -> Optional[str]:
+    """Return the selected side's clock only from the exact validated native partition."""
+    if quote.source != ESPORTS_PRICE_SOURCE:
+        return None
+    for part in quote.native_market_partitions:
+        if (part['bookmaker_id'] == point.bookmaker_id and part['observed_at'] == point.observed_at
+                and part['fetched_at'] == quote.fetched_at):
+            return part.get('provider_price_updates', {}).get(quote.value_name)
+    return None
+
+
 def validated_native_partitions(raw, quote):
     """Optional malformed evidence is dropped without changing a valid offer."""
     if not isinstance(raw, (list, tuple)) or len(raw) > 100:
@@ -411,10 +439,11 @@ def validated_native_partitions(raw, quote):
     family, period, expected, selected = contract
     name_key = _tennis_identity_name if period == 'tennis_match' else lambda value: value
     valid, conflicts = {}, set()
+    required = {'market_key', 'period', 'bookmaker_id', 'observed_at', 'fetched_at', 'outcomes'}
+    permitted = required | {'provider_price_updates'} if quote.source == ESPORTS_PRICE_SOURCE else required
     for part in raw:
         try:
-            if not isinstance(part, Mapping) or set(part) != {
-                    'market_key', 'period', 'bookmaker_id', 'observed_at', 'fetched_at', 'outcomes'}:
+            if not isinstance(part, Mapping) or not required <= set(part) <= permitted:
                 continue
             if not all(isinstance(part[key], str) and 0 < len(part[key]) <= 300
                        for key in ('market_key', 'period', 'bookmaker_id')):
@@ -437,6 +466,10 @@ def validated_native_partitions(raw, quote):
             canonical = native_partition(part['market_key'], part['period'], part['bookmaker_id'],
                 observed.isoformat(), fetched.isoformat(),
                 [(item['selection'], validate_decimal_odds(item['odds'])) for item in outcomes])
+            if quote.source == ESPORTS_PRICE_SOURCE:
+                updates = esports_provider_price_updates(part, names, observed_at=observed)
+                if updates:
+                    canonical['provider_price_updates'] = updates
             if selected is not None and not any(
                     point.bookmaker_id == part['bookmaker_id'] and _parse_utc(point.observed_at) == observed
                     and next(item['odds'] for item in canonical['outcomes']

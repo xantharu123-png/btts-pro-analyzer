@@ -25,7 +25,9 @@ from context_sources.team_sports_capture import observe_completed_team_sports_re
 
 UTC = timezone.utc
 SEARCH_TIMEZONE = ZoneInfo("Europe/Zurich")
+ESPN_TIMEZONE = ZoneInfo("America/New_York")
 DEFAULT_HISTORY_PATH = RUNTIME_STATE_DIR / "sports_completed_history.db"
+NBA_HISTORY_REQUEST_LIMIT = 4
 
 
 def utc_time(value: object) -> datetime | None:
@@ -130,36 +132,35 @@ class CompletedHistoryStore:
         connection.execute("PRAGMA busy_timeout=15000")
         return connection
 
-    def due(self, provider: str, key: str, *, ttl: timedelta) -> bool:
-        now = self.clock()
-        with closing(self._connect()) as connection:
-            row = connection.execute(
-                "SELECT attempted_at, success_at FROM history_requests WHERE cache_key=?",
-                (f"{provider}:{key}",),
-            ).fetchone()
+    @staticmethod
+    def _request_due(row, now, ttl, cache_http_400):
         if row is None:
             return True
         attempted, success = utc_time(row[0]), utc_time(row[1])
-        return bool(
-            attempted is not None and now - attempted >= timedelta(minutes=30)
-            and (success is None or now - success >= ttl)
-        )
+        cooldown = ttl if cache_http_400 and row[2] == "HTTP 400" else timedelta(minutes=30)
+        return bool(attempted is not None and now - attempted >= cooldown
+                    and (success is None or now - success >= ttl))
 
-    def reserve(self, provider: str, key: str, *, ttl: timedelta, daily_limit: int) -> bool:
+    def due(self, provider: str, key: str, *, ttl: timedelta, cache_http_400: bool = False) -> bool:
+        now = self.clock()
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                "SELECT attempted_at,success_at,error FROM history_requests WHERE cache_key=?",
+                (f"{provider}:{key}",),
+            ).fetchone()
+        return self._request_due(row, now, ttl, cache_http_400)
+
+    def reserve(self, provider: str, key: str, *, ttl: timedelta, daily_limit: int,
+                cache_http_400: bool = False) -> bool:
         now = self.clock()
         with closing(self._connect()) as connection, connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
-                "SELECT attempted_at,success_at FROM history_requests WHERE cache_key=?",
+                "SELECT attempted_at,success_at,error FROM history_requests WHERE cache_key=?",
                 (f"{provider}:{key}",),
             ).fetchone()
-            if row:
-                attempted, success = utc_time(row[0]), utc_time(row[1])
-                if (
-                    attempted is None or now - attempted < timedelta(minutes=30)
-                    or (success is not None and now - success < ttl)
-                ):
-                    return False
+            if not self._request_due(row, now, ttl, cache_http_400):
+                return False
             count = connection.execute(
                 "SELECT requests FROM history_budget WHERE provider=? AND day=?",
                 (provider, now.date().isoformat()),
@@ -261,13 +262,16 @@ class CompletedHistoryStore:
             raise ValueError("History as_of must be an aware time no later than now")
 
 
-def fetch_page(store, provider, key, url, parser, *, params=None, headers=None, ttl=timedelta(hours=12), daily_limit=48):
-    if not store.reserve(provider, key, ttl=ttl, daily_limit=daily_limit):
+def fetch_page(store, provider, key, url, parser, *, params=None, headers=None, ttl=timedelta(hours=12), daily_limit=48,
+               cache_http_400=False):
+    if not store.reserve(provider, key, ttl=ttl, daily_limit=daily_limit, cache_http_400=cache_http_400):
         return False, store.request_error(provider, key)
     try:
         response = requests.get(url, params=params, headers=headers, timeout=10)
         if response.status_code != 200:
-            raise ValueError(f"HTTP {response.status_code}")
+            error = f"HTTP {response.status_code}"
+            store.record(provider, key, (), error=error)
+            return True, error
         payload = response.json()
         observe_completed_team_sports_response(provider, key, url, params, payload, response)
         parsed = parser(payload)
@@ -280,7 +284,7 @@ def fetch_page(store, provider, key, url, parser, *, params=None, headers=None, 
         return True, None
     except (requests.RequestException, ValueError, TypeError, KeyError) as exc:
         # Deliberately omit exception bodies; request URLs may contain API keys.
-        error = str(exc) if isinstance(exc, ValueError) and str(exc).startswith("HTTP ") else type(exc).__name__
+        error = type(exc).__name__
         store.record(provider, key, (), error=error)
         return True, error
 
@@ -475,6 +479,31 @@ def parse_nhl_results(payload) -> list[dict]:
     return results
 
 
+def _backfill_espn_days(scanner, store, start, end, *, calls, headers):
+    """Fill recent completed Eastern buckets first without calling the monthly route again."""
+    now = store.clock().astimezone(ESPN_TIMEZONE)
+    lower = datetime.combine(start, datetime.min.time(), tzinfo=SEARCH_TIMEZONE).astimezone(ESPN_TIMEZONE).date()
+    upper = datetime.combine(end, datetime.max.time(), tzinfo=SEARCH_TIMEZONE).astimezone(ESPN_TIMEZONE).date()
+    cursor = min(upper, now.date() - timedelta(days=1))
+    while cursor >= lower and calls < NBA_HISTORY_REQUEST_LIMIT:
+        key = f"nba:day:{cursor.isoformat()}"
+        # Revisit the two latest completed dates for late finals. Avoid spending
+        # the entire budget refreshing known older days while catching up.
+        ttl = timedelta(hours=12) if (now.date() - cursor).days <= 2 else timedelta(days=366)
+        if store.due("ESPN", key, ttl=ttl):
+            attempted, error = fetch_page(
+                store, "ESPN", key, scanner.espn_nba_url, parse_espn_results,
+                params={"dates": f"{cursor:%Y%m%d}", "limit": 100}, headers=headers, ttl=ttl,
+            )
+            calls += int(attempted)
+        else:
+            error = store.request_error("ESPN", key)
+        if error:
+            return f"NBA history {key}: {error}"
+        cursor -= timedelta(days=1)
+    return None
+
+
 def completed_basketball(scanner, league, start, end, *, as_of=None, store=None):
     history_window(start, end)
     if league not in {"NBA", "Euroleague", "All"}:
@@ -487,32 +516,39 @@ def completed_basketball(scanner, league, start, end, *, as_of=None, store=None)
     if league in {"NBA", "All"}:
         providers.append("ESPN")
         # Month buckets let cold history fill gradually, then remain cached.
-        cursor, calls = min(end, store.clock().date()).replace(day=1), 0
-        while calls < 4:
+        native_start = datetime.combine(start, datetime.min.time(), tzinfo=SEARCH_TIMEZONE).astimezone(ESPN_TIMEZONE).date()
+        cursor, calls = min(end, store.clock().astimezone(ESPN_TIMEZONE).date()).replace(day=1), 0
+        headers = {"User-Agent": scanner.nba_headers["User-Agent"], "Accept": "application/json"}
+        while calls < NBA_HISTORY_REQUEST_LIMIT:
             next_month = (cursor.replace(day=28) + timedelta(days=4)).replace(day=1)
             last = next_month - timedelta(days=1)
-            if last < start:
+            if last < native_start:
                 break
             key = f"nba:{cursor.isoformat()}"
             ttl = timedelta(hours=6) if last >= store.clock().date() - timedelta(days=14) else timedelta(days=7)
-            if store.due("ESPN", key, ttl=ttl):
+            # The public range route can be rejected while single dates still
+            # work. Re-probe a known 400 at the normal month refresh interval.
+            if store.due("ESPN", key, ttl=ttl, cache_http_400=True):
                 attempted, error = fetch_page(
                     store, "ESPN", key, scanner.espn_nba_url, parse_espn_results,
                     params={"dates": f"{cursor:%Y%m%d}-{last:%Y%m%d}", "limit": 1000},
-                    headers={"User-Agent": scanner.nba_headers["User-Agent"], "Accept": "application/json"}, ttl=ttl,
+                    headers=headers, ttl=ttl, cache_http_400=True,
                 )
                 calls += int(attempted)
-                if error:
-                    errors.append(f"NBA history: {error}")
-                    break
             else:
-                cached_error = store.request_error("ESPN", key)
-                if cached_error:
-                    errors.append(f"NBA history: {cached_error}")
-                    break
+                error = store.request_error("ESPN", key)
+            if error:
+                errors.append(f"NBA history: {error}")
+                if error == "HTTP 400":
+                    # Newer month buckets have already passed. Spend the day
+                    # budget only on the rejected month and earlier dates.
+                    day_error = _backfill_espn_days(scanner, store, start, min(end, last), calls=calls, headers=headers)
+                    if day_error:
+                        errors.append(day_error)
+                break
             cursor = (cursor - timedelta(days=1)).replace(day=1)
         cursor_end = (cursor.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
-        windows_complete = cursor_end < start and not errors
+        windows_complete = cursor_end < native_start and not errors
     if league in {"Euroleague", "All"}:
         providers.append("EuroLeague")
         for year in range(start.year - 1, end.year + 1):

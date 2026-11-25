@@ -55,6 +55,10 @@ jobs:
           tests/test_nhl_top_review.py
           tests/test_nhl_top_statistics.py
           tests/test_nhl_entry_capture.py
+          tests/test_nba_zurich_schedule.py
+          tests/test_team_sports_capture.py
+          tests/test_api_hockey_scanner.py
+          tests/test_completed_sports_history.py
           tests/test_model_loss_statistics.py
           tests/test_live_tip_settlement_job.py
           tests/test_live_tip_ledger.py
@@ -131,6 +135,9 @@ jobs:
           tests/test_quality_cached_prices.py
           tests/test_price_refresh_schedule.py
           tests/test_api_rate_limit.py
+          tests/test_api_hockey_prices.py
+          tests/test_api_hockey_integration.py
+          tests/test_esports_prices.py
           tests/test_hockey_publication_clock.py
           tests/test_football_original_publication.py
           tests/test_football_opponent_publication.py

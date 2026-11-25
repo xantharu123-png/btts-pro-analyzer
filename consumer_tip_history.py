@@ -22,7 +22,7 @@ import sqlite3
 
 from market_consensus import (
     MarketConsensus, WETTFINDER_FETCH_MAX_AGE, WETTFINDER_QUOTE_MAX_AGE,
-    quote_matches_candidate,
+    esports_provider_update_at, quote_matches_candidate,
 )
 from selection_coherence import consumer_event_identity
 
@@ -150,7 +150,7 @@ def _quote(row, identity, as_of, start):
             return {"status": "unverified_clock"}
         point = max(fresh or valid, key=lambda item: (item.odds, str(item.bookmaker_id)))
         # Exactly one real point is retained, not a synthetic consensus price.
-        return {
+        receipt = {
             "status": "observed" if fresh else "stale", "odds": point.odds,
             "bookmaker_id": _text(str(point.bookmaker_id), limit=128),
             "observed_at": _utc(point.observed_at).isoformat(),
@@ -160,6 +160,10 @@ def _quote(row, identity, as_of, start):
             "bet_name": _text(quote.bet_name), "selection": _text(quote.value_name),
             "starts_at": start.isoformat(),
         }
+        updated = esports_provider_update_at(quote, point)
+        if updated is not None:
+            receipt['provider_updated_at'] = updated
+        return receipt
     except (ValueError, TypeError, OverflowError):
         return {"status": "invalid"}
 

@@ -309,9 +309,12 @@ def load_shared_price_overlays(candidates, snapshots=(), *, now=None, path=None)
     from team_sport_prices import attach_cached_team_prices, snapshot_price_rows
     # Full identity rows also cover research events absent from the normal pool.
     snapshots = tuple(snapshots)
+    # Only the snapshot remains the display-price owner, but compare its
+    # team roles with the saved model rows before discarding those witnesses.
+    rows = attach_cached_team_prices([*rows, *snapshot_price_rows(snapshots)],
+                                     now=now, path=source.parent / 'team_sport_quotes.json')
     if snapshots:
-        rows = [row for row in rows if row.get('source') != 'team_sport_research'] + snapshot_price_rows(snapshots)
-    rows = attach_cached_team_prices(rows, now=now, path=source.parent / 'team_sport_quotes.json')
+        rows = [row for row in rows if row.get('source') != 'team_sport_research']
     from esports_prices import attach_cached_esports_prices, snapshot_price_rows as esports_snapshot_rows
     if any(s.sport == 'esports' for s in snapshots):
         rows = [row for row in rows if str(row.get('sport') or '').casefold()
