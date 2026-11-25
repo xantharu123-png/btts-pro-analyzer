@@ -1,4 +1,4 @@
-"""Internal German Handball Bundesliga 1X2 pilot; default CLI is read-only."""
+"""Internal European handball 1X2 pilot; default CLI is read-only."""
 
 from __future__ import annotations
 
@@ -15,12 +15,14 @@ from zoneinfo import ZoneInfo
 from config_loader import load_handball_api_key
 from handball_pilot_model import predict_1x2
 from runtime_paths import PROJECT_ROOT, RUNTIME_STATE_DIR, atomic_write_text, prepare_trusted_runtime_database_path
-from scanners.api_handball import APIHandballClient, HandballSourceError
+from scanners.api_handball import APIHandballClient, HANDBALL_LEAGUES, HandballSourceError
 
 
 _ZONE = ZoneInfo('Europe/Zurich')
 _OUTCOMES = ('home', 'draw', 'away')
 _MAX_PRICE_CALLS = 4
+_EU_PRICE_SLOTS = 3
+_PROVIDER_STOP = {'api_rate_limit', 'api_rate_limit_deferred', 'api_budget_unavailable', 'api_access_denied'}
 _HORIZON = timedelta(hours=36)
 
 
@@ -33,8 +35,11 @@ def _season(now):
     return local.year - int(local.month < 7)
 
 
-def _path(now):
-    return RUNTIME_STATE_DIR / f'handball_pilot_{_season(now)}.json'
+def _path(now, country='DE', directory=None):
+    # Keep the existing German receipt path; other leagues cannot share it.
+    suffix = '' if country == 'DE' else f'_{country.lower()}'
+    directory = Path(directory) if directory is not None else RUNTIME_STATE_DIR
+    return directory / f'handball_pilot{suffix}_{_season(now)}.json'
 
 
 def _load(path):
@@ -92,22 +97,25 @@ def read_report(path=None):
     return _report(_load(Path(path) if path is not None else _path(_utcnow())))
 
 
-def run_pilot(client, *, path=None, clock=_utcnow):
+def run_pilot(client, *, path=None, clock=_utcnow, league=None, started=None, max_price_calls=_MAX_PRICE_CALLS):
     """One attempted collection per Zurich day; the worker owns a separate lock."""
-    started = clock()
-    path = prepare_trusted_runtime_database_path(Path(path) if path is not None else _path(started))
+    started = clock() if started is None else started
+    path = prepare_trusted_runtime_database_path(Path(path) if path is not None else
+                                                 _path(started, league.code if league else 'DE'))
     data = _load(path)
     day = started.astimezone(_ZONE).date().isoformat()
     if data['run'].get('day') == day:
         return _report(data)
 
     run = {'day': day, 'status': 'started', 'scheduled': 0, 'training_games': 0,
-           'unconfirmed_finals': 0, 'changed_fixture': 0, 'result_revisions': 0, 'diagnostics': {}}
+           'unconfirmed_finals': 0, 'changed_fixture': 0, 'result_revisions': 0,
+           'price_checks': 0, 'diagnostics': {}}
     data['run'] = run
     # A failed or interrupted run also spends part of the request budget.
     _write(path, data)
     try:
-        games = client.bundesliga_games(_season(started))
+        season = _season(started)
+        games = client.league_games(league, season) if league else client.bundesliga_games(season)
     except HandballSourceError as exc:
         run.update(status='unavailable', diagnostics={exc.code: 1})
         _write(path, data)
@@ -159,11 +167,12 @@ def run_pilot(client, *, path=None, clock=_utcnow):
 
     diagnostics = Counter()
     pending.sort(key=lambda pair: (bool(pair[1].get('last_price_attempt')), pair[0].starts_at))
-    for game, row in pending[:_MAX_PRICE_CALLS]:
+    for game, row in pending[:max_price_calls]:
         requested = clock()
         if requested >= game.starts_at:
             continue
         row['last_price_attempt'] = requested.isoformat()
+        run['price_checks'] += 1
         try:
             books = client.prices(game, now=requested)
         except HandballSourceError as exc:
@@ -180,6 +189,40 @@ def run_pilot(client, *, path=None, clock=_utcnow):
                diagnostics=dict(diagnostics))
     _write(path, data)
     return _report(data)
+
+
+def read_europe_report(*, directory=None, now=None):
+    """Read independent league evidence without API requests or file writes."""
+    now = _utcnow() if now is None else now
+    day = now.astimezone(_ZONE).date().isoformat()
+    leagues = {league.code: read_report(_path(now, league.code, directory)) for league in HANDBALL_LEAGUES}
+    today = [r['status'] for r in leagues.values() if r.get('day') == day]
+    if not today:
+        status = 'stale' if any(r.get('day') for r in leagues.values()) else 'not_run'
+    elif len(today) == len(leagues) and len(set(today)) == 1 and today[0] in {'completed', 'unavailable'}:
+        status = today[0]
+    else:
+        status = 'partial'
+    return {'status': status, 'day': day, 'leagues': leagues}
+
+
+def run_europe(client, *, directory=None, clock=_utcnow, started=None):
+    """One schedule per league and at most three total price calls per day."""
+    started = clock() if started is None else started
+    existing = read_europe_report(directory=directory, now=started)
+    # Each league stamps the date before its first provider request. Any current
+    # stamp also guards the shared catalogue and all leagues after interruption.
+    if any(r.get('day') == existing['day'] for r in existing['leagues'].values()):
+        return existing
+    # Rotate which leagues get a price request, including under a slow worker.
+    offset = started.astimezone(_ZONE).date().toordinal() % len(HANDBALL_LEAGUES)
+    rotation = HANDBALL_LEAGUES[offset:] + HANDBALL_LEAGUES[:offset]
+    for index, league in enumerate(rotation):
+        report = run_pilot(client, league=league, path=_path(started, league.code, directory), clock=clock,
+                           started=started, max_price_calls=int(index < _EU_PRICE_SLOTS))
+        if _PROVIDER_STOP.intersection(report.get('diagnostics', {})):
+            break
+    return read_europe_report(directory=directory, now=started)
 
 
 def scheduled_handball_pilot(*, canonical, forced):
@@ -207,10 +250,10 @@ def _scheduled_worker():
     now = _utcnow()
     path = prepare_trusted_runtime_database_path(_path(now))
     with _quote_publication_lock(path):
-        return run_pilot(APIHandballClient(key), path=path)
+        return run_europe(APIHandballClient(key), started=now)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scheduled', action='store_true', help=argparse.SUPPRESS)
-    print(json.dumps(_scheduled_worker() if parser.parse_args().scheduled else read_report(), ensure_ascii=True))
+    print(json.dumps(_scheduled_worker() if parser.parse_args().scheduled else read_europe_report(), ensure_ascii=True))

@@ -24,13 +24,13 @@ Tarifablehnungen für 2026, null Resultate. Liga-Diagnose am bestehenden
 Pfad ergänzt. Abnahme von NBA-/E-Sport-Daten im regulären Lauf offen.
 Keine neuen Modell- oder Tippgrenzen; Cricket bleibt ausgenommen.
 
-[Handball-Bundesliga-Pilot](docs/superpowers/specs/2026-11-25-handball-pilot-design.md)
-auf `codex/handball-pilot-20261125`: isolierter, standardmässig ausgeschalteter
-Schritt des bestehenden Tageslaufs. Spielplan, reguläre Endstände, preisblindes
-1X2 und Vergleich mit vollständigen Vorabquoten auf derselben Teilstichprobe.
-Kein neuer Timer, keine öffentlichen Tipps. Handball-Zugang, reale Anbieterantwort
-und Freigabe der Aktivierung noch offen; keine Änderung auf dem VPS. Gezielte QA:
-344 Tests im Standardvertrag, 197 unter der Produktions-Preisregel bestanden.
+[Handball-Europa](docs/audits/2026-11-25-handball-europa.md) auf
+`codex/handball-pilot-20261125`: fünf getrennte Herrenligen (ES, DE, DK, FR, HU),
+standardmässig aus, höchstens neun Abrufe je Zürcher Tag. Saison 2024/25:
+1.150 Endstände, 834 Vorhersagen. Das Modell schlägt die einfache Basis im
+Mittel je Liga; Dänemark unterschätzt Remis. Kein Markt-/Renditenachweis. Vor Mehrmonats-
+abo echte 1X2-Abdeckung je Liga prüfen. Kein Kauf, kein VPS-Deploy. Gezielte QA:
+364 Tests im Standardvertrag, 217 unter der Produktions-Preisregel bestanden.
 
 ### Voriger Stand: 24.11.2026
 

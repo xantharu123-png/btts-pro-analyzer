@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import datetime, timezone
 import sqlite3
 from zoneinfo import ZoneInfo
@@ -6,6 +7,7 @@ import pytest
 import requests
 
 from api_budget import APIBudgetGovernor
+from scanners import api_handball as adapter
 from scanners.api_handball import APIHandballClient, HandballSourceError
 
 
@@ -239,3 +241,143 @@ def test_provider_fault_is_distinguished_from_no_games_and_never_persists_raw_te
     assert caught.value.code == code
     with sqlite3.connect(db_path) as connection:
         assert connection.execute('SELECT error FROM api_budget_events ORDER BY id DESC LIMIT 1').fetchone() == (code,)
+
+
+# Test-only native IDs; the production adapter must discover these from the catalogue.
+EUROPE = (
+    ('ES', 'Spain', 301, 'Liga ASOBAL', 801),
+    ('DE', 'Germany', 13, 'Bundesliga', 39),
+    ('DK', 'Denmark', 303, 'Herre Handbold Ligaen', 803),
+    ('FR', 'France', 304, 'Starligue', 804),
+    ('HU', 'Hungary', 305, 'NB I', 805),
+)
+
+
+def europa_profile(code):
+    profile = next((p for p in getattr(adapter, 'HANDBALL_LEAGUES', ()) if p.code == code), None)
+    assert profile is not None, f'no catalogue profile for {code}'
+    return profile
+
+
+def european_catalogue(entry):
+    code, country, country_id, name, native_id = entry
+    return catalogue() | {'id': native_id, 'name': name, 'country': {
+        'id': country_id, 'name': country, 'code': code,
+    }}
+
+
+def identity(row):
+    return {'country': row['country'].copy(), 'league': {
+        'id': row['id'], 'name': row['name'], 'type': row['type'], 'season': 2026,
+    }}
+
+
+def test_five_exact_leagues_share_one_catalogue_and_use_discovered_native_ids(api):
+    client, replies, calls, _ = api
+    catalogue_rows = [european_catalogue(item) for item in EUROPE]
+    replies['leagues'] = Response(response('leagues', catalogue_rows + [
+        catalogue_rows[0] | {'id': 901, 'name': 'Liga ASOBAL Women'},
+        catalogue_rows[0] | {'id': 902, 'type': 'Cup'},
+        catalogue_rows[0] | {'id': 903, 'country': {'id': 9, 'name': 'Portugal', 'code': 'PT'}},
+    ]))
+    assert [(p.code, p.name) for p in getattr(adapter, 'HANDBALL_LEAGUES', ())] == [
+        ('ES', 'Liga ASOBAL'), ('DE', 'Bundesliga'), ('DK', 'Herre Handbold Ligaen'),
+        ('FR', 'Starligue'), ('HU', 'NB I'),
+    ]
+    expected_requests = [('leagues', {})]
+    for entry, row in zip(EUROPE, catalogue_rows, strict=True):
+        replies['games'] = Response(response('games', [game() | identity(row)]))
+        [match] = client.league_games(europa_profile(entry[0]), 2026)
+        assert (match.league_id, match.season, match.game_id) == (entry[-1], 2026, 106)
+        expected_requests.append(('games', {'league': entry[-1], 'season': 2026}))
+    assert [(url.rsplit('/', 1)[-1], args['params']) for url, args in calls] == expected_requests
+
+
+@pytest.mark.parametrize('problem', ['wrong_name', 'wrong_code', 'wrong_country', 'second_match',
+                                    'same_id_unrelated_league', 'reserved_german_id', 'wrong_type',
+                                    'no_season', 'bad_season_start', 'invalid_id'])
+def test_unconfirmed_league_does_not_block_another_leagues_season(api, problem):
+    client, replies, calls, _ = api
+    spanish, danish = map(european_catalogue, (EUROPE[0], EUROPE[2]))
+    uncertain = {
+        'wrong_name': [spanish | {'name': 'ASOBAL'}],
+        'wrong_code': [spanish | {'country': spanish['country'] | {'code': 'AD'}}],
+        'wrong_country': [spanish | {'country': spanish['country'] | {'name': 'Portugal'}}],
+        'second_match': [spanish, spanish | {'id': 999}],
+        'same_id_unrelated_league': [spanish, spanish | {'name': 'First Division'}],
+        'reserved_german_id': [spanish | {'id': 39}],
+        'wrong_type': [spanish | {'type': 'Cup'}],
+        'no_season': [spanish | {'seasons': spanish['seasons'][:1]}],
+        'bad_season_start': [spanish | {'seasons': [{'season': 2026, 'start': '2025-08-27', 'end': '2027-06-06'}]}],
+        'invalid_id': [spanish | {'id': '801'}],
+    }[problem]
+    replies['leagues'] = Response(response('leagues', [*uncertain, danish]))
+    replies['games'] = Response(response('games', [game() | identity(danish)]))
+    with pytest.raises(HandballSourceError, match='^handball_league_unconfirmed$'):
+        client.league_games(europa_profile('ES'), 2026)
+    [match] = client.league_games(europa_profile('DK'), 2026)
+    assert match.league_id == 803
+    assert [(url.rsplit('/', 1)[-1], args['params']) for url, args in calls] == [
+        ('leagues', {}), ('games', {'league': 803, 'season': 2026}),
+    ]
+
+
+def test_denied_catalogue_is_not_retried_for_the_next_country(api):
+    client, replies, calls, _ = api
+    replies['leagues'] = Response({'errors': {'plan': 'private-provider-text'}})
+    for code in ('ES', 'DE', 'DK', 'FR', 'HU'):
+        with pytest.raises(HandballSourceError, match='^api_plan_error$'):
+            client.league_games(europa_profile(code), 2026)
+    assert [(url.rsplit('/', 1)[-1], args['params']) for url, args in calls] == [('leagues', {})]
+
+
+@pytest.mark.parametrize(('start', 'country_patch'), [
+    ('2026-11-25T19:30:00+01:00', {'id': 99}),
+    ('2027-06-07T00:00:00+02:00', {}),
+])
+def test_games_require_the_confirmed_country_id_and_local_season_dates(api, start, country_patch):
+    client, replies, _, _ = api
+    french = european_catalogue(EUROPE[3])
+    replies['leagues'] = Response(response('leagues', [french]))
+    invalid = game(start=start) | identity(french)
+    invalid['country'].update(country_patch)
+    replies['games'] = Response(response('games', [invalid]))
+    with pytest.raises(HandballSourceError, match='^handball_invalid_game$'):
+        client.league_games(europa_profile('FR'), 2026)
+
+
+def test_non_german_prices_bind_the_confirmed_league_country_and_season(api):
+    client, replies, calls, _ = api
+    french = european_catalogue(EUROPE[3])
+    replies['leagues'] = Response(response('leagues', [french]))
+    replies['games'] = Response(response('games', [game() | identity(french)]))
+    [match] = client.league_games(europa_profile('FR'), 2026)
+    correct = price(bookmaker()) | identity(french)
+    replies['odds'] = Response(response('odds', [correct]))
+    assert client.prices(match, now=NOW) == {'Bet365': (1.55, 9.0, 3.5)}
+    assert calls[-1][1]['params'] == {'game': 106, 'bet': 1}
+    for patch in (
+        {'country': correct['country'] | {'name': 'Spain'}},
+        {'country': correct['country'] | {'id': 99}},
+        {'league': correct['league'] | {'id': 39}},
+        {'league': correct['league'] | {'name': 'Proligue'}},
+        {'league': correct['league'] | {'season': 2025}},
+    ):
+        replies['odds'] = Response(response('odds', [correct | patch]))
+        assert client.prices(match, now=NOW) == {}
+    assert client.prices(replace(match, league_id=39), now=NOW) == {}
+    assert len(calls) == 8
+
+
+def test_prices_do_not_treat_a_relabelled_game_as_a_second_leagues_match(api):
+    client, replies, calls, _ = api
+    spanish, german = map(european_catalogue, EUROPE[:2])
+    replies['leagues'] = Response(response('leagues', [spanish, german]))
+    replies['games'] = Response(response('games', [game(start='2026-11-25T20:00:00+01:00') | identity(spanish)]))
+    [match] = client.league_games(europa_profile('ES'), 2026)
+    replies['games'] = Response(response('games', [game()]))
+    [german_match] = client.league_games(europa_profile('DE'), 2026)
+    assert match.game_id == german_match.game_id
+    # An odds relay without optional time and team metadata must not hide a cross-league mix-up.
+    assert client.prices(replace(match, league_id=39), now=NOW) == {}
+    assert len(calls) == 3

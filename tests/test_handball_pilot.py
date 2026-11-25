@@ -161,6 +161,102 @@ def test_odds_transport_reads_already_frozen_model(tmp_path):
     assert report['priced'] == 1
 
 
+def test_europe_keeps_five_leagues_separate_and_caps_rotating_price_attempts(tmp_path):
+    from dataclasses import replace
+
+    from handball_pilot import read_europe_report, run_europe
+
+    league_ids = {'ES': 51, 'DE': 39, 'DK': 61, 'FR': 62, 'HU': 63}
+
+    class Europe(Provider):
+        def league_games(self, league, season):
+            self.game_calls.append((league.code, season))
+            if league.code == 'FR':
+                raise HandballSourceError('handball_league_unconfirmed')
+            history = _history() if league.code != 'HU' else []
+            future = [_game(101, NOW + timedelta(hours=30))]
+            return [replace(game, league_id=league_ids[league.code]) for game in history + future]
+
+        def prices(self, game, *, now):
+            self.odds_calls.append(game.league_id)
+            return {'Book': (2., 4., 4.)}
+
+    client = Europe([])
+    report = run_europe(client, directory=tmp_path, clock=lambda: NOW)
+    assert set(report['leagues']) == set(league_ids)
+    assert report['status'] == 'partial'
+    assert report['leagues']['FR']['status'] == 'unavailable'
+    assert report['leagues']['HU']['modelled'] == 0  # other leagues never feed training
+    assert all(report['leagues'][code]['modelled'] == 1 for code in ('DE', 'ES', 'DK'))
+    assert len(client.odds_calls) <= 3
+    assert len(client.odds_calls) == len(set(client.odds_calls))
+    assert len(client.game_calls) == 5
+    assert report == read_europe_report(directory=tmp_path, now=NOW)
+    assert run_europe(client, directory=tmp_path, clock=lambda: NOW) == report
+    assert len(client.game_calls) == 5
+    assert len(list(tmp_path.glob('*.json'))) == 5
+
+
+def test_europe_price_slots_move_between_leagues_without_double_charging(tmp_path):
+    from dataclasses import replace
+
+    from handball_pilot import run_europe
+
+    league_ids = {'ES': 51, 'DE': 39, 'DK': 61, 'FR': 62, 'HU': 63}
+
+    class Europe(Provider):
+        def league_games(self, league, season):
+            return [replace(game, league_id=league_ids[league.code])
+                    for game in _history() + [_game(101, NOW + timedelta(hours=30))]]
+
+        def prices(self, game, *, now):
+            self.odds_calls.append(game.league_id)
+            return {}  # a price miss still consumes the slot
+
+    client = Europe([])
+    run_europe(client, directory=tmp_path, clock=lambda: NOW)
+    first = list(client.odds_calls)
+    assert len(first) == 3
+    run_europe(client, directory=tmp_path, clock=lambda: NOW + timedelta(days=1))
+    second = client.odds_calls[len(first):]
+    assert len(second) == 3
+    assert set(first) != set(second)
+
+
+def test_europe_stops_provider_wide_throttle_and_does_not_resume_that_day(tmp_path):
+    from handball_pilot import run_europe
+
+    class Throttled(Provider):
+        def league_games(self, league, season):
+            self.game_calls.append(league.code)
+            raise HandballSourceError('api_rate_limit')
+
+    client = Throttled([])
+    report = run_europe(client, directory=tmp_path, clock=lambda: NOW)
+    assert len(client.game_calls) == 1
+    assert report['status'] == 'partial'
+    assert run_europe(Throttled([]), directory=tmp_path, clock=lambda: NOW) == report
+    assert sum(r['status'] == 'unavailable' for r in report['leagues'].values()) == 1
+
+
+def test_europe_restart_after_worker_interruption_stays_within_daily_cap(tmp_path):
+    from handball_pilot import run_europe
+
+    class Interrupted(Provider):
+        def league_games(self, league, season):
+            self.game_calls.append(league.code)
+            raise TimeoutError('isolated worker terminated mid-fetch')
+
+    with pytest.raises(TimeoutError):
+        run_europe(Interrupted([]), directory=tmp_path, clock=lambda: NOW)
+
+    restart = Interrupted([])
+    report = run_europe(restart, directory=tmp_path, clock=lambda: NOW + timedelta(hours=2))
+    assert restart.game_calls == []
+    assert report['status'] == 'partial'
+    assert sum(r['status'] == 'started' for r in report['leagues'].values()) == 1
+
+
 def test_wettfinder_keeps_published_state_and_success_when_opted_in_pilot_has_error(tmp_path, monkeypatch, capsys):
     import handball_pilot
     import wettfinder_automation as automation

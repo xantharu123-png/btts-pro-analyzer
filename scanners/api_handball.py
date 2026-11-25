@@ -1,4 +1,4 @@
-"""Exact, budgeted API-Handball Bundesliga inputs for the private 1X2 pilot.
+"""Exact, budgeted API-Handball league inputs for the private 1X2 pilot.
 
 Coverage: https://api-sports.io/sports/handball. The response contract is
 covered offline; confirm it with the actual account before enabling the pilot.
@@ -20,7 +20,6 @@ PROVIDER = 'api-sports-handball'
 BUNDESLIGA_ID = 39
 REGULATION_1X2_ID = 1
 MAX_PRICE_AGE = timedelta(hours=36)
-_GERMAN_CLOCK = ZoneInfo('Europe/Berlin')
 _SIDES = ('Home', 'Draw', 'Away')
 
 
@@ -30,6 +29,42 @@ class HandballSourceError(RuntimeError):
     def __init__(self, code: str):
         super().__init__(code)
         self.code = code
+
+
+@dataclass(frozen=True)
+class HandballLeague:
+    code: str
+    name: str
+    country: str
+    clock: ZoneInfo
+    pinned_id: int | None = None
+    pinned_country_id: int | None = None
+
+
+_BUNDESLIGA = HandballLeague('DE', 'Bundesliga', 'Germany', ZoneInfo('Europe/Berlin'), BUNDESLIGA_ID, 13)
+HANDBALL_LEAGUES = (
+    HandballLeague('ES', 'Liga ASOBAL', 'Spain', ZoneInfo('Europe/Madrid')),
+    _BUNDESLIGA,
+    HandballLeague('DK', 'Herre Handbold Ligaen', 'Denmark', ZoneInfo('Europe/Copenhagen')),
+    HandballLeague('FR', 'Starligue', 'France', ZoneInfo('Europe/Paris')),
+    HandballLeague('HU', 'NB I', 'Hungary', ZoneInfo('Europe/Budapest')),
+)
+
+
+@dataclass(frozen=True)
+class _LeagueSeason:
+    profile: HandballLeague
+    league_id: int
+    country_id: int
+    season: int
+    first: date
+    last: date
+
+    def matches(self, league, country) -> bool:
+        return (_matches_profile(self.profile, league, country)
+                and _positive_id(league.get('id')) and league['id'] == self.league_id
+                and _positive_id(country.get('id')) and country['id'] == self.country_id
+                and type(league.get('season')) is int and league['season'] == self.season)
 
 
 @dataclass(frozen=True)
@@ -79,11 +114,10 @@ def _matches_kickoff(row, start: datetime) -> bool:
             and ('timestamp' not in row or (type(row['timestamp']) is int and row['timestamp'] == start.timestamp())))
 
 
-def _bundesliga(league, country) -> bool:
-    return (isinstance(league, dict) and type(league.get('id')) is int and league['id'] == BUNDESLIGA_ID
-            and league.get('name') == 'Bundesliga' and league.get('type') == 'League'
-            and isinstance(country, dict) and type(country.get('id')) is int and country['id'] == 13
-            and country.get('name') == 'Germany' and country.get('code') == 'DE')
+def _matches_profile(profile: HandballLeague, league, country) -> bool:
+    return (isinstance(league, dict) and league.get('name') == profile.name and league.get('type') == 'League'
+            and isinstance(country, dict) and country.get('name') == profile.country
+            and country.get('code') == profile.code)
 
 
 def _season(row, season: int) -> tuple[date, date]:
@@ -96,6 +130,22 @@ def _season(row, season: int) -> tuple[date, date]:
     if first is None or last is None or first.year != season or not 0 < (last - first).days <= 366:
         raise HandballSourceError('handball_league_unconfirmed')
     return first, last
+
+
+def _resolve_league(rows: list[dict], profile: HandballLeague, season: int) -> _LeagueSeason:
+    matches = [row for row in rows if _matches_profile(profile, row, row.get('country'))]
+    if len(matches) != 1:
+        raise HandballSourceError('handball_league_unconfirmed')
+    row = matches[0]
+    native_id, country_id = row.get('id'), row['country'].get('id')
+    if (not _positive_id(native_id) or not _positive_id(country_id)
+            or (profile.pinned_id is not None and native_id != profile.pinned_id)
+            or (profile.pinned_country_id is not None and country_id != profile.pinned_country_id)
+            or (native_id == BUNDESLIGA_ID and profile != _BUNDESLIGA)
+            or sum(item.get('id') == native_id for item in rows) != 1):
+        raise HandballSourceError('handball_league_unconfirmed')
+    first, last = _season(row, season)
+    return _LeagueSeason(profile, native_id, country_id, season, first, last)
 
 
 def _score(record) -> tuple[int, int] | None:
@@ -116,13 +166,11 @@ def _regulation_score(row) -> tuple[int | None, int | None]:
     return scores
 
 
-def _game(row, *, season: int, season_start: date, season_end: date) -> HandballGame:
-    league, country = row.get('league'), row.get('country')
-    if (not _bundesliga(league, country) or type(league.get('season')) is not int or league['season'] != season
-            or not _positive_id(row.get('id'))):
+def _game(row, league: _LeagueSeason) -> HandballGame:
+    if not league.matches(row.get('league'), row.get('country')) or not _positive_id(row.get('id')):
         raise HandballSourceError('handball_invalid_game')
     start = _clock(row.get('date'))
-    if (start is None or not season_start <= start.astimezone(_GERMAN_CLOCK).date() <= season_end
+    if (start is None or not league.first <= start.astimezone(league.profile.clock).date() <= league.last
             or not _matches_kickoff(row, start)):
         raise HandballSourceError('handball_invalid_game')
     teams, status = row.get('teams'), row.get('status')
@@ -138,8 +186,8 @@ def _game(row, *, season: int, season_start: date, season_end: date) -> Handball
     ):
         raise HandballSourceError('handball_invalid_game')
     h_score, a_score = _regulation_score(row) if code == 'FT' else (None, None)
-    return HandballGame(row['id'], BUNDESLIGA_ID, season, start, home['id'], away['id'], home['name'],
-                        away['name'], code, h_score, a_score)
+    return HandballGame(row['id'], league.league_id, league.season, start, home['id'], away['id'],
+                        home['name'], away['name'], code, h_score, a_score)
 
 
 def _triplet(book) -> tuple[float, float, float] | None:
@@ -165,11 +213,9 @@ def _triplet(book) -> tuple[float, float, float] | None:
     return odds['Home'], odds['Draw'], odds['Away']
 
 
-def _prices(row, game: HandballGame, now: datetime) -> dict[str, tuple[float, float, float]]:
-    league = row.get('league')
+def _prices(row, game: HandballGame, now: datetime, league: _LeagueSeason) -> dict[str, tuple[float, float, float]]:
     if (type(row.get('game_id')) is not int or row['game_id'] != game.game_id
-            or not _bundesliga(league, row.get('country'))
-            or type(league.get('season')) is not int or league['season'] != game.season
+            or not league.matches(row.get('league'), row.get('country'))
             or not _matches_kickoff(row, game.starts_at)):
         return {}
     if 'teams' in row:
@@ -196,6 +242,9 @@ class APIHandballClient:
         self._key = key
         self._governor = governor
         self._get = get
+        self._catalogue: list[dict] | None = None
+        self._catalogue_error: str | None = None
+        self._confirmed: dict[tuple[int, int], tuple[_LeagueSeason, dict[int, HandballGame]]] = {}
 
     def _request(self, endpoint: str, params: dict) -> list[dict]:
         try:
@@ -245,23 +294,49 @@ class APIHandballClient:
             except APIBudgetError:
                 raise HandballSourceError('api_budget_unavailable') from None
 
+    def league_games(self, league: HandballLeague, season: int) -> list[HandballGame]:
+        if league not in HANDBALL_LEAGUES or type(season) is not int or not 1900 <= season <= 2100:
+            raise HandballSourceError('handball_league_unconfirmed')
+        if self._catalogue_error is not None:
+            raise HandballSourceError(self._catalogue_error)
+        if self._catalogue is None:
+            try:
+                self._catalogue = self._request('leagues', {})
+            except HandballSourceError as exc:
+                self._catalogue_error = exc.code
+                raise
+        return self._league_games(_resolve_league(self._catalogue, league, season))
+
     def bundesliga_games(self, season: int) -> list[HandballGame]:
+        """Retain the pilot's pinned request for callers loading Germany only."""
         if type(season) is not int or not 1900 <= season <= 2100:
             raise HandballSourceError('handball_league_unconfirmed')
+        if self._catalogue is not None or self._catalogue_error is not None:
+            return self.league_games(_BUNDESLIGA, season)
         rows = self._request('leagues', {'id': BUNDESLIGA_ID})
-        if len(rows) != 1 or not _bundesliga(rows[0], rows[0].get('country')):
+        if len(rows) != 1:
             raise HandballSourceError('handball_league_unconfirmed')
-        first, last = _season(rows[0], season)
-        games = [_game(row, season=season, season_start=first, season_end=last)
-                 for row in self._request('games', {'league': BUNDESLIGA_ID, 'season': season})]
+        return self._league_games(_resolve_league(rows, _BUNDESLIGA, season))
+
+    def _league_games(self, league: _LeagueSeason) -> list[HandballGame]:
+        key = (league.league_id, league.season)
+        self._confirmed.pop(key, None)
+        games = [_game(row, league) for row in self._request('games', {'league': key[0], 'season': key[1]})]
         if len({row.game_id for row in games}) != len(games):
             raise HandballSourceError('handball_duplicate_game')
+        self._confirmed[key] = (league, {row.game_id: row for row in games if row.status == 'NS'})
         return sorted(games, key=lambda row: (row.starts_at, row.game_id))
 
     def prices(self, game: HandballGame, *, now: datetime) -> dict[str, tuple[float, float, float]]:
         """Return complete per-book regulation 1X2 observations, not offers."""
-        if (now.utcoffset() is None or game.status != 'NS' or game.league_id != BUNDESLIGA_ID
-                or now >= game.starts_at or not _positive_id(game.game_id)):
+        if (now.utcoffset() is None or game.status != 'NS' or now >= game.starts_at
+                or not _positive_id(game.game_id) or not _positive_id(game.league_id) or type(game.season) is not int):
+            return {}
+        context = self._confirmed.get((game.league_id, game.season))
+        if context is None:
+            return {}
+        league, games = context
+        if games.get(game.game_id) != game:
             return {}
         rows = self._request('odds', {'game': game.game_id, 'bet': REGULATION_1X2_ID})
-        return _prices(rows[0], game, now.astimezone(timezone.utc)) if len(rows) == 1 else {}
+        return _prices(rows[0], game, now.astimezone(timezone.utc), league) if len(rows) == 1 else {}

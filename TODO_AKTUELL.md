@@ -1,5 +1,15 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 25.11.2026 – Handball-Europa und API-Abnahme
+
+- [Rücktest und Anbieterprüfung](docs/audits/2026-11-25-handball-europa.md): fünf
+  Ligen getrennt; 834 Prognosen auf echten historischen Ergebnissen. Remis im
+  dänischen Modell unterschätzt. Ohne Vorabquoten kein Renditenachweis.
+- Offen: tatsächliche aktuelle 1X2-Trefferabdeckung vom Anbieter je Liga.
+  Für DE zuerst vorhandene kostenlose Quelle prüfen; für fünf Ligen erst
+  Gratis-/Anbieterprobe, allenfalls ein Monat Handball-PRO. Kein Abo gekauft,
+  Pilot ausgeschaltet, VPS unverändert. 364/217 gezielte Tests grün.
+
 ## 25.11.2026 – Handball-Bundesliga
 
 - [Getrennter Pilot](docs/superpowers/specs/2026-11-25-handball-pilot-design.md):
