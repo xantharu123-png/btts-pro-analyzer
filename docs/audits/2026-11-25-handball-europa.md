@@ -95,3 +95,27 @@ Saisonfehler oder vom Parser aussortiertes aktuelles Angebot.
 Der [neue Anzeigepfad](../superpowers/specs/2026-11-25-handball-wettfinder-design.md)
 nutzt nur den jeweiligen Lauf, liefert bei passender Datenlage eine
 Modell-Auswahl je Spiel und liest sie ohne weiteren Anbieterzugriff.
+
+## Folgeaudit und Reparatur
+
+- Quotenzeit nach Empfang: Updates während des Abrufs sind gültig, sofern
+  Quelle nicht in der Zukunft, jünger als 36 Stunden und Empfang vor Anwurf.
+  Bei neuer Spielidentität bleibt die alte Prognose unverändert abgelegt;
+  ein passender neuer Termin wird neu modelliert. Bei unveränderter Anbieter-ID
+  wird eine Preisquelle vor der bestätigten Verlegung nicht übernommen.
+- Marktvergleich: keine Buchmacherquote im Modell. Pro Prognose derselbe
+  verifizierte Endstand und ein vollständiger 1X2-Markt, Anbieterstand und
+  Abruf jeweils höchstens eine Stunde von der Modellentscheidung entfernt.
+  Ältere oder nicht belegte Uhrzeiten werden getrennt gezählt. Brier und
+  Log Loss werden auf dem gepaarten Bestand ausgewiesen. Live-Stand nach
+  #173: null abgerechnete Marktpaare.
+- Produktionsbeispiel Nordsjælland–Kolding: 63,0 % Modellchance, Median
+  1,45, implizite Gewinnschwelle rund 69,0 %, modellseitiger Erwartungswert
+  an diesem Referenzpreis −8,6 %. Der 1,20-Filter ist kein Value-Nachweis.
+- Form mit festem 90-Tage-Zeitgewicht und separat erlernte Remis-Anpassung
+  sind reine Studienvarianten. Testfenster 01.02.–30.06.2027, Kalibrierung
+  endet am 31.01.2027. Ab ausreichendem Bestand zeigt der Bericht gepaarte
+  97,5-%-Intervalle über ISO-Wochen (5.000 feste Bootstrap-Ziehungen).
+  Ohne echten zeitlich getrennten Qualitätsnachweis
+  bleibt das bisherige 1X2-Modell maßgeblich. Die gezählte Quote entscheidet
+  nicht darüber, welche Partien in die Modellstudie eingehen.

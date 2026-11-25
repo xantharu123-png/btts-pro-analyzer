@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 import json
+from math import isclose, isfinite
 import os
 from pathlib import Path
 import subprocess
@@ -13,14 +14,14 @@ import sys
 from zoneinfo import ZoneInfo
 
 from config_loader import load_handball_api_key
+from handball_market_review import review_handball_market
 from handball_pilot_model import predict_1x2
 from handball_publication import build_handball_publication
 from runtime_paths import PROJECT_ROOT, RUNTIME_STATE_DIR, atomic_write_text, prepare_trusted_runtime_database_path
-from scanners.api_handball import APIHandballClient, HANDBALL_LEAGUES, HandballSourceError
+from scanners.api_handball import APIHandballClient, HANDBALL_LEAGUES, MAX_PRICE_AGE, HandballSourceError
 
 
 _ZONE = ZoneInfo('Europe/Zurich')
-_OUTCOMES = ('home', 'draw', 'away')
 _MAX_PRICE_CALLS = 4
 _PROVIDER_STOP = {'api_rate_limit', 'api_rate_limit_deferred', 'api_budget_unavailable', 'api_access_denied'}
 _HORIZON = timedelta(hours=36)
@@ -43,21 +44,69 @@ def _path(now, country='DE', directory=None):
     return directory / f'handball_pilot{suffix}_{_season(now)}.json'
 
 
+def _finite_float(raw):
+    value = float(raw)
+    if not isfinite(value):
+        raise ValueError('nonfinite_handball_state')
+    return value
+
+
+def _aware_clock(raw):
+    if not isinstance(raw, str):
+        raise ValueError('invalid_handball_clock')
+    value = datetime.fromisoformat(raw)
+    if value.utcoffset() is None:
+        raise ValueError('invalid_handball_clock')
+    return value
+
+
 def _load(path):
     if not path.exists():
         return {'version': 2, 'forecasts': {}, 'run': {}}
-    data = json.loads(path.read_text(encoding='utf-8'))
+    data = json.loads(path.read_text(encoding='utf-8'), parse_float=_finite_float, parse_constant=_finite_float)
     if (not isinstance(data, dict) or type(data.get('version')) is not int or data['version'] not in {1, 2, 3}
             or not isinstance(data.get('forecasts'), dict) or not isinstance(data.get('run'), dict)):
         raise ValueError('unknown_handball_pilot_state')
+    run = data['run']
+    if (('status' in run and not isinstance(run['status'], str))
+            or ('day' in run and (not isinstance(run['day'], str)
+                                 or date.fromisoformat(run['day']).isoformat() != run['day']))
+            or ('diagnostics' in run and not isinstance(run['diagnostics'], dict))):
+        raise ValueError('invalid_handball_run')
     for row in data['forecasts'].values():
         if not isinstance(row, dict):
             raise ValueError('invalid_handball_forecast')
+        fixture = row.get('fixture')
+        p = row.get('p')
+        if (not isinstance(fixture, list) or len(fixture) != 5
+                or any(type(value) is not int or not 0 < value < 2**63 for value in fixture[:4])
+                or fixture[2] == fixture[3] or not isinstance(p, dict) or p.keys() != {'home', 'draw', 'away'}
+                or any(type(v) not in (int, float) or not 0 <= v <= 1 for v in p.values())
+                or not isclose(sum(p.values()), 1., rel_tol=0., abs_tol=1e-6)):
+            raise ValueError('invalid_handball_forecast')
+        decided = _aware_clock(row.get('decided_at'))
+        if decided >= _aware_clock(fixture[4]):
+            raise ValueError('invalid_handball_decision_clock')
         if 'price_source_at' in row:
-            source = datetime.fromisoformat(row['price_source_at'])
-            observed = datetime.fromisoformat(row['price_observed_at'])
-            if source.utcoffset() is None or observed.utcoffset() is None or source > observed:
+            source = _aware_clock(row['price_source_at'])
+            observed = _aware_clock(row.get('price_observed_at'))
+            if source > observed:
                 raise ValueError('invalid_handball_price_clock')
+        if 'revision_confirmed_at' in row and _aware_clock(row['revision_confirmed_at']) > decided:
+            raise ValueError('invalid_handball_revision_clock')
+    if 'fixture_revisions' in data:
+        archive = data['fixture_revisions']
+        if (not isinstance(archive, dict) or type(archive.get('version')) is not int or archive['version'] != 1
+                or not isinstance(archive.get('history'), dict)
+                or not isinstance(archive.get('schedule', {}), dict)
+                or any(not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows)
+                       for rows in archive['history'].values())):
+            raise ValueError('invalid_handball_fixture_revisions')
+        for change in archive.get('schedule', {}).values():
+            if (not isinstance(change, dict) or not isinstance(change.get('fixture'), list)
+                    or len(change['fixture']) != 5):
+                raise ValueError('invalid_handball_revision_schedule')
+            _aware_clock(change.get('confirmed_at'))
     return data
 
 
@@ -70,35 +119,27 @@ def _identity(game):
     return [game.league_id, game.season, game.home_id, game.away_id, game.starts_at.isoformat()]
 
 
-def _market_probability(books):
-    shares = []
-    for odds in books.values():
-        inverse = [1 / price for price in odds]
-        total = sum(inverse)
-        shares.append([value / total for value in inverse])
-    return [sum(side) / len(shares) for side in zip(*shares)]
+def _note_revised_schedule(data, game, observed):
+    if game.status != 'NS':
+        return
+    archive = data.get('fixture_revisions', {})
+    key = str(game.game_id)
+    if key not in archive.get('history', {}):
+        return
+    schedule = archive.setdefault('schedule', {})
+    revised = _identity(game)
+    if schedule.get(key, {}).get('fixture') != revised:
+        schedule[key] = {'fixture': revised, 'confirmed_at': observed.isoformat()}
 
 
 def _report(data):
     forecasts = data['forecasts'].values()
-    settled = [row for row in forecasts if 'result' in row]
-    paired = [row for row in settled if row.get('odds')]
-    starts = sorted(row['fixture'][-1] for row in paired)
-    model_brier = market_brier = 0.
-    for row in paired:
-        outcome = row['result']
-        market = _market_probability(row['odds'])
-        model_brier += sum((row['p'][side] - (side == outcome)) ** 2 for side in _OUTCOMES)
-        market_brier += sum((probability - (side == outcome)) ** 2
-                            for side, probability in zip(_OUTCOMES, market))
     return {
         'status': 'not_run', **data['run'],
         'modelled': len(forecasts), 'priced': sum(bool(row.get('odds')) for row in forecasts),
-        'settled': len(settled), 'paired': len(paired),
-        'first_paired_kickoff': starts[0] if starts else None,
-        'last_paired_kickoff': starts[-1] if starts else None,
-        'model_brier': model_brier / len(paired) if paired else None,
-        'market_brier': market_brier / len(paired) if paired else None,
+        'superseded': sum(map(len, data.get('fixture_revisions', {}).get('history', {}).values())),
+        'settled': sum('result' in row for row in forecasts),
+        **review_handball_market(forecasts),
     }
 
 
@@ -107,7 +148,7 @@ def read_report(path=None):
     return _report(_load(Path(path) if path is not None else _path(_utcnow())))
 
 
-def _collect_league_prices(client, league, season, *, games, pending, run, clock):
+def _collect_league_prices(client, league, season, *, games, forecasts, pending, run, clock):
     requested = clock()
     run['unpriced_pending'] = len(pending)
     eligible = {game.game_id: game for game in games
@@ -123,7 +164,14 @@ def _collect_league_prices(client, league, season, *, games, pending, run, clock
     fetched = clock()
     matched = {game_id: offer for game_id, offer in offers.items()
                if game_id in eligible and requested <= fetched < eligible[game_id].starts_at
-               and offer.updated_at <= fetched and offer.bookmakers}
+               and fetched - MAX_PRICE_AGE < offer.updated_at <= fetched and offer.bookmakers}
+    before_revision = set()
+    for game_id, offer in matched.items():
+        confirmed = forecasts.get(str(game_id), {}).get('revision_confirmed_at')
+        if confirmed is not None and offer.updated_at < datetime.fromisoformat(confirmed):
+            before_revision.add(game_id)
+    for game_id in before_revision:
+        matched.pop(game_id)
     run['quote_fixtures'] = len(matched)
     for game, row in pending:
         offer = matched.get(game.game_id)
@@ -135,7 +183,11 @@ def _collect_league_prices(client, league, season, *, games, pending, run, clock
     if matched:
         diagnostics = ({'no_complete_1x2_for_pending': run['unpriced_pending']}
                        if run['unpriced_pending'] else {})
+        if before_revision:
+            diagnostics['price_predates_revision'] = len(before_revision)
         return diagnostics, matched, fetched
+    if before_revision:
+        return {'price_predates_revision': len(before_revision)}, {}, fetched
     if fetched < requested or any(game_id in eligible and fetched >= eligible[game_id].starts_at
                                     for game_id in offers):
         return {'outside_prematch_window': 1}, {}, fetched
@@ -176,16 +228,28 @@ def run_pilot(client, *, path=None, clock=_utcnow, league=None, started=None):
     final_ids = {game.game_id for game in completed}
     run['unconfirmed_finals'] = sum(game.status == 'FT' and game.game_id not in final_ids for game in games)
     history = [(game.home_id, game.away_id, game.home_score, game.away_score) for game in completed]
+    if league is not None:
+        # Store a compact, replaceable input from this existing request, not whole provider replies.
+        data['study_input'] = {'version': 1, 'observed_at': now.isoformat(), 'games': [
+            [game.game_id, game.starts_at.isoformat(), game.home_id, game.away_id, game.home_score, game.away_score]
+            for game in completed
+        ]}
     forecasts = data['forecasts']
     for game in games:
-        row = forecasts.get(str(game.game_id))
+        key = str(game.game_id)
+        row = forecasts.get(key)
         if row is None:
+            _note_revised_schedule(data, game, now)
             continue
         previous = row.get('result')
-        same_fixture = row['fixture'] == _identity(game)
-        if not same_fixture:
+        if row['fixture'] != _identity(game):
+            archive = data.setdefault('fixture_revisions', {'version': 1, 'history': {}})['history']
+            archive.setdefault(key, []).append(forecasts.pop(key))
+            _note_revised_schedule(data, game, now)
             run['changed_fixture'] += 1
-        if same_fixture and game.game_id in final_ids:
+            run['result_revisions'] += int(previous is not None)
+            continue
+        if game.game_id in final_ids:
             row['result'] = ('home' if game.home_score > game.away_score else
                              'away' if game.home_score < game.away_score else 'draw')
         else:
@@ -207,6 +271,9 @@ def run_pilot(client, *, path=None, clock=_utcnow, league=None, started=None):
             if not now <= decided < game.starts_at:
                 continue
             forecasts[key] = {'fixture': _identity(game), 'p': probability, 'decided_at': decided.isoformat()}
+            changed = data.get('fixture_revisions', {}).get('schedule', {}).get(key, {})
+            if changed.get('fixture') == _identity(game):
+                forecasts[key]['revision_confirmed_at'] = changed['confirmed_at']
         row = forecasts[key]
         if row['fixture'] == _identity(game) and 'result' not in row and not row.get('odds'):
             pending.append((game, row))
@@ -215,7 +282,7 @@ def run_pilot(client, *, path=None, clock=_utcnow, league=None, started=None):
 
     if league is not None:
         diagnostics, matches, fetched = _collect_league_prices(
-            client, league, season, games=games, pending=pending, run=run, clock=clock,
+            client, league, season, games=games, forecasts=forecasts, pending=pending, run=run, clock=clock,
         )
         data['publication'] = build_handball_publication(
             league, games=upcoming, forecasts=forecasts, markets=matches, observed_at=fetched,
@@ -231,6 +298,8 @@ def run_pilot(client, *, path=None, clock=_utcnow, league=None, started=None):
         requested = clock()
         if requested >= game.starts_at:
             continue
+        if 'revision_confirmed_at' in row:
+            continue  # Legacy offers have no provider clock to bind to the new schedule.
         row['last_price_attempt'] = requested.isoformat()
         run['price_checks'] += 1
         try:
@@ -255,9 +324,17 @@ def read_europe_report(*, directory=None, now=None):
     """Read independent league evidence without API requests or file writes."""
     now = _utcnow() if now is None else now
     day = now.astimezone(_ZONE).date().isoformat()
-    leagues = {league.code: read_report(_path(now, league.code, directory)) for league in HANDBALL_LEAGUES}
+    leagues = {}
+    for league in HANDBALL_LEAGUES:
+        try:
+            leagues[league.code] = read_report(_path(now, league.code, directory))
+        except (OSError, ValueError, TypeError, KeyError, RecursionError):
+            leagues[league.code] = {'status': 'local_state_invalid', 'diagnostics': {'local_state_invalid': 1}}
     today = [r['status'] for r in leagues.values() if r.get('day') == day]
-    if not today:
+    invalid = sum(r['status'] == 'local_state_invalid' for r in leagues.values())
+    if invalid:
+        status = 'unavailable' if invalid == len(leagues) else 'partial'
+    elif not today:
         status = 'stale' if any(r.get('day') for r in leagues.values()) else 'not_run'
     elif len(today) == len(leagues) and len(set(today)) == 1 and today[0] in {'completed', 'unavailable'}:
         status = today[0]
@@ -279,6 +356,8 @@ def run_europe(client, *, directory=None, clock=_utcnow, started=None):
     offset = started.astimezone(_ZONE).date().toordinal() % len(HANDBALL_LEAGUES)
     rotation = HANDBALL_LEAGUES[offset:] + HANDBALL_LEAGUES[:offset]
     for league in rotation:
+        if existing['leagues'][league.code]['status'] == 'local_state_invalid':
+            continue  # Never reconstruct or overwrite a damaged league ledger.
         report = run_pilot(client, league=league, path=_path(started, league.code, directory), clock=clock,
                            started=started)
         if _PROVIDER_STOP.intersection(report.get('diagnostics', {})):
@@ -311,7 +390,7 @@ def _scheduled_worker():
     now = _utcnow()
     path = prepare_trusted_runtime_database_path(_path(now))
     with _quote_publication_lock(path):
-        return run_europe(APIHandballClient(key), started=now)
+        return run_europe(APIHandballClient(key, clock=_utcnow), started=now)
 
 
 if __name__ == '__main__':

@@ -2,7 +2,7 @@
 
 from collections import Counter, defaultdict
 from collections.abc import Iterable
-from math import erfc, sqrt
+from math import erfc, isfinite, sqrt
 
 import numpy as np
 
@@ -14,11 +14,13 @@ _MIN_MARGIN_SD = 4.0
 
 def predict_1x2(
     history: Iterable[tuple[int, int, int, int]], *, home_id: int, away_id: int,
+    weights: Iterable[float] | None = None,
 ) -> dict[str, float] | None:
     """Use completed, earlier regulation-time scores in a single league.
 
     Rows are (home ID, away ID, home goals, away goals). The caller owns
     fixture uniqueness, timestamps and the season/league and result checks.
+    Optional, study-only weights align with the original input rows.
     These fixed pilot choices do not imply calibration or a betting edge.
     """
     if (type(home_id) is not int or type(away_id) is not int
@@ -47,7 +49,8 @@ def predict_1x2(
                 pending.append(opponent)
     if away_id not in component:
         return None
-    games = [row for row in scores if row[0] in component]
+    included = [idx for idx, row in enumerate(scores) if row[0] in component]
+    games = [scores[idx] for idx in included]
     appearances = Counter(team for row in games for team in row[:2])
     if len(games) < MIN_LEAGUE_GAMES or min(appearances[home_id], appearances[away_id]) < MIN_TEAM_GAMES:
         return None
@@ -64,9 +67,27 @@ def predict_1x2(
         margins[idx] = home_goals - away_goals
     penalty = _RIDGE * np.eye(design.shape[1])
     penalty[0, 0] = 0.0
-    coefficients = np.linalg.solve(design.T @ design + penalty, design.T @ margins)
-    residual = margins - design @ coefficients
-    scale = max(_MIN_MARGIN_SD, sqrt(float(residual @ residual) / max(1, len(games) - len(columns))))
+    if weights is None:
+        coefficients = np.linalg.solve(design.T @ design + penalty, design.T @ margins)
+        residual = margins - design @ coefficients
+        residual_sum = residual @ residual
+    else:
+        try:
+            supplied = tuple(weights)
+            if len(supplied) != len(scores) or any(
+                type(w) not in (int, float) or not 0 < w or not isfinite(w) for w in supplied
+            ):
+                return None
+        except (TypeError, OverflowError):
+            return None
+        weight = np.array([supplied[idx] for idx in included], dtype=float)
+        weight /= weight.max()
+        weight /= weight.mean()  # Keep the ridge penalty on the incumbent's scale.
+        weighted = design.T * weight
+        coefficients = np.linalg.solve(weighted @ design + penalty, weighted @ margins)
+        residual = margins - design @ coefficients
+        residual_sum = residual @ (weight * residual)
+    scale = max(_MIN_MARGIN_SD, sqrt(float(residual_sum) / max(1, len(games) - len(columns))))
     mean = float(coefficients[0] + coefficients[columns[home_id]] - coefficients[columns[away_id]])
 
     # Round a continuous margin to whole goals. The smaller tail is used

@@ -67,6 +67,13 @@ def _passes_floor(value):
         return False
 
 
+def _price_after_revision(forecast, source, decided):
+    if 'revision_confirmed_at' not in forecast:
+        return True
+    revision = _time(forecast['revision_confirmed_at'])
+    return revision is not None and revision <= decided and revision <= source
+
+
 def build_handball_publication(league, *, games, forecasts, markets, observed_at):
     """Build current receipts; neither update first odds nor choose a side by price."""
     rows = {}
@@ -87,7 +94,8 @@ def build_handball_publication(league, *, games, forecasts, markets, observed_at
             continue
         decided = _time(row.get('decided_at'))
         side = _modal_side(row.get('p'))
-        if side is None or decided is None or decided > observed_at or game.starts_at - decided > _HORIZON:
+        if (side is None or decided is None or decided > observed_at or game.starts_at - decided > _HORIZON
+                or not _price_after_revision(row, market.updated_at, decided)):
             continue
         quotes = []
         for triplet in market.bookmakers.values():
@@ -119,7 +127,8 @@ def _display_row(profile, league_id, season, game_id, forecast, receipt, now):
     decided = _time(forecast.get('decided_at'))
     start = _time(fixture[4])
     if (None in (source, observed, decided, start) or not decided <= observed <= now < start
-            or not now - MAX_PRICE_AGE < source <= observed or start - decided > _HORIZON):
+            or not now - MAX_PRICE_AGE < source <= observed or start - decided > _HORIZON
+            or not _price_after_revision(forecast, source, decided)):
         return None
     consensus = receipt.get('median')
     side = _modal_side(forecast.get('p'))

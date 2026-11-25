@@ -5,6 +5,7 @@ native game ID and update timestamp, bound to a previously verified schedule.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 import re
@@ -241,16 +242,17 @@ def _odds_game_details(row, game: HandballGame) -> bool:
     )
 
 
-def _market(row, game: HandballGame, now: datetime, league: _LeagueSeason) -> HandballMarket | None:
+def _market(row, game: HandballGame, observed: datetime, league: _LeagueSeason) -> HandballMarket | None:
     ids = _odds_game_ids(row)
-    if (not ids or any(not _positive_id(value) or value != game.game_id for value in ids)
+    if (observed >= game.starts_at or not ids or any(not _positive_id(value) or value != game.game_id for value in ids)
             or not league.matches(row.get('league'), row.get('country'))
             or not _odds_game_details(row, game) or not _odds_game_details(row.get('game', {}), game)):
         return None
     times = [_clock(row[key]) for key in ('update', 'updated') if key in row]
     updated = times[0] if times else None
     books = row.get('bookmakers')
-    if (updated is None or any(value != updated for value in times) or not now - MAX_PRICE_AGE <= updated <= now
+    if (updated is None or any(value != updated for value in times)
+            or not observed - MAX_PRICE_AGE <= updated <= observed
             or not isinstance(books, list)):
         return None
     known = [book for book in books if isinstance(book, dict)
@@ -272,10 +274,11 @@ def _paid_rate_confirmed(headers) -> bool:
 
 
 class APIHandballClient:
-    def __init__(self, key: str, *, governor=None, get=requests.get):
+    def __init__(self, key: str, *, governor=None, get=requests.get, clock: Callable[[], datetime] | None = None):
         self._key = key
         self._governor = governor
         self._get = get
+        self._clock = clock
         self._catalogue: list[dict] | None = None
         self._catalogue_error: str | None = None
         self._confirmed: dict[tuple[int, int], tuple[_LeagueSeason, dict[int, HandballGame]]] = {}
@@ -364,6 +367,14 @@ class APIHandballClient:
         self._confirmed[key] = (league, {row.game_id: row for row in games if row.status == 'NS'})
         return sorted(games, key=lambda row: (row.starts_at, row.game_id))
 
+    def _odds_observed_at(self, requested: datetime) -> datetime | None:
+        # Frozen-time callers can supply just `now`; collectors inject a live clock.
+        observed = self._clock() if self._clock is not None else requested
+        if not isinstance(observed, datetime) or observed.utcoffset() is None:
+            return None
+        observed = observed.astimezone(timezone.utc)
+        return observed if observed >= requested.astimezone(timezone.utc) else None
+
     def league_prices(self, league: HandballLeague, season: int, *, now: datetime) -> dict[int, HandballMarket]:
         """Read one league odds page and retain only exact upcoming game markets."""
         if now.utcoffset() is None or league not in HANDBALL_LEAGUES or type(season) is not int:
@@ -378,13 +389,16 @@ class APIHandballClient:
         if not upcoming:
             return {}
         rows = self._request('odds', {'league': confirmed.league_id, 'season': season, 'bet': REGULATION_1X2_ID})
+        observed = self._odds_observed_at(now)
+        if observed is None:
+            return {}
         candidates: dict[int, dict | None] = {}
         for row in rows:
             for game_id in {value for value in _odds_game_ids(row) if _positive_id(value)} & upcoming.keys():
                 # Only identical rows can repeat; compare before reducing payloads to bookmaker names.
                 candidates[game_id] = None if game_id in candidates and candidates[game_id] != row else row
         return {game_id: market for game_id, row in candidates.items() if row is not None
-                and (market := _market(row, upcoming[game_id], now, confirmed)) is not None}
+                and (market := _market(row, upcoming[game_id], observed, confirmed)) is not None}
 
     def prices(self, game: HandballGame, *, now: datetime) -> dict[str, tuple[float, float, float]]:
         """Return complete per-book regulation 1X2 observations, not offers."""
@@ -398,5 +412,6 @@ class APIHandballClient:
         if games.get(game.game_id) != game:
             return {}
         rows = self._request('odds', {'game': game.game_id, 'bet': REGULATION_1X2_ID})
-        market = _market(rows[0], game, now.astimezone(timezone.utc), league) if len(rows) == 1 else None
+        observed = self._odds_observed_at(now)
+        market = _market(rows[0], game, observed, league) if observed is not None and len(rows) == 1 else None
         return market.bookmakers if market is not None else {}
