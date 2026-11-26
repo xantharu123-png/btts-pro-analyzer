@@ -1,6 +1,7 @@
 """One governed native football request per call; live model work is entirely offline."""
 from collections import Counter
 from dataclasses import asdict
+from datetime import datetime, timedelta, timezone
 from math import isfinite
 
 import api_budget
@@ -394,7 +395,42 @@ def _red_result(match, event, card_clock, stats, priors):
             "prediction": asdict(prediction), "model_version": version}
 
 
-def analyze_detail(fixture, analyzer=None, *, prior_reader=None):
+def _ticker_analysis(match, stats, dismissal):
+    from live_market_comparison import LIVE_ONLY_MODEL_VERSION
+
+    native, teams = match["fixture"], match["teams"]
+    raw_start = native.get("date")
+    if not isinstance(raw_start, str):
+        return None
+    try:
+        kickoff = datetime.fromisoformat(raw_start)
+        now = datetime.now(timezone.utc)
+        if kickoff.utcoffset() is None or not now - timedelta(days=1) <= kickoff <= now:
+            return None
+        if "timestamp" in native and (type(native["timestamp"]) is not int
+                                      or native["timestamp"] != kickoff.timestamp()):
+            return None
+    except (ValueError, OverflowError, OSError):
+        return None
+    phase = UltraLiveScanner._regulation_clock(native["status"])
+    if phase is None:
+        return None
+    home, away = score_pair(match["goals"])
+    minute = native["status"]["elapsed"]
+    # The card clock binds to the same regulation period as the observed xG.
+    red_context_minute = min(minute, 45) if phase["status"] in {"1H", "HT"} else minute
+    red = UltraLiveScanner._red_card_state(stats, home, away, red_context_minute,
+                                          red_card_minute=dismissal[1][1] if dismissal else None)
+    return dict(fixture_id=native["id"], scheduled_start=kickoff.isoformat(),
+                model_version=LIVE_ONLY_MODEL_VERSION, live_data_quality="LOW",
+                home_team=teams["home"]["name"], away_team=teams["away"]["name"],
+                home_team_id=teams["home"]["id"], away_team_id=teams["away"]["id"],
+                minute=minute, score=f"{home}-{away}", home_score=home, away_score=away,
+                phase_data=phase, red_cards=red,
+                xg_data={"home_xg": stats["xg_home"], "away_xg": stats["xg_away"]})
+
+
+def analyze_detail(fixture, analyzer=None, *, prior_reader=None, live_only=False):
     """Return model rows only for an independently corroborated, supported grouping."""
     match = _mapping(fixture)
     native, league, teams = (_mapping(match.get(k)) for k in ("fixture", "league", "teams"))
@@ -416,6 +452,8 @@ def analyze_detail(fixture, analyzer=None, *, prior_reader=None):
     consistent, dismissal = _corroborate(match, names, clock, stats)
     if not consistent:
         return None, None
+    if live_only:
+        return _ticker_analysis(match, stats, dismissal), None
     priors = (None, None)
     stored = False
     if prior_reader is not None:

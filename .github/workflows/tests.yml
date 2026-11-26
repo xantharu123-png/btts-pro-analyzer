@@ -68,6 +68,10 @@ jobs:
           tests/test_live_tip_surface.py
           tests/test_live_market_comparison.py
           tests/test_live_market_choice.py
+          tests/test_live_only_market_comparison.py
+          tests/test_live_ticker_live_only.py
+          tests/test_live_only_ledger.py
+          tests/test_live_football_feed.py
           tests/test_live_comparison_ledger.py
           tests/test_live_display_contract.py
           tests/test_tip_display_order.py

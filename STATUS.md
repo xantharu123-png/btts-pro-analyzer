@@ -6,6 +6,13 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 
 ## Stand: 26.11.2026
 
+[Live ohne Vorabprognose](docs/superpowers/plans/2026-11-26-live-ohne-vorab.md):
+Der automatische Ticker wertet alle unterstützten offenen Fußballmärkte mit
+geprüften aktuellen Spieldaten aus, auch für UEFA-Spiele ohne Vorabzeile.
+Kein neuer Abruf, Timer oder Backup. Die öffentliche Ausgabe bleibt eine
+unkalibrierte Modellschätzung; ältere Live-Belege behalten ihre Version.
+Lokal 733 Tests je Preisregel bestanden (je ein Skip); unabhängiger Gegencheck grün.
+
 [Doppelchance-Formvergleich](docs/audits/2026-11-26-doppelchance-ligen.md):
 Der reguläre Fußballlauf hält die bereits berechneten 1X2-Chancen mit und ohne
 die 25-%-Formmischung kompakt nebeneinander fest. Die Ergebnisabfrage bleibt

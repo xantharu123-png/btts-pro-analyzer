@@ -1,4 +1,4 @@
-"""Cold live session: use only the fixture's proved production pre-kickoff goal pair."""
+"""Compatibility of explicitly prior-backed analysis. The ticker no longer uses it."""
 from copy import deepcopy
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
@@ -12,6 +12,13 @@ from test_wettfinder_automation import _challenge_candidate
 from wettfinder_automation import _football_candidate_record
 from challenge_engine import CHALLENGE_PREDICTION_VERSION
 from ev_signal_sources import AUTOMATED_WETTFINDER_VERSION
+
+
+def analyze_with_published_prior(fixture, analyzer=None):
+    from live_football_priors import stored_goal_priors
+    from live_football_source import analyze_detail
+
+    return analyze_detail(fixture, analyzer, prior_reader=stored_goal_priors)
 
 
 def case(kickoff=None):
@@ -38,7 +45,6 @@ def case(kickoff=None):
 
 
 def test_cold_session_uses_the_fixture_goal_pair_for_both_models(tmp_path, monkeypatch):
-    import app
     import ev_signal_sources
     from red_card_impact_predictor import RED_CARD_MODEL_VERSION
     from scanners.ultra_live_scanner_v3 import UltraLiveScanner
@@ -47,7 +53,7 @@ def test_cold_session_uses_the_fixture_goal_pair_for_both_models(tmp_path, monke
     path = tmp_path / "state.json"
     path.write_text(json.dumps(document), encoding="utf-8")
     monkeypatch.setattr(ev_signal_sources, "AUTOMATED_WETTFINDER_PATH", path)
-    ordinary, red = app._analyze_ticker_fixture(fixture, None)
+    ordinary, red = analyze_with_published_prior(fixture)
     assert ordinary["live_data_quality"] == "MEDIUM"
     assert (ordinary["xg_data"]["home_prior"], ordinary["xg_data"]["away_prior"]) == (1.812, .942)
     assert ordinary["model_version"] != UltraLiveScanner.MODEL_VERSION
@@ -56,7 +62,6 @@ def test_cold_session_uses_the_fixture_goal_pair_for_both_models(tmp_path, monke
 
 
 def test_ordinary_no_card_game_with_and_without_bilateral_live_xg(tmp_path, monkeypatch):
-    import app
     import ev_signal_sources
     fixture, document, _ = case()
     fixture["events"].pop()  # only the confirmed goal remains
@@ -64,11 +69,11 @@ def test_ordinary_no_card_game_with_and_without_bilateral_live_xg(tmp_path, monk
     path = tmp_path / "state.json"
     path.write_text(json.dumps(document), encoding="utf-8")
     monkeypatch.setattr(ev_signal_sources, "AUTOMATED_WETTFINDER_PATH", path)
-    ordinary, specialist = app._analyze_ticker_fixture(fixture, None)
+    ordinary, specialist = analyze_with_published_prior(fixture)
     assert specialist is None and ordinary["live_data_quality"] == "MEDIUM"
     assert ordinary["remaining_goals"]["over_0_5_probability"] > 55
     fixture["statistics"][0]["statistics"].pop(0)  # a prior cannot replace missing live xG
-    assert app._analyze_ticker_fixture(fixture, None) == (None, None)
+    assert analyze_with_published_prior(fixture) == (None, None)
 
 
 @pytest.mark.parametrize("damage", [
@@ -80,7 +85,6 @@ def test_ordinary_no_card_game_with_and_without_bilateral_live_xg(tmp_path, monk
     "wrong_native_season",
 ])
 def test_no_guess_or_ram_substitution_for_bad_issued_basis(tmp_path, monkeypatch, damage):
-    import app
     import ev_signal_sources
     fixture, doc, row = case()
     analysis = row["analysis_evidence"]
@@ -149,31 +153,29 @@ def test_no_guess_or_ram_substitution_for_bad_issued_basis(tmp_path, monkeypatch
     path.write_text("not json" if damage == "corrupt_file" else json.dumps(doc), encoding="utf-8")
     monkeypatch.setattr(ev_signal_sources, "AUTOMATED_WETTFINDER_PATH", path)
     analyzer = warm(fixture, monkeypatch)
-    ordinary, _ = app._analyze_ticker_fixture(fixture, analyzer)
+    ordinary, _ = analyze_with_published_prior(fixture, analyzer)
     assert ordinary["live_data_quality"] == "LOW"
     assert ordinary["xg_data"]["home_prior"] is ordinary["xg_data"]["away_prior"] is None
 
 
 def test_an_atomic_replacement_expires_the_index_even_at_same_size_and_mtime(tmp_path, monkeypatch):
     import os
-    import app
     import ev_signal_sources
     fixture, doc, row = case()
     path = tmp_path / "state.json"
     path.write_text(json.dumps(doc), encoding="utf-8")
     monkeypatch.setattr(ev_signal_sources, "AUTOMATED_WETTFINDER_PATH", path)
-    assert app._analyze_ticker_fixture(fixture, None)[0]["xg_data"]["home_prior"] == 1.812
+    assert analyze_with_published_prior(fixture)[0]["xg_data"]["home_prior"] == 1.812
     row["analysis_evidence"]["basis"]["expected_home_goals"] = 1.532
     new = tmp_path / "new.json"
     new.write_text(json.dumps(doc), encoding="utf-8")
     stat = path.stat()
     os.utime(new, ns=(stat.st_atime_ns, stat.st_mtime_ns))
     new.replace(path)
-    assert app._analyze_ticker_fixture(fixture, None)[0]["xg_data"]["home_prior"] == 1.532
+    assert analyze_with_published_prior(fixture)[0]["xg_data"]["home_prior"] == 1.532
 
 
 def test_next_day_uses_its_own_publication_clock_and_not_current_prices(tmp_path, monkeypatch):
-    import app
     import ev_signal_sources
     fixture, doc, row = case()
     state = doc.pop("football")
@@ -187,7 +189,7 @@ def test_next_day_uses_its_own_publication_clock_and_not_current_prices(tmp_path
     path = tmp_path / "state.json"
     path.write_text(json.dumps(doc), encoding="utf-8")
     monkeypatch.setattr(ev_signal_sources, "AUTOMATED_WETTFINDER_PATH", path)
-    assert app._analyze_ticker_fixture(fixture, None)[0]["xg_data"]["home_prior"] == 1.812
+    assert analyze_with_published_prior(fixture)[0]["xg_data"]["home_prior"] == 1.812
 
 
 @pytest.mark.parametrize("start,admitted", [

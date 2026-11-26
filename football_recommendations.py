@@ -157,6 +157,9 @@ def live_football_candidate(
     snapshot_age_seconds: Optional[float],
     freemode: bool = False,
 ) -> RecommendationCandidate:
+    from live_market_comparison import LIVE_ONLY_MODEL_VERSION
+
+    live_only = analysis.get("model_version") == LIVE_ONLY_MODEL_VERSION
     home = str(analysis.get("home_team") or "Heimteam")
     away = str(analysis.get("away_team") or "Auswärtsteam")
     minute = _finite(analysis.get("minute"))
@@ -176,7 +179,7 @@ def live_football_candidate(
         model_vetoes.append("Die Live-Daten reichen für diesen Markt nicht aus.")
     if analysis.get("model_calibrated") is not True:
         model_vetoes.append(
-            "Das kombinierte Live-Modell besitzt noch keinen unabhängigen "
+            "Dieses Live-Modell besitzt noch keinen unabhängigen "
             "chronologischen Kalibrierungsnachweis."
         )
     if probability_number is None or probability_number < 55.0:
@@ -206,7 +209,7 @@ def live_football_candidate(
         selection=selection,
         model_probability=probability_number,
         probability_haircut=haircut,
-        model_name="Restspiel-Poisson mit Live-xG/Prematch-Prior",
+        model_name="Restspiel-Modell aus Live-Torchancen" if live_only else "Restspiel-Poisson mit Live-xG/Prematch-Prior",
         evidence=evidence,
         blockers=blockers,
         evidence_stage=EVIDENCE_RESEARCH,
