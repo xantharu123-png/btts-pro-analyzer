@@ -51,6 +51,9 @@ jobs:
           tests/test_market_benchmark.py
           tests/test_football_dixon_coles.py
           tests/test_football_joint_calibration.py
+          tests/test_football_form_comparison.py
+          tests/test_football_form_comparison_capture.py
+          tests/test_wettfinder_form_comparison.py
           tests/test_forecast_evidence.py
           tests/test_nhl_top_review.py
           tests/test_nhl_top_statistics.py

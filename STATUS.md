@@ -4,7 +4,17 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 „Stand“ ersetzen, nicht anhängen; Historie steht in `TODO_AKTUELL.md` und
 `PC_WECHSEL_UEBERGABE.md`. Regeln und Einstieg: `AGENTS.md`.
 
-## Stand: 25.11.2026
+## Stand: 26.11.2026
+
+[Doppelchance-Formvergleich](docs/audits/2026-11-26-doppelchance-ligen.md):
+Der reguläre Fußballlauf hält die bereits berechneten 1X2-Chancen mit und ohne
+die 25-%-Formmischung kompakt nebeneinander fest. Die Ergebnisabfrage bleibt
+unverändert; nur ohnehin belegte 90-Minuten-Endstände fließen in den internen
+Ligabericht ein. Produktionsmodell, Anzeige und Quotenregeln sind unverändert.
+Erste echte Paare und Endstände beim nächsten fälligen regulären Lauf prüfen;
+keine Modellumstellung allein aufgrund der Diagnose.
+
+### Voriger Stand: 25.11.2026
 
 Produktion nach letzter Release-Prüfung: `37711a9` (#173), ohne Änderung der
 Top-Tipp-Regel. [NHL-Prüfung](docs/audits/2026-11-25-nhl-top-messung.md):

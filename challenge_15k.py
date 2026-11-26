@@ -2580,6 +2580,7 @@ def scan_daily_challenge(
     progress_cb=None,
     original_publication=None,
     capture_live_goal_priors: bool = True,
+    form_comparison_capture=None,
 ) -> dict[str, Any]:
     """Run one explicit, quota-aware scan over at most fourteen days."""
     if not isinstance(allow_above_challenge_probability, bool):
@@ -2972,6 +2973,14 @@ def scan_daily_challenge(
             if fixture_id in fixture_team_histories
             else calibrations.get(competition, {})
         )
+        comparison_options = {}
+        if form_comparison_capture is not None and fixture_id not in ambiguous_prior_ids and competition is not None:
+            league = fixture.get("league")
+            kickoff = _fixture_kickoff(fixture)
+            if (kickoff is not None and isinstance(league, dict) and league.get("id") == competition[0]
+                    and ("season" not in league or _positive_integer(league["season"]) == competition[1])
+                    and search_date <= kickoff.astimezone(CHALLENGE_TIMEZONE).date() <= end_date):
+                comparison_options["form_comparison_capture"] = form_comparison_capture
         fixture_candidates = build_fixture_candidates(
             fixture,
             histories.get(competition, []),
@@ -3009,6 +3018,7 @@ def scan_daily_challenge(
             **({"live_goal_prior_capture": live_goal_priors.append}
                if (capture_priors and fixture_id not in ambiguous_prior_ids
                    and _live_goal_prior_target(fixture, competition, search_date, end_date)) else {}),
+            **comparison_options,
         )
         if fixture_candidates:
             from football_customer_facts import build_football_recent_results

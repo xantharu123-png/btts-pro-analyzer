@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_FLOOR
 from functools import lru_cache
 from itertools import combinations
+import logging
 import math
 import re
 import unicodedata
@@ -2886,6 +2887,52 @@ def _fixture_identity(fixture: dict[str, Any]) -> Optional[dict[str, Any]]:
     }
 
 
+def _capture_form_comparison(callback, fixture, identity, model, *, model_scope, basis_version):
+    """Observe active/season 1X2 from this calculation, not a second model pass."""
+    if (basis_version != CHALLENGE_PREDICTION_VERSION or model.get("goal_model") != PRODUCTION_GOAL_MODEL
+            or model_scope == MODEL_SCOPE_SENIOR_NATIONAL or "national_samples" in model
+            or identity["league_id"] == 5 or fixture.get("challenge_senior_national_team") is True):
+        return
+    native = fixture["fixture"]
+    status, goals = native.get("status"), fixture.get("goals", {})
+    if (not isinstance(status, dict) or status.get("short") != "NS" or status.get("elapsed") is not None
+            or not isinstance(goals, dict) or any(goals.get(side) is not None for side in ("home", "away"))):
+        return
+    raw_start = native.get("date")
+    if not isinstance(raw_start, str):
+        return
+    # The general model accepts legacy naïve times; the prospective ledger cannot.
+    try:
+        kickoff = datetime.fromisoformat(raw_start.replace("Z", "+00:00"))
+        if kickoff.utcoffset() is None:
+            return
+        if "timestamp" in native and (type(native["timestamp"]) is not int or native["timestamp"] != kickoff.timestamp()):
+            return
+    except (ValueError, OverflowError, OSError):
+        return
+    goals_capture = model["distribution_capture"]["families"]["goals"]
+    variants = ("active", "season")
+    if any(goals_capture[variant]["diagnostics"]["success"] is not True for variant in variants):
+        return
+    markets = model["probabilities"]
+    keys = ("RESULT_HOME", "RESULT_DRAW", "RESULT_AWAY")
+    if any(len(markets.get(key, ())) < len(variants) for key in keys):
+        return
+    with_form, without_form = (tuple(markets[key][index] for key in keys) for index in range(len(variants)))
+    for arm in (with_form, without_form):
+        if (not all(type(p) in (float, int) and 0 <= p <= 1 for p in arm)
+                or not math.isclose(math.fsum(arm), 1., rel_tol=0., abs_tol=1e-10)):
+            return
+    captured_at = datetime.now(timezone.utc)
+    if captured_at >= kickoff:
+        return
+    callback({"fixture_id": identity["fixture_id"], "league_id": identity["league_id"],
+              "home_id": identity["home_team_id"], "away_id": identity["away_team_id"],
+              "kickoff": identity["kickoff"], "captured_at": captured_at.isoformat(),
+              "model_version": basis_version, "model_scope": model_scope,
+              "with_form": with_form, "without_form": without_form})
+
+
 def build_fixture_candidates(
     fixture: dict[str, Any],
     league_history: Iterable[dict[str, Any]],
@@ -2901,6 +2948,7 @@ def build_fixture_candidates(
     native_resolver=None,
     goal_model: str = GOAL_MODEL_LEGACY,
     live_goal_prior_capture=None,
+    form_comparison_capture=None,
 ) -> list[ChallengeCandidate]:
     """Build price-independent candidates for one fixture.
 
@@ -2945,6 +2993,13 @@ def build_fixture_candidates(
         )
     if identity is None or model is None:
         return []
+
+    if form_comparison_capture is not None and goal_model == PRODUCTION_GOAL_MODEL:
+        try:
+            _capture_form_comparison(form_comparison_capture, fixture, identity, model,
+                                     model_scope=model_scope, basis_version=basis_version)
+        except Exception as exc:
+            logging.getLogger(__name__).warning("Football form comparison capture failed (%s)", type(exc).__name__)
 
     active_home, active_away = model["active_lambdas"]
     expected_home_goals, expected_away_goals = round(active_home, 3), round(active_away, 3)
