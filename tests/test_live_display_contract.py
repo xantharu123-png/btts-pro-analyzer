@@ -71,13 +71,12 @@ def test_each_visible_pick_rechecks_snapshot_and_owner_but_row_and_inspector_sha
 
 
 @pytest.mark.parametrize("coverage,reason", [
-    ("prematch", "Keine Vorabprognose"),
+    ("even-live", "Geprüft – kein Tipp"),
     ("no-xg", "Live-Torchancen (xG) fehlen"),
     ("waiting", "Nur Spielstand verfügbar"),
 ])
 def test_real_coverage_names_what_is_missing_without_hiding_the_score(monkeypatch, coverage, reason):
     from test_live_football_source import native
-    from live_football_source import analyze_detail
     from datetime import timedelta
     now = datetime.now(timezone.utc)
     fixture = native()
@@ -87,13 +86,16 @@ def test_real_coverage_names_what_is_missing_without_hiding_the_score(monkeypatc
         for stat in group["statistics"]:
             if stat["type"] == "Red Cards":
                 stat["value"] = 0
+            if coverage == "even-live" and stat["type"] == "expected_goals":
+                stat["value"] = 1.00
         if coverage == "no-xg":
             group["statistics"] = [s for s in group["statistics"] if s["type"] != "expected_goals"]
     fid = fixture["fixture"]["id"]
     ui = Screen({"workspace": "Live"})
+    analyze = app._analyze_ticker_fixture
     mount(monkeypatch, ui, {fid: {"fixture": fixture, "observed_at": now,
                                   "detailed_at": None if coverage == "waiting" else now}})
-    monkeypatch.setattr(app, "_analyze_ticker_fixture", lambda row, _: analyze_detail(row))
+    monkeypatch.setattr(app, "_analyze_ticker_fixture", analyze)
     monkeypatch.setattr(app, "record_visible_analysis", lambda *a, **k: pytest.fail("No pick was calculated"))
     app._render_live_football(object(), viewer_active=lambda: True)
     assert any(kind == "button" and live_football_board.plain_markdown(reason) in value[0]

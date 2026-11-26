@@ -1,5 +1,15 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 26.11.2026 – Live ohne Vorabprognose
+
+- Automatischer Live-Ticker vergleicht die vorhandenen offenen Tormärkte aus
+  Live-xG, Spielstand, Zeit und bestätigtem Platzverweis. Keine Vorabdatei,
+  zusätzliche API-Abfrage oder Änderung am manuellen Rotkartenscan.
+- [Messvertrag](docs/superpowers/plans/2026-11-26-live-ohne-vorab.md): eigener
+  Modell- und Belegstand für die neue Methode. Erst nach gewöhnlichen Live-
+  Anzeigen und deren regulärer Abrechnung getrennt auswerten; bis dahin keine
+  belegte Verbesserung der Prognosequalität behaupten.
+
 ## 26.11.2026 – Doppelchance-Formvergleich
 
 - [Liga-Audit](docs/audits/2026-11-26-doppelchance-ligen.md): X2 lag unter

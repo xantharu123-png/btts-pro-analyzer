@@ -15,6 +15,8 @@ from runtime_paths import RUNTIME_STATE_DIR
 DB_PATH = RUNTIME_STATE_DIR / "live_displayed_tips.db"
 POLICY_VERSION = "first-displayed-fixture-market-side-regulation-v1"
 COMPARISON_POLICY_VERSION = "first-displayed-live-market-uplift-regulation-v1"
+LIVE_ONLY_COMPARISON_POLICY_VERSION = "first-displayed-live-market-xg-neutral-split-regulation-v1"
+COMPARISON_POLICIES = frozenset({COMPARISON_POLICY_VERSION, LIVE_ONLY_COMPARISON_POLICY_VERSION})
 MAX_SNAPSHOT_AGE_SECONDS = 120
 SIDES = {"next_goal": ("any",), "team_scores": ("home", "away"), "btts": ("yes",),
          "red_next": ("home", "away", "none")}
@@ -75,8 +77,14 @@ def record_displayed_live_tip(*, fixture_id, market, side, minute, phase, extra,
     legacy = side in SIDES.get(market, ())
     if policy_version is None:
         policy_version = POLICY_VERSION if legacy else COMPARISON_POLICY_VERSION
-    if policy_version == COMPARISON_POLICY_VERSION:
-        from live_market_comparison import catalog_sides, market_open
+    from live_market_comparison import LIVE_ONLY_MODEL_VERSION, catalog_sides, market_open
+    # A live-only forecast may never gain a historical policy via the default
+    # path, nor acquire the new policy through an approximate version match.
+    if (not isinstance(policy_version, str)
+            or (policy_version == LIVE_ONLY_COMPARISON_POLICY_VERSION) != (model_version == LIVE_ONLY_MODEL_VERSION)
+            or (model_version.strip() == LIVE_ONLY_MODEL_VERSION and model_version != LIVE_ONLY_MODEL_VERSION)):
+        raise ValueError("Live-only model and policy must match exactly")
+    if policy_version in COMPARISON_POLICIES:
         if (side not in catalog_sides().get(market, ())
                 or not market_open(market, side, home_goals, away_goals)):
             raise ValueError("Unknown or closed live comparison outcome")
@@ -155,7 +163,7 @@ def _resolve(row, status, final, timeline):
     # absolute outcomes the independently verified regulation result decides;
     # relative outcomes and historical receipts still require their baseline.
     if (any(f < b for f, b in zip(final, baseline))
-            and (market in TIMELINE_MARKETS or row["policy_version"] != COMPARISON_POLICY_VERSION)):
+            and (market in TIMELINE_MARKETS or row["policy_version"] not in COMPARISON_POLICIES)):
         return None
     scorer, goal_minute = None, None
     if market not in TIMELINE_MARKETS:

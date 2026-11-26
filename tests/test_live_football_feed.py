@@ -133,6 +133,86 @@ def test_partial_batch_removes_stale_evidence_without_refreshing_absent_or_wrong
     assert result[6]["observed_at"] == at(60) and result[6]["detailed_at"] is None
 
 
+def scheduled_match(number=1, *, date="2026-11-22T13:00:00Z", home=0, phase="2H", league=39, season=2026):
+    row = match(number, home=home, phase=phase)
+    row["fixture"]["date"] = date
+    row["league"] = {"id": league, "season": season}
+    return row
+
+
+@pytest.mark.parametrize("difference", ["league", "missing_league", "season", "kickoff", "missing_kickoff",
+                                        "naive_kickoff", "epoch"])
+def test_conflicting_native_detail_preserves_scoreboard_but_withholds_publication(difference):
+    from live_football_feed import LiveRefreshIssue
+
+    ticker, source = feed(), Source(2)
+    first = scheduled_match()
+    source.discover = lambda: [first, scheduled_match(2)]
+    source.details = lambda ids: [scheduled_match(i) for i in ids]
+    old = ticker.tick(source, now=at(0))[1]
+    assert old["detailed_at"] == at(0)
+    disputed = scheduled_match(home=2)
+    if difference == "league":
+        disputed["league"]["id"] = 2  # also a supported competition
+    elif difference == "missing_league":
+        disputed.pop("league")
+    elif difference == "season":
+        disputed["league"]["season"] = 2027
+    elif difference == "kickoff":
+        disputed["fixture"]["date"] = "2026-11-22T13:03:00Z"
+    elif difference == "missing_kickoff":
+        disputed["fixture"].pop("date")
+    elif difference == "naive_kickoff":
+        disputed["fixture"]["date"] = "2026-11-22T13:00:00"
+    else:
+        disputed["fixture"]["timestamp"] = int(at(-3600).timestamp()) + 60
+    source.details = lambda ids: [disputed, scheduled_match(2, home=3)]
+    view = ticker.tick_view(source, now=at(60))
+    assert view.rows[1] == {**old, "detailed_at": None}
+    assert view.rows[2]["detailed_at"] == at(60) and view.rows[2]["fixture"]["goals"]["home"] == 3
+    assert view.issue == LiveRefreshIssue.PARTIAL_DATA
+    with ticker.current_detail(1, old["detailed_at"], old["fixture"]) as current:
+        assert not current
+
+
+def test_same_kickoff_in_different_offsets_accepts_detail_but_missing_season_cannot_erase_discovery_fact():
+    ticker, source = feed(), Source(1)
+    source.discover = lambda: [scheduled_match()]
+    alternate = scheduled_match(date="2026-11-22T14:00:00+01:00", home=1)
+    alternate["fixture"]["timestamp"] = int(at(-3600).timestamp())
+    alternate["league"].pop("season")
+    source.details = lambda ids: [alternate]
+    first = ticker.tick(source, now=at(0))[1]
+    assert first["detailed_at"] == at(0) and first["fixture"]["goals"]["home"] == 1
+    source.details = lambda ids: [scheduled_match(season=2027)]
+    second = ticker.tick(source, now=at(60))[1]
+    assert second == {**first, "detailed_at": None}
+
+
+def test_disputed_finishing_detail_cannot_remove_scoreboard_and_normal_discovery_recovers():
+    ticker, source = feed(), Source(1)
+    current = scheduled_match()
+    shifted = scheduled_match(date="2026-11-22T13:03:00Z", league=2, season=2027)
+    source.discover = lambda: source.calls.append("discovery") or [current]
+
+    def details(ids):
+        source.calls.append(tuple(ids))
+        return rows
+
+    source.details = details
+    rows = [current]
+    assert ticker.tick(source, now=at(0))[1]["detailed_at"] == at(0)
+    rows = [scheduled_match(date="2026-11-22T13:03:00Z", league=2, season=2027, phase="FT")]
+    first = ticker.tick(source, now=at(60))
+    assert first[1]["fixture"] == current and first[1]["detailed_at"] is None
+    rows = [shifted]
+    assert ticker.tick(source, now=at(120))[1]["detailed_at"] is None
+    current = shifted
+    result = ticker.tick(source, now=at(300))[1]
+    assert result["fixture"] == shifted and result["detailed_at"] == at(300)
+    assert source.calls == ["discovery", (1,), (1,), (1,), "discovery", (1,)]
+
+
 @pytest.mark.parametrize("newer,older", [
     (("2H", 60, None), ("2H", 59, None)),
     (("2H", 46, None), ("1H", 45, 8)),

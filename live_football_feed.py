@@ -82,6 +82,40 @@ def _sides(row):
     return None
 
 
+def _schedule_identity(row):
+    league, native = row.get("league", {}), row["fixture"]
+    if not isinstance(league, dict) or ("league" in row and not _positive(league.get("id"))):
+        return None
+    season = league.get("season")
+    if season is not None and not _positive(season):
+        return None
+    kickoff = None
+    if "date" in native:
+        raw = native["date"]
+        if not isinstance(raw, str):
+            return None
+        try:
+            parsed = datetime.fromisoformat(raw)
+            if parsed.utcoffset() is None:
+                return None
+            kickoff = parsed.astimezone(timezone.utc)
+        except (ValueError, OverflowError):
+            return None
+    if "timestamp" in native and (kickoff is None or type(native["timestamp"]) is not int
+                                  or native["timestamp"] != kickoff.timestamp()):
+        return None
+    return league.get("id"), kickoff, season
+
+
+def _matches_discovery(row, identity):
+    detail = _schedule_identity(row)
+    # Native turns may omit the season, but an explicit contradiction is not
+    # evidence. Kickoff and league must agree whenever either turn supplies
+    # them. The model's native adapter independently requires both to tip.
+    return (identity is not None and detail is not None and identity[:2] == detail[:2]
+            and (identity[2] is None or detail[2] is None or identity[2] == detail[2]))
+
+
 def _phase(row):
     status = row["fixture"].get("status")
     return status.get("short") if isinstance(status, dict) and isinstance(status.get("short"), str) else None
@@ -127,6 +161,7 @@ class LiveFootballFeed:
         self._writer = Lock()
         self._publication = Lock()
         self._rows = {}
+        self._discovered_identities = {}
         self._details_due = {}
         self._discover_due = self._retry_after = None
         self._discovery_valid_until = None  # None until this attempt publishes a result or an error.
@@ -194,18 +229,23 @@ class LiveFootballFeed:
 
     def _discover(self, source, now):
         indexed = _indexed(source.discover())
-        rows = {}
+        rows, identities = {}, {}
         incomplete = False
         for number, row in indexed.items():
             if (row and _phase(row) in LIVE and _sides(row) and _scored(row)
                     and (number not in self._rows or _not_older(row, self._rows[number]["fixture"]))):
                 rows[number] = {"fixture": row, "observed_at": now, "detailed_at": None}
+                identities[number] = _schedule_identity(row)
             elif not row or _phase(row) not in FINISHED:
                 incomplete = True
                 if number in self._rows:
                     rows[number] = _without_detail(self._rows[number])
+                    identities[number] = self._discovered_identities.get(number)
         with self._publication:
             self._rows = rows
+            # Detail rows may replace scoreboard data, never this discovery
+            # identity. Even after a field temporarily disappears, retain it.
+            self._discovered_identities = identities
             self._discovery_valid_until = now + DISCOVERY_INTERVAL
             self._discovery_issue = LiveRefreshIssue.PARTIAL_DATA if incomplete else None
             self._detail_issues = {i: issue for i, issue in self._detail_issues.items() if i in rows}
@@ -216,7 +256,8 @@ class LiveFootballFeed:
         incomplete = set()
         for number in ids:
             old, row = rows[number], indexed.get(number)
-            if row and _sides(row) == _sides(old["fixture"]):
+            if (row and _sides(row) == _sides(old["fixture"])
+                    and _matches_discovery(row, self._discovered_identities.get(number))):
                 phase = _phase(row)
                 if phase in FINISHED:
                     del rows[number]

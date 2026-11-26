@@ -90,8 +90,14 @@ def record_visible_analysis(candidate, row, *, snapshot_at, age_seconds, red=Fal
     fields = live_snapshot_fields(candidate, row, red=red)
     if fields is None or not row.get("model_version"):
         return
+    from live_market_comparison import LIVE_ONLY_MODEL_VERSION
     from live_tip_ledger import record_displayed_live_tip
-    if "live_comparison" in row:
+    if row["model_version"] == LIVE_ONLY_MODEL_VERSION:
+        if red or "live_comparison" not in row:
+            return
+        from live_tip_ledger import LIVE_ONLY_COMPARISON_POLICY_VERSION
+        fields["policy_version"] = LIVE_ONLY_COMPARISON_POLICY_VERSION
+    elif "live_comparison" in row:
         from live_tip_ledger import COMPARISON_POLICY_VERSION
         fields["policy_version"] = COMPARISON_POLICY_VERSION
     try:

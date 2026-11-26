@@ -281,9 +281,9 @@ def test_even_the_only_dismissal_cannot_bypass_eligibility(monkeypatch, bad):
 
 
 @pytest.mark.parametrize("case,expected", [
-    ("warm", None),  # Viewer-only rates do not prove a model-pinned pregame reference.
-    ("stored-cold", ("ft_handicap", "home_minus_1_5", "1 Handicap −1,5", .622608603106)),
-    ("dismissal", None),  # The specialist alone cannot stand in for a missing pregame reference.
+    ("warm", True),
+    ("stored-cold", True),
+    ("dismissal", True),
     ("late-no-card", None),
 ])
 def test_grouped_native_model_to_visible_market_and_frozen_receipt(monkeypatch, tmp_path, case, expected):
@@ -291,7 +291,7 @@ def test_grouped_native_model_to_visible_market_and_frozen_receipt(monkeypatch, 
     import requests
     import live_tip_ledger
     from live_football_feed import LiveFootballFeed
-    from test_live_football_source import native, warm
+    from test_live_football_source import native
     fixture = native()
     if case == "late-no-card":
         fixture["fixture"]["status"]["elapsed"] = 86
@@ -306,10 +306,11 @@ def test_grouped_native_model_to_visible_market_and_frozen_receipt(monkeypatch, 
     analyzer = None
     analyze = app._analyze_ticker_fixture
     if case == "warm":
-        # A genuine warm analyzer is not the published, model-pinned prior.
-        from live_football_source import analyze_detail
-        analyzer = warm(fixture, monkeypatch)
-        analyze = analyze_detail
+        from advanced_analyzer import AdvancedBTTSAnalyzer
+        from types import SimpleNamespace
+        analyzer = SimpleNamespace()
+        monkeypatch.setattr(AdvancedBTTSAnalyzer, "cached_live_goal_priors",
+                            lambda *_a: pytest.fail("ticker must not read viewer cache"))
     elif case == "stored-cold":
         # Same rates, but published before kickoff and no viewer cache.
         import json
@@ -336,19 +337,19 @@ def test_grouped_native_model_to_visible_market_and_frozen_receipt(monkeypatch, 
     monkeypatch.setattr(live_tip_ledger, "record_displayed_live_tip", lambda **kw: write(**kw, db_path=db))
     app.render_live(None if case == "stored-cold" else analyzer or object())
     assert calls == ["discover", (81,)]
-    if expected is None:
+    if not expected:
         assert _no_public_tip(ui) and ("4:0" if case == "late-no-card" else "1:0") in _last_panel(ui, "lv-scoreline")
         assert not db.exists()
     else:
-        market, side, label, probability = expected
+        market, side, label, probability = "ft_btts", "no", "Mindestens ein Team bleibt ohne Tor", .837354021356501
         assert label in str(ui.messages)
         assert any(kind == "markdown" and 'class="lv-pick-reason"' in value and "Rot für 2 (52′)" in value and "Torchancen" in value
-                   and "ohne Live-Signale" in value for kind, value in ui.messages)
+                   and "gleich verteilten Torchancen" in value for kind, value in ui.messages)
         with sqlite3.connect(db) as connection:
             rows = connection.execute("SELECT fixture_id, home_id, away_id, minute, home_goals, away_goals, "
                                       "market, side, probability FROM live_tips").fetchall()
             version, = connection.execute("SELECT model_version FROM live_tips").fetchone()
-            assert ("wettfinder-goal-prior-v1" in version) is (case == "stored-cold")
+            assert version == "live-restspiel-xg-neutral-split-v1"
         assert rows == [(81, 1, 2, 60, 1, 0, market, side, pytest.approx(probability))]
 
 

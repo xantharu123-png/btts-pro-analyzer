@@ -3026,9 +3026,9 @@ def _live_viewer_active(owner):
 
 
 def _analyze_ticker_fixture(fixture, analyzer):
-    from live_football_priors import stored_goal_priors
     from live_football_source import analyze_detail
-    return analyze_detail(fixture, prior_reader=stored_goal_priors)
+
+    return analyze_detail(fixture, live_only=True)
 
 
 def _live_closed_window(fixture):
@@ -3053,7 +3053,7 @@ def _live_closed_window(fixture):
     return None
 
 
-def _live_analysis_gap(fixture, ordinary):
+def _live_analysis_gap(fixture):
     """Explain an observable missing input, never guess why a provider withheld it."""
     from live_football_board import native_stat_pairs
     # Read only the current fixture's own rows. Another game's data, a missing
@@ -3064,13 +3064,6 @@ def _live_analysis_gap(fixture, ordinary):
         return "Live-Torchancen (xG) fehlen"
     if pairs is None and fixture.get("statistics") == []:
         return "Noch keine Live-Statistik"
-    if (ordinary and ordinary.get("fixture_id") == fid
-            and ordinary.get("home_team_id") == fixture["teams"]["home"]["id"]
-            and ordinary.get("away_team_id") == fixture["teams"]["away"]["id"]):
-        basis = ordinary.get("xg_data")
-        if (isinstance(basis, dict) and pairs is not None
-                and any(side in basis and basis[side] is None for side in ("home_prior", "away_prior"))):
-            return "Keine Vorabprognose"
     return "Kein verlässlicher Live-Tipp"
 
 
@@ -3081,8 +3074,8 @@ def _assess_live_fixture(fixture, ordinary, dismissal, *, age, freemode):
     manual research view is unchanged; the ticker uses one joint distribution.
     """
     from live_football_source import confirmed_live_dismissals
-    from live_football_board import live_percent
-    from live_market_comparison import MIN_PUBLIC_LIVE_MINUTE, compare_live_markets, display_market
+    from live_football_board import live_percent, native_stat_pairs
+    from live_market_comparison import LIVE_ONLY_MODEL_VERSION, MIN_PUBLIC_LIVE_MINUTE, compare_live_markets, display_market
     from live_tip_surface import live_snapshot_fields
     from redcard_events import score_pair
     from football_recommendations import LIVE_MAX_AGE_SECONDS
@@ -3092,7 +3085,7 @@ def _assess_live_fixture(fixture, ordinary, dismissal, *, age, freemode):
     if closed := _live_closed_window(fixture):
         return None, closed
     if not ordinary:
-        return None, _live_analysis_gap(fixture, ordinary)
+        return None, _live_analysis_gap(fixture)
     teams, source = fixture["teams"], fixture["fixture"]
     phase = source["status"]
     home, away = teams["home"], teams["away"]
@@ -3112,9 +3105,18 @@ def _assess_live_fixture(fixture, ordinary, dismissal, *, age, freemode):
         return None, "Live-Stand nicht eindeutig"
     if native["minute"] < MIN_PUBLIC_LIVE_MINUTE:
         return None, "Noch zu früh für einen Live-Tipp"
+    if ordinary["model_version"] == LIVE_ONLY_MODEL_VERSION:
+        kickoff = datetime.fromisoformat(ordinary["scheduled_start"])
+        received_at = datetime.now(timezone.utc) - timedelta(seconds=age)
+        minutes_since_kickoff = (received_at - kickoff).total_seconds() / 60
+        played = clock["elapsed_minutes"]
+        # Kickoff is scheduled, not a whistle timestamp. Allow a small early
+        # start and a generous margin for the break, delays and stoppages.
+        if not played - 5 <= minutes_since_kickoff <= played + 60:
+            return None, "Spielzeit und Anpfiff passen nicht zusammen"
     choices = compare_live_markets(ordinary)
     if choices is None:
-        return None, _live_analysis_gap(fixture, ordinary)
+        return None, _live_analysis_gap(fixture)
     cards = [(side, minute, extra) for side, minute, extra, off in confirmed_live_dismissals(fixture) if not off]
     if any(sum(c[0] == side for c in cards) != ordinary["red_cards"].get(f"{side}_count")
            for side in ("home", "away")):
@@ -3133,8 +3135,16 @@ def _assess_live_fixture(fixture, ordinary, dismissal, *, age, freemode):
         side, minute, extra = cards[0]
         when = f"{minute}+{extra}" if extra else str(minute)
         situation += f", Rot für {teams[side]['name']} ({when}′)"
-    reason = (f"{situation}. Torchancen (xG): {num(basis['home_xg'], 2)} zu {num(basis['away_xg'], 2)}. "
-              f"Bei diesem Stand und dieser Restzeit: {live_percent(pick.reference * 100)} ohne Live-Signale, "
+    stats = native_stat_pairs(fixture, native["fixture_id"]) or {}
+    on_target = stats.get("on_target", (None, None))
+    shots = stats.get("shots", (None, None))
+    shot_note = (f" {on_target[0]}:{on_target[1]} Schüsse aufs Tor."
+                 if all(type(value) is int for value in (*on_target, *shots))
+                 and all(on <= total for on, total in zip(on_target, shots, strict=True)) else "")
+    reference = ("bei gleich verteilten Torchancen ohne Platzverweis"
+                 if ordinary["model_version"] == LIVE_ONLY_MODEL_VERSION else "ohne Live-Signale")
+    reason = (f"{situation}. Torchancen (xG): {num(basis['home_xg'], 2)} zu {num(basis['away_xg'], 2)}.{shot_note} "
+              f"Bei gleichem Stand und gleicher Restzeit: {live_percent(pick.reference * 100)} {reference}, "
               f"jetzt {live_percent(pick.probability * 100)}.")
     item = dict(ordinary, live_comparison={"market": pick.market, "side": pick.side, "label": pick.label,
                                             "market_label": market_label, "reason": reason, "lift": pick.lift})

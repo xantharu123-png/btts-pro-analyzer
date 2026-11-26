@@ -9,6 +9,8 @@ from redcard_events import period_clock, score_pair
 
 MIN_PUBLIC_LIVE_MINUTE = 15
 MIN_PUBLIC_LIVE_LIFT = 0.05
+LIVE_ONLY_MODEL_VERSION = "live-restspiel-xg-neutral-split-v1"
+_LIVE_ONLY_PSEUDO_MINUTES = 30
 
 
 @dataclass(frozen=True)
@@ -232,18 +234,25 @@ def _numbers(values, limit):
 
 def compare_live_markets(ordinary):
     """None = unsupported snapshot, [] = checked and no open market with positive lift."""
-    from live_football_priors import PRIOR_MODEL, PRIOR_REVISION
     from scanners.ultra_live_scanner_v3 import UltraLiveScanner
 
-    if (
-        not isinstance(ordinary, dict)
-        or ordinary.get("prematch_prior_source") != PRIOR_MODEL
-        or ordinary.get("model_version") != UltraLiveScanner.MODEL_VERSION + PRIOR_REVISION
-        or ordinary.get("live_data_quality") != "MEDIUM"
-    ):
+    if not isinstance(ordinary, dict):
         return None
-    basis, stats, phase, red = [ordinary.get(key) for key in ("breakdown", "xg_data", "phase_data", "red_cards")]
-    if not all(isinstance(v, dict) for v in (basis, stats, phase, red)) or red.get("supported") is not True:
+    live_only = ordinary.get("model_version") == LIVE_ONLY_MODEL_VERSION
+    if live_only:
+        fixture_id, home_id, away_id = (ordinary.get(k) for k in ("fixture_id", "home_team_id", "away_team_id"))
+        if ("prematch_prior_source" in ordinary or ordinary.get("live_data_quality") != "LOW"
+                or not all(type(identifier) is int and identifier > 0 for identifier in (fixture_id, home_id, away_id))
+                or home_id == away_id):
+            return None
+    else:
+        from live_football_priors import PRIOR_MODEL, PRIOR_REVISION
+        if (ordinary.get("prematch_prior_source") != PRIOR_MODEL
+                or ordinary.get("model_version") != UltraLiveScanner.MODEL_VERSION + PRIOR_REVISION
+                or ordinary.get("live_data_quality") != "MEDIUM"):
+            return None
+    stats, phase, red = [ordinary.get(key) for key in ("xg_data", "phase_data", "red_cards")]
+    if not all(isinstance(v, dict) for v in (stats, phase, red)) or red.get("supported") is not True:
         return None
     status = red.get("status")
     home_cards, away_cards = red.get("home_count"), red.get("away_count")
@@ -259,7 +268,6 @@ def compare_live_markets(ordinary):
     ):
         return None
     priors = (stats.get("home_prior"), stats.get("away_prior"))
-    rates = (basis.get("remaining_home_mean"), basis.get("remaining_away_mean"))
     observed = (stats.get("home_xg"), stats.get("away_xg"))
     scores = score_pair({"home": ordinary.get("home_score"), "away": ordinary.get("away_score")})
     names = ordinary.get("home_team"), ordinary.get("away_team")
@@ -271,15 +279,50 @@ def compare_live_markets(ordinary):
         or "extra" not in phase
         or period_clock(period, minute, 0 if extra is None else extra) is None
         or not 0 < minute < 90
-        or not _numbers(priors, 8)
         or not _numbers(observed, 20)
-        or not _numbers(rates, 256)
-    ):  # safety bound above any representable supported scanner rate; never clip
+    ):
         return None
     remaining = 45 if period in ("1H", "HT") and minute >= 45 else 90 - minute
     if not _numbers((phase.get("remaining_minutes"),), 90) or phase["remaining_minutes"] != remaining:
         return None
-    reference = tuple(prior * remaining / 90 for prior in priors)
+    if live_only:
+        if priors != (None, None) or minute < MIN_PUBLIC_LIVE_MINUTE:
+            return None
+        first_half = period in ("1H", "HT")
+        if extra not in (None, 0) and (not first_half or minute != 45):
+            return None
+        clock = UltraLiveScanner._regulation_clock({"short": period, "elapsed": minute, "extra": extra})
+        native_elapsed = phase.get("elapsed_minutes")
+        if (clock is None or not _numbers((native_elapsed,), 130) or native_elapsed != clock["elapsed_minutes"]
+                or phase.get("horizon") != clock["horizon"]):
+            return None
+        # Validate the native clock, but use regulation playback for the rate:
+        # 45+5 becoming HT 45+0 must not create a signal at unchanged xG.
+        elapsed = min(minute, 45) if first_half else minute
+        factors = (red.get("home_factor"), red.get("away_factor"))
+        # The existing strength-independent dismissal law caps its boost at 2.
+        # No-card data must never contribute a phantom adjustment.
+        if (not _numbers(factors, 2) or min(factors) <= 0
+                or (status == "VERIFIED_NONE" and factors != (1., 1.))):
+            return None
+        if sum(observed) == 0 or (observed[0] == observed[1] and factors == (1., 1.)):
+            return []
+        pooled_rate = sum(observed) / (2 * elapsed)
+        reference = (pooled_rate * remaining,) * 2
+        # Observed xG already contains the on-field state. Apply a dismissal
+        # only to the unobserved symmetric pseudo-exposure, never to that xG.
+        rates = tuple((xg + _LIVE_ONLY_PSEUDO_MINUTES * pooled_rate * factor)
+                      / (elapsed + _LIVE_ONLY_PSEUDO_MINUTES) * remaining
+                      for xg, factor in zip(observed, factors))
+    else:
+        basis = ordinary.get("breakdown")
+        if not isinstance(basis, dict):
+            return None
+        rates = (basis.get("remaining_home_mean"), basis.get("remaining_away_mean"))
+        # Safety bound above any representable supported scanner rate; never clip.
+        if not _numbers(priors, 8) or not _numbers(rates, 256):
+            return None
+        reference = tuple(prior * remaining / 90 for prior in priors)
     # At neutral xG tempo the scanner computes the same intensity through several differently
     # ordered binary64 operations. Reconcile their rounding BEFORE summing Poisson terms:
     # a marginal can amplify one rate ULP into many output ULPs. Keep a real change to either team.
