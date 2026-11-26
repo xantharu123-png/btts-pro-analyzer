@@ -2574,6 +2574,7 @@ def _default_football_scan(
     *,
     original_capture_limits=None,
     original_capture_budget=None,
+    form_comparison_capture=None,
 ) -> dict[str, Any]:
     if not config.api_football_key:
         raise RuntimeError("API_FOOTBALL_KEY is not configured")
@@ -2595,11 +2596,33 @@ def _default_football_scan(
             allow_above_challenge_probability=True,
             candidate_profile="wettfinder",
             **({"original_publication": publication} if publication is not None else {}),
+            **({"form_comparison_capture": form_comparison_capture} if form_comparison_capture is not None else {}),
         )
     if capture is not None:
         snapshot["context_capture"] = capture.report()
     _finish_football_joint_capture(snapshot, capture, publication)
     return snapshot
+
+
+_FORM_COMPARISON_DB = "football_form_comparison.db"
+
+
+def _publish_football_form_comparison(state_path, pairs, *, recorded_at):
+    """Keep optional measurement behind public forecasts; never delay their first write."""
+    path = Path(state_path).with_name(_FORM_COMPARISON_DB)
+    try:
+        if not pairs and not path.is_file():
+            return
+        from football_form_comparison import append_pairs, league_report
+        from runtime_paths import atomic_write_text
+
+        capture = append_pairs(path, pairs, recorded_at=recorded_at) if pairs else None
+        report = league_report(path)
+        report.update(generated_at=recorded_at.isoformat(), capture=capture)
+        atomic_write_text(path.with_name("football_form_comparison_latest.json"),
+                          json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False) + "\n")
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Football form comparison unavailable: %s", type(exc).__name__)
 
 
 def _default_football_context_refresh(
@@ -4188,13 +4211,18 @@ def run_wettfinder(
     football_state = (
         dict(previous_football) if isinstance(previous_football, dict) else {}
     )
+    form_comparison_pairs = []
+    form_comparison_options = (
+        {"form_comparison_capture": form_comparison_pairs.append}
+        if production_state and not force_football and football_scanner is None else {}
+    )
 
     if force_football or due.due:
         try:
             app_config = config or load_app_config()
             scanner = football_scanner or (
                 lambda scan_date: _default_football_scan(scan_date, app_config,
-                    **original_capture_options(app_config))
+                    **original_capture_options(app_config), **form_comparison_options)
             )
             snapshot = stage('football_discovery', scanner, target)
             if not isinstance(snapshot, dict):
@@ -5262,6 +5290,11 @@ def run_wettfinder(
             except Exception as exc:
                 receipt_failures.append(exc)
                 _log_held_receipts_failure(exc, 'failed_held')
+            if not force_football:
+                _publish_football_form_comparison(
+                    state_path, form_comparison_pairs,
+                    recorded_at=current if fixed_now else _utc(runtime_clock()),
+                )
 
     if football_next_day_due:
         # Audit H5 (16.11.2026): today is public, with its tip receipts, before tomorrow
@@ -5958,7 +5991,9 @@ def _settle_forecast_evidence(evidence_path, *, config=None, now=None, runner=No
         provider = _worker_football_provider(app_config.api_football_key or "", app_config.weather_key)
     with (capture_football_worker(provider) if provider is not None else nullcontext()) as result_capture:
         summary = settle(db_path=evidence_path, football_provider=provider, now=now,
-                         tennis_db_path=TENNIS_DB, esports_db_path=ESPORTS_DB)
+                         tennis_db_path=TENNIS_DB, esports_db_path=ESPORTS_DB,
+                         **({"form_comparison_path": Path(evidence_path).with_name(_FORM_COMPARISON_DB)}
+                            if production and runner is None else {}))
     if result_capture is not None:
         summary.update(capture_report_fields({"context_capture": result_capture.report()}))
     return summary

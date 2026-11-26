@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import hashlib
 import json
+import logging
 import sqlite3
 from typing import Mapping
 
@@ -261,6 +262,7 @@ def run_forecast_evidence_settlements(
     esports_db_path: str | Path = DEFAULT_ESPORTS_DB_PATH,
     team_history_path: str | Path | None = None,
     max_events_per_sport: int = MAX_EVENTS_PER_SPORT,
+    form_comparison_path: str | Path | None = None,
 ) -> dict:
     """Collect real outcomes within a finite event budget per sport and call.
 
@@ -376,6 +378,16 @@ def run_forecast_evidence_settlements(
                     continue
             if status.get("short") != "FT":
                 continue
+            if form_comparison_path is not None:
+                # Consume the verified native result already pulled for ordinary
+                # forecasts. Study-only rows never enter the provider request queue.
+                try:
+                    from football_form_comparison import settle_pairs
+                    settle_pairs(form_comparison_path, item, observed_at=details_observed)
+                except Exception as exc:
+                    logging.getLogger(__name__).warning(
+                        "Football form comparison result unavailable: %s", type(exc).__name__)
+                    form_comparison_path = None  # Do not retry a failed optional store this run.
             statistics = None
             observed = details_observed
             canonical = {**item, "challenge_stats": {}}

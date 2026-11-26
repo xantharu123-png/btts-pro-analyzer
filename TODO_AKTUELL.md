@@ -1,5 +1,20 @@
 # BetBoy – aktuelle To-dos und Account-Übergabe
 
+## 26.11.2026 – Doppelchance-Formvergleich
+
+- [Liga-Audit](docs/audits/2026-11-26-doppelchance-ligen.md): X2 lag unter
+  der Modellprognose; die Spielort-Formmischung ist als Mechanismus, aber nicht
+  als Ursache der echten Fehlgriffe belegt. Keine pauschale Sperre.
+- Nach dem nächsten planmäßigen Wettfinder-Lauf lesend prüfen:
+  `runtime_state/football_form_comparison_latest.json` und
+  `runtime_state/football_form_comparison.db`. Bestehende Abrechnung liefert
+  Endstände ohne zusätzliche Abrufe; nicht abgerufene Partien bleiben offen.
+  Die JSON-Zusammenfassung stammt vom letzten Tageslauf (`generated_at`);
+  zwischenzeitliche reguläre Abrechnungen stehen zuerst in der Datenbank.
+- Pro Liga, Modellbasis und Wettbewerbspfad nur gepaarte Spiele auswerten.
+  Bei einem Vorteil zuerst getrennte Testspieltage prüfen. Keine Änderung
+  der Kundenprognose, kein Backup und kein zusätzlicher Scan.
+
 ## 25.11.2026 – Handball-Auditreparatur
 
 - [Vertrag](docs/superpowers/specs/2026-11-25-handball-audit-fixes-design.md):
