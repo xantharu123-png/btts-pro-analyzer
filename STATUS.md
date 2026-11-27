@@ -4,7 +4,18 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 „Stand“ ersetzen, nicht anhängen; Historie steht in `TODO_AKTUELL.md` und
 `PC_WECHSEL_UEBERGABE.md`. Regeln und Einstieg: `AGENTS.md`.
 
-## Stand: 26.11.2026
+## Stand: 27.11.2026
+
+[Doppelchance-Audit](docs/audits/2026-11-27-doppelchance-tippentstehung.md):
+Die Wettfinder-Karte nennt Heim/Gast und Remis im Klartext. Den vollständigen
+Split liefert nur dieselbe exakt gebundene Modellrechnung; beim alten Bestand
+bleibt die belegte Gesamtchance mit Gegenrisiko sichtbar. Eine Doppelchance
+gegen den wahrscheinlichsten Einzel-Ausgang bleibt als Alternative, ist aber
+mit belegter 1X2-Verteilung kein Haupttipp oder Highlight. Der reguläre
+Vormatch-Abrechner hält widersprüchliche Endstände oder Spiel-IDs offen.
+Keine Modell-, Quoten-, API-Takt-, Backup- oder Schema-Migration.
+
+### Voriger Stand: 26.11.2026
 
 [Live ohne Vorabprognose](docs/superpowers/plans/2026-11-26-live-ohne-vorab.md):
 Der automatische Ticker wertet alle unterstützten offenen Fußballmärkte mit

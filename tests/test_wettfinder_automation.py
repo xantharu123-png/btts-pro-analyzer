@@ -741,6 +741,64 @@ def test_context_refresh_preserves_original_basis_catalog_clocks_for_analysis():
     assert read_football_analysis(updated)["basis"]["expected_home_goals"] == 1.5
 
 
+@pytest.mark.parametrize('change', [{}, {'home_team_id': 100}, {'prediction_version': 'other-law'}])
+def test_context_only_refresh_carries_only_the_same_saved_double_chance_basis(change):
+    from challenge_engine import WettfinderDoubleChanceCandidate
+    from forecast_analysis import read_football_analysis
+
+    now = datetime(2030, 1, 1, 10, tzinfo=UTC)
+    spec = MARKET_BY_KEY['DC_X2']
+    plain = replace(_challenge_candidate(now + timedelta(hours=5)), market_key=spec.key,
+                    market=spec.market, selection=spec.selection, probability=.72,
+                    context={'forecast_passed': True, 'passed': True})
+    candidate = WettfinderDoubleChanceCandidate(**vars(plain), result_probabilities=(.28, .25, .47))
+    record = _football_candidate_record(candidate, context_checked_at=now)
+    refreshed = _merge_context_refresh(
+        {'status': 'completed', 'candidates': [record], 'errors': [],
+         'context_checks': {}, 'last_discovery_at': now.isoformat(),
+         'context_accounting_available': True, 'context_fixture_statuses': {'1': 'verified'}},
+        {'candidates': [replace(plain, **change)],
+         'context_fixture_statuses': {'1': 'verified'}, 'errors': []},
+        fixture_ids=[1], checked_at=now + timedelta(minutes=30),
+    )
+    updated, = refreshed['candidates']
+    assert read_football_analysis(updated)['basis'].get('result_probabilities') == (
+        None if change else [.28, .25, .47])
+
+
+@pytest.mark.parametrize('corruption', [None, 'bool-id', 'duplicate', 'post-kickoff', 'extreme-offset'])
+def test_delayed_first_context_admission_keeps_only_exact_original_double_chance_distribution(corruption):
+    from challenge_engine import WettfinderDoubleChanceCandidate
+    from forecast_analysis import read_football_analysis
+
+    modeled = datetime(2030, 1, 1, 10, tzinfo=UTC)
+    spec = MARKET_BY_KEY['DC_X2']
+    plain = replace(_challenge_candidate(modeled + timedelta(hours=5)), market_key=spec.key,
+                    market=spec.market, selection=spec.selection, probability=.72)
+    candidate = WettfinderDoubleChanceCandidate(**vars(plain), result_probabilities=(.28, .25, .47))
+    initial = wettfinder_automation._football_state_from_snapshot(
+        {'scanned_at': modeled.isoformat(), 'discovery_candidates': [candidate], 'wettfinder_candidates': []},
+        attempted_at=modeled, search_date=modeled.date(),
+    )
+    assert not initial['candidates']
+    reload, = wettfinder_automation._discovered_candidates_for_fixtures(initial, [1])
+    if corruption == 'bool-id':
+        initial['discovery_candidates'][0]['fixture_id'] = True
+    elif corruption == 'duplicate':
+        initial['discovery_candidates'] *= 2
+    elif corruption == 'post-kickoff':
+        initial['discovery_candidates'][0]['wettfinder_result_basis']['modeled_at'] = (modeled + timedelta(hours=6)).isoformat()
+    elif corruption == 'extreme-offset':
+        initial['discovery_candidates'][0]['wettfinder_result_basis']['modeled_at'] = '0001-01-01T00:00:00+14:00'
+    context = replace(reload, context={'forecast_passed': True, 'passed': True})
+    refreshed = _merge_context_refresh(initial, {'candidates': [context], 'errors': []},
+                                       fixture_ids=[1], checked_at=modeled + timedelta(minutes=40))
+    updated, = refreshed['candidates']
+    assert updated['modeled_at'] == modeled.isoformat()
+    assert read_football_analysis(updated)['basis'].get('result_probabilities') == (
+        [.28, .25, .47] if corruption is None else None)
+
+
 def test_real_fixture_model_refresh_replaces_old_catalog_and_bound_clocks():
     from forecast_analysis import read_football_analysis
 

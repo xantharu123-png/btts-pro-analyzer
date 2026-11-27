@@ -107,7 +107,31 @@ def _identity(row: Mapping, *, clocks: bool = True) -> dict | None:
     return result
 
 
-def _basis_projection(raw: Mapping, *, identity=None) -> dict:
+DOUBLE_CHANCE_EXCLUDED_RESULT = {'DC_1X': 2, 'DC_X2': 0, 'DC_12': 1}
+
+
+def validated_double_chance_probabilities(market_key, probability, vector):
+    """Exactly one shared regulation-time distribution, agreeing with the saved marginal."""
+    excluded = DOUBLE_CHANCE_EXCLUDED_RESULT.get(market_key) if isinstance(market_key, str) else None
+    if (excluded is None or not isinstance(vector, (list, tuple)) or len(vector) != 3
+            or not all(type(p) in (int, float) and 0 <= p <= 1 for p in vector)
+            or type(probability) not in (int, float) or not 0 < probability < 1
+            or not math.isclose(math.fsum(vector), 1., rel_tol=0., abs_tol=1e-10)
+            # ChallengeCandidate stores the marginal rounded to six decimals.
+            or not math.isclose(1. - vector[excluded], probability, rel_tol=0., abs_tol=5.001e-7)):
+        return None
+    return tuple(float(p) for p in vector)
+
+
+def _football_model_pin(row):
+    values = [row[key] for key in ('model_version', 'prediction_version') if row.get(key) is not None]
+    if (not values or not all(isinstance(v, str) and 0 < len(v) <= 200 and v == v.strip() for v in values)
+            or any(v != values[0] for v in values)):
+        return None
+    return values[0]
+
+
+def _basis_projection(raw: Mapping, *, identity=None, model_pin=None) -> dict:
     result = {}
     for home, away in (("expected_home_goals", "expected_away_goals"), ("expected_market_home", "expected_market_away")):
         if all(_number(raw.get(field)) for field in (home, away)):
@@ -119,6 +143,13 @@ def _basis_projection(raw: Mapping, *, identity=None) -> dict:
         if isinstance(values, (tuple, list)) and len(values) == 2 and all(_integer(n, minimum=1) for n in values):
             result[field] = list(values)
     if identity is not None:
+        if (model_pin is not None and identity['modeled_at'] is not None and identity['input_cutoff_at'] is not None
+                and raw.get('result_probabilities_version') == model_pin):
+            vector = validated_double_chance_probabilities(identity['market_key'], identity['probability'],
+                                                          raw.get('result_probabilities'))
+            if vector is not None:
+                result['result_probabilities'] = list(vector)
+                result['result_probabilities_version'] = model_pin
         from daily3_comparison import validated_comparison
         comparison = validated_comparison(raw.get('market_comparison'), identity=identity)
         if comparison is not None:
@@ -211,10 +242,15 @@ def project_football_analysis(row: Mapping, *, model_basis: Mapping) -> dict | N
     identity = _identity(row)
     if identity is None or _identity(row, clocks=False) != _identity(model_basis, clocks=False):
         return None
+    pin = _football_model_pin(row)
+    if pin != _football_model_pin(model_basis) or _identity(model_basis) != identity:
+        pin = None
+    if pin is not None and 'result_probabilities' in model_basis:
+        model_basis = {'result_probabilities_version': pin, **model_basis}
     return {
         "schema": _SCHEMA,
         "identity": identity,
-        "basis": _basis_projection(model_basis, identity=identity),
+        "basis": _basis_projection(model_basis, identity=identity, model_pin=pin),
         # Names already live in the saved context; do not duplicate those lists
         # in every persisted market's analysis envelope.
         "context": _context_projection(_mapping(row.get("context")), include_names=False),
@@ -302,7 +338,8 @@ def read_football_analysis(row: Mapping, *, now: datetime | None = None) -> dict
         context["stale"] = True
     return {
         "schema": _SCHEMA, "identity": identity,
-        "basis": _basis_projection(_mapping(evidence.get("basis")), identity=identity), "context": context,
+        "basis": _basis_projection(_mapping(evidence.get("basis")), identity=identity,
+                                   model_pin=_football_model_pin(row)), "context": context,
     }
 
 

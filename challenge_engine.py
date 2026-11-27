@@ -311,6 +311,18 @@ class ChallengeCandidate:
         return payload
 
 
+@dataclass
+class WettfinderDoubleChanceCandidate(ChallengeCandidate):
+    """Live-in-memory display metadata; the shared ticket dataclass stays unchanged."""
+
+    result_probabilities: Optional[tuple[float, float, float]] = None
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = super().to_dict()
+        payload.pop('result_probabilities')
+        return payload
+
+
 @dataclass(frozen=True)
 class QuotedLeg:
     candidate: ChallengeCandidate
@@ -3024,6 +3036,11 @@ def build_fixture_candidates(
                 "expected_home_goals": expected_home_goals, "expected_away_goals": expected_away_goals,
             })
     comparisons = {}
+    result_probabilities = None
+    if candidate_profile == CANDIDATE_PROFILE_WETTFINDER and _market_projection_succeeded(model, 'RESULT_HOME'):
+        results = tuple(model['probabilities'].get(key, ()) for key in ('RESULT_HOME', 'RESULT_DRAW', 'RESULT_AWAY'))
+        if all(results):
+            result_probabilities = tuple(values[0] for values in results)
     if candidate_profile == CANDIDATE_PROFILE_WETTFINDER and model_scope in {
         MODEL_SCOPE_SAME_COMPETITION, MODEL_SCOPE_SENIOR_NATIONAL,
     }:
@@ -3147,11 +3164,15 @@ def build_fixture_candidates(
             )
         if referee_sample:
             reasons.append(f"Schiedsrichter-Stichprobe {referee_sample}")
+        uses_result_basis = spec.kind == 'double_chance' and result_probabilities is not None
+        candidate_type = WettfinderDoubleChanceCandidate if uses_result_basis else ChallengeCandidate
+        result_basis = {'result_probabilities': result_probabilities} if uses_result_basis else {}
         candidates.append(
-            ChallengeCandidate(
+            candidate_type(
                 candidate_id=candidate_id,
                 prediction_version=basis_version,
                 market_comparison=comparisons.get(spec.key),
+                **result_basis,
                 **identity,
                 market_key=spec.key,
                 market=spec.market,

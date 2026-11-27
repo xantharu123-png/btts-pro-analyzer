@@ -156,7 +156,7 @@ def test_ilves_catalog_survives_real_reader_cards_and_low_price_does_not_flip_di
     rows = ilves_rows(home_price)
     before = deepcopy(rows)
     chosen = catalog(rows)
-    document = {'model_candidates': chosen, 'football': {
+    document = {'model_candidates': chosen, 'target_search_date': NOW.date().isoformat(), 'football': {
         'context_accounting_available': True, 'context_fixture_statuses': {'1': 'verified'},
         'base_fixture_count': 1, 'context_verified_fixtures': 1,
         'context_data_incomplete_fixtures': 0, 'context_unchecked_fixtures': 0,

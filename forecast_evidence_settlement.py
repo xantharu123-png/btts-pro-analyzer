@@ -18,7 +18,7 @@ import sqlite3
 from typing import Mapping
 
 from challenge_15k import count_stats_from_response
-from challenge_engine import COUNT_MARKET_KINDS, MARKET_BY_KEY, _fixture_market_outcome
+from challenge_engine import COUNT_MARKET_KINDS, MARKET_BY_KEY, _fixture_market_outcome, _fixture_score
 from challenge_store import SETTLEMENT_RULE_VERSION as FOOTBALL_RULE_VERSION
 import forecast_evidence as evidence
 from riskobet_domain import stable_event_key
@@ -93,6 +93,46 @@ def _native_identity(row: Mapping) -> tuple | None:
                 return None
             competitors += ids
     return (sport, provider, provider_id, evidence._utc(row["starts_at"]), *competitors)
+
+
+def _football_ids_agree(row: Mapping) -> bool:
+    quoted = row["quote_identity"]
+    identifiers = [quoted[field] for field in ("provider_event_id", "fixture_id") if quoted.get(field) is not None]
+    event_key = row["event_key"]
+    # Old internal and context keys can carry the same native ID in either order.
+    for prefix in ("api-football:football:", "football:api-football:", "football:"):
+        if event_key.startswith(prefix):
+            identifiers.append(event_key.removeprefix(prefix))
+            break
+    try:
+        parsed = {_positive_int(value.strip() if isinstance(value, str) else value) for value in identifiers}
+    except ValueError:
+        return False
+    return None not in parsed and len(parsed) <= 1
+
+
+def _consistent_football_regulation_score(fixture: dict) -> bool:
+    goals = _fixture_score(fixture)
+    if goals is None:
+        return False
+    score = fixture.get("score")
+    if score is None:
+        return True
+    if not isinstance(score, Mapping):
+        return False
+    fulltime = score.get("fulltime")
+    if fulltime is not None:
+        if not isinstance(fulltime, Mapping):
+            return False
+        pairs = (fulltime.get("home"), fulltime.get("away"))
+        if not all(type(value) is int for value in pairs) or pairs != goals:
+            return False
+    for phase in ("extratime", "penalty"):
+        counts = score.get(phase)
+        if counts is not None and (not isinstance(counts, Mapping)
+                                   or any(side not in counts or counts[side] is not None for side in ("home", "away"))):
+            return False
+    return True
 
 
 def _supported_selection(row: Mapping) -> bool:
@@ -283,6 +323,7 @@ def run_forecast_evidence_settlements(
                "unresolved_forecasts": len(pending), "errors": []}
     errors = summary["errors"]
     grouped = defaultdict(list)
+    conflicted_football_events = set()
     for row in pending:
         if not row.get("causal_provenance_complete"):
             continue
@@ -290,13 +331,19 @@ def run_forecast_evidence_settlements(
             code = "selection_identity_invalid" if row["sport"] == "football" and row["market_key"] in MARKET_BY_KEY else "unsupported_selection"
             errors.append(f"{row['sport']}:{code}")
             continue
+        if row["sport"] == "football" and not _football_ids_agree(row):
+            conflicted_football_events.add(row["event_key"])
+            continue
         identity = _native_identity(row)
         if identity is None:
             errors.append(f"{row['sport']}:native_identity_unproven")
             continue
         grouped[(row["sport"], row["event_key"])].append((identity, row))
     events = defaultdict(dict)
+    errors.extend("football:event_identity_ambiguous" for _ in conflicted_football_events)
     for (sport, event_key), group in sorted(grouped.items()):
+        if sport == "football" and event_key in conflicted_football_events:
+            continue
         identities = {identity for identity, _ in group}
         if len(identities) != 1:
             # Reconcile date-only revisions against the *same* official fixture
@@ -377,6 +424,9 @@ def run_forecast_evidence_settlements(
                     errors.append("football:schedule_revision_unresolved")
                     continue
             if status.get("short") != "FT":
+                continue
+            if not _consistent_football_regulation_score(item):
+                errors.append("football:regulation_score_invalid")
                 continue
             if form_comparison_path is not None:
                 # Consume the verified native result already pulled for ordinary

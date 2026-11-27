@@ -36,6 +36,7 @@ class CompactAnalysis:
     model_clock: str
     forms: tuple[TeamForm, ...] = ()
     football_goal_history: bool = False
+    result_probabilities: tuple[float, float, float] | None = None
 
 
 # Presentation only, including older in-session cards. Do not rewrite the
@@ -99,7 +100,27 @@ def football_injury_fact(context, home, away, *, now):
                 _injury_details(injuries, home, away))
 
 
-def build_compact_analysis(signal, analysis, *, now):
+def football_double_chance_name(market_key, home, away, *, with_code=False):
+    labels = {'DC_1X': (f'Sieg {home} oder Remis', '1X'),
+              'DC_X2': (f'Sieg {away} oder Remis', 'X2'), 'DC_12': ('Kein Remis', '12')}
+    if market_key not in labels:
+        return None
+    label, code = labels[market_key]
+    return f'{label} ({code})' if with_code else label
+
+
+def _double_chance_summary(signal, home, away, result_probabilities):
+    key = signal.market_key
+    if result_probabilities is None:
+        return f'{football_double_chance_name(key, home, away)}: {_percent(signal.probability)} im Modell'
+    h, draw, a = result_probabilities
+    sides = {'DC_1X': ((f'Sieg {home}', h), ('Remis', draw)),
+             'DC_X2': ((f'Sieg {away}', a), ('Remis', draw)),
+             'DC_12': ((f'Sieg {home}', h), (f'Sieg {away}', a))}[key]
+    return ' + '.join(f'{label}: {_percent(p)}' for label, p in sides) + ' im Modell'
+
+
+def build_compact_analysis(signal, analysis, *, now, explain_double_chance=False):
     sport = str(signal.sport or '').strip().casefold().replace('ß', 'ss')
     facts, warnings, forms = [], [], ()
     summary = analysis.basis.split('. ', 1)[0].rstrip('.')
@@ -109,6 +130,8 @@ def build_compact_analysis(signal, analysis, *, now):
     home, away = signal.home_team or 'Heimteam', signal.away_team or 'Gastteam'
     context = _mapping(evidence.get('context')) if evidence else {}
     basis = _mapping(evidence.get('basis')) if evidence else {}
+    vector = basis.get('result_probabilities')  # only the typed, identity-validated projection
+    result_probabilities = tuple(vector) if vector is not None else None
     if football:
         forms = football_forms(basis, home, away)
         summary = 'Modellgrundlagen unvollständig'
@@ -154,6 +177,8 @@ def build_compact_analysis(signal, analysis, *, now):
                 facts.extend(Fact(label, value, fact_details.get(label, ()))
                              for label, value in customer.facts
                              if (label, value) != leading_market_fact)
+        if explain_double_chance and spec and spec.kind == 'double_chance':
+            summary = _double_chance_summary(signal, home, away, result_probabilities)
         def fresh(axis):
             clock = _clock(axis.get('checked_at'))
             return clock is not None and context.get('stale') is not True and timedelta(0) <= now - clock <= timedelta(minutes=75)
@@ -225,7 +250,8 @@ def build_compact_analysis(signal, analysis, *, now):
         warnings.append(freshness)
     explanation = tuple(part for part in (analysis.basis, analysis.caution, analysis.samples, analysis.data_age) if part)
     return CompactAnalysis(summary, tuple(facts), tuple(warnings), explanation,
-                           format_model_clock(signal.modeled_at), forms, football_goal_history=football)
+                           format_model_clock(signal.modeled_at), forms, football_goal_history=football,
+                           result_probabilities=result_probabilities)
 
 
 def _fact_html(fact):

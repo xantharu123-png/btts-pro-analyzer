@@ -64,7 +64,7 @@ from context_models.football_original_publication import original_capture_report
 from football_joint_worker import joint_comparison_report_fields
 from football_context_decisions import decision_report_fields
 from football_live_publication import capture_section, check_write_deadlines, confirm_write, previous_section, publish_live_bases
-from forecast_analysis import project_football_analysis
+from forecast_analysis import _clock as _analysis_clock, project_football_analysis, validated_double_chance_probabilities
 from selection_coherence import select_coherent_forecasts
 from football_model_refresh import MODEL_REFRESH_VERSION, refresh_fixture_models
 from ev_signal_sources import (
@@ -419,6 +419,50 @@ def _challenge_candidate_from_payload(
     return candidate
 
 
+def _discovery_result_basis(payload, row, *, checked_at):
+    """Recover the 1X2 vector for the exact deferred forecast, never a different revision."""
+    fields = ('candidate_id', 'market_key', 'home_team', 'away_team', 'model_scope', 'probability')
+    roles = (('fixture_id', 'fixture_id'), ('home_team_id', 'home_id'), ('away_team_id', 'away_id'))
+    if (checked_at is None or not all(payload.get(key) == row.get(key) for key in fields)
+            or any(type(payload.get(key)) is not int or type(row.get(alias)) is not int
+                   or payload[key] <= 0 or payload[key] != row[alias] for key, alias in roles)
+            or payload.get('prediction_version') != row.get('model_version')
+            or (start := _analysis_clock(row.get('scheduled_start'))) is None
+            or _analysis_clock(payload.get('kickoff')) != start):
+        return {}
+    packet = payload.get('wettfinder_result_basis')
+    if not isinstance(packet, dict):
+        return {}
+    modeled, cutoff = (_analysis_clock(packet.get(k)) for k in ('modeled_at', 'input_cutoff_at'))
+    vector = validated_double_chance_probabilities(row.get('market_key'), row.get('probability'), packet.get('vector'))
+    if (vector is None or modeled is None or cutoff is None or not cutoff <= modeled <= checked_at
+            or modeled >= start or packet.get('model_version') != row.get('model_version')):
+        return {}
+    return {'vector': list(vector), 'model_version': row['model_version'],
+            'modeled_at': modeled.isoformat(), 'input_cutoff_at': cutoff.isoformat()}
+
+
+def _wettfinder_discovery_payload(candidate, *, keep_context=False, model_clocks=None, previous=None):
+    payload = _challenge_candidate_payload(candidate, keep_context=keep_context)
+    if payload is None or payload.get('market_key') not in ('DC_1X', 'DC_X2', 'DC_12'):
+        return payload
+    row = {**payload, 'home_id': payload.get('home_team_id'), 'away_id': payload.get('away_team_id'),
+           'scheduled_start': payload['kickoff'], 'model_version': payload.get('prediction_version')}
+    if model_clocks is not None:
+        modeled, cutoff = model_clocks
+        seed = {**payload, 'wettfinder_result_basis': {
+            'vector': getattr(candidate, 'result_probabilities', None), 'model_version': row['model_version'],
+            'modeled_at': modeled, 'input_cutoff_at': cutoff,
+        }}
+        packet = _discovery_result_basis(seed, row, checked_at=_parse_iso(modeled)) if row['model_version'] else {}
+    else:
+        # Context changes do not create a model. Retain the old clock and exact identity.
+        packet = _discovery_result_basis(previous, row, checked_at=_parse_iso(payload['kickoff'])) if previous else {}
+    if packet:
+        payload['wettfinder_result_basis'] = packet
+    return payload
+
+
 def _football_candidate_record(
     candidate: object,
     *,
@@ -529,7 +573,8 @@ def _football_candidate_record(
         ),
     }
     record["analysis_evidence"] = project_football_analysis(
-        record, model_basis={**vars(candidate), "customer_recent_results": customer_recent_results},
+        record, model_basis={**vars(candidate), "customer_recent_results": customer_recent_results,
+                             "modeled_at": record["modeled_at"], "input_cutoff_at": record["input_cutoff_at"]},
     )
     return record
 
@@ -1199,7 +1244,7 @@ def _football_state_from_snapshot(
     discovery_payloads = [
         payload
         for payload in (
-            _challenge_candidate_payload(candidate)
+            _wettfinder_discovery_payload(candidate, model_clocks=(scanned_at.isoformat(), scanned_at.isoformat()))
             for candidate in discovery_values
         )
         if payload is not None
@@ -1628,9 +1673,14 @@ def _merge_context_refresh(
         for candidate in result.get("candidates", ())
         if isinstance(candidate, ChallengeCandidate)
     }
+    old_discoveries = {}
+    for row in state.get('discovery_candidates') or ():
+        if isinstance(row, dict) and isinstance(key := row.get('candidate_id'), str):
+            old_discoveries[key] = {} if key in old_discoveries else row
     refreshed["discovery_candidates"] = [
         (
-            _challenge_candidate_payload(updated_candidates[str(payload.get("candidate_id"))], keep_context=True)
+            _wettfinder_discovery_payload(updated_candidates[str(payload.get("candidate_id"))], keep_context=True,
+                                          previous=payload)
             if str(payload.get("candidate_id")) in updated_candidates
             else payload
         )
@@ -1646,7 +1696,8 @@ def _merge_context_refresh(
         refreshed["discovery_candidates"].extend(
             payload for candidate in updated_candidates.values()
             if candidate.fixture_id in recomputed and candidate.fixture_id not in invalidated
-            and (payload := _challenge_candidate_payload(candidate, keep_context=True)) is not None
+            and (payload := _wettfinder_discovery_payload(candidate, keep_context=True,
+                       model_clocks=(model_refresh['modeled_at'], model_refresh['input_cutoff_at']))) is not None
         )
     refreshed["discovery_candidate_count"] = len(refreshed["discovery_candidates"])
     existing_risk_payloads = [
@@ -1770,9 +1821,11 @@ def _merge_context_refresh(
         previous_records = {row.get("candidate_id"): row for row in previous_rows}
         for record in new_rows:
             previous_record = previous_records.get(record.get("candidate_id"), {})
+            deferred = (_discovery_result_basis(old_discoveries.get(record['candidate_id'], {}), record, checked_at=checked_at)
+                        if record.get('fixture_id') not in recomputed and not previous_record else {})
             for field in ("modeled_at", "input_cutoff_at"):
                 record[field] = (model_refresh[field] if record.get("fixture_id") in recomputed
-                                 else previous_record.get(field) or state.get("last_discovery_at"))
+                                 else previous_record.get(field) or deferred.get(field) or state.get("last_discovery_at"))
             evidence = record.get("analysis_evidence")
             if evidence is not None:
                 basis = evidence['basis']
@@ -1781,6 +1834,20 @@ def _merge_context_refresh(
                     prior = read_football_analysis(previous_record)
                     basis = {**basis, 'customer_recent_results':
                              prior['basis'].get('customer_recent_results') if prior else None}
+                    # A context-only refresh may not add or rebind a 1X2
+                    # distribution: only carry the exact frozen model facts.
+                    basis.pop('result_probabilities', None)
+                    basis.pop('result_probabilities_version', None)
+                    fields = ('fixture_id', 'home_id', 'away_id', 'home_team', 'away_team', 'market_key',
+                              'probability', 'scheduled_start', 'modeled_at', 'input_cutoff_at',
+                              'model_version', 'policy_version', 'model_scope')
+                    if prior and all(record.get(k) == previous_record.get(k) for k in fields):
+                        for key in ('result_probabilities', 'result_probabilities_version'):
+                            if key in prior['basis']:
+                                basis[key] = prior['basis'][key]
+                    elif deferred:
+                        basis['result_probabilities'] = deferred['vector']
+                        basis['result_probabilities_version'] = deferred['model_version']
                 record["analysis_evidence"] = project_football_analysis(
                     record, model_basis={**record, **basis},
                 )
