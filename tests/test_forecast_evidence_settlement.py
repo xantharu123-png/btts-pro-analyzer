@@ -126,6 +126,91 @@ def test_mismatched_native_football_identity_or_invalid_score_fails_closed(tmp_p
     assert summary["operational_error_count"] == 1
 
 
+@pytest.mark.parametrize("change", [
+    {"provider_event_id": "2"}, {"event_identity": "football:2"},
+    {"event_identity": "football:api-football:2"}, {"fixture_id": 0},
+    {"event_identity": "api-football:football:2"},
+])
+def test_disagreeing_frozen_fixture_ids_never_start_settlement(tmp_path, monkeypatch, change):
+    db = tmp_path / "evidence.db"
+    record(db, monkeypatch, [{**football_row(market="DC_X2"), **change}])
+    provider = FootballProvider()
+    summary = run(db, football_provider=provider)
+    assert provider.calls == []
+    assert summary["terminal_results"] == 0 and summary["unresolved_forecasts"] == 1
+    assert summary["errors"] == ["football:event_identity_ambiguous"]
+    assert results(db) == []
+
+
+@pytest.mark.parametrize("key, optional_id", [("football:1", "provider_event_id"),
+    ("football:api-football:1", "provider_event_id"), ("api-football:football:1", "provider_event_id"),
+    ("legacy-opaque-match", "fixture_id")])
+def test_agreeing_legacy_alias_and_single_native_id_can_settle(tmp_path, monkeypatch, key, optional_id):
+    db = tmp_path / "evidence.db"
+    row = {**football_row(market="DC_1X"), "event_identity": key}
+    row.pop(optional_id)
+    record(db, monkeypatch, [row])
+    provider = FootballProvider()
+    summary = run(db, football_provider=provider)
+    result, = results(db)
+    assert provider.calls == [("details", (1,))]
+    assert summary["terminal_results"] == 1
+    assert result["event_key"] == key and result["outcome"] == "WIN"
+
+
+@pytest.mark.parametrize("score", [
+    {"fulltime": {"home": 1, "away": 1}},
+    {"fulltime": {"home": 2}},
+    {"fulltime": {"home": 2, "away": True}},
+    [2, 1],
+    {"extratime": {"home": 0, "away": 0}},
+    {"penalty": {"home": 0, "away": 0}},
+    {"penalty": {}},
+])
+def test_conflicting_or_malformed_ft_scores_withhold_both_settlement_paths(tmp_path, monkeypatch, score):
+    import football_form_comparison
+
+    db = tmp_path / "evidence.db"
+    record(db, monkeypatch, [football_row(market=key) for key in ("DC_X2", "DC_12", "CORNERS_OVER_7_5")])
+    provider = FootballProvider()
+    original = provider.details_by_fixture
+
+    def details(ids):
+        batch = original(ids)
+        batch[1]["score"] = score
+        return batch
+
+    study_calls = []
+    monkeypatch.setattr(provider, "details_by_fixture", details)
+    monkeypatch.setattr(football_form_comparison, "settle_pairs", lambda *args, **kwargs: study_calls.append(args))
+    summary = run(db, football_provider=provider, form_comparison_path=tmp_path / "comparison.db")
+    assert summary["terminal_results"] == 0 and summary["unresolved_forecasts"] == 3
+    assert summary["errors"] == ["football:regulation_score_invalid"]
+    assert provider.calls == [("details", (1,))] and not study_calls
+    assert results(db) == []
+
+
+@pytest.mark.parametrize("score", [None, {}, {"fulltime": None}, {
+    "fulltime": {"home": 0, "away": 0}, "extratime": {"home": None, "away": None}, "penalty": None,
+}])
+def test_valid_zero_zero_ft_with_optional_redundant_fields_still_settles(tmp_path, monkeypatch, score):
+    db = tmp_path / "evidence.db"
+    record(db, monkeypatch, [football_row(market=key) for key in ("DC_1X", "DC_X2", "DC_12")])
+    provider = FootballProvider()
+    original = provider.details_by_fixture
+
+    def details(ids):
+        batch = original(ids)
+        batch[1].update(goals={"home": 0, "away": 0}, score=score)
+        return batch
+
+    monkeypatch.setattr(provider, "details_by_fixture", details)
+    assert run(db, football_provider=provider)["terminal_results"] == 3
+    assert {row["market_key"]: row["outcome"] for row in results(db)} == {
+        "DC_1X": "WIN", "DC_X2": "WIN", "DC_12": "LOSS",
+    }
+
+
 @pytest.mark.parametrize("status,new_start", [
     ("NS", NOW + timedelta(days=1)),
     ("NS", NOW + timedelta(days=19)),

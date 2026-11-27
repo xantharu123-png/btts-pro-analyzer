@@ -9,7 +9,8 @@ from datetime import datetime, timezone
 import math
 
 from challenge_engine import MARKET_BY_KEY
-from forecast_analysis import _clock, forecast_highlight_reason
+from forecast_analysis import (DOUBLE_CHANCE_EXCLUDED_RESULT, _clock, forecast_highlight_reason,
+                               validated_double_chance_probabilities)
 from selection_coherence import _role_binding, consumer_event_identity, select_coherent_forecasts
 
 
@@ -35,6 +36,17 @@ def _model_probability(row):
         return None
     number = float(value)
     return number if math.isfinite(number) else None
+
+
+def double_chance_supports_lead(row):
+    """Keep a covering forecast visible, but not its unsupported promotion."""
+    market = getattr(row, 'market_key', None)
+    vector = validated_double_chance_probabilities(market, _model_probability(row),
+                                                    getattr(row, 'result_probabilities', None))
+    if vector is None:
+        return True  # Older evidence retained no complete 1X2 vector.
+    excluded = DOUBLE_CHANCE_EXCLUDED_RESULT[market]
+    return vector[excluded] <= max(p for i, p in enumerate(vector) if i != excluded) + 1e-10
 
 
 def select_event_leads(rows, *, revision_anchors=None, require_comparable=False):
@@ -78,8 +90,8 @@ def select_event_leads(rows, *, revision_anchors=None, require_comparable=False)
             continue
         current_revision = revision(first)
         comparable = [row for row in pool if current_revision is not None and revision(row) == current_revision
-                      and _model_probability(row) is not None]
-        if not comparable and (anchored or require_comparable):
+                      and _model_probability(row) is not None and double_chance_supports_lead(row)]
+        if not comparable and (anchored or require_comparable or not double_chance_supports_lead(first)):
             continue
         lead = min(comparable, key=lambda row: (
             -_model_probability(row), _stable_key(row)

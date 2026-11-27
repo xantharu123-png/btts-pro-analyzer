@@ -269,6 +269,8 @@ class ChallengeCandidate:
     # Actual overall A-international samples for the national-team model.
     # Venue samples keep their literal home/away meaning and may be zero.
     national_samples: tuple[int, int] = (0, 0)
+    # Transport only to Wettfinder analysis evidence, not to the ticket ledger.
+    result_probabilities: Optional[tuple[float, float, float]] = None
 
     @property
     def base_eligible(self) -> bool:
@@ -295,6 +297,7 @@ class ChallengeCandidate:
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
+        payload.pop('result_probabilities')
         if self.market_comparison is None:
             payload.pop('market_comparison')
         if self.national_samples == (0, 0):
@@ -3024,6 +3027,11 @@ def build_fixture_candidates(
                 "expected_home_goals": expected_home_goals, "expected_away_goals": expected_away_goals,
             })
     comparisons = {}
+    result_probabilities = None
+    if candidate_profile == CANDIDATE_PROFILE_WETTFINDER and _market_projection_succeeded(model, 'RESULT_HOME'):
+        results = tuple(model['probabilities'].get(key, ()) for key in ('RESULT_HOME', 'RESULT_DRAW', 'RESULT_AWAY'))
+        if all(results):
+            result_probabilities = tuple(values[0] for values in results)
     if candidate_profile == CANDIDATE_PROFILE_WETTFINDER and model_scope in {
         MODEL_SCOPE_SAME_COMPETITION, MODEL_SCOPE_SENIOR_NATIONAL,
     }:
@@ -3152,6 +3160,7 @@ def build_fixture_candidates(
                 candidate_id=candidate_id,
                 prediction_version=basis_version,
                 market_comparison=comparisons.get(spec.key),
+                result_probabilities=result_probabilities if spec.kind == 'double_chance' else None,
                 **identity,
                 market_key=spec.key,
                 market=spec.market,

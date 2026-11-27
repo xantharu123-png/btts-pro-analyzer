@@ -53,6 +53,9 @@ jobs:
           tests/test_football_joint_calibration.py
           tests/test_football_form_comparison.py
           tests/test_football_form_comparison_capture.py
+          tests/test_football_double_chance_basis.py
+          tests/test_wettfinder_double_chance_ui.py
+          tests/test_catalog_statistical_selection.py
           tests/test_wettfinder_form_comparison.py
           tests/test_forecast_evidence.py
           tests/test_nhl_top_review.py
@@ -83,6 +86,12 @@ jobs:
           tests/test_redcard_harvester.py
           tests/test_price_floor_policy.py
           tests/test_requirements_lock.py
+          -q
+
+      - name: Fußball-Abrechnung und Ergebnisidentität
+        run: >
+          python -m pytest tests/test_forecast_evidence_settlement.py
+          -k 'disagreeing_frozen_fixture_ids or agreeing_legacy_alias or malformed_ft_scores or valid_zero_zero_ft or all_football_markets'
           -q
 
   # Audit 25.10.2026 D5: beide Ausfälle vom 25.10. waren Regressionen der Produktionspolicy

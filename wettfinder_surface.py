@@ -28,8 +28,8 @@ from challenge_engine import MARKET_BY_KEY
 from ev_signal_sources import ModelSignal
 from daily3_comparison import Comparison, football_form_comparison
 from forecast_analysis import build_forecast_analysis, forecast_highlight_reason, format_model_clock
-from forecast_compact import CompactAnalysis, build_compact_analysis, render_compact_analysis_html
-from forecast_selection import select_consumer_forecasts, select_event_leads, validated_selection_rank
+from forecast_compact import CompactAnalysis, build_compact_analysis, football_double_chance_name, render_compact_analysis_html
+from forecast_selection import double_chance_supports_lead, select_consumer_forecasts, select_event_leads, validated_selection_rank
 from tip_display_order import START_TIME, ordered_event_rows
 from forecast_price_checks import has_current_price_check
 from quote_publication import publication_quote
@@ -149,6 +149,7 @@ class WettfinderCard:
     selection_rank: Optional[tuple[float, ...]] = None
     competition: Optional[str] = None
     display_only: bool = False
+    result_probabilities: tuple[float, float, float] | None = None
 
     def __post_init__(self):
         object.__setattr__(self, 'selection_rank', validated_selection_rank(self.selection_rank))
@@ -546,6 +547,10 @@ def build_wettfinder_card(
     model_probability = float(signal.probability)
     cautious_probability = model_probability - float(signal.probability_haircut) if signal.probability_haircut is not None else None
     analysis = build_forecast_analysis(signal, now=now)
+    compact_analysis = build_compact_analysis(signal, analysis, now=now, explain_double_chance=True)
+    display_selection = (football_double_chance_name(signal.market_key, _clean_text(signal.home_team, 'Heimteam'),
+                         _clean_text(signal.away_team, 'Gastteam'), with_code=True)
+                         if _token(signal.sport) in {'fussball', 'football'} else None)
     highlight_reason = forecast_highlight_reason(signal, now=now, analysis=analysis)
     return WettfinderCard(
         key=signal.key,
@@ -598,7 +603,9 @@ def build_wettfinder_card(
         price_check_completed=has_current_price_check(signal, now=now, quote=normalized_quote),
         highlight_reason=highlight_reason,
         analysis_data_age=analysis.data_age,
-        compact_analysis=build_compact_analysis(signal, analysis, now=now),
+        compact_analysis=compact_analysis,
+        display_selection=display_selection,
+        result_probabilities=compact_analysis.result_probabilities,
         highlight_comparison=(football_form_comparison(signal, now=now)
                               if not highlight_reason else None),
         # Owner decision 23./25.10.2026: without an observed quote the forecast
@@ -635,7 +642,7 @@ def _can_feature(card: WettfinderCard) -> bool:
     if not card.price_check_completed and not floor_only_pricing():
         return False
     if _token(card.sport) in {"fussball", "football"}:
-        return card.highlight_comparison is not None
+        return card.highlight_comparison is not None and double_chance_supports_lead(card)
     return True
 
 
