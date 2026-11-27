@@ -743,20 +743,21 @@ def test_context_refresh_preserves_original_basis_catalog_clocks_for_analysis():
 
 @pytest.mark.parametrize('change', [{}, {'home_team_id': 100}, {'prediction_version': 'other-law'}])
 def test_context_only_refresh_carries_only_the_same_saved_double_chance_basis(change):
+    from challenge_engine import WettfinderDoubleChanceCandidate
     from forecast_analysis import read_football_analysis
 
     now = datetime(2030, 1, 1, 10, tzinfo=UTC)
     spec = MARKET_BY_KEY['DC_X2']
-    candidate = replace(_challenge_candidate(now + timedelta(hours=5)),
-                        market_key=spec.key, market=spec.market, selection=spec.selection,
-                        probability=.72, result_probabilities=(.28, .25, .47),
-                        context={'forecast_passed': True, 'passed': True})
+    plain = replace(_challenge_candidate(now + timedelta(hours=5)), market_key=spec.key,
+                    market=spec.market, selection=spec.selection, probability=.72,
+                    context={'forecast_passed': True, 'passed': True})
+    candidate = WettfinderDoubleChanceCandidate(**vars(plain), result_probabilities=(.28, .25, .47))
     record = _football_candidate_record(candidate, context_checked_at=now)
     refreshed = _merge_context_refresh(
         {'status': 'completed', 'candidates': [record], 'errors': [],
          'context_checks': {}, 'last_discovery_at': now.isoformat(),
          'context_accounting_available': True, 'context_fixture_statuses': {'1': 'verified'}},
-        {'candidates': [replace(candidate, result_probabilities=None, **change)],
+        {'candidates': [replace(plain, **change)],
          'context_fixture_statuses': {'1': 'verified'}, 'errors': []},
         fixture_ids=[1], checked_at=now + timedelta(minutes=30),
     )
@@ -767,13 +768,14 @@ def test_context_only_refresh_carries_only_the_same_saved_double_chance_basis(ch
 
 @pytest.mark.parametrize('corruption', [None, 'bool-id', 'duplicate', 'post-kickoff', 'extreme-offset'])
 def test_delayed_first_context_admission_keeps_only_exact_original_double_chance_distribution(corruption):
+    from challenge_engine import WettfinderDoubleChanceCandidate
     from forecast_analysis import read_football_analysis
 
     modeled = datetime(2030, 1, 1, 10, tzinfo=UTC)
     spec = MARKET_BY_KEY['DC_X2']
-    candidate = replace(_challenge_candidate(modeled + timedelta(hours=5)),
-                        market_key=spec.key, market=spec.market, selection=spec.selection,
-                        probability=.72, result_probabilities=(.28, .25, .47))
+    plain = replace(_challenge_candidate(modeled + timedelta(hours=5)), market_key=spec.key,
+                    market=spec.market, selection=spec.selection, probability=.72)
+    candidate = WettfinderDoubleChanceCandidate(**vars(plain), result_probabilities=(.28, .25, .47))
     initial = wettfinder_automation._football_state_from_snapshot(
         {'scanned_at': modeled.isoformat(), 'discovery_candidates': [candidate], 'wettfinder_candidates': []},
         attempted_at=modeled, search_date=modeled.date(),

@@ -451,7 +451,7 @@ def _wettfinder_discovery_payload(candidate, *, keep_context=False, model_clocks
     if model_clocks is not None:
         modeled, cutoff = model_clocks
         seed = {**payload, 'wettfinder_result_basis': {
-            'vector': candidate.result_probabilities, 'model_version': row['model_version'],
+            'vector': getattr(candidate, 'result_probabilities', None), 'model_version': row['model_version'],
             'modeled_at': modeled, 'input_cutoff_at': cutoff,
         }}
         packet = _discovery_result_basis(seed, row, checked_at=_parse_iso(modeled)) if row['model_version'] else {}

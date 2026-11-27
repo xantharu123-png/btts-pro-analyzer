@@ -269,8 +269,6 @@ class ChallengeCandidate:
     # Actual overall A-international samples for the national-team model.
     # Venue samples keep their literal home/away meaning and may be zero.
     national_samples: tuple[int, int] = (0, 0)
-    # Transport only to Wettfinder analysis evidence, not to the ticket ledger.
-    result_probabilities: Optional[tuple[float, float, float]] = None
 
     @property
     def base_eligible(self) -> bool:
@@ -297,7 +295,6 @@ class ChallengeCandidate:
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
-        payload.pop('result_probabilities')
         if self.market_comparison is None:
             payload.pop('market_comparison')
         if self.national_samples == (0, 0):
@@ -311,6 +308,18 @@ class ChallengeCandidate:
         payload["base_eligible"] = self.base_eligible
         payload["eligible"] = self.eligible
         payload["forecast_eligible"] = self.forecast_eligible
+        return payload
+
+
+@dataclass
+class WettfinderDoubleChanceCandidate(ChallengeCandidate):
+    """Live-in-memory display metadata; the shared ticket dataclass stays unchanged."""
+
+    result_probabilities: Optional[tuple[float, float, float]] = None
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = super().to_dict()
+        payload.pop('result_probabilities')
         return payload
 
 
@@ -3155,12 +3164,15 @@ def build_fixture_candidates(
             )
         if referee_sample:
             reasons.append(f"Schiedsrichter-Stichprobe {referee_sample}")
+        uses_result_basis = spec.kind == 'double_chance' and result_probabilities is not None
+        candidate_type = WettfinderDoubleChanceCandidate if uses_result_basis else ChallengeCandidate
+        result_basis = {'result_probabilities': result_probabilities} if uses_result_basis else {}
         candidates.append(
-            ChallengeCandidate(
+            candidate_type(
                 candidate_id=candidate_id,
                 prediction_version=basis_version,
                 market_comparison=comparisons.get(spec.key),
-                result_probabilities=result_probabilities if spec.kind == 'double_chance' else None,
+                **result_basis,
                 **identity,
                 market_key=spec.key,
                 market=spec.market,
