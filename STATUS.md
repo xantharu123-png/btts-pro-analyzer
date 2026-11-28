@@ -4,7 +4,23 @@ Knappe, fortlaufende Statusseite. Bei jeder Übergabe oder jedem Release den Abs
 „Stand“ ersetzen, nicht anhängen; Historie steht in `TODO_AKTUELL.md` und
 `PC_WECHSEL_UEBERGABE.md`. Regeln und Einstieg: `AGENTS.md`.
 
-## Stand: 27.11.2026
+## Stand: 28.11.2026
+
+Produktionsarchiv auf `2bb67ff`, lokal `codex/doppelchance-tipp-reparatur-20261127`.
+[Audit aller archivierten Wettfinder-Märkte](docs/audits/2026-11-28-alle-maerkte-36-spiele.md):
+36 abgerechnete Spiele aus 27 Ligen, 19/24 belegte Haupttipps und 94/174
+eindeutige Katalogauswahlen getroffen. 20/24 Haupttipps waren Teamtore
+Über/Unter; alle 24 waren die jeweils wahrscheinlichste archivierte Auswahl.
+Auswärtssieger und Gäste-Tore auf weiteren regulären Spieltagen getrennt
+geprüft: [Archivtest 08.–27.11.](docs/audits/2026-11-28-auswaerts-kalibrierung.md)
+mit 45 statt 52,7 erwarteten Auswärtssiegen (123 Spiele) und 62 vollständigen
+Gäste-Torverteilungen. Kein nachgewiesener Grund für eine Modelländerung.
+„Bester je Wettart“ bereits produktiv; je 108 Tests unter `floor` und `gate` grün.
+[Doppelchance-Einzelprüfung](docs/audits/2026-11-28-doppelchance-36-spiele.md):
+11/12 Treffer in den belegten Märkten. Nur Archiv gelesen; kein Extra-Scan,
+kein Backup und keine neue Veröffentlichung.
+
+### Voriger Stand: 27.11.2026
 
 [Doppelchance-Audit](docs/audits/2026-11-27-doppelchance-tippentstehung.md):
 Die Wettfinder-Karte nennt Heim/Gast und Remis im Klartext. Den vollständigen
